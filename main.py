@@ -16,14 +16,24 @@
 # 
 
 from __future__ import annotations
+import sys
+from pathlib import Path
+
+# Ensure the project root (folder containing rtd_sim/) is importable
+THIS_FILE = Path(__file__).resolve()
+PROJECT_ROOT = THIS_FILE.parent
+if str(PROJECT_ROOT) not in map(str, map(Path, sys.path)):
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import argparse
 import logging
-from pathlib import Path
+from pathlib import Path as _Path
 
 from rtd_sim.simulation.event_bus import EventBus
 from rtd_sim.simulation.controller import SimulationController, SimulationConfig
 from rtd_sim.simulation.data_adapter import DataAdapter
 from rtd_sim.models.cognitive_abm import CognitiveAgent
+
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger('RTD_SIM')
