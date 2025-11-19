@@ -16,36 +16,38 @@
 # 
 
 from __future__ import annotations
+
+# ---- Path guard to ensure ./ is importable when running as a script ----
 import sys
 from pathlib import Path
 
-# Ensure the project root (folder containing rtd_sim/) is importable
 THIS_FILE = Path(__file__).resolve()
 PROJECT_ROOT = THIS_FILE.parent
-if str(PROJECT_ROOT) not in map(str, map(Path, sys.path)):
+if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+# -----------------------------------------------------------------------
 
 import argparse
 import logging
 from pathlib import Path as _Path
 
-from rtd_sim.simulation.event_bus import EventBus
-from rtd_sim.simulation.controller import SimulationController, SimulationConfig
-from rtd_sim.simulation.data_adapter import DataAdapter
-from rtd_sim.models.cognitive_abm import CognitiveAgent
-
+# Local imports aligned to your structure (no rtd_sim.*)
+from simulation.event_bus import EventBus
+from simulation.controller import SimulationController, SimulationConfig
+from simulation.data_adapter import DataAdapter
+from agent.cognitive_abm import CognitiveAgent
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger('RTD_SIM')
 
-def run_headless(steps: int, save_csv: Path | None, enable_mqtt: bool, enable_ws: bool) -> None:
+def run_headless(steps: int, save_csv: _Path | None, enable_mqtt: bool, enable_ws: bool) -> None:
     bus = EventBus()
     model = CognitiveAgent(seed=42)
     data = DataAdapter()
     config = SimulationConfig(steps=steps)
     ctl = SimulationController(bus, model, data, config)
 
-    # optional Phase 1 stubs for realtime
+    # Phase 1 stubs (no-op)
     if enable_mqtt:
         data.realtime.enable_mqtt({'broker_url': 'mqtt://localhost', 'topic_state': 'rtd_sim/state'})
     if enable_ws:
@@ -57,8 +59,8 @@ def run_headless(steps: int, save_csv: Path | None, enable_mqtt: bool, enable_ws
         data.save_log_csv(save_csv)
 
 def run_ui(steps: int, enable_mqtt: bool, enable_ws: bool) -> None:
-    import tkinter as tk  # stdlib GUI
-    from rtd_sim.ui.main_ui import MainUI
+    import tkinter as tk
+    from ui.main_ui import MainUI
 
     bus = EventBus()
     model = CognitiveAgent(seed=7)
@@ -78,7 +80,7 @@ def run_ui(steps: int, enable_mqtt: bool, enable_ws: bool) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='RTD_SIM — Phase 1 core skeleton (stdlib only)')
     parser.add_argument('--steps', type=int, default=200, help='Number of simulation steps')
-    parser.add_argument('--csv', type=Path, default=None, help='Save headless run to CSV path')
+    parser.add_argument('--csv', type=_Path, default=None, help='Save headless run to CSV path')
     parser.add_argument('--no-ui', action='store_true', help='Run headless (no UI)')
     parser.add_argument('--enable-mqtt', action='store_true', help='Enable MQTT stub (Phase 1 no-op)')
     parser.add_argument('--enable-ws', action='store_true', help='Enable WebSocket stub (Phase 1 no-op)')

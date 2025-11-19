@@ -1,4 +1,3 @@
-"""Simple event bus for decoupled communication (standard library only)."""
 from __future__ import annotations
 from typing import Callable, Dict, List, Any
 import logging
@@ -28,4 +27,3 @@ class EventBus:
             try:
                 h(**payload)
             except Exception:
-                logger.exception("Error in handler for event '%s'", event_name)

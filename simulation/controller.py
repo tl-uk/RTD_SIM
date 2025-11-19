@@ -18,7 +18,7 @@ class SimulationController:
     def __init__(self, bus: EventBus, model, data_adapter: Optional[object] = None, config: Optional[SimulationConfig] = None):
         self.bus = bus
         self.model = model
-        self.data_adapter = data_adapter  # may include CSV + realtime bridge
+        self.data_adapter = data_adapter
         self.config = config or SimulationConfig()
         self._running = False
         self._current_step = 0
@@ -49,25 +49,21 @@ class SimulationController:
         self.bus.publish('sim_reset')
 
     def step(self) -> None:
-        """Advance the simulation by one step and publish updates."""
         if not self._running:
             return
         self._current_step += 1
         state = self.model.step()
 
-        # publish granular events
         self.bus.publish('tick', step=self._current_step)
         self.bus.publish('state_updated', step=self._current_step, state=state)
         self.bus.publish('log_entry', message=f"Step {self._current_step}: {state}")
 
-        # forward to realtime bridge (no-op in Phase 1 unless enabled)
         if hasattr(self.data_adapter, 'realtime') and self.data_adapter.realtime:
             try:
                 self.data_adapter.realtime.broadcast_state(step=self._current_step, state=state)
             except Exception:
                 logger.exception("Realtime broadcast failed at step %d", self._current_step)
 
-        # auto-stop at configured limit
         if self._current_step >= self.config.steps:
             self.stop()
 
