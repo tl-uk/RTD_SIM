@@ -1,0 +1,8 @@
+# Phase 1 uses stdlib only (no external deps)
+# Keep this empty or add future deps in Phase 3/4:
+# streamlit
+# plotly
+# folium
+# osmnx
+# paho-mqtt
+# websockets

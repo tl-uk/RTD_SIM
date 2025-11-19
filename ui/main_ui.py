@@ -1,3 +1,7 @@
+# ui/main_ui.py
+# Tkinter visualization for the RTD_SIM cognitive ABM simulation.
+#  
+
 from __future__ import annotations
 import logging
 import tkinter as tk
@@ -20,7 +24,7 @@ class MainUI(ttk.Frame):
         self._wire_events()
 
     def _build(self) -> None:
-        self.master.title('RTD_SIM — Cognitive ABM Demo')
+        self.master.title('RTD_SIM — Cognitive ABM Demo (Phase 1)')
         self.pack(fill='both', expand=True)
 
         toolbar = ttk.Frame(self)
