@@ -28,19 +28,25 @@ from rtd_sim.models.cognitive_abm import CognitiveAgent
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger('RTD_SIM')
 
-def run_headless(steps: int, save_csv: Path | None) -> None:
+def run_headless(steps: int, save_csv: Path | None, enable_mqtt: bool, enable_ws: bool) -> None:
     bus = EventBus()
     model = CognitiveAgent(seed=42)
     data = DataAdapter()
     config = SimulationConfig(steps=steps)
     ctl = SimulationController(bus, model, data, config)
 
+    # optional Phase 1 stubs for realtime
+    if enable_mqtt:
+        data.realtime.enable_mqtt({'broker_url': 'mqtt://localhost', 'topic_state': 'rtd_sim/state'})
+    if enable_ws:
+        data.realtime.enable_ws({'host': '127.0.0.1', 'port': 8765, 'path': '/rtd'})
+
     bus.subscribe('state_updated', lambda step, state: data.append_log(step, state))
     ctl.run_steps(steps)
     if save_csv:
         data.save_log_csv(save_csv)
 
-def run_ui(steps: int) -> None:
+def run_ui(steps: int, enable_mqtt: bool, enable_ws: bool) -> None:
     import tkinter as tk  # stdlib GUI
     from rtd_sim.ui.main_ui import MainUI
 
@@ -50,18 +56,25 @@ def run_ui(steps: int) -> None:
     config = SimulationConfig(steps=steps)
     ctl = SimulationController(bus, model, data, config)
 
+    if enable_mqtt:
+        data.realtime.enable_mqtt({'broker_url': 'mqtt://localhost', 'topic_state': 'rtd_sim/state'})
+    if enable_ws:
+        data.realtime.enable_ws({'host': '127.0.0.1', 'port': 8765, 'path': '/rtd'})
+
     root = tk.Tk()
     app = MainUI(root, controller=ctl, bus=bus, data_adapter=data, tick_ms=config.dt_ms)
     app.mainloop()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='RTD_SIM — Ready-to-run skeleton for cognitive ABM (stdlib imports only)')
+    parser = argparse.ArgumentParser(description='RTD_SIM — Phase 1 core skeleton (stdlib only)')
     parser.add_argument('--steps', type=int, default=200, help='Number of simulation steps')
     parser.add_argument('--csv', type=Path, default=None, help='Save headless run to CSV path')
     parser.add_argument('--no-ui', action='store_true', help='Run headless (no UI)')
+    parser.add_argument('--enable-mqtt', action='store_true', help='Enable MQTT stub (Phase 1 no-op)')
+    parser.add_argument('--enable-ws', action='store_true', help='Enable WebSocket stub (Phase 1 no-op)')
     args = parser.parse_args()
 
     if args.no_ui:
-        run_headless(steps=args.steps, save_csv=args.csv)
+        run_headless(steps=args.steps, save_csv=args.csv, enable_mqtt=args.enable_mqtt, enable_ws=args.enable_ws)
     else:
-        run_ui(steps=args.steps)
+        run_ui(steps=args.steps, enable_mqtt=args.enable_mqtt, enable_ws=args.enable_ws)
