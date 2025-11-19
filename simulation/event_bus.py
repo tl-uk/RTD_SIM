@@ -1,3 +1,4 @@
+# simulation/event_bus.py
 from __future__ import annotations
 from typing import Callable, Dict, List, Any
 import logging
@@ -22,8 +23,13 @@ class EventBus:
 
     def publish(self, event_name: str, **payload: Any) -> None:
         handlers = self._subscribers.get(event_name, [])
-        logger.debug("Publishing event '%s' to %d handlers with payload %s", event_name, len(handlers), payload)
+        logger.debug(
+            "Publishing event '%s' to %d handlers with payload %s",
+            event_name, len(handlers), payload
+        )
         for h in list(handlers):
             try:
                 h(**payload)
             except Exception:
+                # Properly indented body under except
+                logger.exception("Error in handler for event '%s'", event_name)
