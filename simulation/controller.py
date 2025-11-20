@@ -1,3 +1,4 @@
+# simulation/controller.py
 from __future__ import annotations
 import logging
 from dataclasses import dataclass
@@ -75,7 +76,11 @@ class SimulationController:
                     logger.exception("Realtime broadcast failed at step %d", self._current_step)
         else:
             modal_counts: Dict[str, int] = {}
-            total_emissions = 0.0
+            total_emissions_g = 0.0
+            total_distance_km = 0.0
+            arrivals = 0
+            sum_travel_time_arrived = 0.0
+
             for a in self.agents:
                 try:
                     state = a.step(env=self.environment)
@@ -83,19 +88,28 @@ class SimulationController:
                     state = a.step()
                 mode = state.get('mode', 'unknown')
                 modal_counts[mode] = modal_counts.get(mode, 0) + 1
+
+                # Publish per-agent update & log
                 self.bus.publish('state_updated', step=self._current_step, state=state)
                 self.bus.publish('log_entry', message=f"Step {self._current_step} [{state.get('agent_id','?')}]: {state}")
-                if self.environment is not None:
-                    try:
-                        route = getattr(a.state, 'route', None)
-                        if route:
-                            total_emissions += self.environment.estimate_emissions(route, mode)
-                    except Exception:
-                        pass
+
+                # Aggregate travel stats from agent state
+                try:
+                    total_emissions_g += float(state.get('emissions_g', 0.0))
+                    total_distance_km += float(state.get('distance_km', 0.0))
+                    if bool(state.get('arrived', False)):
+                        arrivals += 1
+                        sum_travel_time_arrived += float(state.get('travel_time_min', 0.0))
+                except Exception:
+                    pass
+
             metrics = {
                 'step': self._current_step,
                 'modal_share': modal_counts,
-                'emissions_total_g': round(total_emissions, 2),
+                'emissions_total_g': round(total_emissions_g, 2),
+                'distance_total_km': round(total_distance_km, 3),
+                'arrivals_count': arrivals,
+                'mean_travel_time_min_arrived': round(sum_travel_time_arrived / arrivals, 2) if arrivals > 0 else None,
             }
             self.bus.publish('metrics_updated', metrics=metrics)
             if hasattr(self.data_adapter, 'realtime') and self.data_adapter.realtime:
