@@ -1,4 +1,8 @@
 # simulation/event_bus.py
+# 
+# Simple event bus for pub/sub communication within the simulation.
+#
+
 from __future__ import annotations
 from typing import Callable, Dict, List, Any
 import logging
