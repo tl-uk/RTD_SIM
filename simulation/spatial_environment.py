@@ -1,14 +1,16 @@
 from __future__ import annotations
 from typing import Any, List, Tuple, Optional
 import math
+import random
 
 class SpatialEnvironment:
     """Spatial environment with optional OSM routing and movement helpers.
 
     - If OSMnx + NetworkX are available and origin/dest are lon/lat, compute shortest path.
-    - Otherwise, fallback to straight-line routes.
+    - Else fallback to straight-line routes.
     - Provides per-mode speeds and a step duration to support simple movement per tick.
     """
+
     def __init__(self, step_minutes: float = 1.0) -> None:
         self.graph_loaded = False
         self.osmnx_available = False
@@ -24,20 +26,28 @@ class SpatialEnvironment:
         }
 
     # ------------------------- OSM integration -------------------------
-    def load_osm_graph(self, place: Optional[str] = None, bbox: Optional[Tuple[float, float, float, float]] = None, network_type: str = 'all') -> None:
+    def load_osm_graph(
+        self,
+        place: Optional[str] = None,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+        network_type: str = 'all'
+    ) -> None:
         """Attempt to load an OSM graph via osmnx if available.
+
         Args:
-            place: e.g., 'Edinburgh, UK' (uses graph_from_place)
-            bbox: (north, south, east, west) (uses graph_from_bbox)
-            network_type: 'walk' | 'bike' | 'drive' | 'all' etc.
+            place: e.g., "Edinburgh, UK"
+            bbox: (north, south, east, west)
+            network_type: 'walk' | 'bike' | 'drive' | 'all', etc.
         """
         try:
             import osmnx as ox  # type: ignore
             import networkx as nx  # type: ignore
         except Exception:
+            # Keep fallback
             self.graph_loaded = False
             self.osmnx_available = False
             return
+
         try:
             if place:
                 self.G = ox.graph_from_place(place, network_type=network_type)
@@ -46,8 +56,10 @@ class SpatialEnvironment:
                 self.G = ox.graph_from_bbox(north, south, east, west, network_type=network_type)
             else:
                 self.G = None
+
             if self.G is not None:
-                self.G = ox.add_edge_lengths(self.G)  # add 'length' attributes
+                # Edge lengths for shortest path
+                self.G = ox.add_edge_lengths(self.G)
                 self.graph_loaded = True
                 self.osmnx_available = True
             else:
@@ -58,16 +70,18 @@ class SpatialEnvironment:
             self.graph_loaded = False
             self.osmnx_available = False
 
-    def compute_route(self, agent_id: str, origin: Tuple[float, float], dest: Tuple[float, float], mode: str) -> List[Tuple[float, float]]:
+    def compute_route(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str
+    ) -> List[Tuple[float, float]]:
         """Compute a route polyline.
         - If OSM graph loaded and origin/dest look like (lon, lat), compute shortest path by edge length.
         - Else return straight line: [origin, dest].
         """
-        def _is_lonlat(p: Tuple[float, float]) -> bool:
-            x, y = p
-            return (-180.0 <= x <= 180.0) and (-90.0 <= y <= 90.0)
-
-        if self.graph_loaded and self.osmnx_available and _is_lonlat(origin) and _is_lonlat(dest):
+        if self.graph_loaded and self.osmnx_available and self._is_lonlat(origin) and self._is_lonlat(dest):
             try:
                 import osmnx as ox  # type: ignore
                 import networkx as nx  # type: ignore
@@ -80,20 +94,66 @@ class SpatialEnvironment:
                     coords.append((float(data.get('x')), float(data.get('y'))))
                 return coords
             except Exception:
-                pass  # fallback below
+                pass
+        # Fallback
         return [origin, dest]
+
+    # ------------------------- Random node seeding -------------------------
+    def get_random_node_coords(self) -> Optional[Tuple[float, float]]:
+        """Return a random node's (lon, lat) if an OSM graph is loaded; else None."""
+        if not (self.graph_loaded and self.osmnx_available and self.G is not None):
+            return None
+        # nodes(data=True) yields (node_id, data_dict)
+        nodes = list(self.G.nodes(data=True))
+        if not nodes:
+            return None
+        _, d = random.choice(nodes)
+        x = float(d.get('x'))
+        y = float(d.get('y'))
+        return (x, y)
+
+    def get_random_origin_dest(self) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        """Return a random (origin, destination) pair (lon, lat) from the OSM graph; else None."""
+        o = self.get_random_node_coords()
+        d = self.get_random_node_coords()
+        if o is None or d is None:
+            return None
+        return o, d
 
     # ------------------------- Metrics & speeds -------------------------
     def get_speed_km_min(self, mode: str) -> float:
         return self.speeds_km_min.get(mode, 0.1)
+
+    @staticmethod
+    def _is_lonlat(p: Tuple[float, float]) -> bool:
+        x, y = p
+        return (-180.0 <= x <= 180.0) and (-90.0 <= y <= 90.0)
+
+    @staticmethod
+    def _haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        """Great-circle distance between two (lon, lat) in kilometers."""
+        lon1, lat1 = a
+        lon2, lat2 = b
+        R = 6371.0
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlmb = math.radians(lon2 - lon1)
+        h = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlmb / 2) ** 2
+        return 2 * R * math.asin(math.sqrt(h))
+
+    def _segment_distance_km(self, a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        if self._is_lonlat(a) and self._is_lonlat(b):
+            return self._haversine_km(a, b)
+        # Assume Cartesian kilometers if not lon/lat
+        return math.hypot(b[0] - a[0], b[1] - a[1])
 
     def _distance(self, route: List[Tuple[float, float]]) -> float:
         if not route or len(route) < 2:
             return 0.0
         dist = 0.0
         for i in range(len(route) - 1):
-            (x1, y1), (x2, y2) = route[i], route[i+1]
-            dist += math.hypot(x2 - x1, y2 - y1)
+            dist += self._segment_distance_km(route[i], route[i + 1])
         return dist
 
     def estimate_travel_time(self, route: List[Tuple[float, float]], mode: str) -> float:
@@ -127,11 +187,7 @@ class SpatialEnvironment:
         mode: str
     ) -> Tuple[int, float, Tuple[float, float]]:
         """Advance along the route by speed*step_minutes for current tick.
-        Args:
-            route: polyline [(x,y), ...]
-            current_index: segment start index i (moving i -> i+1)
-            offset_km: distance already covered on segment i
-            mode: transport mode for speed
+
         Returns:
             (new_index, new_offset_km, new_location)
         """
@@ -143,11 +199,10 @@ class SpatialEnvironment:
         off = max(0.0, offset_km)
 
         while remaining > 1e-9 and i < len(route) - 1:
-            (x1, y1), (x2, y2) = route[i], route[i+1]
-            seg_len = math.hypot(x2 - x1, y2 - y1)
+            (x1, y1), (x2, y2) = route[i], route[i + 1]
+            seg_len = self._segment_distance_km((x1, y1), (x2, y2))
             left_on_seg = max(0.0, seg_len - off)
             if remaining < left_on_seg:
-                # Move within the segment
                 frac = (off + remaining) / seg_len if seg_len > 0 else 1.0
                 nx = x1 + frac * (x2 - x1)
                 ny = y1 + frac * (y2 - y1)
@@ -155,11 +210,9 @@ class SpatialEnvironment:
                 remaining = 0.0
                 return i, off, (nx, ny)
             else:
-                # Consume the rest of this segment and proceed to next
                 remaining -= left_on_seg
                 i += 1
                 off = 0.0
 
-        # End of route
         last = route[-1]
         return len(route) - 2, 0.0, last
