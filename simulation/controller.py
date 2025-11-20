@@ -19,7 +19,7 @@ class SimulationController:
                  config: Optional[SimulationConfig] = None, agents: Optional[List[object]] = None,
                  environment: Optional[object] = None):
         self.bus = bus
-        self.model = model
+        self.model = model  # single-agent backward compatibility
         self.agents = agents or []
         self.environment = environment
         self.data_adapter = data_adapter
@@ -87,11 +87,16 @@ class SimulationController:
                 self.bus.publish('log_entry', message=f"Step {self._current_step} [{state.get('agent_id','?')}]: {state}")
                 if self.environment is not None:
                     try:
-                        route = [state.get('location'), state.get('destination')] if state.get('location') and state.get('destination') else []
-                        total_emissions += self.environment.estimate_emissions(route, mode)
+                        route = getattr(a.state, 'route', None)
+                        if route:
+                            total_emissions += self.environment.estimate_emissions(route, mode)
                     except Exception:
                         pass
-            metrics = {'step': self._current_step, 'modal_share': modal_counts, 'emissions_total_g': round(total_emissions, 2)}
+            metrics = {
+                'step': self._current_step,
+                'modal_share': modal_counts,
+                'emissions_total_g': round(total_emissions, 2),
+            }
             self.bus.publish('metrics_updated', metrics=metrics)
             if hasattr(self.data_adapter, 'realtime') and self.data_adapter.realtime:
                 try:

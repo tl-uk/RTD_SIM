@@ -63,12 +63,19 @@ def _make_agents(n: int) -> list:
         agents.append(a)
     return agents
 
-def run_headless(steps: int, save_csv: Path | None, enable_mqtt: bool, enable_ws: bool, agents_n: int) -> None:
+def run_headless(steps: int, save_csv: Path | None, enable_mqtt: bool, enable_ws: bool, agents_n: int, place: str | None, bbox: list | None) -> None:
     bus = EventBus()
     data = DataAdapter()
     config = SimulationConfig(steps=steps)
-    env = SpatialEnvironment()
-    env.load_osm_graph(None)
+    env = SpatialEnvironment(step_minutes=1.0)
+
+    # Optional OSM routing
+    if place or bbox:
+        try:
+            env.load_osm_graph(place=place, bbox=tuple(bbox) if bbox else None, network_type='all')
+            logger.info('OSM graph loaded (place=%s bbox=%s)', place, bbox)
+        except Exception:
+            logger.exception('OSM graph load failed; using fallback straight-line routes')
 
     agents = _make_agents(agents_n)
     ctl = SimulationController(bus, model=None, data_adapter=data, config=config, agents=agents, environment=env)
@@ -85,15 +92,22 @@ def run_headless(steps: int, save_csv: Path | None, enable_mqtt: bool, enable_ws
     if save_csv:
         data.save_log_csv(save_csv)
 
-def run_ui(steps: int, enable_mqtt: bool, enable_ws: bool, agents_n: int) -> None:
+def run_ui(steps: int, enable_mqtt: bool, enable_ws: bool, agents_n: int, place: str | None, bbox: list | None) -> None:
     import tkinter as tk
     from ui.main_ui import MainUI
 
     bus = EventBus()
     data = DataAdapter()
     config = SimulationConfig(steps=steps)
-    env = SpatialEnvironment()
-    env.load_osm_graph(None)
+    env = SpatialEnvironment(step_minutes=1.0)
+
+    # Optional OSM routing
+    if place or bbox:
+        try:
+            env.load_osm_graph(place=place, bbox=tuple(bbox) if bbox else None, network_type='all')
+            logger.info('OSM graph loaded (place=%s bbox=%s)', place, bbox)
+        except Exception:
+            logger.exception('OSM graph load failed; using fallback straight-line routes')
 
     agents = _make_agents(agents_n)
     ctl = SimulationController(bus, model=None, data_adapter=data, config=config, agents=agents, environment=env)
@@ -108,16 +122,18 @@ def run_ui(steps: int, enable_mqtt: bool, enable_ws: bool, agents_n: int) -> Non
     app.mainloop()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='RTD_SIM — Phase 2 stubs (multi-agent, planner, spatial env)')
+    parser = argparse.ArgumentParser(description='RTD_SIM — Phase 2 movement + optional OSM routing')
     parser.add_argument('--steps', type=int, default=200, help='Number of simulation steps')
     parser.add_argument('--csv', type=Path, default=None, help='Save headless run to CSV path')
     parser.add_argument('--no-ui', action='store_true', help='Run headless (no UI)')
     parser.add_argument('--enable-mqtt', action='store_true', help='Enable MQTT stub (no-op)')
     parser.add_argument('--enable-ws', action='store_true', help='Enable WebSocket stub (no-op)')
     parser.add_argument('--agents', type=int, default=5, help='Number of agents for Phase 2 test')
+    parser.add_argument('--place', type=str, default=None, help='OSM place name (e.g., "Edinburgh, UK")')
+    parser.add_argument('--bbox', nargs=4, type=float, default=None, help='OSM bbox: north south east west')
     args = parser.parse_args()
 
     if args.no_ui:
-        run_headless(steps=args.steps, save_csv=args.csv, enable_mqtt=args.enable_mqtt, enable_ws=args.enable_ws, agents_n=args.agents)
+        run_headless(steps=args.steps, save_csv=args.csv, enable_mqtt=args.enable_mqtt, enable_ws=args.enable_ws, agents_n=args.agents, place=args.place, bbox=args.bbox)
     else:
-        run_ui(steps=args.steps, enable_mqtt=args.enable_mqtt, enable_ws=args.enable_ws, agents_n=args.agents)
+        run_ui(steps=args.steps, enable_mqtt=args.enable_mqtt, enable_ws=args.enable_ws, agents_n=args.agents, place=args.place, bbox=args.bbox)

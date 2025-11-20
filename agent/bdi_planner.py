@@ -32,11 +32,11 @@ class BDIPlanner:
     def cost(self, action: Action, env, state, desires: Dict[str, float]) -> float:
         route = action.route
         mode = action.mode
-        t = env.estimate_travel_time(route, mode)
-        money = env.estimate_monetary_cost(route, mode)
-        comfort = env.estimate_comfort(route, mode)
-        risk = env.estimate_risk(route, mode)
-        emissions = env.estimate_emissions(route, mode)
+        t = env.estimate_travel_time(route, mode)      # minutes (km / km/min)
+        money = env.estimate_monetary_cost(route, mode)  # currency (placeholder per trip)
+        comfort = env.estimate_comfort(route, mode)    # [0,1], higher is better
+        risk = env.estimate_risk(route, mode)          # [0,1], higher is worse
+        emissions = env.estimate_emissions(route, mode)  # grams CO2e (placeholder)
 
         w_time = desires.get('time', 0.5)
         w_cost = desires.get('cost', 0.3)
@@ -44,7 +44,7 @@ class BDIPlanner:
         w_risk = desires.get('risk', 0.2)
         w_eco = desires.get('eco', 0.6)
 
-        comfort_penalty = max(0.0, 1.0 - comfort)  # comfort in [0,1]
+        comfort_penalty = max(0.0, 1.0 - comfort)
 
         return (
             w_time * t +

@@ -17,9 +17,11 @@ class AgentState:
     mode: str = 'walk'
     route: List[Tuple[float, float]] = None
     agent_id: str = 'agent'
+    route_index: int = 0            # segment index along route
+    route_offset_km: float = 0.0    # distance progressed on current segment
 
 class CognitiveAgent:
-    """Cognitive agent with toy dynamics + Phase 2 planning hooks."""
+    """Cognitive agent with toy dynamics + Phase 2 planning + simple movement."""
     def __init__(self, seed: int | None = None, agent_id: str | None = None,
                  desires: Dict[str, float] | None = None, planner=None,
                  origin: Tuple[float, float] | None = None, dest: Tuple[float, float] | None = None):
@@ -31,18 +33,44 @@ class CognitiveAgent:
         self.desires = desires or {'eco': 0.6, 'time': 0.5, 'cost': 0.3, 'comfort': 0.3, 'risk': 0.3}
         self.planner = planner
         self.t = 0
-        self._replan_period = 10
+        self._replan_period = 10  # steps between replans
 
     def reset(self) -> None:
         aid = self.state.agent_id
         self.state = AgentState(agent_id=aid, location=self.state.location, destination=self.state.destination)
         self.state.mode = 'walk'
         self.state.route = []
+        self.state.route_index = 0
+        self.state.route_offset_km = 0.0
         self.t = 0
+
+    def _maybe_plan(self, env) -> None:
+        s = self.state
+        if env is None or self.planner is None:
+            return
+        need_plan = (self.t % self._replan_period == 1) or (not s.route)
+        if need_plan:
+            scores = self.planner.evaluate_actions(env, s, self.desires, s.location, s.destination)
+            best = self.planner.choose_action(scores)
+            s.mode = best.mode
+            s.route = best.route
+            s.route_index = 0
+            s.route_offset_km = 0.0
+
+    def _move(self, env) -> None:
+        s = self.state
+        if env is None or not s.route or len(s.route) < 2:
+            return
+        i, off, loc = env.advance_along_route(s.route, s.route_index, s.route_offset_km, s.mode)
+        s.route_index, s.route_offset_km, s.location = i, off, loc
+        # Arrived?
+        if s.location == s.route[-1]:
+            s.destination = s.route[-1]
 
     def step(self, env=None) -> Dict[str, Any]:
         s = self.state
         self.t += 1
+        # Cognitive updates (same as Phase 1)
         stimulus = self.rng.uniform(-0.1, 0.1)
         s.attention = _clip(s.attention + 0.05 * stimulus - 0.02 * s.stress)
         s.working_memory = _clip(0.6 * s.working_memory + 0.4 * s.attention + self.rng.uniform(-0.05, 0.05))
@@ -50,15 +78,9 @@ class CognitiveAgent:
         s.performance = _clip(perf_raw)
         s.stress = _clip(0.8 * s.stress + 0.2 * (0.6 - s.performance))
 
-        if env is not None and self.planner is not None and (self.t % self._replan_period == 1 or not s.route):
-            scores = self.planner.evaluate_actions(env, s, self.desires, s.location, s.destination)
-            best = self.planner.choose_action(scores)
-            s.mode = best.mode
-            s.route = best.route
-
-        # Movement: teleport to destination in stub
-        if s.route and s.destination is not None:
-            s.location = s.destination
+        # Planning & movement
+        self._maybe_plan(env)
+        self._move(env)
 
         return {
             't': self.t,
