@@ -1,3 +1,4 @@
+
 # simulation/controller.py
 from __future__ import annotations
 import logging
@@ -64,9 +65,11 @@ class SimulationController:
             return
         self._current_step += 1
 
+        # Publish tick in multi-agent mode too (optional)
+        self.bus.publish('tick', step=self._current_step)
+
         if self.model and not self.agents:
             state = self.model.step()
-            self.bus.publish('tick', step=self._current_step)
             self.bus.publish('state_updated', step=self._current_step, state=state)
             self.bus.publish('log_entry', message=f"Step {self._current_step}: {state}")
             if hasattr(self.data_adapter, 'realtime') and self.data_adapter.realtime:
@@ -86,14 +89,21 @@ class SimulationController:
                     state = a.step(env=self.environment)
                 except TypeError:
                     state = a.step()
+
+                # Include the route for visualization (stringified later by pandas)
+                try:
+                    rt = getattr(a.state, 'route', None)
+                    if rt:
+                        state['route'] = rt
+                except Exception:
+                    pass
+
                 mode = state.get('mode', 'unknown')
                 modal_counts[mode] = modal_counts.get(mode, 0) + 1
 
-                # Publish per-agent update & log
                 self.bus.publish('state_updated', step=self._current_step, state=state)
                 self.bus.publish('log_entry', message=f"Step {self._current_step} [{state.get('agent_id','?')}]: {state}")
 
-                # Aggregate travel stats from agent state
                 try:
                     total_emissions_g += float(state.get('emissions_g', 0.0))
                     total_distance_km += float(state.get('distance_km', 0.0))
