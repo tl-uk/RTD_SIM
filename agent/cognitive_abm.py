@@ -124,10 +124,25 @@ class CognitiveAgent:
             s.travel_time_min += dwell_added  # dwell contributes to total trip time
 
         # arrival check
-        if s.location == s.route[-1]:
-            s.arrived = True
-            if s.arrived_at_step is None:
-                s.arrived_at_step = self.t
+        # if s.location == s.route[-1]:
+        #     s.arrived = True
+        #     if s.arrived_at_step is None:
+        #         s.arrived_at_step = self.t
+
+        # arrival check with epsilon (≈10m)
+        if s.route and s.location is not None:
+            last = s.route[-1]
+            try:
+                remaining_km = env._segment_distance_km(s.location, last)  # type: ignore
+            except Exception:
+                from math import hypot
+                remaining_km = hypot(s.location[0] - last[0], s.location[1] - last[1])
+            if remaining_km <= 0.01:
+                s.location = last
+                s.arrived = True
+                if s.arrived_at_step is None:
+                    s.arrived_at_step = self.t
+
 
     def step(self, env=None) -> Dict[str, Any]:
         s = self.state
