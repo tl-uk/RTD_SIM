@@ -128,8 +128,8 @@ class CognitiveAgent:
         #     s.arrived = True
         #     if s.arrived_at_step is None:
         #         s.arrived_at_step = self.t
-
-        # arrival check with epsilon (≈10m)
+        
+        # arrival check with epsilon (≈10 m)
         if s.route and s.location is not None:
             last = s.route[-1]
             try:
@@ -138,10 +138,10 @@ class CognitiveAgent:
                 from math import hypot
                 remaining_km = hypot(s.location[0] - last[0], s.location[1] - last[1])
             if remaining_km <= 0.01:
-                s.location = last
                 s.arrived = True
                 if s.arrived_at_step is None:
                     s.arrived_at_step = self.t
+
 
 
     def step(self, env=None) -> Dict[str, Any]:

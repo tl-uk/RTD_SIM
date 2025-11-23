@@ -1,5 +1,4 @@
 
-# simulation/controller.py
 from __future__ import annotations
 import logging
 from dataclasses import dataclass
@@ -65,7 +64,7 @@ class SimulationController:
             return
         self._current_step += 1
 
-        # Publish tick in multi-agent mode too (optional)
+        # Publish tick for multi-agent mode too
         self.bus.publish('tick', step=self._current_step)
 
         if self.model and not self.agents:
