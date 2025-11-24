@@ -1,6 +1,6 @@
 
+# ui/streamlit_app.py
 from __future__ import annotations
-
 import sys
 from pathlib import Path
 THIS_FILE = Path(__file__).resolve()
@@ -11,7 +11,6 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 import random
 import traceback
-
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.controller import SimulationController, SimulationConfig
 from simulation.event_bus import EventBus
@@ -49,14 +48,13 @@ with st.sidebar.form("scenario_form", clear_on_submit=False):
 @st.cache_data(show_spinner=False)
 def _cached_load_osm(place: str | None, bbox: tuple[float, float, float, float] | None, step_minutes_cache: float):
     env = SpatialEnvironment(step_minutes=step_minutes_cache)
+    loaded = False
     if place or bbox:
         try:
             env.load_osm_graph(place=place or None, bbox=bbox, network_type='all')
             loaded = True
         except Exception:
             loaded = False
-    else:
-        loaded = False
     return env, loaded
 
 def build_env(place: str, bbox_str: str) -> SpatialEnvironment:
@@ -76,6 +74,13 @@ def build_env(place: str, bbox_str: str) -> SpatialEnvironment:
             st.warning("OSM load failed or package not installed. Using straight-line fallback.")
     return env
 
+# PATCH: Edinburgh fallback bounds (lon, lat)
+_EDI_LON_MIN, _EDI_LON_MAX = -3.30, -3.15
+_EDI_LAT_MIN, _EDI_LAT_MAX = 55.90, 55.97
+
+def _rand_lonlat_edinburgh(rng: random.Random) -> tuple[float, float]:
+    return (rng.uniform(_EDI_LON_MIN, _EDI_LON_MAX), rng.uniform(_EDI_LAT_MIN, _EDI_LAT_MAX))  # (lon, lat)
+
 def build_agents(env: SpatialEnvironment, n: int, use_osm_seed: bool) -> list:
     planner = BDIPlanner()
     rng = random.Random(123)
@@ -91,16 +96,20 @@ def build_agents(env: SpatialEnvironment, n: int, use_osm_seed: bool) -> list:
         if use_osm_seed and env.graph_loaded and env.osmnx_available and env.G is not None:
             pair = env.get_random_origin_dest()
             if pair:
-                origin, dest = pair
+                origin, dest = pair  # (lon, lat)
             else:
-                origin = (rng.uniform(0, 5), rng.uniform(0, 5))
-                dest = (rng.uniform(0, 5), rng.uniform(0, 5))
+                # PATCH: Edinburgh fallback if OSM fails to generate pair
+                origin = _rand_lonlat_edinburgh(rng)
+                dest = _rand_lonlat_edinburgh(rng)
         else:
-            origin = (rng.uniform(0, 5), rng.uniform(0, 5))
-            dest = (rng.uniform(0, 5), rng.uniform(0, 5))
-        agents.append(CognitiveAgent(seed=42+i, agent_id=f'agent_{i+1}',
-                                     desires=desires, planner=planner,
-                                     origin=origin, dest=dest))
+            # PATCH: Edinburgh fallback instead of (0..5, 0..5)
+            origin = _rand_lonlat_edinburgh(rng)
+            dest = _rand_lonlat_edinburgh(rng)
+        agents.append(CognitiveAgent(
+            seed=42+i, agent_id=f'agent_{i+1}',
+            desires=desires, planner=planner,
+            origin=origin, dest=dest
+        ))
     return agents
 
 def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed: bool):
@@ -112,8 +121,10 @@ def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed:
     data = DataAdapter()
     cfg = SimulationConfig(steps=int(steps))
     ctl = SimulationController(bus, model=None, data_adapter=data, config=cfg, agents=agents, environment=env)
+
     bus.subscribe('state_updated', lambda step, state: data.append_log(step, state))
     bus.subscribe('metrics_updated', lambda metrics: data.append_log(metrics.get('step', 0), metrics))
+
     ctl.run_steps(cfg.steps)
 
     # Build DF
@@ -182,6 +193,21 @@ if not st.session_state.last_run_ok or df is None:
         st.code(st.session_state.last_error)
     st.stop()
 
+# --- Sidebar Diagnostics (PATCH) ---
+st.sidebar.subheader("Coordinate Diagnostics")
+if agent_rows is not None and not agent_rows.empty:
+    try:
+        lats = [loc[1] for loc in agent_rows['location'] if isinstance(loc, (list, tuple))]  # ABM stores (lon, lat)
+        lons = [loc[0] for loc in agent_rows['location'] if isinstance(loc, (list, tuple))]
+        st.sidebar.write({
+            "min_lat": round(min(lats), 6),
+            "max_lat": round(max(lats), 6),
+            "min_lon": round(min(lons), 6),
+            "max_lon": round(max(lons), 6),
+        })
+    except Exception:
+        st.sidebar.warning("Diagnostics failed to compute min/max lat/lon.")
+
 # Debug counts (verify agent numbers)
 st.subheader("Debug Counts")
 configured_agents = st.session_state.last_params.get("agents_n")
@@ -220,13 +246,14 @@ if last_metrics is not None:
                 ms_pairs = [{'mode': k, 'count': v} for k, v in parsed.items()]
         except Exception:
             pass
+
 if ms_pairs:
     ms_df = pd.DataFrame(ms_pairs)
     st.bar_chart(ms_df.set_index('mode')['count'])
 else:
     st.info("No modal share data available.")
 
-# Distributions
+# Distributions (Arrived Agents)
 st.subheader("Distributions (Arrived Agents)")
 import plotly.express as px
 if arrivals_df is not None and not arrivals_df.empty:
@@ -250,13 +277,15 @@ if agent_rows is not None and not agent_rows.empty:
     for _, row in agent_rows.iterrows():
         loc = row.get('location')
         if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lon, lat = loc
+            lon, lat = loc  # ABM state is (lon, lat)
             latlon_list.append((lat, lon))
+
 center_lat, center_lon = 55.95, -3.19
 if latlon_list:
     arr = np.array(latlon_list)
     center_lat = float(arr[:, 0].mean())
     center_lon = float(arr[:, 1].mean())
+
 m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
 # Plot final markers
@@ -264,8 +293,10 @@ if agent_rows is not None and not agent_rows.empty:
     for _, row in agent_rows.iterrows():
         loc = row.get('location')
         if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lon, lat = loc
-            popup = f"{row.get('agent_id')} ({row.get('mode')}) | TT={row.get('travel_time_min')} min | DW={row.get('dwell_time_min')} min"
+            lon, lat = loc  # (lon, lat) -> flip to [lat, lon]
+            popup = f"{row.get('agent_id')} ({row.get('mode')}) " \
+                    f"TT={row.get('travel_time_min')} min " \
+                    f"DW={row.get('dwell_time_min')} min"
             folium.Marker([lat, lon], popup=popup).add_to(m)
 
 # Draw all routes (optional)
@@ -275,6 +306,7 @@ if show_routes and 'route' in df.columns and agent_rows is not None and not agen
     for _, r in last_rows.iterrows():
         r_raw = r.get('route')
         if isinstance(r_raw, list) and r_raw and len(r_raw) >= 2:
+            # Flip each (lon, lat) to (lat, lon) for rendering
             poly = [(pt[1], pt[0]) for pt in r_raw if isinstance(pt, (list, tuple)) and len(pt) == 2]
             folium.PolyLine(poly, color='gray', weight=2, opacity=0.6).add_to(m)
 
@@ -291,13 +323,13 @@ if selected_agent:
             m.zoom_start = 14
             folium.CircleMarker([lat, lon], radius=7, color='red', fill=True, fill_opacity=0.8,
                                 popup=f"{selected_agent} (final)").add_to(m)
-    agent_df = df[df['agent_id'] == selected_agent].sort_values('t')
-    if 'route' in agent_df.columns and not agent_df.empty:
-        last_route_raw = agent_df.iloc[-1]['route']
-        if isinstance(last_route_raw, list) and last_route_raw and len(last_route_raw) >= 2:
-            polyline = [(pt[1], pt[0]) for pt in last_route_raw if isinstance(pt, (list, tuple)) and len(pt) == 2]
-            folium.PolyLine(polyline, color='blue', weight=3, opacity=0.9,
-                            popup=f"Route of {selected_agent}").add_to(m)
+        agent_df = df[df['agent_id'] == selected_agent].sort_values('t')
+        if 'route' in agent_df.columns and not agent_df.empty:
+            last_route_raw = agent_df.iloc[-1]['route']
+            if isinstance(last_route_raw, list) and last_route_raw and len(last_route_raw) >= 2:
+                polyline = [(pt[1], pt[0]) for pt in last_route_raw if isinstance(pt, (list, tuple)) and len(pt) == 2]
+                folium.PolyLine(polyline, color='blue', weight=3, opacity=0.9,
+                                popup=f"Route of {selected_agent}").add_to(m)
 
 st_folium(m, width=1000, height=520, key="final_positions_map")
 

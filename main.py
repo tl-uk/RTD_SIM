@@ -52,10 +52,18 @@ from agent.bdi_planner import BDIPlanner
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger('RTD_SIM')
 
+
 def _make_agents(n: int, env: SpatialEnvironment, use_osm_seed: bool) -> list:
     rng = random.Random(123)
     planner = BDIPlanner()
     agents = []
+
+    # PATCH: Edinburgh fallback bounds (lon, lat)
+    EDI_LON_MIN, EDI_LON_MAX = -3.30, -3.15
+    EDI_LAT_MIN, EDI_LAT_MAX = 55.90, 55.97
+
+    def _rand_lonlat_edinburgh() -> tuple[float, float]:
+        return (rng.uniform(EDI_LON_MIN, EDI_LON_MAX), rng.uniform(EDI_LAT_MIN, EDI_LAT_MAX))  # (lon, lat)
 
     for i in range(n):
         # Heterogeneous desires
@@ -66,27 +74,27 @@ def _make_agents(n: int, env: SpatialEnvironment, use_osm_seed: bool) -> list:
         else:
             desires = {'eco': 0.5, 'time': 0.5, 'cost': 0.5, 'comfort': 0.4, 'risk': 0.3}
 
-        origin: tuple[float, float]
-        dest: tuple[float, float]
-
+        # Seeding
         if use_osm_seed and env.graph_loaded and env.osmnx_available and env.G is not None:
             pair = env.get_random_origin_dest()
             if pair is not None:
-                origin, dest = pair
+                origin, dest = pair  # (lon, lat)
             else:
-                origin = (rng.uniform(0, 5), rng.uniform(0, 5))
-                dest = (rng.uniform(0, 5), rng.uniform(0, 5))
+                # PATCH: Edinburgh fallback if OSM seeding did not yield a pair
+                origin = _rand_lonlat_edinburgh()
+                dest = _rand_lonlat_edinburgh()
         else:
-            origin = (rng.uniform(0, 5), rng.uniform(0, 5))
-            dest = (rng.uniform(0, 5), rng.uniform(0, 5))
+            # PATCH: Edinburgh fallback instead of (0..5, 0..5)
+            origin = _rand_lonlat_edinburgh()
+            dest = _rand_lonlat_edinburgh()
 
         a = CognitiveAgent(
             seed=42 + i,
             agent_id=f'agent_{i+1}',
             desires=desires,
             planner=planner,
-            origin=origin,
-            dest=dest
+            origin=origin,   # (lon, lat)
+            dest=dest        # (lon, lat)
         )
         agents.append(a)
 

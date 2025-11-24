@@ -1,3 +1,4 @@
+
 # agent/cognitive_abm.py
 from __future__ import annotations
 from dataclasses import dataclass
@@ -7,16 +8,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# NOTE: Environment (OSMnx) uses (lon, lat) for all spatial tuples.
+#       ABM state keeps (lon, lat) as well. The UI flips to (lat, lon)
+#       only at render-time for Folium/Leaflet.
+
 @dataclass
 class AgentState:
     attention: float = 0.5
     working_memory: float = 0.5
     stress: float = 0.3
     performance: float = 0.5
+
+    # Spatial tuples are (lon, lat) throughout ABM to match environment.
     location: Tuple[float, float] | None = None
     destination: Tuple[float, float] | None = None
     mode: str = 'walk'
-    route: List[Tuple[float, float]] = None
+    route: List[Tuple[float, float]] = None  # list of (lon, lat) vertices
+
     agent_id: str = 'agent'
     route_index: int = 0            # segment index along route
     route_offset_km: float = 0.0    # distance progressed on current segment
@@ -28,17 +36,29 @@ class AgentState:
     travel_time_min: float = 0.0
     distance_km: float = 0.0
     emissions_g: float = 0.0
-    dwell_time_min: float = 0.0     # NEW: cumulative dwell time (stops, lights, boarding)
+    dwell_time_min: float = 0.0  # cumulative dwell time (stops, lights, boarding)
 
 class CognitiveAgent:
-    """Toy cognitive agent + planner + movement + arrival + dwell tracking."""
-    def __init__(self, seed: int | None = None, agent_id: str | None = None,
-                 desires: Dict[str, float] | None = None, planner=None,
-                 origin: Tuple[float, float] | None = None, dest: Tuple[float, float] | None = None):
+    """Toy cognitive agent + planner + movement + arrival + dwell tracking.
+
+    Contract:
+      - ABM keeps all spatial tuples as (lon, lat) to match SpatialEnvironment.
+      - UI (Streamlit/Folium) flips to (lat, lon) ONLY at render time.
+    """
+    def __init__(
+        self,
+        seed: int | None = None,
+        agent_id: str | None = None,
+        desires: Dict[str, float] | None = None,
+        planner=None,
+        origin: Tuple[float, float] | None = None,
+        dest: Tuple[float, float] | None = None
+    ):
         self.rng = random.Random(seed)
         self.state = AgentState(agent_id=agent_id or f'agent_{abs(self.rng.randint(1, 9999))}')
-        self.state.location = origin if origin is not None else (0.0, 0.0)
-        self.state.destination = dest if dest is not None else (1.0, 1.0)
+        # Defaults remain small only for unit tests; production runs seed from OSM or Edinburgh bbox.
+        self.state.location = origin if origin is not None else (0.0, 0.0)  # (lon, lat)
+        self.state.destination = dest if dest is not None else (1.0, 1.0)   # (lon, lat)
         self.state.route = []
         self.desires = desires or {'eco': 0.6, 'time': 0.5, 'cost': 0.3, 'comfort': 0.3, 'risk': 0.3}
         self.planner = planner
@@ -62,24 +82,29 @@ class CognitiveAgent:
             return
         need_plan = (self.t % self._replan_period == 1) or (not s.route)
         if need_plan:
+            # Environment expects (lon, lat) origin/dest; ABM stores (lon, lat) -> pass through.
             scores = self.planner.evaluate_actions(env, s, self.desires, s.location, s.destination)
             best = self.planner.choose_action(scores)
             s.mode = best.mode
-            s.route = best.route
+
+            # PATCH: Ensure route is a list of (lon, lat) tuples (no conversion here)
+            try:
+                s.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
+            except Exception:
+                logger.exception("Route vertices not parseable; falling back to straight-line")
+                s.route = [s.location, s.destination] if s.location and s.destination else []
+
             s.route_index = 0
             s.route_offset_km = 0.0
             if s.departed_at_step is None:
                 s.departed_at_step = self.t
 
     def _dwell_per_segment(self, mode: str) -> float:
-        """
-        Dwell time (minutes) applied whenever the agent finishes a segment and advances
-        to the next. Tunable placeholders for lightweight realism.
-        """
+        """Dwell time (minutes) applied whenever the agent finishes a segment."""
         dwell_lookup = {
-            'walk': 0.00,  # waiting at crossings ignored in stub
-            'bike': 0.05,  # small pauses at junctions
-            'bus': 0.50,   # stops/boarding
+            'walk': 0.00,
+            'bike': 0.05,
+            'bus': 0.50,
             'car': 0.00,
             'ev': 0.00,
             # future: 'tram': 0.40, 'rail': 0.60
@@ -94,6 +119,7 @@ class CognitiveAgent:
         prev_loc = s.location
         prev_idx = s.route_index
 
+        # Environment returns (lon, lat)
         i, off, new_loc = env.advance_along_route(s.route, s.route_index, s.route_offset_km, s.mode)
         s.route_index, s.route_offset_km, s.location = i, off, new_loc
 
@@ -103,7 +129,8 @@ class CognitiveAgent:
                 d_km = env._segment_distance_km(prev_loc, s.location)  # type: ignore
             except Exception:
                 from math import hypot
-                d_km = hypot(s.location[0]-prev_loc[0], s.location[1]-prev_loc[1])
+                # Cartesian fallback in case of non lon/lat testing values
+                d_km = hypot(s.location[0] - prev_loc[0], s.location[1] - prev_loc[1])
             s.distance_km += d_km
 
             # per-tick time (movement component)
@@ -123,13 +150,7 @@ class CognitiveAgent:
             s.dwell_time_min += dwell_added
             s.travel_time_min += dwell_added  # dwell contributes to total trip time
 
-        # arrival check
-        # if s.location == s.route[-1]:
-        #     s.arrived = True
-        #     if s.arrived_at_step is None:
-        #         s.arrived_at_step = self.t
-        
-        # arrival check with epsilon (≈10 m)
+        # arrival check with epsilon (~10 m)
         if s.route and s.location is not None:
             last = s.route[-1]
             try:
@@ -141,8 +162,6 @@ class CognitiveAgent:
                 s.arrived = True
                 if s.arrived_at_step is None:
                     s.arrived_at_step = self.t
-
-
 
     def step(self, env=None) -> Dict[str, Any]:
         s = self.state
@@ -168,15 +187,15 @@ class CognitiveAgent:
             'stress': round(s.stress, 4),
             'performance': round(s.performance, 4),
             'mode': s.mode,
-            'location': s.location,
-            'destination': s.destination,
+            'location': s.location,       # (lon, lat)
+            'destination': s.destination, # (lon, lat)
             'arrived': s.arrived,
             'departed_at_step': s.departed_at_step,
             'arrived_at_step': s.arrived_at_step,
             'travel_time_min': round(s.travel_time_min, 3),
             'distance_km': round(s.distance_km, 4),
             'emissions_g': round(s.emissions_g, 3),
-            'dwell_time_min': round(s.dwell_time_min, 3),  # NEW
+            'dwell_time_min': round(s.dwell_time_min, 3),
         }
 
 def _clip(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
