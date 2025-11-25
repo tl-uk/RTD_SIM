@@ -43,7 +43,7 @@ _init_session()
 
 # Page config
 st.set_page_config(page_title="RTD_SIM Dashboard", layout="wide")
-st.title("RTD_SIM — Phase 4 Bundle 1 Dashboard")
+st.title("RTD_SIM — Phase 4 Dashboard")
 
 # Sidebar form
 with st.sidebar.form("scenario_form", clear_on_submit=False):
@@ -132,7 +132,12 @@ def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed:
     bus.subscribe("state_updated", lambda step, state: data.append_log(step, state))
     bus.subscribe("metrics_updated", lambda metrics: data.append_log(metrics.get("step", 0), metrics))
 
-    ctl.run_steps(cfg.steps)
+    # Chunked simulation loop with progress bar
+    progress = st.progress(0)
+    for i in range(cfg.steps):
+        ctl.step()
+        if i % 50 == 0 or i == cfg.steps - 1:
+            progress.progress(int((i + 1) / cfg.steps * 100))
 
     df = pd.DataFrame(data.get_log())
     if "location" in df.columns:
