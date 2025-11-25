@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 import random
 import traceback
+import ast
 import pandas as pd
 import plotly.express as px
 import folium
@@ -119,6 +120,28 @@ def build_agents(env: SpatialEnvironment, n: int, use_osm_seed: bool) -> list:
         agents.append(CognitiveAgent(seed=42 + i, agent_id=f"agent_{i+1}", desires=desires, planner=planner, origin=origin, dest=dest))
     return agents
 
+def _safe_parse_tuple(v):
+    if isinstance(v, (list, tuple)):
+        return tuple(v)
+    if isinstance(v, str):
+        try:
+            parsed = ast.literal_eval(v)
+            return tuple(parsed) if isinstance(parsed, (list, tuple)) else None
+        except Exception:
+            return None
+    return None
+
+def _safe_parse_list(v):
+    if isinstance(v, list):
+        return v
+    if isinstance(v, str):
+        try:
+            parsed = ast.literal_eval(v)
+            return parsed if isinstance(parsed, list) else None
+        except Exception:
+            return None
+    return None
+
 def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed: bool):
     env = build_env(place, bbox_str)
     st.session_state.env = env
@@ -129,24 +152,37 @@ def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed:
     cfg = SimulationConfig(steps=int(steps))
     ctl = SimulationController(bus, model=None, data_adapter=data, config=cfg, agents=agents, environment=env)
 
+    # Subscribe logs
     bus.subscribe("state_updated", lambda step, state: data.append_log(step, state))
     bus.subscribe("metrics_updated", lambda metrics: data.append_log(metrics.get("step", 0), metrics))
 
-    # Chunked simulation loop with progress bar
+    # Start and run chunked loop with progress bar
+    ctl.start()  # <-- critical
     progress = st.progress(0)
     for i in range(cfg.steps):
         ctl.step()
         if i % 50 == 0 or i == cfg.steps - 1:
             progress.progress(int((i + 1) / cfg.steps * 100))
+    ctl.stop()
 
+    # Build DF safely
     df = pd.DataFrame(data.get_log())
     if "location" in df.columns:
-        df["location"] = df["location"].apply(lambda v: tuple(eval(v)) if isinstance(v, str) else v)
+        df["location"] = df["location"].apply(_safe_parse_tuple)
     if "route" in df.columns:
-        df["route"] = df["route"].apply(lambda v: eval(v) if isinstance(v, str) else v)
+        df["route"] = df["route"].apply(_safe_parse_list)
 
-    agent_rows = df[df["agent_id"].notna()].sort_values("t").groupby("agent_id").tail(1)
-    arrivals_df = agent_rows[agent_rows["arrived"] == True]
+    # Robust column checks
+    if "agent_id" in df.columns:
+        agent_rows = df[df["agent_id"].notna()].sort_values("t").groupby("agent_id").tail(1)
+    else:
+        agent_rows = pd.DataFrame()
+
+    if not agent_rows.empty and "arrived" in agent_rows.columns:
+        arrivals_df = agent_rows[agent_rows["arrived"] == True]
+    else:
+        arrivals_df = pd.DataFrame()
+
     metrics_rows = df[df["modal_share"].notna()] if "modal_share" in df.columns else pd.DataFrame()
     last_metrics = metrics_rows.iloc[-1] if not metrics_rows.empty else None
 
@@ -154,10 +190,14 @@ def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed:
     st.session_state.last_agent_rows = agent_rows
     st.session_state.last_arrivals_df = arrivals_df
     st.session_state.last_metrics_row = last_metrics
-    st.session_state.last_params = {"steps": steps, "agents_n": agents_n, "place": place, "bbox": bbox_str, "osm_seed": osm_seed, "step_minutes": step_minutes}
+    st.session_state.last_params = {
+        "steps": steps, "agents_n": agents_n, "place": place,
+        "bbox": bbox_str, "osm_seed": osm_seed, "step_minutes": step_minutes
+    }
     st.session_state.last_run_ok = True
     st.session_state.last_error = ""
 
+# Trigger run
 if run_btn:
     try:
         run_snapshot(steps, agents_n, place, bbox_str, osm_seed)
@@ -166,12 +206,14 @@ if run_btn:
         st.session_state.last_error = "".join(traceback.format_exception_only(type(e), e))
         st.error(f"Simulation failed: {st.session_state.last_error}")
 
+# Retrieve results
 df = st.session_state.last_df
 agent_rows = st.session_state.last_agent_rows
 arrivals_df = st.session_state.last_arrivals_df
 last_metrics = st.session_state.last_metrics_row
 env = st.session_state.get("env", None)
 
+# Guard: stop if no results
 if not st.session_state.last_run_ok or df is None:
     st.info("No successful simulation yet. Configure parameters and click 'Run Simulation'.")
     if st.session_state.last_error:
@@ -180,36 +222,49 @@ if not st.session_state.last_run_ok or df is None:
 
 # Sidebar diagnostics
 st.sidebar.subheader("Coordinate Diagnostics")
-if agent_rows is not None and not agent_rows.empty:
-    lats = [loc[1] for loc in agent_rows["location"] if isinstance(loc, (list, tuple))]
-    lons = [loc[0] for loc in agent_rows["location"] if isinstance(loc, (list, tuple))]
-    st.sidebar.write({"min_lat": round(min(lats), 6), "max_lat": round(max(lats), 6), "min_lon": round(min(lons), 6), "max_lon": round(max(lons), 6)})
+if agent_rows is not None and not agent_rows.empty and "location" in agent_rows.columns:
+    lats, lons = [], []
+    for _, row in agent_rows.iterrows():
+        loc = row.get("location")
+        if isinstance(loc, (list, tuple)) and len(loc) == 2:
+            lons.append(loc[0]); lats.append(loc[1])
+    if lats and lons:
+        st.sidebar.write({
+            "min_lat": round(min(lats), 6),
+            "max_lat": round(max(lats), 6),
+            "min_lon": round(min(lons), 6),
+            "max_lon": round(max(lons), 6),
+        })
 
 # KPIs
 st.subheader("Key Performance Indicators")
 col1, col2, col3, col4, col5 = st.columns(5)
-mean_tt = round(arrivals_df["travel_time_min"].mean(), 2) if not arrivals_df.empty else None
-total_emissions = round(float(agent_rows["emissions_g"].sum()), 2)
-total_distance = round(float(agent_rows["distance_km"].sum()), 3)
-mean_dwell = round(arrivals_df["dwell_time_min"].mean(), 2) if not arrivals_df.empty else None
-col1.metric("Arrivals", len(arrivals_df))
-col2.metric("Mean Travel Time", mean_tt if mean_tt else "-")
+arrivals_count = len(arrivals_df) if arrivals_df is not None else 0
+mean_tt = round(arrivals_df["travel_time_min"].mean(), 2) if arrivals_count > 0 else None
+total_emissions = round(float(agent_rows["emissions_g"].sum()), 2) if not agent_rows.empty and "emissions_g" in agent_rows.columns else 0.0
+total_distance = round(float(agent_rows["distance_km"].sum()), 3) if not agent_rows.empty and "distance_km" in agent_rows.columns else 0.0
+mean_dwell = round(arrivals_df["dwell_time_min"].mean(), 2) if arrivals_count > 0 and "dwell_time_min" in arrivals_df.columns else None
+col1.metric("Arrivals", arrivals_count)
+col2.metric("Mean Travel Time", mean_tt if mean_tt is not None else "-")
 col3.metric("Total Emissions (g)", total_emissions)
 col4.metric("Total Distance (km)", total_distance)
-col5.metric("Mean Dwell", mean_dwell if mean_dwell else "-")
+col5.metric("Mean Dwell", mean_dwell if mean_dwell is not None else "-")
 
 # Modal share
 st.subheader("Modal Share")
 if last_metrics is not None:
     ms = last_metrics.get("modal_share", {})
-    ms_df = pd.DataFrame([{"mode": k, "count": v} for k, v in ms.items()])
-    st.bar_chart(ms_df.set_index("mode")["count"], width=1000)
+    if isinstance(ms, dict) and ms:
+        ms_df = pd.DataFrame([{"mode": k, "count": v} for k, v in ms.items()])
+        st.bar_chart(ms_df.set_index("mode")["count"], width=1000)
+    else:
+        st.info("No modal share data available.")
 else:
     st.info("No modal share data available.")
 
 # Distributions
 st.subheader("Distributions (Arrived Agents)")
-if not arrivals_df.empty:
+if arrivals_count > 0:
     c1, c2 = st.columns(2)
     fig_tt = px.histogram(arrivals_df, x="travel_time_min", nbins=20, title="Travel Time (min)")
     fig_dw = px.histogram(arrivals_df, x="dwell_time_min", nbins=20, title="Dwell Time (min)")
@@ -221,28 +276,44 @@ else:
 # Map
 st.subheader("Final Agent Positions + Routes")
 center_lat, center_lon = 55.95, -3.19
-latlon_list = [(loc[1], loc[0]) for loc in agent_rows["location"] if isinstance(loc, (list, tuple))]
+latlon_list = []
+if not agent_rows.empty and "location" in agent_rows.columns:
+    for _, row in agent_rows.iterrows():
+        loc = row.get("location")
+        if isinstance(loc, (list, tuple)) and len(loc) == 2:
+            latlon_list.append((loc[1], loc[0]))
 if latlon_list:
     arr = np.array(latlon_list)
     center_lat, center_lon = float(arr[:, 0].mean()), float(arr[:, 1].mean())
 
 m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
-for _, row in agent_rows.iterrows():
-    loc = row.get("location")
-    if isinstance(loc, (list, tuple)) and len(loc) == 2:
-        lon, lat = loc
-        popup = f"{row['agent_id']} ({row['mode']}) TT={row['travel_time_min']} DW={row['dwell_time_min']}"
-        folium.Marker([lat, lon], popup=popup).add_to(m)
 
+# Markers
+if not agent_rows.empty and "location" in agent_rows.columns:
+    for _, row in agent_rows.iterrows():
+        loc = row.get("location")
+        if isinstance(loc, (list, tuple)) and len(loc) == 2:
+            lon, lat = loc
+            tt = row.get("travel_time_min", None)
+            dw = row.get("dwell_time_min", None)
+            popup = f"{row.get('agent_id', '')} ({row.get('mode','')}) TT={tt} DW={dw}"
+            folium.Marker([lat, lon], popup=popup).add_to(m)
+
+# Routes
 show_routes = st.checkbox("Draw all agent routes", value=False)
-if show_routes and env is not None:
+if show_routes and env is not None and "route" in agent_rows.columns:
     for _, r in agent_rows.iterrows():
         r_raw = r.get("route")
         if isinstance(r_raw, list) and len(r_raw) >= 2:
-            if smooth_routes:
-                r_raw = env.densify_route(r_raw, step_meters=20.0)
-            poly = [(pt[1], pt[0]) for pt in r_raw]
-            folium.PolyLine(poly, color="gray", weight=2, opacity=0.6).add_to(m)
+            poly_pts = r_raw
+            if smooth_routes and hasattr(env, "densify_route"):
+                try:
+                    poly_pts = env.densify_route(r_raw, step_meters=20.0)
+                except Exception:
+                    pass
+            poly = [(pt[1], pt[0]) for pt in poly_pts if isinstance(pt, (list, tuple)) and len(pt) == 2]
+            if poly:
+                folium.PolyLine(poly, color="gray", weight=2, opacity=0.6).add_to(m)
 
 st_folium(m, width=1000, height=520)
 
