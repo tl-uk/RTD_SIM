@@ -119,6 +119,7 @@ def run_headless(
     if place or bbox:
         try:
             env.load_osm_graph(place=place, bbox=tuple(bbox) if bbox else None, network_type='all')
+            env.enable_densify = args.enable_densify
             logger.info('OSM graph loaded (place=%s bbox=%s)', place, bbox)
         except Exception:
             logger.exception('OSM graph load failed; using fallback straight-line routes')
@@ -159,6 +160,7 @@ def run_ui(
     if place or bbox:
         try:
             env.load_osm_graph(place=place, bbox=tuple(bbox) if bbox else None, network_type='all')
+            env.enable_densify = args.enable_densify
             logger.info('OSM graph loaded (place=%s bbox=%s)', place, bbox)
         except Exception:
             logger.exception('OSM graph load failed; using fallback straight-line routes')
@@ -182,6 +184,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-ui', action='store_true', help='Run headless (no UI)')
     parser.add_argument('--enable-mqtt', action='store_true', help='Enable MQTT stub (no-op)')
     parser.add_argument('--enable-ws', action='store_true', help='Enable WebSocket stub (no-op)')
+    parser.add_argument('--enable-densify', action='store_true', help='Densify OSM routes for smoother polylines')
     parser.add_argument('--agents', type=int, default=5, help='Number of agents for Phase 2 test')
     parser.add_argument('--place', type=str, default=None, help='OSM place name (e.g., "Edinburgh, UK")')
     parser.add_argument('--bbox', nargs=4, type=float, default=None, help='OSM bbox: north south east west')

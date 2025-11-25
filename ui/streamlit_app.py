@@ -42,6 +42,7 @@ with st.sidebar.form("scenario_form", clear_on_submit=False):
     place = st.text_input("OSM place (e.g., 'Edinburgh, UK')", value="Edinburgh, UK")
     bbox_str = st.text_input("OSM bbox (north,south,east,west)", value="55.97,55.90,-3.15,-3.30")
     osm_seed = st.checkbox("Seed agents on OSM nodes", value=True)
+    smooth_routes = st.checkbox('Smooth routes (densify)', value=True)
     step_minutes = st.number_input("Movement step (minutes per tick)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
     run_btn = st.form_submit_button("Run Simulation")
 
@@ -309,6 +310,17 @@ if show_routes and 'route' in df.columns and agent_rows is not None and not agen
             # Flip each (lon, lat) to (lat, lon) for rendering
             poly = [(pt[1], pt[0]) for pt in r_raw if isinstance(pt, (list, tuple)) and len(pt) == 2]
             folium.PolyLine(poly, color='gray', weight=2, opacity=0.6).add_to(m)
+
+
+# When drawing routes:
+if show_routes and 'route' in df.columns:
+    r_raw = r.get('route')
+    if isinstance(r_raw, list) and len(r_raw) >= 2:
+        if smooth_routes:
+            r_raw = env.densify_route(r_raw, step_meters=20.0)
+        poly = [(pt[1], pt[0]) for pt in r_raw]
+        folium.PolyLine(poly, color='gray', weight=2, opacity=0.6).add_to(m)
+
 
 # Highlight selected agent & route
 agent_ids = list(agent_rows['agent_id'].unique()) if agent_rows is not None and not agent_rows.empty else []
