@@ -156,13 +156,9 @@ def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed:
     bus.subscribe("state_updated", lambda step, state: data.append_log(step, state))
     bus.subscribe("metrics_updated", lambda metrics: data.append_log(metrics.get("step", 0), metrics))
 
-    # Start and run chunked loop with progress bar
-    ctl.start()  # <-- critical
-    progress = st.progress(0)
-    for i in range(cfg.steps):
-        ctl.step()
-        if i % 50 == 0 or i == cfg.steps - 1:
-            progress.progress(int((i + 1) / cfg.steps * 100))
+    # Phase 3 pattern: run_steps (blocking but stable)
+    ctl.start()
+    ctl.run_steps(cfg.steps)
     ctl.stop()
 
     # Build DF safely
