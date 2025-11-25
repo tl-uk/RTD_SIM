@@ -27,13 +27,14 @@ def _init_session():
         "last_params": None,
         "last_run_ok": False,
         "last_error": "",
+        "env": None,  # PATCH: store environment for densify
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 _init_session()
 
 st.set_page_config(page_title="RTD_SIM Dashboard", layout="wide")
-st.title("RTD_SIM — Phase 3 Dashboard (Snapshot Mode)")
+st.title("RTD_SIM — Phase 4 Bundle 1 Dashboard")
 
 with st.sidebar.form("scenario_form", clear_on_submit=False):
     st.markdown("### Scenario Setup")
@@ -42,7 +43,7 @@ with st.sidebar.form("scenario_form", clear_on_submit=False):
     place = st.text_input("OSM place (e.g., 'Edinburgh, UK')", value="Edinburgh, UK")
     bbox_str = st.text_input("OSM bbox (north,south,east,west)", value="55.97,55.90,-3.15,-3.30")
     osm_seed = st.checkbox("Seed agents on OSM nodes", value=True)
-    smooth_routes = st.checkbox('Smooth routes (densify)', value=True)
+    smooth_routes = st.checkbox('Smooth routes (densify)', value=True)  # PATCH
     step_minutes = st.number_input("Movement step (minutes per tick)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
     run_btn = st.form_submit_button("Run Simulation")
 
@@ -75,7 +76,7 @@ def build_env(place: str, bbox_str: str) -> SpatialEnvironment:
             st.warning("OSM load failed or package not installed. Using straight-line fallback.")
     return env
 
-# PATCH: Edinburgh fallback bounds (lon, lat)
+# Edinburgh fallback bounds (lon, lat)
 _EDI_LON_MIN, _EDI_LON_MAX = -3.30, -3.15
 _EDI_LAT_MIN, _EDI_LAT_MAX = 55.90, 55.97
 
@@ -99,11 +100,9 @@ def build_agents(env: SpatialEnvironment, n: int, use_osm_seed: bool) -> list:
             if pair:
                 origin, dest = pair  # (lon, lat)
             else:
-                # PATCH: Edinburgh fallback if OSM fails to generate pair
                 origin = _rand_lonlat_edinburgh(rng)
                 dest = _rand_lonlat_edinburgh(rng)
         else:
-            # PATCH: Edinburgh fallback instead of (0..5, 0..5)
             origin = _rand_lonlat_edinburgh(rng)
             dest = _rand_lonlat_edinburgh(rng)
         agents.append(CognitiveAgent(
@@ -115,9 +114,9 @@ def build_agents(env: SpatialEnvironment, n: int, use_osm_seed: bool) -> list:
 
 def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed: bool):
     env = build_env(place, bbox_str)
+    st.session_state.env = env  # PATCH: persist env for densify
     agents = build_agents(env, int(agents_n), osm_seed)
 
-    # Sim
     bus = EventBus()
     data = DataAdapter()
     cfg = SimulationConfig(steps=int(steps))
@@ -128,11 +127,9 @@ def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed:
 
     ctl.run_steps(cfg.steps)
 
-    # Build DF
     import pandas as pd, ast
     df = pd.DataFrame(data.get_log())
 
-    # Robust parsing: location (tuple), route (list of tuples)
     if 'location' in df.columns:
         def _parse_loc(v):
             if isinstance(v, (list, tuple)):
@@ -187,6 +184,7 @@ df = st.session_state.last_df
 agent_rows = st.session_state.last_agent_rows
 arrivals_df = st.session_state.last_arrivals_df
 last_metrics = st.session_state.last_metrics_row
+env = st.session_state.get("env", None)  # PATCH: retrieve env for densify
 
 if not st.session_state.last_run_ok or df is None:
     st.info("No successful simulation yet. Configure parameters and click 'Run Simulation'.")
@@ -194,11 +192,11 @@ if not st.session_state.last_run_ok or df is None:
         st.code(st.session_state.last_error)
     st.stop()
 
-# --- Sidebar Diagnostics (PATCH) ---
+# Sidebar Diagnostics
 st.sidebar.subheader("Coordinate Diagnostics")
 if agent_rows is not None and not agent_rows.empty:
     try:
-        lats = [loc[1] for loc in agent_rows['location'] if isinstance(loc, (list, tuple))]  # ABM stores (lon, lat)
+        lats = [loc[1] for loc in agent_rows['location'] if isinstance(loc, (list, tuple))]
         lons = [loc[0] for loc in agent_rows['location'] if isinstance(loc, (list, tuple))]
         st.sidebar.write({
             "min_lat": round(min(lats), 6),
@@ -209,7 +207,7 @@ if agent_rows is not None and not agent_rows.empty:
     except Exception:
         st.sidebar.warning("Diagnostics failed to compute min/max lat/lon.")
 
-# Debug counts (verify agent numbers)
+# Debug counts
 st.subheader("Debug Counts")
 configured_agents = st.session_state.last_params.get("agents_n")
 unique_agents = len(agent_rows['agent_id'].unique()) if agent_rows is not None and not agent_rows.empty else 0
@@ -250,35 +248,34 @@ if last_metrics is not None:
 
 if ms_pairs:
     ms_df = pd.DataFrame(ms_pairs)
-    st.bar_chart(ms_df.set_index('mode')['count'])
+    st.bar_chart(ms_df.set_index('mode')['count'], width=1000)  # PATCH: width instead of use_container_width
 else:
     st.info("No modal share data available.")
 
-# Distributions (Arrived Agents)
+# Distributions
 st.subheader("Distributions (Arrived Agents)")
 import plotly.express as px
 if arrivals_df is not None and not arrivals_df.empty:
     c1, c2 = st.columns(2)
     fig_tt = px.histogram(arrivals_df, x='travel_time_min', nbins=20, title='Travel Time (min)')
     fig_dw = px.histogram(arrivals_df, x='dwell_time_min', nbins=20, title='Dwell Time (min)')
-    c1.plotly_chart(fig_tt, use_container_width=True, key="tt_hist")
-    c2.plotly_chart(fig_dw, use_container_width=True, key="dw_hist")
+    c1.plotly_chart(fig_tt, width=1000, height=320, key="tt_hist")  # PATCH
+    c2.plotly_chart(fig_dw, width=1000, height=320, key="dw_hist")  # PATCH
 else:
     st.info("No arrived agents to build distributions.")
 
-# Map (final positions + routes)
+# Map
 st.subheader("Final Agent Positions + Routes")
 from streamlit_folium import st_folium
 import folium
 import numpy as np
 
-# Dynamic center from final positions
 latlon_list = []
 if agent_rows is not None and not agent_rows.empty:
     for _, row in agent_rows.iterrows():
         loc = row.get('location')
         if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lon, lat = loc  # ABM state is (lon, lat)
+            lon, lat = loc
             latlon_list.append((lat, lon))
 
 center_lat, center_lon = 55.95, -3.19
@@ -289,64 +286,31 @@ if latlon_list:
 
 m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-# Plot final markers
+# Plot markers
 if agent_rows is not None and not agent_rows.empty:
     for _, row in agent_rows.iterrows():
         loc = row.get('location')
         if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lon, lat = loc  # (lon, lat) -> flip to [lat, lon]
-            popup = f"{row.get('agent_id')} ({row.get('mode')}) " \
-                    f"TT={row.get('travel_time_min')} min " \
-                    f"DW={row.get('dwell_time_min')} min"
+            lon, lat = loc
+            popup = f"{row.get('agent_id')} ({row.get('mode')}) TT={row.get('travel_time_min')} min DW={row.get('dwell_time_min')} min"
             folium.Marker([lat, lon], popup=popup).add_to(m)
 
-# Draw all routes (optional)
+# Draw routes
 show_routes = st.checkbox("Draw all agent routes", value=False)
 if show_routes and 'route' in df.columns and agent_rows is not None and not agent_rows.empty:
     last_rows = df.sort_values('t').groupby('agent_id').tail(1)
     for _, r in last_rows.iterrows():
         r_raw = r.get('route')
         if isinstance(r_raw, list) and r_raw and len(r_raw) >= 2:
-            # Flip each (lon, lat) to (lat, lon) for rendering
-            poly = [(pt[1], pt[0]) for pt in r_raw if isinstance(pt, (list, tuple)) and len(pt) == 2]
+            if smooth_routes and env is not None:
+                r_raw = env.densify_route(r_raw, step_meters=20.0)
+            poly = [(pt[1], pt[0]) for pt in r_raw]
             folium.PolyLine(poly, color='gray', weight=2, opacity=0.6).add_to(m)
-
-
-# When drawing routes:
-if show_routes and 'route' in df.columns:
-    r_raw = r.get('route')
-    if isinstance(r_raw, list) and len(r_raw) >= 2:
-        if smooth_routes:
-            r_raw = env.densify_route(r_raw, step_meters=20.0)
-        poly = [(pt[1], pt[0]) for pt in r_raw]
-        folium.PolyLine(poly, color='gray', weight=2, opacity=0.6).add_to(m)
-
-
-# Highlight selected agent & route
-agent_ids = list(agent_rows['agent_id'].unique()) if agent_rows is not None and not agent_rows.empty else []
-selected_agent = st.selectbox("Select agent to highlight", options=agent_ids) if agent_ids else None
-if selected_agent:
-    sel_last = agent_rows[agent_rows['agent_id'] == selected_agent]
-    if not sel_last.empty:
-        loc = sel_last.iloc[-1].get('location')
-        if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lon, lat = loc
-            m.location = [lat, lon]
-            m.zoom_start = 14
-            folium.CircleMarker([lat, lon], radius=7, color='red', fill=True, fill_opacity=0.8,
-                                popup=f"{selected_agent} (final)").add_to(m)
-        agent_df = df[df['agent_id'] == selected_agent].sort_values('t')
-        if 'route' in agent_df.columns and not agent_df.empty:
-            last_route_raw = agent_df.iloc[-1]['route']
-            if isinstance(last_route_raw, list) and last_route_raw and len(last_route_raw) >= 2:
-                polyline = [(pt[1], pt[0]) for pt in last_route_raw if isinstance(pt, (list, tuple)) and len(pt) == 2]
-                folium.PolyLine(polyline, color='blue', weight=3, opacity=0.9,
-                                popup=f"Route of {selected_agent}").add_to(m)
 
 st_folium(m, width=1000, height=520, key="final_positions_map")
 
 # Raw log
 st.subheader("Raw log (head)")
-st.dataframe(df.head(20), use_container_width=True)
+st.dataframe(df.head(20), width=1000)  # PATCH
 st.subheader("Raw log (tail)")
-st.dataframe(df.tail(20), use_container_width=True)
+st.dataframe(df.tail(20), width=1000)  # PATCH

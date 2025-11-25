@@ -16,6 +16,7 @@ try:
 except ImportError:
     OSMNX_AVAILABLE = False
 
+
 class SpatialEnvironment:
     """Spatial environment with optional OSM routing and movement helpers.
     - Supports OSMnx shortest path routing if available.
@@ -57,7 +58,12 @@ class SpatialEnvironment:
             else:
                 self.G = None
             if self.G is not None:
-                self.G = ox.add_edge_lengths(self.G)
+                # PATCH: OSMnx 2.x edge length handling
+                try:
+                    if hasattr(ox, "distance"):
+                        self.G = ox.distance.add_edge_lengths(self.G)
+                except Exception:
+                    logger.warning("Edge lengths may already exist; skipping re-add.")
                 self.graph_loaded = True
                 logger.info("OSM graph loaded: nodes=%d edges=%d", len(self.G.nodes), len(self.G.edges))
             else:
@@ -97,7 +103,6 @@ class SpatialEnvironment:
         - If OSM graph loaded and origin/dest look like (lon, lat), compute shortest path by edge length.
         - Else return straight line: [origin, dest].
         """
-        # PATCH: OSMnx shortest path routing
         if self.graph_loaded and self.osmnx_available and self.G is not None and self._is_lonlat(origin) and self._is_lonlat(dest):
             try:
                 orig_node = ox.distance.nearest_nodes(self.G, origin[0], origin[1])
@@ -192,7 +197,6 @@ class SpatialEnvironment:
         dist_km = self._distance(route)
         return grams_per_km.get(mode, 100.0) * dist_km
 
-    # Movement utilities
     def advance_along_route(
         self,
         route: List[Tuple[float, float]],
