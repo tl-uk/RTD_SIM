@@ -1,5 +1,5 @@
 
-# spatial_environment.py (Phase 4 Bundle 1 merged)
+# spatial_environment.py
 from __future__ import annotations
 from typing import Any, List, Tuple, Optional
 import math
@@ -58,7 +58,13 @@ class SpatialEnvironment:
             else:
                 self.G = None
             if self.G is not None:
-                # PATCH: OSMnx 2.x edge length handling
+                # PATCH: Project graph to UTM to avoid scikit-learn dependency
+                try:
+                    self.G = ox.project_graph(self.G)
+                    logger.info("Graph projected to UTM for routing.")
+                except Exception:
+                    logger.warning("Graph projection failed; continuing unprojected.")
+                # Ensure edge lengths exist
                 try:
                     if hasattr(ox, "distance"):
                         self.G = ox.distance.add_edge_lengths(self.G)
