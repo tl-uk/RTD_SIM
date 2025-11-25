@@ -27,9 +27,8 @@ class SpatialEnvironment:
     def __init__(self, step_minutes: float = 1.0) -> None:
         self.graph_loaded = False
         self.osmnx_available = OSMNX_AVAILABLE
-        self.G = None  # OSM graph (optional)
+        self.G = None
         self.step_minutes = step_minutes
-        # Speeds in km/min (walk ~5 km/h, bike ~15, bus ~20, car/ev ~30)
         self.speeds_km_min = {
             'walk': 0.083,
             'bike': 0.25,
@@ -45,7 +44,7 @@ class SpatialEnvironment:
         bbox: Optional[Tuple[float, float, float, float]] = None,
         network_type: str = 'all'
     ) -> None:
-        """Attempt to load an OSM graph via osmnx if available."""
+        """Load OSM graph and project to UTM to avoid scikit-learn dependency."""
         if not self.osmnx_available:
             logger.warning("OSMnx not available; cannot load graph.")
             return
@@ -58,7 +57,7 @@ class SpatialEnvironment:
             else:
                 self.G = None
             if self.G is not None:
-                # PATCH: Project graph to UTM to avoid scikit-learn dependency
+                # Project graph to UTM
                 try:
                     self.G = ox.project_graph(self.G)
                     logger.info("Graph projected to UTM for routing.")
@@ -80,7 +79,6 @@ class SpatialEnvironment:
             logger.exception("OSM graph load failed.")
 
     def get_random_node_coords(self) -> Optional[Tuple[float, float]]:
-        """Return a random node's (lon, lat) if an OSM graph is loaded; else None."""
         if not (self.graph_loaded and self.osmnx_available and self.G is not None):
             return None
         nodes = list(self.G.nodes(data=True))
@@ -90,7 +88,6 @@ class SpatialEnvironment:
         return (float(d.get('x')), float(d.get('y')))
 
     def get_random_origin_dest(self) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
-        """Return a random (origin, destination) pair (lon, lat) from the OSM graph; else None."""
         o = self.get_random_node_coords()
         d = self.get_random_node_coords()
         if o is None or d is None:
@@ -105,30 +102,23 @@ class SpatialEnvironment:
         dest: Tuple[float, float],
         mode: str
     ) -> List[Tuple[float, float]]:
-        """Compute a route polyline.
-        - If OSM graph loaded and origin/dest look like (lon, lat), compute shortest path by edge length.
-        - Else return straight line: [origin, dest].
-        """
-        if self.graph_loaded and self.osmnx_available and self.G is not None and self._is_lonlat(origin) and self._is_lonlat(dest):
+        """Compute route using OSMnx shortest path or fallback to straight line."""
+        if self.graph_loaded and self.osmnx_available and self.G is not None:
             try:
                 orig_node = ox.distance.nearest_nodes(self.G, origin[0], origin[1])
                 dest_node = ox.distance.nearest_nodes(self.G, dest[0], dest[1])
                 route_nodes = nx.shortest_path(self.G, orig_node, dest_node, weight='length')
-                coords: List[Tuple[float, float]] = []
-                for n in route_nodes:
-                    data = self.G.nodes[n]
-                    coords.append((float(data.get('x')), float(data.get('y'))))
+                coords = [(float(self.G.nodes[n]['x']), float(self.G.nodes[n]['y'])) for n in route_nodes]
                 return coords
             except Exception:
                 logger.exception("OSM routing failed; falling back to straight line")
         return [origin, dest]
 
-    # PATCH: Route densification helper
     def densify_route(self, route: List[Tuple[float, float]], step_meters: float = 20.0) -> List[Tuple[float, float]]:
         """Interpolate between route vertices for smoother polyline."""
         if len(route) < 2:
             return route
-        out: List[Tuple[float, float]] = [route[0]]
+        out = [route[0]]
         for i in range(len(route) - 1):
             lon1, lat1 = route[i]
             lon2, lat2 = route[i + 1]
