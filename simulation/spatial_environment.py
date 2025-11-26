@@ -1,5 +1,4 @@
 
-# spatial_environment.py
 from __future__ import annotations
 from typing import Any, List, Tuple, Optional
 import math
@@ -8,7 +7,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Try OSMnx imports
 try:
     import osmnx as ox
     import networkx as nx
@@ -18,11 +16,7 @@ except ImportError:
 
 
 class SpatialEnvironment:
-    """Spatial environment with optional OSM routing and movement helpers.
-    - Supports OSMnx shortest path routing if available.
-    - Falls back to straight-line routes.
-    - Provides per-mode speeds and step duration for movement per tick.
-    """
+    """Spatial environment with optional OSM routing and movement helpers."""
 
     def __init__(self, step_minutes: float = 1.0) -> None:
         self.graph_loaded = False
@@ -38,13 +32,7 @@ class SpatialEnvironment:
         }
 
     # ---------------- OSM Integration ----------------
-    def load_osm_graph(
-        self,
-        place: Optional[str] = None,
-        bbox: Optional[Tuple[float, float, float, float]] = None,
-        network_type: str = 'all'
-    ) -> None:
-        """Load OSM graph and project to UTM to avoid scikit-learn dependency."""
+    def load_osm_graph(self, place: Optional[str] = None, bbox: Optional[Tuple[float, float, float, float]] = None, network_type: str = 'all') -> None:
         if not self.osmnx_available:
             logger.warning("OSMnx not available; cannot load graph.")
             return
@@ -56,19 +44,13 @@ class SpatialEnvironment:
                 self.G = ox.graph_from_bbox(north, south, east, west, network_type=network_type)
             else:
                 self.G = None
+
             if self.G is not None:
-                # Project graph to UTM
-                try:
-                    self.G = ox.project_graph(self.G)
-                    logger.info("Graph projected to UTM for routing.")
-                except Exception:
-                    logger.warning("Graph projection failed; continuing unprojected.")
-                # Ensure edge lengths exist
                 try:
                     if hasattr(ox, "distance"):
                         self.G = ox.distance.add_edge_lengths(self.G)
                 except Exception:
-                    logger.warning("Edge lengths may already exist; skipping re-add.")
+                    logger.info("Edge lengths already present or add failed; continuing.")
                 self.graph_loaded = True
                 logger.info("OSM graph loaded: nodes=%d edges=%d", len(self.G.nodes), len(self.G.edges))
             else:
@@ -95,15 +77,8 @@ class SpatialEnvironment:
         return o, d
 
     # ---------------- Routing ----------------
-    def compute_route(
-        self,
-        agent_id: str,
-        origin: Tuple[float, float],
-        dest: Tuple[float, float],
-        mode: str
-    ) -> List[Tuple[float, float]]:
-        """Compute route using OSMnx shortest path or fallback to straight line."""
-        if self.graph_loaded and self.osmnx_available and self.G is not None:
+    def compute_route(self, agent_id: str, origin: Tuple[float, float], dest: Tuple[float, float], mode: str) -> List[Tuple[float, float]]:
+        if self.graph_loaded and self.osmnx_available and self.G is not None and self._is_lonlat(origin) and self._is_lonlat(dest):
             try:
                 orig_node = ox.distance.nearest_nodes(self.G, origin[0], origin[1])
                 dest_node = ox.distance.nearest_nodes(self.G, dest[0], dest[1])
@@ -115,23 +90,23 @@ class SpatialEnvironment:
         return [origin, dest]
 
     def densify_route(self, route: List[Tuple[float, float]], step_meters: float = 20.0) -> List[Tuple[float, float]]:
-        """Interpolate between route vertices for smoother polyline."""
         if len(route) < 2:
             return route
         out = [route[0]]
         for i in range(len(route) - 1):
-            lon1, lat1 = route[i]
-            lon2, lat2 = route[i + 1]
-            seg_len = self._haversine_m((lon1, lat1), (lon2, lat2))
+            a, b = route[i], route[i + 1]
+            seg_len = self._haversine_m(a, b)
             if seg_len <= step_meters:
-                out.append((lon2, lat2))
+                out.append(b)
                 continue
             n = int(seg_len // step_meters)
+            lon1, lat1 = a
+            lon2, lat2 = b
             for k in range(1, n + 1):
                 f = min(1.0, (k * step_meters) / seg_len)
                 out.append((lon1 + (lon2 - lon1) * f, lat1 + (lat2 - lat1) * f))
-            if out[-1] != (lon2, lat2):
-                out.append((lon2, lat2))
+            if out[-1] != b:
+                out.append(b)
         return out
 
     # ---------------- Metrics & Movement ----------------
@@ -164,12 +139,9 @@ class SpatialEnvironment:
         return math.hypot(b[0] - a[0], b[1] - a[1])
 
     def _distance(self, route: List[Tuple[float, float]]) -> float:
-        if not route or len(route) < 2:
+        if len(route) < 2:
             return 0.0
-        dist = 0.0
-        for i in range(len(route) - 1):
-            dist += self._segment_distance_km(route[i], route[i + 1])
-        return dist
+        return sum(self._segment_distance_km(route[i], route[i + 1]) for i in range(len(route) - 1))
 
     def estimate_travel_time(self, route: List[Tuple[float, float]], mode: str) -> float:
         dist_km = self._distance(route)
@@ -193,14 +165,7 @@ class SpatialEnvironment:
         dist_km = self._distance(route)
         return grams_per_km.get(mode, 100.0) * dist_km
 
-    def advance_along_route(
-        self,
-        route: List[Tuple[float, float]],
-        current_index: int,
-        offset_km: float,
-        mode: str
-    ) -> Tuple[int, float, Tuple[float, float]]:
-        """Advance along the route by speed*step_minutes for current tick."""
+    def advance_along_route(self, route: List[Tuple[float, float]], current_index: int, offset_km: float, mode: str) -> Tuple[int, float, Tuple[float, float]]:
         if not route or len(route) < 2:
             return 0, 0.0, route[0] if route else (0.0, 0.0)
         remaining = self.get_speed_km_min(mode) * self.step_minutes
