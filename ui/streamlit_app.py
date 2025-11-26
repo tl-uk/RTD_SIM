@@ -29,6 +29,11 @@ from agent.bdi_planner import BDIPlanner
 # Initialize session state
 def _init_session():
     for k, v in {
+        "ctl": None,
+        "data": None,
+        "env": None,
+        "steps_total": 0,
+        "steps_done": 0,
         "last_df": None,
         "last_agent_rows": None,
         "last_arrivals_df": None,
@@ -36,7 +41,7 @@ def _init_session():
         "last_params": None,
         "last_run_ok": False,
         "last_error": "",
-        "env": None,
+        "auto_run": False,
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -44,7 +49,7 @@ _init_session()
 
 # Page config
 st.set_page_config(page_title="RTD_SIM Dashboard", layout="wide")
-st.title("RTD_SIM — Phase 4 Dashboard")
+st.title("RTD_SIM — Phase 4 Dashboard (Non-Blocking)")
 
 # Sidebar form
 with st.sidebar.form("scenario_form", clear_on_submit=False):
@@ -56,7 +61,7 @@ with st.sidebar.form("scenario_form", clear_on_submit=False):
     osm_seed = st.checkbox("Seed agents on OSM nodes", value=True)
     smooth_routes = st.checkbox("Smooth routes (densify)", value=True)
     step_minutes = st.number_input("Movement step (minutes per tick)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
-    run_btn = st.form_submit_button("Run Simulation")
+    run_btn = st.form_submit_button("Initialize Simulation")
 
 # Cache OSM load
 @st.cache_data(show_spinner=False)
@@ -142,179 +147,176 @@ def _safe_parse_list(v):
             return None
     return None
 
-def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, osm_seed: bool):
-    env = build_env(place, bbox_str)
-    st.session_state.env = env
-    agents = build_agents(env, int(agents_n), osm_seed)
+# Initialize simulation
+if run_btn:
+    try:
+        env = build_env(place, bbox_str)
+        agents = build_agents(env, int(agents_n), osm_seed)
+        bus = EventBus()
+        data = DataAdapter()
+        cfg = SimulationConfig(steps=int(steps))
+        ctl = SimulationController(bus, model=None, data_adapter=data, config=cfg, agents=agents, environment=env)
 
-    bus = EventBus()
-    data = DataAdapter()
-    cfg = SimulationConfig(steps=int(steps))
-    ctl = SimulationController(bus, model=None, data_adapter=data, config=cfg, agents=agents, environment=env)
+        bus.subscribe("state_updated", lambda step, state: data.append_log(step, state))
+        bus.subscribe("metrics_updated", lambda metrics: data.append_log(metrics.get("step", 0), metrics))
 
-    # Subscribe logs
-    bus.subscribe("state_updated", lambda step, state: data.append_log(step, state))
-    bus.subscribe("metrics_updated", lambda metrics: data.append_log(metrics.get("step", 0), metrics))
+        st.session_state.ctl = ctl
+        st.session_state.data = data
+        st.session_state.env = env
+        st.session_state.steps_total = cfg.steps
+        st.session_state.steps_done = 0
+        st.session_state.auto_run = False
+        ctl.start()
+        st.success("Simulation initialized. Use controls below to run chunks.")
+    except Exception as e:
+        st.session_state.last_error = "".join(traceback.format_exception_only(type(e), e))
+        st.error(f"Initialization failed: {st.session_state.last_error}")
 
-    # Phase 3 pattern: run_steps (blocking but stable)
-    ctl.start()
-    ctl.run_steps(cfg.steps)
-    ctl.stop()
+# Controls for incremental run
+if st.session_state.ctl:
+    st.subheader("Simulation Controls")
+    chunk_size = st.number_input("Chunk size (steps per run)", min_value=10, max_value=500, value=50, step=10)
+    colA, colB = st.columns(2)
+    with colA:
+        if st.button("Run Next Chunk"):
+            for _ in range(chunk_size):
+                if st.session_state.steps_done >= st.session_state.steps_total:
+                    break
+                st.session_state.ctl.step()
+                st.session_state.steps_done += 1
+            st.experimental_rerun()
+    with colB:
+        st.session_state.auto_run = st.checkbox("Auto-run until complete", value=st.session_state.auto_run)
 
-    # Build DF safely
-    df = pd.DataFrame(data.get_log())
+    # Auto-run logic
+    if st.session_state.auto_run and st.session_state.steps_done < st.session_state.steps_total:
+        for _ in range(chunk_size):
+            if st.session_state.steps_done >= st.session_state.steps_total:
+                break
+            st.session_state.ctl.step()
+            st.session_state.steps_done += 1
+        st.experimental_rerun()
+
+    # Progress bar
+    st.progress(int((st.session_state.steps_done / st.session_state.steps_total) * 100))
+
+    # Stop simulation when done
+    if st.session_state.steps_done >= st.session_state.steps_total:
+        st.session_state.ctl.stop()
+        st.success("Simulation complete.")
+
+# Render results if any steps done
+if st.session_state.steps_done > 0:
+    df = pd.DataFrame(st.session_state.data.get_log())
     if "location" in df.columns:
         df["location"] = df["location"].apply(_safe_parse_tuple)
     if "route" in df.columns:
         df["route"] = df["route"].apply(_safe_parse_list)
 
-    # Robust column checks
-    if "agent_id" in df.columns:
-        agent_rows = df[df["agent_id"].notna()].sort_values("t").groupby("agent_id").tail(1)
-    else:
-        agent_rows = pd.DataFrame()
-
-    if not agent_rows.empty and "arrived" in agent_rows.columns:
-        arrivals_df = agent_rows[agent_rows["arrived"] == True]
-    else:
-        arrivals_df = pd.DataFrame()
-
-    metrics_rows = df[df["modal_share"].notna()] if "modal_share" in df.columns else pd.DataFrame()
+    agent_rows = df[df.get("agent_id").notna()].sort_values("t").groupby("agent_id").tail(1) if "agent_id" in df.columns else pd.DataFrame()
+    arrivals_df = agent_rows[agent_rows.get("arrived") == True] if not agent_rows.empty else pd.DataFrame()
+    metrics_rows = df[df.get("modal_share").notna()] if "modal_share" in df.columns else pd.DataFrame()
     last_metrics = metrics_rows.iloc[-1] if not metrics_rows.empty else None
 
-    st.session_state.last_df = df
-    st.session_state.last_agent_rows = agent_rows
-    st.session_state.last_arrivals_df = arrivals_df
-    st.session_state.last_metrics_row = last_metrics
-    st.session_state.last_params = {
-        "steps": steps, "agents_n": agents_n, "place": place,
-        "bbox": bbox_str, "osm_seed": osm_seed, "step_minutes": step_minutes
-    }
-    st.session_state.last_run_ok = True
-    st.session_state.last_error = ""
+    # Sidebar diagnostics
+    st.sidebar.subheader("Coordinate Diagnostics")
+    if not agent_rows.empty and "location" in agent_rows.columns:
+        lats, lons = [], []
+        for _, row in agent_rows.iterrows():
+            loc = row.get("location")
+            if isinstance(loc, (list, tuple)) and len(loc) == 2:
+                lons.append(loc[0]); lats.append(loc[1])
+        if lats and lons:
+            st.sidebar.write({
+                "min_lat": round(min(lats), 6),
+                "max_lat": round(max(lats), 6),
+                "min_lon": round(min(lons), 6),
+                "max_lon": round(max(lons), 6),
+            })
 
-# Trigger run
-if run_btn:
-    try:
-        run_snapshot(steps, agents_n, place, bbox_str, osm_seed)
-    except Exception as e:
-        st.session_state.last_run_ok = False
-        st.session_state.last_error = "".join(traceback.format_exception_only(type(e), e))
-        st.error(f"Simulation failed: {st.session_state.last_error}")
+    # KPIs
+    st.subheader("Key Performance Indicators")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    arrivals_count = len(arrivals_df)
+    mean_tt = round(arrivals_df["travel_time_min"].mean(), 2) if arrivals_count > 0 else None
+    total_emissions = round(float(agent_rows.get("emissions_g", pd.Series()).sum()), 2)
+    total_distance = round(float(agent_rows.get("distance_km", pd.Series()).sum()), 3)
+    mean_dwell = round(arrivals_df.get("dwell_time_min", pd.Series()).mean(), 2) if arrivals_count > 0 else None
+    col1.metric("Arrivals", arrivals_count)
+    col2.metric("Mean Travel Time", mean_tt if mean_tt is not None else "-")
+    col3.metric("Total Emissions (g)", total_emissions)
+    col4.metric("Total Distance (km)", total_distance)
+    col5.metric("Mean Dwell", mean_dwell if mean_dwell is not None else "-")
 
-# Retrieve results
-df = st.session_state.last_df
-agent_rows = st.session_state.last_agent_rows
-arrivals_df = st.session_state.last_arrivals_df
-last_metrics = st.session_state.last_metrics_row
-env = st.session_state.get("env", None)
-
-# Guard: stop if no results
-if not st.session_state.last_run_ok or df is None:
-    st.info("No successful simulation yet. Configure parameters and click 'Run Simulation'.")
-    if st.session_state.last_error:
-        st.code(st.session_state.last_error)
-    st.stop()
-
-# Sidebar diagnostics
-st.sidebar.subheader("Coordinate Diagnostics")
-if agent_rows is not None and not agent_rows.empty and "location" in agent_rows.columns:
-    lats, lons = [], []
-    for _, row in agent_rows.iterrows():
-        loc = row.get("location")
-        if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lons.append(loc[0]); lats.append(loc[1])
-    if lats and lons:
-        st.sidebar.write({
-            "min_lat": round(min(lats), 6),
-            "max_lat": round(max(lats), 6),
-            "min_lon": round(min(lons), 6),
-            "max_lon": round(max(lons), 6),
-        })
-
-# KPIs
-st.subheader("Key Performance Indicators")
-col1, col2, col3, col4, col5 = st.columns(5)
-arrivals_count = len(arrivals_df) if arrivals_df is not None else 0
-mean_tt = round(arrivals_df["travel_time_min"].mean(), 2) if arrivals_count > 0 else None
-total_emissions = round(float(agent_rows["emissions_g"].sum()), 2) if not agent_rows.empty and "emissions_g" in agent_rows.columns else 0.0
-total_distance = round(float(agent_rows["distance_km"].sum()), 3) if not agent_rows.empty and "distance_km" in agent_rows.columns else 0.0
-mean_dwell = round(arrivals_df["dwell_time_min"].mean(), 2) if arrivals_count > 0 and "dwell_time_min" in arrivals_df.columns else None
-col1.metric("Arrivals", arrivals_count)
-col2.metric("Mean Travel Time", mean_tt if mean_tt is not None else "-")
-col3.metric("Total Emissions (g)", total_emissions)
-col4.metric("Total Distance (km)", total_distance)
-col5.metric("Mean Dwell", mean_dwell if mean_dwell is not None else "-")
-
-# Modal share
-st.subheader("Modal Share")
-if last_metrics is not None:
-    ms = last_metrics.get("modal_share", {})
-    if isinstance(ms, dict) and ms:
-        ms_df = pd.DataFrame([{"mode": k, "count": v} for k, v in ms.items()])
-        st.bar_chart(ms_df.set_index("mode")["count"], width=1000)
+    # Modal share
+    st.subheader("Modal Share")
+    if last_metrics is not None:
+        ms = last_metrics.get("modal_share", {})
+        if isinstance(ms, dict) and ms:
+            ms_df = pd.DataFrame([{"mode": k, "count": v} for k, v in ms.items()])
+            st.bar_chart(ms_df.set_index("mode")["count"], width=1000)
+        else:
+            st.info("No modal share data available.")
     else:
         st.info("No modal share data available.")
-else:
-    st.info("No modal share data available.")
 
-# Distributions
-st.subheader("Distributions (Arrived Agents)")
-if arrivals_count > 0:
-    c1, c2 = st.columns(2)
-    fig_tt = px.histogram(arrivals_df, x="travel_time_min", nbins=20, title="Travel Time (min)")
-    fig_dw = px.histogram(arrivals_df, x="dwell_time_min", nbins=20, title="Dwell Time (min)")
-    c1.plotly_chart(fig_tt, width=1000, height=320)
-    c2.plotly_chart(fig_dw, width=1000, height=320)
-else:
-    st.info("No arrived agents to build distributions.")
+    # Distributions
+    st.subheader("Distributions (Arrived Agents)")
+    if arrivals_count > 0:
+        c1, c2 = st.columns(2)
+        fig_tt = px.histogram(arrivals_df, x="travel_time_min", nbins=20, title="Travel Time (min)")
+        fig_dw = px.histogram(arrivals_df, x="dwell_time_min", nbins=20, title="Dwell Time (min)")
+        c1.plotly_chart(fig_tt, width=1000, height=320)
+        c2.plotly_chart(fig_dw, width=1000, height=320)
+    else:
+        st.info("No arrived agents to build distributions.")
 
-# Map
-st.subheader("Final Agent Positions + Routes")
-center_lat, center_lon = 55.95, -3.19
-latlon_list = []
-if not agent_rows.empty and "location" in agent_rows.columns:
-    for _, row in agent_rows.iterrows():
-        loc = row.get("location")
-        if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            latlon_list.append((loc[1], loc[0]))
-if latlon_list:
-    arr = np.array(latlon_list)
-    center_lat, center_lon = float(arr[:, 0].mean()), float(arr[:, 1].mean())
+    # Map
+    st.subheader("Final Agent Positions + Routes")
+    center_lat, center_lon = 55.95, -3.19
+    latlon_list = []
+    if not agent_rows.empty and "location" in agent_rows.columns:
+        for _, row in agent_rows.iterrows():
+            loc = row.get("location")
+            if isinstance(loc, (list, tuple)) and len(loc) == 2:
+                latlon_list.append((loc[1], loc[0]))
+    if latlon_list:
+        arr = np.array(latlon_list)
+        center_lat, center_lon = float(arr[:, 0].mean()), float(arr[:, 1].mean())
 
-m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-# Markers
-if not agent_rows.empty and "location" in agent_rows.columns:
-    for _, row in agent_rows.iterrows():
-        loc = row.get("location")
-        if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lon, lat = loc
-            tt = row.get("travel_time_min", None)
-            dw = row.get("dwell_time_min", None)
-            popup = f"{row.get('agent_id', '')} ({row.get('mode','')}) TT={tt} DW={dw}"
-            folium.Marker([lat, lon], popup=popup).add_to(m)
+    # Markers
+    if not agent_rows.empty and "location" in agent_rows.columns:
+        for _, row in agent_rows.iterrows():
+            loc = row.get("location")
+            if isinstance(loc, (list, tuple)) and len(loc) == 2:
+                lon, lat = loc
+                tt = row.get("travel_time_min", None)
+                dw = row.get("dwell_time_min", None)
+                popup = f"{row.get('agent_id', '')} ({row.get('mode','')}) TT={tt} DW={dw}"
+                folium.Marker([lat, lon], popup=popup).add_to(m)
 
-# Routes
-show_routes = st.checkbox("Draw all agent routes", value=False)
-if show_routes and env is not None and "route" in agent_rows.columns:
-    for _, r in agent_rows.iterrows():
-        r_raw = r.get("route")
-        if isinstance(r_raw, list) and len(r_raw) >= 2:
-            poly_pts = r_raw
-            if smooth_routes and hasattr(env, "densify_route"):
-                try:
-                    poly_pts = env.densify_route(r_raw, step_meters=20.0)
-                except Exception:
-                    pass
-            poly = [(pt[1], pt[0]) for pt in poly_pts if isinstance(pt, (list, tuple)) and len(pt) == 2]
-            if poly:
-                folium.PolyLine(poly, color="gray", weight=2, opacity=0.6).add_to(m)
+    # Routes
+    show_routes = st.checkbox("Draw all agent routes", value=False)
+    if show_routes and st.session_state.env is not None and "route" in agent_rows.columns:
+        for _, r in agent_rows.iterrows():
+            r_raw = r.get("route")
+            if isinstance(r_raw, list) and len(r_raw) >= 2:
+                poly_pts = r_raw
+                if smooth_routes and hasattr(st.session_state.env, "densify_route"):
+                    try:
+                        poly_pts = st.session_state.env.densify_route(r_raw, step_meters=20.0)
+                    except Exception:
+                        pass
+                poly = [(pt[1], pt[0]) for pt in poly_pts if isinstance(pt, (list, tuple)) and len(pt) == 2]
+                if poly:
+                    folium.PolyLine(poly, color="gray", weight=2, opacity=0.6).add_to(m)
 
-st_folium(m, width=1000, height=520)
+    st_folium(m, width=1000, height=520)
 
-# Raw log
-st.subheader("Raw log (head)")
-st.dataframe(df.head(20), width=1000)
-st.subheader("Raw log (tail)")
-st.dataframe(df.tail(20), width=1000)
+    # Raw log
+    st.subheader("Raw log (head)")
+    st.dataframe(df.head(20), width=1000)
+    st.subheader("Raw log (tail)")
+    st.dataframe(df.tail(20), width=1000)
