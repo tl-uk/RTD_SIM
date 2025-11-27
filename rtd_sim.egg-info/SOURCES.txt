@@ -12,4 +12,4 @@ simulation/data_adapter.py
 simulation/event_bus.py
 ui/__init__.py
 ui/main_ui.py
-visualizer/__init__.py
+visualiser/__init__.py
