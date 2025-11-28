@@ -38,6 +38,9 @@ class AgentState:
     emissions_g: float = 0.0
     dwell_time_min: float = 0.0  # cumulative dwell time (stops, lights, boarding)
 
+    mode_history: List[str] = field(default_factory=list)
+    consecutive_same_mode: int = 0
+
 class CognitiveAgent:
     """Toy cognitive agent + planner + movement + arrival + dwell tracking.
 
@@ -65,6 +68,22 @@ class CognitiveAgent:
         self.t = 0
         self._replan_period = 10  # steps between replans
 
+    def _apply_habit_bonus(self, costs: dict) -> dict:
+        """Add habit discount to recently used modes."""
+        if len(self.state.mode_history) < 3:
+            return costs  # Not enough history
+        
+        # Get mode used in last 3 trips
+        recent_mode = max(set(self.state.mode_history[-3:]), 
+                         key=self.state.mode_history[-3:].count)
+        
+        # Apply habit discount (20% cost reduction)
+        adjusted_costs = costs.copy()
+        if recent_mode in adjusted_costs:
+            adjusted_costs[recent_mode] *= 0.8
+        
+        return adjusted_costs
+    
     def reset(self) -> None:
         aid = self.state.agent_id
         self.state = AgentState(
@@ -87,7 +106,7 @@ class CognitiveAgent:
             best = self.planner.choose_action(scores)
             s.mode = best.mode
 
-            # PATCH: Ensure route is a list of (lon, lat) tuples (no conversion here)
+            # Ensure route is a list of (lon, lat) tuples (no conversion here)
             try:
                 s.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
             except Exception:

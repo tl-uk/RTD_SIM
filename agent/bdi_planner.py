@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Any, List
 
+import numpy as np
+
 @dataclass
 class Action:
     mode: str
@@ -12,6 +14,14 @@ class Action:
 class ActionScore:
     action: Action
     cost: float
+
+class TripContext:
+    weather: str  # 'sunny', 'rain', 'snow'
+    time_of_day: str  # 'peak', 'off_peak', 'night'
+    day_of_week: str  # 'weekday', 'weekend'
+    trip_purpose: str  # 'commute', 'leisure', 'shopping', 'school'
+    has_luggage: bool
+    traveling_with: str  # 'alone', 'children', 'elderly'
 
 class BDIPlanner:
     """Lightweight BDI-like planner with fixed cost calculation.
@@ -93,9 +103,41 @@ class BDIPlanner:
         
         return scores
 
-    def choose_action(self, scores: List[ActionScore]) -> Action:
-        if not scores:
-            return Action(mode='walk', route=[], params={})
-        best = min(scores, key=lambda s: s.cost)
-        # print(f"  → Chose: {best.action.mode}")
-        return best.action
+    def logit_choice(costs: dict, temperature: float = 1.0) -> str:
+        """
+        Probabilistic mode choice using softmax.
+        
+        Args:
+            costs: {mode: cost} dictionary
+            temperature: Higher = more random, lower = more deterministic
+        
+        Returns:
+            Chosen mode (sampled probabilistically)
+        """
+        modes = list(costs.keys())
+        utilities = [-c / temperature for c in costs.values()]
+        exp_utils = np.exp(utilities - np.max(utilities))  # Numerical stability
+        probs = exp_utils / exp_utils.sum()
+        return np.random.choice(modes, p=probs)
+    
+    def adjust_desires_for_context(base_desires: dict, context: TripContext) -> dict:
+        desires = base_desires.copy()
+        
+        # Weather effects
+        if context.weather == 'rain':
+            desires['comfort'] *= 1.5  # Higher comfort weight in rain
+            # This makes covered modes (bus, car, EV) more attractive
+        
+        # Time of day effects
+        if context.time_of_day == 'peak':
+            desires['time'] *= 1.3  # Time matters more during rush hour
+        
+        # Trip purpose effects
+        if context.trip_purpose == 'commute':
+            desires['cost'] *= 0.7  # Less cost-sensitive for work trips
+        
+        # Luggage effects
+        if context.has_luggage:
+            desires['comfort'] *= 2.0  # Comfort critical with luggage
+        
+        return desires
