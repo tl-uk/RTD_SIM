@@ -1,7 +1,7 @@
 
 # agent/cognitive_abm.py
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Any, List, Tuple
 import random
 import logging

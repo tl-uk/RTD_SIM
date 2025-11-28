@@ -1,5 +1,6 @@
 # social_network.py (new file)
 import networkx as nx
+from typing import Dict, Any, List, Tuple
 
 class SocialNetwork:
     def __init__(self, agents: List[CognitiveAgent]):
