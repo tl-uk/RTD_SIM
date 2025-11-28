@@ -2,6 +2,8 @@
 import networkx as nx
 from typing import Dict, Any, List, Tuple
 
+from agent.cognitive_abm import CognitiveAgent
+
 class SocialNetwork:
     def __init__(self, agents: List[CognitiveAgent]):
         self.G = nx.Graph()
