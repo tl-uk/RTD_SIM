@@ -138,93 +138,142 @@ def test_routing_comparison():
 
 
 def test_elevation_availability():
-    """Test 4: Check if elevation data is available."""
+    """Test 4: Check if elevation data is available with OpenTopoData."""
     print("\n" + "="*60)
-    print("TEST 4: Elevation Data Availability")
+    print("TEST 4: Elevation Data with OpenTopoData (Free!)")
     print("="*60)
     
     try:
-        import osmnx as ox
-        
         env = SpatialEnvironment(step_minutes=1.0)
-        env.load_osm_graph(place="Edinburgh, UK", network_type="all", use_cache=True)
+        
+        # Load small graph for testing
+        print("\n🔄 Loading Edinburgh graph (small bbox for speed)...")
+        env.load_osm_graph(
+            bbox=(55.96, 55.94, -3.18, -3.20),  # Small area around Arthur's Seat
+            network_type="all",
+            use_cache=True
+        )
         
         if env.G is None:
             print("⚠️  No graph loaded")
-            return
+            return False
         
-        # Check if any nodes have elevation
-        sample_nodes = list(env.G.nodes(data=True))[:10]
-        has_elevation = any('elevation' in data for _, data in sample_nodes)
+        print(f"✅ Graph loaded: {len(env.G.nodes)} nodes")
         
-        print(f"\n📊 Sample nodes: {len(sample_nodes)}")
+        # Add elevation using OpenTopoData (free, no API key!)
+        print("\n🌄 Adding elevation data from OpenTopoData...")
+        print("   (This uses free public API, may take 10-30 seconds)")
         
-        if has_elevation:
-            print("✅ Elevation data found in graph!")
+        success = env.add_elevation_data(method='opentopo')
+        
+        if success:
+            print("✅ Elevation data added successfully!")
+            
+            # Show sample elevations
+            sample_nodes = list(env.G.nodes(data=True))[:10]
             elevations = [data.get('elevation') for _, data in sample_nodes if 'elevation' in data]
-            print(f"   Sample elevations: {elevations[:5]}")
+            
+            if elevations:
+                print(f"\n📊 Sample elevations: {elevations[:5]}")
+                print(f"   Min: {min(elevations):.1f} m")
+                print(f"   Max: {max(elevations):.1f} m")
+                print(f"   Mean: {sum(elevations)/len(elevations):.1f} m")
+            
+            return True
         else:
-            print("❌ No elevation data in graph")
-            print("\n💡 To add elevation data:")
-            print("   1. Install elevation package: pip install google-elevation-api")
-            print("   2. Use: G = ox.elevation.add_node_elevations_google(G, api_key)")
-            print("   3. Or use: G = ox.elevation.add_node_elevations_raster(G, 'path/to/dem.tif')")
-        
-        print("\n✅ Elevation check complete")
-        return has_elevation
+            print("❌ Failed to add elevation data")
+            print("\n💡 Troubleshooting:")
+            print("   1. Check internet connection")
+            print("   2. Install: pip install requests")
+            print("   3. Try again (API may be temporarily down)")
+            return False
     
     except Exception as e:
         print(f"❌ Elevation test failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
 def test_energy_consumption():
     """Test 5: Test energy consumption calculation with elevation."""
     print("\n" + "="*60)
-    print("TEST 5: Energy Consumption Calculation")
+    print("TEST 5: Energy Consumption with Elevation")
     print("="*60)
     
-    # Create mock route with elevation profile
-    route_flat = [
-        (-3.20, 55.95),  # Edinburgh city center
-        (-3.19, 55.95),
-        (-3.18, 55.95),
-    ]
-    
-    route_uphill = [
-        (-3.20, 55.95),  # Start low
-        (-3.19, 55.96),  # Go uphill
-        (-3.18, 55.97),  # Higher
-    ]
-    
-    route_downhill = [
-        (-3.18, 55.97),  # Start high
-        (-3.19, 55.96),  # Go downhill
-        (-3.20, 55.95),  # Lower
-    ]
-    
+    # Load graph with elevation
+    print("\n🔄 Loading graph with elevation data...")
     env = SpatialEnvironment(step_minutes=1.0)
+    env.load_osm_graph(
+        bbox=(55.96, 55.94, -3.18, -3.20),  # Arthur's Seat area (hilly!)
+        network_type="all",
+        use_cache=True
+    )
     
-    # Current implementation (flat)
-    emissions_flat = env.estimate_emissions(route_flat, "car")
-    emissions_up = env.estimate_emissions(route_uphill, "car")
-    emissions_down = env.estimate_emissions(route_downhill, "car")
+    if env.G is None:
+        print("⚠️  No graph loaded, using mock data")
+        test_with_mock_data(env)
+        return
     
-    print("\n📊 Current Emissions (no elevation adjustment):")
-    print(f"   Flat:     {emissions_flat:.2f} g CO2")
-    print(f"   Uphill:   {emissions_up:.2f} g CO2")
-    print(f"   Downhill: {emissions_down:.2f} g CO2")
-    print("   (All same - no elevation adjustment)")
+    # Add elevation
+    print("🌄 Adding elevation data...")
+    success = env.add_elevation_data(method='opentopo')
     
-    print("\n💡 Expected with elevation adjustment:")
-    print("   Flat:     100 g CO2 (baseline)")
-    print("   Uphill:   150 g CO2 (+50% for climbing)")
-    print("   Downhill:  80 g CO2 (-20% for descent)")
+    if not success:
+        print("⚠️  Elevation not available, using mock data")
+        test_with_mock_data(env)
+        return
     
-    print("\n❌ Feature NOT implemented yet")
-    print("   TODO: Implement estimate_emissions_with_elevation()")
+    # Find a route with elevation change
+    print("\n📍 Computing route with elevation...")
+    
+    # Get two random points
+    o = env.get_random_node_coords()
+    d = env.get_random_node_coords()
+    
+    if o is None or d is None:
+        print("⚠️  Could not get random nodes")
+        test_with_mock_data(env)
+        return
+    
+    route = env.compute_route("test", o, d, "car")
+    
+    # Calculate emissions with and without elevation
+    emissions_flat = env.estimate_emissions(route, "car")
+    emissions_elev = env.estimate_emissions_with_elevation(route, "car")
+    
+    diff_pct = ((emissions_elev - emissions_flat) / emissions_flat * 100) if emissions_flat > 0 else 0
+    
+    print(f"\n📊 Emissions Comparison:")
+    print(f"   Flat model:      {emissions_flat:.2f} g CO2")
+    print(f"   With elevation:  {emissions_elev:.2f} g CO2")
+    print(f"   Difference:      {diff_pct:+.1f}%")
+    
+    if abs(diff_pct) > 5:
+        print(f"   ✅ Elevation adjustment is working!")
+    else:
+        print(f"   ⚠️  Route may be mostly flat")
     
     print("\n✅ Energy consumption test complete")
+
+
+def test_with_mock_data(env):
+    """Test with mock elevation profile."""
+    print("\n📊 Testing with mock elevation data...")
+    
+    # Simulate flat route
+    route_flat = [(-3.20, 55.95), (-3.19, 55.95), (-3.18, 55.95)]
+    emissions_flat = env.estimate_emissions(route_flat, "car")
+    
+    print(f"\n   Flat route:  {emissions_flat:.2f} g CO2")
+    print(f"   (All routes use flat model without elevation data)")
+    
+    print("\n💡 To test with real elevation:")
+    print("   1. Ensure internet connection")
+    print("   2. Install: pip install requests")
+    print("   3. Re-run test")
+    
+    print("\n✅ Mock test complete")
 
 
 def test_cache_performance():
@@ -313,4 +362,3 @@ def run_all_tests():
 
 if __name__ == "__main__":
     run_all_tests()
-    
