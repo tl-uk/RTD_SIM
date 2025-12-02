@@ -28,7 +28,7 @@ TEST_BBOX = (55.97, 55.92, -3.11, -3.24)  # north, south, east, west
 SMALL_BBOX = (55.955, 55.945, -3.18, -3.20)  # Smaller area for elevation test
 
 
-def print_header(title: str, level: int = 1):
+def print_header(title, level=1):
     """Print formatted section header."""
     if level == 1:
         print("\n" + "="*70)
@@ -46,19 +46,19 @@ def test_basic_loading():
     
     env = SpatialEnvironment()
     
-    print("\nðŸ"„ Loading Edinburgh OSM graph...")
+    print("\n[*] Loading Edinburgh OSM graph...")
     start = time.time()
     env.load_osm_graph(place=TEST_PLACE, use_cache=True)
     elapsed = time.time() - start
     
     if env.graph_loaded:
         stats = env.get_graph_stats()
-        print(f"\nâœ… Graph loaded: {stats['nodes']:,} nodes, {stats['edges']:,} edges")
-        print(f"   Cache size: {stats.get('cache_size', 0)} precomputed nodes")
-        print(f"   Load time: {elapsed:.2f}s")
+        print(f"\n[OK] Graph loaded: {stats['nodes']:,} nodes, {stats['edges']:,} edges")
+        print(f"     Cache size: {stats.get('cache_size', 0)} precomputed nodes")
+        print(f"     Load time: {elapsed:.2f}s")
         return True
     else:
-        print("\nâŒ Failed to load graph")
+        print("\n[FAIL] Failed to load graph")
         return False
 
 
@@ -68,9 +68,9 @@ def test_mode_specific_networks():
     
     env = SpatialEnvironment()
     
-    print("\nðŸš¶ Loading WALK network...")
-    print("ðŸš— Loading DRIVE network...")
-    print("ðŸš´ Loading BIKE network...")
+    print("\n[*] Loading WALK network...")
+    print("[*] Loading DRIVE network...")
+    print("[*] Loading BIKE network...")
     
     start = time.time()
     env.load_mode_specific_graphs(
@@ -81,15 +81,15 @@ def test_mode_specific_networks():
     elapsed = time.time() - start
     
     if env.mode_graphs:
-        print(f"\nðŸ"Š Network Comparison:")
+        print(f"\n[*] Network Comparison:")
         for net_type, graph in env.mode_graphs.items():
-            print(f"   {net_type.capitalize():5}: {len(graph.nodes):6,} nodes, {len(graph.edges):7,} edges")
+            print(f"    {net_type.capitalize():5}: {len(graph.nodes):6,} nodes, {len(graph.edges):7,} edges")
         
-        print(f"\nâœ… Mode-specific networks loaded successfully")
-        print(f"   Total load time: {elapsed:.2f}s")
+        print(f"\n[OK] Mode-specific networks loaded successfully")
+        print(f"     Total load time: {elapsed:.2f}s")
         return True
     else:
-        print("\nâŒ Failed to load mode-specific networks")
+        print("\n[FAIL] Failed to load mode-specific networks")
         return False
 
 
@@ -101,15 +101,15 @@ def test_routing_comparison():
     env.load_mode_specific_graphs(place=TEST_PLACE, use_cache=True)
     
     if not env.graph_loaded:
-        print("\nâŒ No graph loaded")
+        print("\n[FAIL] No graph loaded")
         return False
     
     # Edinburgh Castle to Holyrood Palace
     origin = (-3.2008, 55.9486)  # Castle
     dest = (-3.1730, 55.9520)    # Palace
     
-    print(f"\nðŸ" Origin: {origin}")
-    print(f"ðŸ" Dest:   {dest}")
+    print(f"\n[*] Origin: {origin}")
+    print(f"[*] Dest:   {dest}")
     
     # Compute routes
     walk_route = env.compute_route("test_walker", origin, dest, "walk")
@@ -118,17 +118,17 @@ def test_routing_comparison():
     walk_dist = env._distance(walk_route)
     drive_dist = env._distance(drive_route)
     
-    print(f"\nðŸš¶ Walk route:  {len(walk_route):3} waypoints, {walk_dist:.3f} km")
-    print(f"ðŸš— Drive route: {len(drive_route):3} waypoints, {drive_dist:.3f} km")
+    print(f"\n[*] Walk route:  {len(walk_route):3} waypoints, {walk_dist:.3f} km")
+    print(f"[*] Drive route: {len(drive_route):3} waypoints, {drive_dist:.3f} km")
     
     if walk_dist < drive_dist:
-        print("\nðŸ'¡ Walk route is shorter (pedestrian shortcuts)")
+        print("\n[INFO] Walk route is shorter (pedestrian shortcuts)")
     elif drive_dist < walk_dist:
-        print("\nðŸ'¡ Drive route is shorter (faster roads)")
+        print("\n[INFO] Drive route is shorter (faster roads)")
     else:
-        print("\nðŸ'¡ Routes are similar length")
+        print("\n[INFO] Routes are similar length")
     
-    print("\nâœ… Route comparison complete")
+    print("\n[OK] Route comparison complete")
     return True
 
 
@@ -138,16 +138,16 @@ def test_elevation_data():
     
     env = SpatialEnvironment()
     
-    print("\nðŸ"„ Loading Edinburgh graph (small bbox for speed)...")
+    print("\n[*] Loading Edinburgh graph (small bbox for speed)...")
     env.load_osm_graph(bbox=SMALL_BBOX, use_cache=True)
     
     if not env.graph_loaded:
-        print("âš ï¸  No graph loaded")
+        print("[WARN] No graph loaded")
         return False
     
-    print(f"ðŸ"Š Graph: {len(env.G.nodes)} nodes")
-    print("\nðŸŒ Fetching elevation data from OpenTopoData API...")
-    print("   (This may take 10-30s for first run, then cached)")
+    print(f"[*] Graph: {len(env.G.nodes)} nodes")
+    print("\n[*] Fetching elevation data from OpenTopoData API...")
+    print("    (This may take 10-30s for first run, then cached)")
     
     start = time.time()
     success = env.add_elevation_data(method='opentopo')
@@ -158,20 +158,20 @@ def test_elevation_data():
         sample_nodes = list(env.G.nodes(data=True))[:5]
         elevations = [data.get('elevation') for _, data in sample_nodes]
         
-        print(f"\nâœ… Elevation data added in {elapsed:.1f}s")
-        print(f"   Sample elevations: {[f'{e:.1f}m' if e else 'N/A' for e in elevations]}")
+        print(f"\n[OK] Elevation data added in {elapsed:.1f}s")
+        print(f"     Sample elevations: {[f'{e:.1f}m' if e else 'N/A' for e in elevations]}")
         
         # Stats
         all_elevations = [data.get('elevation') for _, data in env.G.nodes(data=True) if 'elevation' in data]
         if all_elevations:
-            print(f"   Min: {min(all_elevations):.1f}m")
-            print(f"   Max: {max(all_elevations):.1f}m")
-            print(f"   Avg: {sum(all_elevations)/len(all_elevations):.1f}m")
+            print(f"     Min: {min(all_elevations):.1f}m")
+            print(f"     Max: {max(all_elevations):.1f}m")
+            print(f"     Avg: {sum(all_elevations)/len(all_elevations):.1f}m")
         
         return True
     else:
-        print("\nâŒ Failed to add elevation data")
-        print("   Check internet connection and try again")
+        print("\n[FAIL] Failed to add elevation data")
+        print("       Check internet connection and try again")
         return False
 
 
@@ -181,50 +181,50 @@ def test_energy_with_elevation():
     
     env = SpatialEnvironment()
     
-    print("\nðŸ"„ Loading graph with elevation data...")
+    print("\n[*] Loading graph with elevation data...")
     env.load_osm_graph(bbox=SMALL_BBOX, use_cache=True)
     
     if not env.graph_loaded:
-        print("âš ï¸  No graph loaded")
+        print("[WARN] No graph loaded")
         return False
     
     # Add elevation
-    print("ðŸŒ Adding elevation...")
+    print("[*] Adding elevation...")
     env.add_elevation_data(method='opentopo')
     
     if not env.has_elevation:
-        print("âš ï¸  No elevation data available")
+        print("[WARN] No elevation data available")
         return False
     
     # Test route (should have some elevation change)
     origin = (-3.19, 55.950)  # Lower point
     dest = (-3.185, 55.952)   # Slight uphill
     
-    print(f"\nðŸ" Testing route with elevation...")
+    print(f"\n[*] Testing route with elevation...")
     route = env.compute_route("test_agent", origin, dest, "car")
     
     if len(route) < 2:
-        print("âš ï¸  Route too short")
+        print("[WARN] Route too short")
         return False
     
     # Calculate emissions both ways
     flat_emissions = env.estimate_emissions(route, "car")
     elev_emissions = env.estimate_emissions_with_elevation(route, "car")
     
-    print(f"\nðŸ"Š Emissions comparison:")
-    print(f"   Flat model:      {flat_emissions:.2f} g CO2")
-    print(f"   With elevation:  {elev_emissions:.2f} g CO2")
+    print(f"\n[*] Emissions comparison:")
+    print(f"    Flat model:      {flat_emissions:.2f} g CO2")
+    print(f"    With elevation:  {elev_emissions:.2f} g CO2")
     
     diff_pct = ((elev_emissions - flat_emissions) / flat_emissions * 100) if flat_emissions > 0 else 0
     
     if abs(diff_pct) > 1:
         direction = "higher" if diff_pct > 0 else "lower"
-        print(f"   Difference:      {abs(diff_pct):.1f}% {direction}")
-        print("\nðŸ'¡ Elevation affects energy consumption!")
+        print(f"    Difference:      {abs(diff_pct):.1f}% {direction}")
+        print("\n[INFO] Elevation affects energy consumption!")
     else:
-        print("\nðŸ'¡ Route is relatively flat")
+        print("\n[INFO] Route is relatively flat")
     
-    print("\nâœ… Energy calculation with elevation complete")
+    print("\n[OK] Energy calculation with elevation complete")
     return True
 
 
@@ -236,11 +236,11 @@ def test_cache_performance():
     env = SpatialEnvironment()
     cache_dir = env.cache_dir
     
-    print("\nðŸ"„ First load (downloading)...")
+    print("\n[*] First load (downloading)...")
     start = time.time()
     env.load_osm_graph(place=TEST_PLACE, use_cache=False)
     first_time = time.time() - start
-    print(f"   Duration: {first_time:.2f}s")
+    print(f"    Duration: {first_time:.2f}s")
     
     # Force save to cache
     if env.graph_loaded:
@@ -252,23 +252,23 @@ def test_cache_performance():
     
     # Second load from cache
     env2 = SpatialEnvironment()
-    print("\nðŸ"¦ Second load (from cache)...")
+    print("\n[*] Second load (from cache)...")
     start = time.time()
     env2.load_osm_graph(place=TEST_PLACE, use_cache=True)
     second_time = time.time() - start
-    print(f"   Duration: {second_time:.2f}s")
+    print(f"    Duration: {second_time:.2f}s")
     
     speedup = first_time / second_time if second_time > 0 else 0
-    print(f"\nâš¡ Speedup: {speedup:.1f}x faster with cache")
+    print(f"\n[*] Speedup: {speedup:.1f}x faster with cache")
     
     if speedup > 5:
-        print("   âœ… Cache is working well!")
+        print("    [OK] Cache is working well!")
     elif speedup > 2:
-        print("   âœ… Cache provides moderate speedup")
+        print("    [OK] Cache provides moderate speedup")
     else:
-        print("   âš ï¸  Cache speedup less than expected")
+        print("    [WARN] Cache speedup less than expected")
     
-    print("\nâœ… Cache performance test complete")
+    print("\n[OK] Cache performance test complete")
     return True
 
 
@@ -287,7 +287,7 @@ def main():
     
     print_header("TEST SUMMARY", level=1)
     for test_name, passed in results.items():
-        status = "âœ…" if passed else "âŒ"
+        status = "[OK]" if passed else "[FAIL]"
         print(f"{status} {test_name}")
     
     total = len(results)
@@ -296,13 +296,13 @@ def main():
     print(f"\nPassed: {passed}/{total} tests")
     
     if passed == total:
-        print("\nðŸŽ‰ All tests passed! Phase 2.1 is ready.")
+        print("\n*** All tests passed! Phase 2.1 is ready. ***")
     else:
-        print("\nðŸ"§ Some tests failed. Review errors above.")
-        print("\nðŸ'¡ Common issues:")
-        print("   - Internet connection (for elevation API)")
-        print("   - requests library: pip install requests")
-        print("   - OSMnx version: pip install --upgrade osmnx")
+        print("\n*** Some tests failed. Review errors above. ***")
+        print("\nCommon issues:")
+        print("  - Internet connection (for elevation API)")
+        print("  - requests library: pip install requests")
+        print("  - OSMnx version: pip install --upgrade osmnx")
 
 
 if __name__ == "__main__":
