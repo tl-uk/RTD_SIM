@@ -128,9 +128,9 @@ class SpatialEnvironment:
                         graph = ox.graph_from_place(place, network_type=net_type)
                     elif bbox:
                         north, south, east, west = bbox
-                        # FIX: Use keyword arguments for OSMnx compatibility
+                        # FIX: OSMnx 2.0 bbox format is (west, south, east, north) = (left, bottom, right, top)
                         graph = ox.graph_from_bbox(
-                            bbox=(north, south, east, west),
+                            bbox=(west, south, east, north),
                             network_type=net_type
                         )
                     
@@ -200,9 +200,9 @@ class SpatialEnvironment:
                 self.G = ox.graph_from_place(place, network_type=network_type)
             elif bbox:
                 north, south, east, west = bbox
-                # FIX: Use keyword arguments for OSMnx compatibility
+                # FIX: OSMnx 2.0 bbox format is (west, south, east, north) = (left, bottom, right, top)
                 self.G = ox.graph_from_bbox(
-                    bbox=(north, south, east, west),
+                    bbox=(west, south, east, north),
                     network_type=network_type
                 )
             else:

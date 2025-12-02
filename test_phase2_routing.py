@@ -24,8 +24,11 @@ from simulation.spatial_environment import SpatialEnvironment
 
 # Test configuration
 TEST_PLACE = "Edinburgh, Scotland"
-TEST_BBOX = (55.97, 55.92, -3.11, -3.24)  # north, south, east, west
-SMALL_BBOX = (55.955, 55.945, -3.18, -3.20)  # Smaller area for elevation test
+# Bbox format for our code: (north, south, east, west) - gets converted internally
+# Edinburgh city center (large area ~5km x 10km)
+TEST_BBOX = (55.97, 55.92, -3.11, -3.24)
+# Tiny area near Edinburgh Castle for elevation testing (~200m x 200m)
+SMALL_BBOX = (55.9495, 55.9475, -3.1985, -3.2015)
 
 
 def print_header(title, level=1):
