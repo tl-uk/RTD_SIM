@@ -1,0 +1,132 @@
+[INFO] simulation.spatial_environment: Loading from cache: bd21ce9f8cce02b1.pkl
+[INFO] simulation.spatial_environment: Loaded: 62435 nodes, 159784 edges
+[INFO] simulation.spatial_environment: Loading from cache: fbcda21329b4bfb9.pkl
+[INFO] simulation.spatial_environment: Loaded: 54484 nodes, 140626 edges
+[INFO] simulation.spatial_environment: Loading from cache: 17309e072c394faa.pkl
+[INFO] simulation.spatial_environment: Loaded: 13789 nodes, 31848 edges
+[INFO] simulation.spatial_environment: Loading from cache: e84730eacc26f4a0.pkl
+[INFO] simulation.spatial_environment: Loaded: 36870 nodes, 85618 edges
+[INFO] simulation.spatial_environment: Loading from cache: fbcda21329b4bfb9.pkl
+[INFO] simulation.spatial_environment: Loaded: 54484 nodes, 140626 edges
+[INFO] simulation.spatial_environment: Loading from cache: 17309e072c394faa.pkl
+[INFO] simulation.spatial_environment: Loaded: 13789 nodes, 31848 edges
+[INFO] simulation.spatial_environment: Downloading OSM graph (network_type=all)...
+[ERROR] simulation.spatial_environment: OSM load failed: graph_from_bbox() takes 1 positional argument but 4 positional arguments (and 1 keyword-only argument) were given
+Traceback (most recent call last):
+  File "/Users/theolim/AppDev/RTD_SIM/simulation/spatial_environment.py", line 193, in load_osm_graph
+    self.G = ox.graph_from_bbox(north, south, east, west, network_type=network_type)
+             ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: graph_from_bbox() takes 1 positional argument but 4 positional arguments (and 1 keyword-only argument) were given
+[INFO] simulation.spatial_environment: Downloading OSM graph (network_type=all)...
+[ERROR] simulation.spatial_environment: OSM load failed: graph_from_bbox() takes 1 positional argument but 4 positional arguments (and 1 keyword-only argument) were given
+Traceback (most recent call last):
+  File "/Users/theolim/AppDev/RTD_SIM/simulation/spatial_environment.py", line 193, in load_osm_graph
+    self.G = ox.graph_from_bbox(north, south, east, west, network_type=network_type)
+             ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: graph_from_bbox() takes 1 positional argument but 4 positional arguments (and 1 keyword-only argument) were given
+[INFO] simulation.spatial_environment: Downloading OSM graph (network_type=all)...
+[INFO] simulation.spatial_environment: Graph loaded: 62435 nodes, 159784 edges
+[INFO] simulation.spatial_environment: Loading from cache: bd21ce9f8cce02b1.pkl
+[INFO] simulation.spatial_environment: Loaded: 62435 nodes, 159784 edges
+
+======================================================================
+RTD_SIM Phase 2.1 Feature Tests
+======================================================================
+
+============================================================
+TEST 1: Basic Graph Loading & Caching
+============================================================
+
+🔄 Loading Edinburgh OSM graph...
+
+✅ Graph loaded: 62,435 nodes, 159,784 edges
+   Cache size: 0 precomputed nodes
+
+============================================================
+TEST 2: Mode-Specific Networks
+============================================================
+
+🚶 Loading WALK network...
+
+🚗 Loading DRIVE network...
+
+🚴 Loading BIKE network...
+
+📊 Network Comparison:
+   Walk:  54,484 nodes, 140,626 edges
+   Drive: 13,789 nodes, 31,848 edges
+   Bike:  36,870 nodes, 85,618 edges
+
+✅ Mode-specific networks loaded successfully
+   NOTE: Current implementation uses same graph for all modes.
+   TODO: Implement per-agent mode-specific routing.
+
+============================================================
+TEST 3: Routing Comparison (Walk vs Drive)
+============================================================
+
+📍 Origin: (-3.1268992, 55.9288802)
+📍 Dest:   (-3.122094, 55.9576234)
+
+🚶 Walk route:   90 waypoints, 3.963 km
+🚗 Drive route:  47 waypoints, 4.031 km
+
+💡 Interpretation:
+   Walk route is shorter (pedestrian shortcuts)
+
+✅ Route comparison complete
+
+============================================================
+TEST 4: Elevation Data with OpenTopoData (Free!)
+============================================================
+
+🔄 Loading Edinburgh graph (small bbox for speed)...
+⚠️  No graph loaded
+
+============================================================
+TEST 5: Energy Consumption with Elevation
+============================================================
+
+🔄 Loading graph with elevation data...
+⚠️  No graph loaded, using mock data
+
+📊 Testing with mock elevation data...
+
+   Flat route:  224.14 g CO2
+   (All routes use flat model without elevation data)
+
+💡 To test with real elevation:
+   1. Ensure internet connection
+   2. Install: pip install requests
+   3. Re-run test
+
+✅ Mock test complete
+
+============================================================
+TEST 6: Cache Performance
+============================================================
+
+🔄 First load (downloading)...
+   Duration: 19.09s
+
+📦 Second load (from cache)...
+   Duration: 1.03s
+
+⚡ Speedup: 18.5x faster with cache
+   ✅ Cache is working well!
+
+✅ Cache performance test complete
+
+======================================================================
+TEST SUMMARY
+======================================================================
+✅ OSM graph loading & caching
+✅ Mode-specific networks (separate graphs)
+✅ Routing comparison
+❌ Elevation data (not in basic OSM download)
+❌ Energy consumption with elevation (not implemented)
+
+💡 Next steps:
+   1. Implement per-agent mode-specific routing
+   2. Add elevation data download
+   3. Implement elevation-aware energy calculation

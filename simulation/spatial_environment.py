@@ -3,6 +3,7 @@ Enhanced SpatialEnvironment with:
 - Mode-specific routing (different networks per mode)
 - Elevation data integration
 - Energy consumption with elevation adjustments
+- FIXED: OSMnx API compatibility (keyword args)
 
 New in this version:
 - load_mode_specific_graphs() - Load separate graphs for walk/bike/drive
@@ -89,7 +90,7 @@ class SpatialEnvironment:
         
         Args:
             place: Place name
-            bbox: Bounding box
+            bbox: Bounding box (north, south, east, west)
             modes: List of modes to load graphs for (default: walk, bike, drive)
             use_cache: Use cached graphs
         """
@@ -112,32 +113,42 @@ class SpatialEnvironment:
             # Try cache
             if use_cache and cache_path.exists():
                 try:
-                    logger.info(f"Loading {net_type} from cache...")
+                    logger.info(f"Loading from cache: {cache_path.name}")
                     with open(cache_path, 'rb') as f:
                         graph = pickle.load(f)
+                    logger.info(f"Loaded: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
                 except Exception as e:
                     logger.warning(f"Cache load failed: {e}")
             
             # Download if needed
             if graph is None:
                 try:
-                    logger.info(f"Downloading {net_type} network...")
+                    logger.info(f"Downloading OSM graph (network_type={net_type})...")
                     if place:
                         graph = ox.graph_from_place(place, network_type=net_type)
                     elif bbox:
                         north, south, east, west = bbox
-                        graph = ox.graph_from_bbox(north, south, east, west, network_type=net_type)
+                        # FIX: Use keyword arguments for OSMnx compatibility
+                        graph = ox.graph_from_bbox(
+                            bbox=(north, south, east, west),
+                            network_type=net_type
+                        )
                     
                     if graph is not None:
                         # Add edge lengths
                         if not all('length' in data for _, _, data in graph.edges(data=True)):
                             graph = ox.distance.add_edge_lengths(graph)
                         
+                        logger.info(f"Graph loaded: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
+                        
                         # Cache it
                         if use_cache:
-                            with open(cache_path, 'wb') as f:
-                                pickle.dump(graph, f)
-                            logger.info(f"Cached {net_type} graph")
+                            try:
+                                with open(cache_path, 'wb') as f:
+                                    pickle.dump(graph, f)
+                                logger.info(f"Saved to cache: {cache_path.name}")
+                            except Exception as e:
+                                logger.warning(f"Cache save failed: {e}")
                 
                 except Exception as e:
                     logger.exception(f"Failed to load {net_type}: {e}")
@@ -145,7 +156,6 @@ class SpatialEnvironment:
             # Store graph
             if graph is not None:
                 self.mode_graphs[net_type] = graph
-                logger.info(f"Loaded {net_type}: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
                 
                 # Set primary graph to 'all' or first loaded
                 if self.G is None or net_type == 'all':
@@ -153,9 +163,9 @@ class SpatialEnvironment:
                     self.graph_loaded = True
         
         if self.mode_graphs:
-            logger.info(f"Loaded {len(self.mode_graphs)} mode-specific graphs")
+            logger.info(f"âœ… Loaded {len(self.mode_graphs)} mode-specific graphs")
         else:
-            logger.warning("No graphs loaded")
+            logger.warning("âš ï¸ No graphs loaded")
     
     def load_osm_graph(
         self, 
@@ -190,7 +200,11 @@ class SpatialEnvironment:
                 self.G = ox.graph_from_place(place, network_type=network_type)
             elif bbox:
                 north, south, east, west = bbox
-                self.G = ox.graph_from_bbox(north, south, east, west, network_type=network_type)
+                # FIX: Use keyword arguments for OSMnx compatibility
+                self.G = ox.graph_from_bbox(
+                    bbox=(north, south, east, west),
+                    network_type=network_type
+                )
             else:
                 logger.error("Must provide place or bbox")
                 return
@@ -251,7 +265,11 @@ class SpatialEnvironment:
         try:
             if method in ['opentopo', 'opentopo_ned', 'opentopo_mapzen']:
                 # Use our ElevationProvider
-                from .elevation_provider import ElevationProvider
+                if not ELEVATION_PROVIDER_AVAILABLE:
+                    logger.error("ElevationProvider not available")
+                    return False
+                
+                from simulation.elevation_provider import ElevationProvider
                 
                 provider = ElevationProvider(cache_dir=self.cache_dir.parent / "elevation")
                 api = kwargs.get('api', method)
@@ -286,10 +304,10 @@ class SpatialEnvironment:
             if has_elev:
                 self.has_elevation = True
                 elevations = [data.get('elevation') for _, data in sample_nodes if 'elevation' in data]
-                logger.info(f"✅ Elevation data added (sample: {elevations[:3]})")
+                logger.info(f"âœ… Elevation data added (sample: {elevations[:3]})")
                 return True
             else:
-                logger.warning("⚠️ Elevation not found in nodes")
+                logger.warning("âš ï¸ Elevation not found in nodes")
                 return False
         
         except Exception as e:
