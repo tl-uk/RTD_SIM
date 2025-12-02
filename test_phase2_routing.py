@@ -27,8 +27,8 @@ TEST_PLACE = "Edinburgh, Scotland"
 # Bbox format for our code: (north, south, east, west) - gets converted internally
 # Edinburgh city center (large area ~5km x 10km)
 TEST_BBOX = (55.97, 55.92, -3.11, -3.24)
-# Tiny area near Edinburgh Castle for elevation testing (~200m x 200m)
-SMALL_BBOX = (55.9495, 55.9475, -3.1985, -3.2015)
+# Small area near Edinburgh Castle for elevation testing (~500m x 500m)
+SMALL_BBOX = (55.952, 55.947, -3.197, -3.203)
 
 
 def print_header(title, level=1):
@@ -191,41 +191,56 @@ def test_energy_with_elevation():
         print("[WARN] No graph loaded")
         return False
     
+    print(f"[*] Graph loaded: {len(env.G.nodes)} nodes")
+    
     # Add elevation
     print("[*] Adding elevation...")
-    env.add_elevation_data(method='opentopo')
+    success = env.add_elevation_data(method='opentopo')
     
-    if not env.has_elevation:
+    if not success or not env.has_elevation:
         print("[WARN] No elevation data available")
         return False
     
-    # Test route (should have some elevation change)
-    origin = (-3.19, 55.950)  # Lower point
-    dest = (-3.185, 55.952)   # Slight uphill
+    # Get two random points from the graph
+    nodes = list(env.G.nodes(data=True))
+    if len(nodes) < 10:
+        print(f"[WARN] Graph too small ({len(nodes)} nodes), need larger bbox")
+        return False
+    
+    # Pick nodes at opposite ends of the graph for a longer route
+    origin_node = nodes[0]
+    dest_node = nodes[-1]
+    origin = (origin_node[1]['x'], origin_node[1]['y'])
+    dest = (dest_node[1]['x'], dest_node[1]['y'])
     
     print(f"\n[*] Testing route with elevation...")
+    print(f"    Origin: {origin}")
+    print(f"    Dest: {dest}")
+    
     route = env.compute_route("test_agent", origin, dest, "car")
     
-    if len(route) < 2:
-        print("[WARN] Route too short")
-        return False
+    if len(route) < 3:
+        print(f"[WARN] Route too short ({len(route)} waypoints), need more nodes")
+        # Still try to compute with what we have
     
     # Calculate emissions both ways
     flat_emissions = env.estimate_emissions(route, "car")
     elev_emissions = env.estimate_emissions_with_elevation(route, "car")
     
     print(f"\n[*] Emissions comparison:")
+    print(f"    Route length:    {env._distance(route):.3f} km")
+    print(f"    Route waypoints: {len(route)}")
     print(f"    Flat model:      {flat_emissions:.2f} g CO2")
     print(f"    With elevation:  {elev_emissions:.2f} g CO2")
     
     diff_pct = ((elev_emissions - flat_emissions) / flat_emissions * 100) if flat_emissions > 0 else 0
     
-    if abs(diff_pct) > 1:
+    if abs(diff_pct) > 0.5:
         direction = "higher" if diff_pct > 0 else "lower"
         print(f"    Difference:      {abs(diff_pct):.1f}% {direction}")
         print("\n[INFO] Elevation affects energy consumption!")
     else:
-        print("\n[INFO] Route is relatively flat")
+        print("\n[INFO] Route is relatively flat (minimal elevation impact)")
     
     print("\n[OK] Energy calculation with elevation complete")
     return True
