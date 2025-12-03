@@ -1,15 +1,16 @@
 """
-Enhanced SpatialEnvironment with:
-- Mode-specific routing (different networks per mode)
+Enhanced SpatialEnvironment - Phase 2.2: Route Alternatives
+
+New in Phase 2.2:
+- compute_route_alternatives() - Generate multiple route options
+- Route variant types: shortest, fastest, safest, greenest, scenic
+- Weight functions for different routing objectives
+- RouteAlternative data class with metrics
+
+Existing from Phase 2.1:
+- Mode-specific routing (walk/bike/drive)
 - Elevation data integration
 - Energy consumption with elevation adjustments
-- FIXED: OSMnx API compatibility (keyword args)
-
-New in this version:
-- load_mode_specific_graphs() - Load separate graphs for walk/bike/drive
-- compute_route() - Now uses mode-appropriate graph
-- add_elevation_data() - Add elevation to graph nodes
-- estimate_emissions_with_elevation() - Adjust for hills
 """
 
 from __future__ import annotations
@@ -36,8 +37,16 @@ try:
 except ImportError:
     ELEVATION_PROVIDER_AVAILABLE = False
 
+try:
+    from simulation.route_alternative import RouteAlternative
+    ROUTE_ALTERNATIVE_AVAILABLE = True
+except ImportError:
+    ROUTE_ALTERNATIVE_AVAILABLE = False
+    logger.warning("RouteAlternative class not available")
+
+
 class SpatialEnvironment:
-    """Enhanced spatial environment with mode-specific routing and elevation."""
+    """Enhanced spatial environment with mode-specific routing, elevation, and route alternatives."""
 
     def __init__(self, step_minutes: float = 1.0, cache_dir: Optional[Path] = None) -> None:
         self.graph_loaded = False
@@ -70,7 +79,7 @@ class SpatialEnvironment:
         self._nearest_node_cache: Dict[str, Dict] = {}  # Per-graph cache
 
     # ============================================================================
-    # Multi-Graph Loading (Mode-Specific)
+    # Multi-Graph Loading (Mode-Specific) - Phase 2.1
     # ============================================================================
     
     def load_mode_specific_graphs(
@@ -80,20 +89,7 @@ class SpatialEnvironment:
         modes: List[str] = None,
         use_cache: bool = True
     ) -> None:
-        """
-        Load separate OSM graphs for different transport modes.
-        
-        This enables mode-specific routing:
-        - Walkers can use pedestrian paths
-        - Cyclists use bike lanes
-        - Cars use roads
-        
-        Args:
-            place: Place name
-            bbox: Bounding box (north, south, east, west)
-            modes: List of modes to load graphs for (default: walk, bike, drive)
-            use_cache: Use cached graphs
-        """
+        """Load separate OSM graphs for different transport modes."""
         if not self.osmnx_available:
             logger.warning("OSMnx not available")
             return
@@ -128,20 +124,17 @@ class SpatialEnvironment:
                         graph = ox.graph_from_place(place, network_type=net_type)
                     elif bbox:
                         north, south, east, west = bbox
-                        # FIX: OSMnx 2.0 bbox format is (west, south, east, north) = (left, bottom, right, top)
                         graph = ox.graph_from_bbox(
                             bbox=(west, south, east, north),
                             network_type=net_type
                         )
                     
                     if graph is not None:
-                        # Add edge lengths
                         if not all('length' in data for _, _, data in graph.edges(data=True)):
                             graph = ox.distance.add_edge_lengths(graph)
                         
                         logger.info(f"Graph loaded: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
                         
-                        # Cache it
                         if use_cache:
                             try:
                                 with open(cache_path, 'wb') as f:
@@ -153,19 +146,17 @@ class SpatialEnvironment:
                 except Exception as e:
                     logger.exception(f"Failed to load {net_type}: {e}")
             
-            # Store graph
             if graph is not None:
                 self.mode_graphs[net_type] = graph
                 
-                # Set primary graph to 'all' or first loaded
                 if self.G is None or net_type == 'all':
                     self.G = graph
                     self.graph_loaded = True
         
         if self.mode_graphs:
-            logger.info(f"âœ… Loaded {len(self.mode_graphs)} mode-specific graphs")
+            logger.info(f"✅ Loaded {len(self.mode_graphs)} mode-specific graphs")
         else:
-            logger.warning("âš ï¸ No graphs loaded")
+            logger.warning("⚠️ No graphs loaded")
     
     def load_osm_graph(
         self, 
@@ -200,7 +191,6 @@ class SpatialEnvironment:
                 self.G = ox.graph_from_place(place, network_type=network_type)
             elif bbox:
                 north, south, east, west = bbox
-                # FIX: OSMnx 2.0 bbox format is (west, south, east, north) = (left, bottom, right, top)
                 self.G = ox.graph_from_bbox(
                     bbox=(west, south, east, north),
                     network_type=network_type
@@ -241,30 +231,17 @@ class SpatialEnvironment:
         return hashlib.md5(key_str.encode()).hexdigest()[:16]
 
     # ============================================================================
-    # Elevation Integration
+    # Elevation Integration - Phase 2.1
     # ============================================================================
     
     def add_elevation_data(self, method: str = 'opentopo', **kwargs) -> bool:
-        """
-        Add elevation data to graph nodes using free open-source methods.
-        
-        Args:
-            method: 'opentopo' (default, free), 'opentopo_ned' (US only), 'raster', or 'google'
-            **kwargs: Additional arguments for specific methods
-                - raster_path: Path to DEM file (for method='raster')
-                - api_key: Google API key (for method='google')
-                - api: Which OpenTopoData API (for method='opentopo')
-        
-        Returns:
-            True if elevation added successfully
-        """
+        """Add elevation data to graph nodes using free open-source methods."""
         if not self.graph_loaded or self.G is None:
             logger.warning("No graph loaded")
             return False
         
         try:
             if method in ['opentopo', 'opentopo_ned', 'opentopo_mapzen']:
-                # Use our ElevationProvider
                 if not ELEVATION_PROVIDER_AVAILABLE:
                     logger.error("ElevationProvider not available")
                     return False
@@ -297,17 +274,16 @@ class SpatialEnvironment:
                 logger.error(f"Unknown method: {method}")
                 return False
             
-            # Check if elevation was added
             sample_nodes = list(self.G.nodes(data=True))[:10]
             has_elev = any('elevation' in data for _, data in sample_nodes)
             
             if has_elev:
                 self.has_elevation = True
                 elevations = [data.get('elevation') for _, data in sample_nodes if 'elevation' in data]
-                logger.info(f"âœ… Elevation data added (sample: {elevations[:3]})")
+                logger.info(f"✅ Elevation data added (sample: {elevations[:3]})")
                 return True
             else:
-                logger.warning("âš ï¸ Elevation not found in nodes")
+                logger.warning("⚠️ Elevation not found in nodes")
                 return False
         
         except Exception as e:
@@ -315,7 +291,231 @@ class SpatialEnvironment:
             return False
 
     # ============================================================================
-    # Mode-Specific Routing
+    # Route Alternatives - Phase 2.2 NEW
+    # ============================================================================
+    
+    def compute_route_alternatives(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        variants: List[str] = None
+    ) -> List['RouteAlternative']:
+        """
+        Compute multiple route options for the same origin-destination pair.
+        
+        Args:
+            agent_id: Agent identifier
+            origin: Starting point (lon, lat)
+            dest: Destination (lon, lat)
+            mode: Transport mode
+            variants: Which route types to compute 
+                     Options: 'shortest', 'fastest', 'safest', 'greenest', 'scenic'
+                     Default: ['shortest', 'fastest']
+        
+        Returns:
+            List of RouteAlternative objects with computed metrics
+        
+        Example:
+            >>> alternatives = env.compute_route_alternatives(
+            ...     "agent_1", origin, dest, "bike",
+            ...     variants=['shortest', 'fastest', 'safest']
+            ... )
+            >>> for alt in alternatives:
+            ...     print(f"{alt.variant}: {alt.metrics['distance']:.2f} km")
+        """
+        if not ROUTE_ALTERNATIVE_AVAILABLE:
+            logger.warning("RouteAlternative class not available, using basic routing")
+            route = self.compute_route(agent_id, origin, dest, mode)
+            return [{'route': route, 'mode': mode, 'variant': 'shortest'}]
+        
+        variants = variants or ['shortest', 'fastest']
+        alternatives = []
+        
+        for variant in variants:
+            route = self._compute_route_variant(origin, dest, mode, variant)
+            if route and len(route) >= 2:
+                alt = RouteAlternative(route, mode, variant)
+                alt.compute_metrics(self)
+                alternatives.append(alt)
+                logger.debug(f"Computed {variant} route: {alt.metrics.get('distance', 0):.2f}km")
+        
+        if alternatives:
+            logger.info(f"Generated {len(alternatives)} route alternatives for {agent_id}")
+        else:
+            logger.warning(f"No alternatives generated for {agent_id}, falling back to basic route")
+            basic_route = self.compute_route(agent_id, origin, dest, mode)
+            if basic_route and len(basic_route) >= 2:
+                alt = RouteAlternative(basic_route, mode, 'shortest')
+                alt.compute_metrics(self)
+                alternatives.append(alt)
+        
+        return alternatives
+    
+    def _compute_route_variant(
+        self,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        variant: str
+    ) -> Optional[List[Tuple[float, float]]]:
+        """Compute a specific route variant using appropriate weight function."""
+        
+        if not (self._is_lonlat(origin) and self._is_lonlat(dest)):
+            logger.warning(f"Invalid coords: {origin} → {dest}")
+            return None
+        
+        network_type = self.mode_network_types.get(mode, 'all')
+        graph = self.mode_graphs.get(network_type, self.G)
+        
+        if graph is None:
+            logger.warning(f"No graph available for mode {mode}")
+            return None
+        
+        try:
+            orig_node = self._get_nearest_node(origin, network_type)
+            dest_node = self._get_nearest_node(dest, network_type)
+            
+            if orig_node is None or dest_node is None:
+                logger.warning(f"Could not find nodes for {origin} → {dest}")
+                return None
+            
+            # Choose weight function based on variant
+            weight_attr = self._get_weight_attribute(graph, mode, variant)
+            
+            if weight_attr is None:
+                logger.warning(f"Weight computation failed for {variant}")
+                return None
+            
+            # Compute shortest path with chosen weights
+            route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight=weight_attr)
+            coords = [(float(graph.nodes[n]['x']), float(graph.nodes[n]['y'])) 
+                     for n in route_nodes]
+            
+            return coords
+            
+        except nx.NetworkXNoPath:
+            logger.warning(f"No path found for {variant} variant")
+            return None
+        except Exception as e:
+            logger.warning(f"Route variant {variant} failed: {e}")
+            return None
+    
+    def _get_weight_attribute(self, graph: Any, mode: str, variant: str) -> Optional[str]:
+        """Get or create edge weight attribute for routing variant."""
+        
+        if variant == 'shortest':
+            return 'length'
+        
+        elif variant == 'fastest':
+            return self._add_time_weights(graph, mode)
+        
+        elif variant == 'safest':
+            return self._add_safety_weights(graph, mode)
+        
+        elif variant == 'greenest':
+            return self._add_emission_weights(graph, mode)
+        
+        elif variant == 'scenic':
+            return self._add_scenic_weights(graph, mode)
+        
+        else:
+            logger.warning(f"Unknown variant: {variant}, using 'length'")
+            return 'length'
+    
+    def _add_time_weights(self, graph: Any, mode: str) -> str:
+        """Add travel time as edge weights."""
+        speed_km_min = self.get_speed_km_min(mode)
+        speed_m_per_min = speed_km_min * 1000
+        
+        for u, v, key, data in graph.edges(keys=True, data=True):
+            length = data.get('length', 0)
+            data['time_weight'] = length / speed_m_per_min if speed_m_per_min > 0 else 1e9
+        
+        return 'time_weight'
+    
+    def _add_safety_weights(self, graph: Any, mode: str) -> str:
+        """Add safety-based weights (prefer low-speed roads for bikes/walk)."""
+        
+        for u, v, key, data in graph.edges(keys=True, data=True):
+            length = data.get('length', 0)
+            highway_type = data.get('highway', 'residential')
+            
+            # Convert highway_type to string if it's a list
+            if isinstance(highway_type, list):
+                highway_type = highway_type[0] if highway_type else 'residential'
+            
+            # Higher speeds = higher risk for vulnerable modes
+            if mode in ['walk', 'bike']:
+                if highway_type in ['motorway', 'motorway_link', 'trunk', 'trunk_link']:
+                    risk_factor = 100.0  # Strongly avoid highways
+                elif highway_type in ['primary', 'primary_link']:
+                    risk_factor = 5.0    # Avoid busy roads
+                elif highway_type in ['secondary', 'secondary_link']:
+                    risk_factor = 2.0    # Prefer not to use
+                elif highway_type in ['residential', 'living_street', 'cycleway', 'path', 'footway']:
+                    risk_factor = 0.8    # Prefer these
+                else:
+                    risk_factor = 1.0    # Tertiary, unclassified OK
+            else:
+                risk_factor = 1.0
+            
+            data['safety_weight'] = length * risk_factor
+        
+        return 'safety_weight'
+    
+    def _add_emission_weights(self, graph: Any, mode: str) -> str:
+        """Add emission-based weights (prefer flat routes)."""
+        
+        for u, v, key, data in graph.edges(keys=True, data=True):
+            length = data.get('length', 0)
+            
+            # Get elevation change if available
+            if self.has_elevation:
+                u_elev = graph.nodes[u].get('elevation', 0)
+                v_elev = graph.nodes[v].get('elevation', 0)
+                elev_change = abs(v_elev - u_elev)
+                
+                # Penalize elevation changes (uphill costs energy)
+                # +10% weight per 10m elevation change
+                elev_penalty = 1.0 + (elev_change / 100.0)
+            else:
+                elev_penalty = 1.0
+            
+            data['emission_weight'] = length * elev_penalty
+        
+        return 'emission_weight'
+    
+    def _add_scenic_weights(self, graph: Any, mode: str) -> str:
+        """Add scenic/quality weights (prefer green spaces, paths)."""
+        
+        for u, v, key, data in graph.edges(keys=True, data=True):
+            length = data.get('length', 0)
+            highway_type = data.get('highway', 'residential')
+            
+            # Convert to string if list
+            if isinstance(highway_type, list):
+                highway_type = highway_type[0] if highway_type else 'residential'
+            
+            # Prefer paths, tracks, green spaces
+            if highway_type in ['path', 'footway', 'cycleway', 'track', 'bridleway']:
+                scenic_factor = 0.5  # Strongly prefer these
+            elif highway_type in ['residential', 'living_street', 'pedestrian']:
+                scenic_factor = 0.7  # Prefer quiet streets
+            elif highway_type in ['tertiary', 'tertiary_link', 'unclassified']:
+                scenic_factor = 0.9  # OK
+            elif highway_type in ['secondary', 'secondary_link']:
+                scenic_factor = 1.2  # Slightly avoid
+            else:
+                scenic_factor = 1.5  # Avoid busy roads
+            
+            data['scenic_weight'] = length * scenic_factor
+        
+        return 'scenic_weight'
+
+    # ============================================================================
+    # Mode-Specific Routing - Phase 2.1
     # ============================================================================
     
     def compute_route(
@@ -327,15 +527,12 @@ class SpatialEnvironment:
     ) -> List[Tuple[float, float]]:
         """
         Compute route using mode-appropriate network.
-        
-        If mode-specific graphs loaded, use appropriate one.
-        Otherwise fall back to primary graph.
+        Uses shortest path by distance (backward compatible).
         """
         if not (self._is_lonlat(origin) and self._is_lonlat(dest)):
             logger.warning(f"Invalid coords: {origin} → {dest}")
             return [origin, dest]
         
-        # Select graph for this mode
         network_type = self.mode_network_types.get(mode, 'all')
         graph = self.mode_graphs.get(network_type, self.G)
         
@@ -387,7 +584,7 @@ class SpatialEnvironment:
             return None
 
     # ============================================================================
-    # Elevation-Aware Energy Consumption
+    # Elevation-Aware Energy Consumption - Phase 2.1
     # ============================================================================
     
     def estimate_emissions_with_elevation(
@@ -395,26 +592,19 @@ class SpatialEnvironment:
         route: List[Tuple[float, float]], 
         mode: str
     ) -> float:
-        """
-        Estimate emissions accounting for elevation changes.
-        
-        Returns emissions in grams CO2e.
-        """
+        """Estimate emissions accounting for elevation changes."""
         if not self.has_elevation or not self.graph_loaded:
-            # Fall back to flat calculation
             return self.estimate_emissions(route, mode)
         
         if len(route) < 2:
             return 0.0
         
-        # Base emissions (grams per km)
         base_grams_per_km = {
             'walk': 0.0, 'bike': 0.0, 
             'bus': 80.0, 'car': 180.0, 'ev': 60.0
         }
         base_rate = base_grams_per_km.get(mode, 100.0)
         
-        # Get network for this mode
         network_type = self.mode_network_types.get(mode, 'all')
         graph = self.mode_graphs.get(network_type, self.G)
         
@@ -427,37 +617,29 @@ class SpatialEnvironment:
             for i in range(len(route) - 1):
                 p1, p2 = route[i], route[i+1]
                 
-                # Get nearest nodes
                 n1 = self._get_nearest_node(p1, network_type)
                 n2 = self._get_nearest_node(p2, network_type)
                 
                 if n1 is None or n2 is None:
-                    # Fallback
                     seg_dist = self._segment_distance_km(p1, p2)
                     total_emissions += base_rate * seg_dist
                     continue
                 
-                # Get elevations
                 elev1 = graph.nodes[n1].get('elevation', 0)
                 elev2 = graph.nodes[n2].get('elevation', 0)
                 
-                # Calculate segment distance and elevation change
                 seg_dist = self._segment_distance_km(p1, p2)
-                elev_change = elev2 - elev1  # meters
+                elev_change = elev2 - elev1
                 
-                # Calculate grade (rise/run)
                 grade = elev_change / (seg_dist * 1000) if seg_dist > 0 else 0
                 
-                # Adjustment factor based on grade
-                # Uphill: +50% per 10% grade
-                # Downhill: -20% per 10% grade (regenerative braking)
-                if grade > 0:  # Uphill
-                    factor = 1.0 + (5.0 * grade)  # +50% per 10% grade
-                else:  # Downhill
-                    factor = 1.0 + (2.0 * grade)  # -20% per 10% grade
-                    factor = max(0.5, factor)  # Min 50% of base
+                if grade > 0:
+                    factor = 1.0 + (5.0 * grade)
+                else:
+                    factor = 1.0 + (2.0 * grade)
+                    factor = max(0.5, factor)
                 
-                factor = max(0.5, min(2.0, factor))  # Clamp to [0.5, 2.0]
+                factor = max(0.5, min(2.0, factor))
                 
                 seg_emissions = base_rate * seg_dist * factor
                 total_emissions += seg_emissions
@@ -469,7 +651,7 @@ class SpatialEnvironment:
         return total_emissions
 
     # ============================================================================
-    # Standard Methods (unchanged)
+    # Standard Methods (unchanged from Phase 2.1)
     # ============================================================================
     
     def get_random_node_coords(self) -> Optional[Tuple[float, float]]:
