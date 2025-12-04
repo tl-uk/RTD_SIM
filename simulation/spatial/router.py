@@ -37,14 +37,16 @@ class Router:
     Computes routes and route alternatives using OSM graphs.
     """
     
-    def __init__(self, graph_manager: 'GraphManager'):
+    def __init__(self, graph_manager: 'GraphManager', congestion_manager=None):
         """
         Initialize router.
         
         Args:
             graph_manager: GraphManager instance with loaded graphs
+            congestion_manager: Optional CongestionManager for dynamic routing
         """
         self.graph_manager = graph_manager
+        self.congestion_manager = congestion_manager
         
         # Mode to network type mapping
         self.mode_network_types = {
@@ -234,13 +236,20 @@ class Router:
             return 'length'
     
     def _add_time_weights(self, graph: Any, mode: str) -> str:
-        """Add travel time as edge weights."""
+        """Add travel time as edge weights with optional congestion."""
         speed_km_min = self.speeds_km_min.get(mode, 0.1)
         speed_m_per_min = speed_km_min * 1000
         
         for u, v, key, data in graph.edges(keys=True, data=True):
             length = data.get('length', 0)
-            data['time_weight'] = length / speed_m_per_min if speed_m_per_min > 0 else 1e9
+            base_time = length / speed_m_per_min if speed_m_per_min > 0 else 1e9
+            
+            # Apply congestion if available
+            if self.congestion_manager is not None:
+                congestion_factor = self.congestion_manager.get_congestion_factor(u, v, key)
+                data['time_weight'] = base_time * congestion_factor
+            else:
+                data['time_weight'] = base_time
         
         return 'time_weight'
     

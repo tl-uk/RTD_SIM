@@ -38,19 +38,31 @@ class SpatialEnvironment:
     Provides backward-compatible API while delegating to specialized components.
     """
     
-    def __init__(self, step_minutes: float = 1.0, cache_dir: Optional[Path] = None) -> None:
+    def __init__(self, step_minutes: float = 1.0, cache_dir: Optional[Path] = None, use_congestion: bool = False) -> None:
         """
         Initialize spatial environment.
         
         Args:
             step_minutes: Simulation time step in minutes
             cache_dir: Cache directory for graphs (default: ~/.rtd_sim_cache/osm_graphs)
+            use_congestion: Enable dynamic traffic congestion (Phase 2.2b)
         """
         self.step_minutes = step_minutes
         
         # Initialize subsystems
         self.graph_manager = GraphManager(cache_dir)
-        self.router = Router(self.graph_manager)
+        
+        # Optional congestion manager
+        self.congestion_manager = None
+        if use_congestion:
+            try:
+                from simulation.spatial.congestion_manager import CongestionManager
+                self.congestion_manager = CongestionManager(self.graph_manager)
+                logger.info("Congestion tracking enabled")
+            except ImportError:
+                logger.warning("CongestionManager not available, congestion disabled")
+        
+        self.router = Router(self.graph_manager, self.congestion_manager)
         self.metrics = MetricsCalculator()
         
         # Backward compatibility properties
@@ -336,3 +348,41 @@ class SpatialEnvironment:
     def cache_dir(self) -> Path:
         """Get cache directory (backward compatibility)."""
         return self.graph_manager.cache_dir
+    
+    # ============================================================================
+    # Congestion Management (Phase 2.2b)
+    # ============================================================================
+    
+    def update_agent_congestion(
+        self,
+        agent_id: str,
+        current_edge: Optional[Tuple[int, int, int]] = None
+    ) -> None:
+        """
+        Update agent's position for congestion tracking.
+        
+        Args:
+            agent_id: Agent identifier
+            current_edge: Current edge (u, v, key) or None if not on network
+        """
+        if self.congestion_manager:
+            self.congestion_manager.update_agent_position(agent_id, current_edge)
+    
+    def get_congestion_stats(self) -> dict:
+        """Get congestion statistics."""
+        if self.congestion_manager:
+            return self.congestion_manager.get_stats()
+        return {'congestion_enabled': False}
+    
+    def advance_congestion_time(self, hours: float = None) -> None:
+        """Advance congestion simulation time."""
+        if self.congestion_manager:
+            if hours is None:
+                hours = self.step_minutes / 60.0
+            self.congestion_manager.advance_time(hours)
+    
+    def get_congestion_heatmap(self) -> dict:
+        """Get congestion factors for all edges."""
+        if self.congestion_manager:
+            return self.congestion_manager.get_congestion_heatmap()
+        return {}
