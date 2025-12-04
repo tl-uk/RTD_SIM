@@ -322,3 +322,17 @@ class SpatialEnvironment:
         """Haversine in meters (backward compatibility)."""
         from simulation.spatial.coordinate_utils import haversine_m
         return haversine_m(coord1, coord2)
+    
+    def _get_cache_key(
+        self,
+        place: Optional[str],
+        bbox: Optional[Tuple],
+        network_type: str
+    ) -> str:
+        """Get cache key (backward compatibility for tests)."""
+        return self.graph_manager._get_cache_key(place, bbox, network_type)
+    
+    @property
+    def cache_dir(self) -> Path:
+        """Get cache directory (backward compatibility)."""
+        return self.graph_manager.cache_dir
