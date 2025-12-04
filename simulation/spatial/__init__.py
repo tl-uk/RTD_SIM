@@ -6,6 +6,7 @@ Modular architecture with single responsibility:
 - Router: Route computation & alternatives  
 - MetricsCalculator: Performance metrics
 - coordinate_utils: Pure utility functions
+- CongestionManager: Dynamic congestion data handling
 """
 
 # Import classes lazily to avoid circular imports
@@ -19,6 +20,9 @@ def __getattr__(name):
     elif name == 'MetricsCalculator':
         from simulation.spatial.metrics_calculator import MetricsCalculator
         return MetricsCalculator
+    elif name == 'CongestionManager':  # NEW
+        from simulation.spatial.congestion_manager import CongestionManager
+        return CongestionManager
     elif name == 'coordinate_utils':
         from simulation.spatial import coordinate_utils
         return coordinate_utils
@@ -28,5 +32,6 @@ __all__ = [
     'GraphManager',
     'Router', 
     'MetricsCalculator',
+    'CongestionManager',  # NEW
     'coordinate_utils',
 ]
