@@ -166,11 +166,18 @@ def test_time_of_day():
     """Test 3: Time-of-day congestion patterns."""
     print_header("TEST 3: Time-of-Day Patterns", level=2)
     
-    config = CongestionConfig()
-    config.peak_hours = {8, 9, 17, 18}
-    config.peak_multiplier = 2.0
+    # config = CongestionConfig()
+    # config.peak_hours = {8, 9, 17, 18}
+    # config.peak_multiplier = 2.0
+    config = CongestionConfig(
+        model=CongestionModel.BPR,  # Use BPR function
+        peak_hours={7, 8, 9, 17, 18, 19},
+        peak_multiplier=2.0,  # 2x worse during rush hour
+        max_congestion_factor=4.0  # Max 4x slower
+    )
     
-    env = SpatialEnvironment(use_congestion=False)
+    # env = SpatialEnvironment(use_congestion=False)
+    env = SpatialEnvironment(use_congestion=True)
     env.load_osm_graph(place=TEST_PLACE, use_cache=True)
     
     # Manually create congestion manager with config
