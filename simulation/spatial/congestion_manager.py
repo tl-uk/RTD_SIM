@@ -121,14 +121,18 @@ class CongestionManager:
         }
         
         logger.info("CongestionManager initialized")
-        self._compute_edge_capacities()
+        
+        # Compute capacities if graph is already loaded
+        if self.graph_manager.is_loaded():
+            self._compute_edge_capacities()
+    
+    def _ensure_capacities_computed(self) -> None:
+        """Ensure edge capacities are computed (lazy initialization)."""
+        if not self.edge_capacities and self.graph_manager.is_loaded():
+            self._compute_edge_capacities()
     
     def _compute_edge_capacities(self) -> None:
         """Compute capacity for all edges based on road type."""
-        if not self.graph_manager.is_loaded():
-            logger.warning("Graph not loaded, using default capacities")
-            return
-        
         graph = self.graph_manager.primary_graph
         if graph is None:
             return
@@ -196,6 +200,9 @@ class CongestionManager:
         Returns:
             Congestion factor (1.0 = no congestion, >1.0 = slower)
         """
+        # Lazy initialization of capacities
+        self._ensure_capacities_computed()
+        
         edge = (u, v, key)
         vehicle_count = len(self.edge_vehicles.get(edge, set()))
         
