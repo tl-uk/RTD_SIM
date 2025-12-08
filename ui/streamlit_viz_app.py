@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """
-RTD_SIM Phase 2.3 - Advanced Visualization with deck.gl/pydeck
+RTD_SIM Phase 2.3 - Advanced Visualization (FIXED)
 
-Features:
-- Animated agent movement
-- Congestion heatmap
-- Time slider controls
-- Layer toggles
-- Real-time metrics
-
-Usage:
-    streamlit run ui/streamlit_viz_app.py
+Fixes:
+- Multiple basemap options (including offline-friendly)
+- Better animation loop
+- Debug mode
+- Explicit rerun handling
 """
 
 from __future__ import annotations
@@ -18,6 +14,7 @@ import sys
 from pathlib import Path
 import random
 import traceback
+import time
 
 # Project root setup
 THIS_FILE = Path(__file__).resolve()
@@ -53,7 +50,7 @@ from visualiser.style_config import (
 # ============================================================================
 
 st.set_page_config(
-    page_title="RTD_SIM Phase 2.3 - Advanced Visualization",
+    page_title="RTD_SIM Phase 2.3 - Fixed",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -71,7 +68,8 @@ def init_session_state():
         'animation_controller': None,
         'layer_manager': LayerManager(),
         'last_error': '',
-        'autoplay': False,
+        'debug_mode': False,
+        'last_rerun_time': 0,
     }
     
     for key, value in defaults.items():
@@ -84,8 +82,15 @@ init_session_state()
 # Title and Header
 # ============================================================================
 
-st.title("🚀 RTD_SIM Phase 2.3 - Advanced Visualization")
-st.markdown("**Real-time agent animation with deck.gl | Congestion heatmaps | Interactive playback**")
+st.title("🚀 RTD_SIM Phase 2.3 - Fixed Visualization")
+
+# Debug toggle
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.markdown("**Real-time agent animation | Interactive playback**")
+with col2:
+    debug = st.checkbox("Debug Mode", value=st.session_state.debug_mode)
+    st.session_state.debug_mode = debug
 
 # ============================================================================
 # Sidebar - Simulation Configuration
@@ -96,8 +101,8 @@ with st.sidebar:
     
     with st.form("sim_config"):
         # Basic parameters
-        steps = st.number_input("Simulation Steps", 10, 500, 100, 10)
-        num_agents = st.number_input("Number of Agents", 1, 100, 20, 5)
+        steps = st.number_input("Simulation Steps", 10, 500, 50, 10)
+        num_agents = st.number_input("Number of Agents", 1, 100, 10, 5)
         step_minutes = st.number_input("Step Duration (min)", 0.1, 5.0, 0.5, 0.1)
         
         st.markdown("---")
@@ -117,8 +122,8 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("### 🚦 Features")
         
-        use_congestion = st.checkbox("Enable Congestion Tracking", value=True,
-                                     help="Track traffic density on network edges")
+        use_congestion = st.checkbox("Enable Congestion Tracking", value=False,
+                                     help="Disable for faster initial testing")
         
         st.markdown("---")
         run_button = st.form_submit_button("🚀 Run Simulation", type="primary", use_container_width=True)
@@ -137,8 +142,8 @@ with st.sidebar:
                 anim.stop()
                 st.rerun()
         with col2:
-            play_label = "⏸️" if anim.is_playing else "▶️"
-            if st.button(play_label, help="Play/Pause", use_container_width=True):
+            play_label = "⏸️ Pause" if anim.is_playing else "▶️ Play"
+            if st.button(play_label, use_container_width=True):
                 anim.toggle_play_pause()
                 st.rerun()
         with col3:
@@ -156,7 +161,6 @@ with st.sidebar:
         
         if current_step != anim.current_step:
             anim.seek(current_step)
-            st.rerun()
         
         # Speed control
         speed = st.select_slider(
@@ -177,12 +181,24 @@ with st.sidebar:
         progress = anim.get_progress()
         st.progress(progress, text=f"Step {anim.current_step + 1}/{anim.total_steps}")
         
+        # Debug info
+        if st.session_state.debug_mode:
+            st.markdown("---")
+            st.markdown("**Debug Info**")
+            st.json({
+                'is_playing': anim.is_playing,
+                'current_step': anim.current_step,
+                'speed': anim.speed_multiplier,
+                'fps': anim.fps,
+                'frame_duration': f"{anim.frame_duration:.3f}s",
+            })
+        
         st.markdown("---")
         st.header("👁️ Layer Visibility")
         
         layer_mgr = st.session_state.layer_manager
         
-        for layer_name in ['agents', 'routes', 'congestion', 'trails']:
+        for layer_name in ['agents', 'routes', 'congestion']:
             current = layer_mgr.is_visible(layer_name)
             new_val = st.checkbox(
                 layer_name.capitalize(),
@@ -227,7 +243,6 @@ def run_simulation(steps, num_agents, place, use_osm, network_type,
         # Create agents
         status.info("🤖 Creating agents...")
         planner = BDIPlanner()
-        rng = random.Random(42)
         agents = []
         
         for i in range(num_agents):
@@ -295,11 +310,8 @@ def run_simulation(steps, num_agents, place, use_osm, network_type,
             if use_congestion and env.congestion_manager:
                 congestion_heatmap = env.get_congestion_heatmap()
                 
-                # Update agent positions for congestion tracking
                 for agent in agents:
-                    # Simplified: just mark as on network if moving
                     if not agent.state.arrived and agent.state.route:
-                        # In real implementation, would calculate actual edge
                         env.update_agent_congestion(agent.state.agent_id, None)
                 
                 env.advance_congestion_time()
@@ -331,7 +343,7 @@ def run_simulation(steps, num_agents, place, use_osm, network_type,
         st.session_state.env = env
         st.session_state.animation_controller = AnimationController(
             total_steps=steps,
-            fps=10
+            fps=5  # Lower FPS for more reliable updates
         )
         st.session_state.last_error = ''
         
@@ -352,9 +364,6 @@ def run_simulation(steps, num_agents, place, use_osm, network_type,
 
 # Execute simulation if button clicked
 if run_button:
-    if num_agents > 50:
-        st.warning("⚠️ Large simulations may take 2-3 minutes")
-    
     run_simulation(
         steps, num_agents, place, use_osm, network_type,
         use_cache, step_minutes, use_congestion
@@ -367,24 +376,13 @@ if run_button:
 
 if not st.session_state.simulation_run:
     st.info("👈 Configure simulation parameters and click 'Run Simulation' to begin")
-    
-    # Show example
     st.markdown("---")
-    st.markdown("### 🎯 What's New in Phase 2.3")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("**🎬 Animated Movement**")
-        st.markdown("Watch agents move along routes in real-time with smooth animations")
-    
-    with col2:
-        st.markdown("**🔥 Congestion Heatmap**")
-        st.markdown("Visualize traffic density with color-coded network edges")
-    
-    with col3:
-        st.markdown("**🎮 Interactive Controls**")
-        st.markdown("Play, pause, speed up, and scrub through simulation timeline")
-    
+    st.markdown("### 🎯 Quick Start")
+    st.markdown("1. Use default settings (10 agents, 50 steps)")
+    st.markdown("2. Disable congestion for faster testing")
+    st.markdown("3. Click 'Run Simulation'")
+    st.markdown("4. Wait ~20 seconds")
+    st.markdown("5. Click '▶️ Play' to start animation")
     st.stop()
 
 # Get current timestep data
@@ -407,7 +405,24 @@ metrics = current_data.get('metrics', {})
 # Deck.gl Map Visualization
 # ============================================================================
 
-st.subheader(f"🗺️ Live Simulation Map - Step {anim.current_step + 1}/{anim.total_steps}")
+st.subheader(f"🗺️ Live Simulation - Step {anim.current_step + 1}/{anim.total_steps}")
+
+# Map style selector
+map_style_options = {
+    "Light (Mapbox)": "mapbox://styles/mapbox/light-v10",
+    "Dark (Mapbox)": "mapbox://styles/mapbox/dark-v10",
+    "Streets (Mapbox)": "mapbox://styles/mapbox/streets-v11",
+    "Light (Carto)": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+    "Dark (Carto)": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+}
+
+selected_style = st.selectbox(
+    "Map Style (try different ones if map doesn't load)",
+    options=list(map_style_options.keys()),
+    index=3  # Default to Carto Light (more reliable)
+)
+
+map_style = map_style_options[selected_style]
 
 # Prepare layers
 layers = []
@@ -417,6 +432,10 @@ if layer_mgr.is_visible('agents'):
     agent_df = AgentDataAdapter.agents_to_dataframe(agent_states, anim.current_step)
     
     if not agent_df.empty:
+        if st.session_state.debug_mode:
+            st.write("Agent data sample:")
+            st.dataframe(agent_df.head())
+        
         agent_layer = pdk.Layer(
             'ScatterplotLayer',
             data=agent_df,
@@ -440,6 +459,9 @@ if layer_mgr.is_visible('routes'):
     route_df = RouteDataAdapter.routes_to_dataframe(agent_states)
     
     if not route_df.empty:
+        if st.session_state.debug_mode:
+            st.write(f"Route data: {len(route_df)} routes")
+        
         route_layer = pdk.Layer(
             'PathLayer',
             data=route_df,
@@ -461,6 +483,9 @@ if layer_mgr.is_visible('congestion') and congestion_heatmap and env:
         )
         
         if not congestion_df.empty:
+            if st.session_state.debug_mode:
+                st.write(f"Congestion: {len(congestion_df)} edges")
+            
             congestion_layer = pdk.Layer(
                 'PathLayer',
                 data=congestion_df,
@@ -492,19 +517,22 @@ deck = pdk.Deck(
         'style': {
             'backgroundColor': 'rgba(0, 0, 0, 0.8)',
             'color': 'white',
-            'fontSize': '12px',
-            'padding': '8px',
         }
     },
-    map_style='mapbox://styles/mapbox/light-v10',
+    map_style=map_style,
 )
 
-st.pydeck_chart(deck)
+st.pydeck_chart(deck, use_container_width=True)
+
+if st.session_state.debug_mode:
+    st.write(f"**Layers:** {len(layers)}")
+    st.write(f"**Map style:** {map_style}")
 
 # ============================================================================
 # Real-time Metrics
 # ============================================================================
 
+st.markdown("---")
 st.subheader("📊 Current Metrics")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -524,74 +552,34 @@ from collections import Counter
 mode_counts = Counter(modes)
 col4.metric("Active Modes", len(mode_counts))
 
-# ============================================================================
-# Time Series Charts
-# ============================================================================
-
-metrics_df = time_series.get_metrics_series()
-
-if not metrics_df.empty:
-    st.markdown("---")
-    st.subheader("📈 Time Series Analysis")
-    
-    # Create subplots
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=("Arrivals Over Time", "Cumulative Emissions",
-                       "Cumulative Distance", "Modal Distribution"),
-        specs=[[{"type": "scatter"}, {"type": "scatter"}],
-               [{"type": "scatter"}, {"type": "bar"}]]
-    )
-    
-    # Arrivals
-    fig.add_trace(
-        go.Scatter(x=metrics_df['step'], y=metrics_df['arrivals'],
-                  mode='lines', name='Arrivals', line=dict(color='#22c55e')),
-        row=1, col=1
-    )
-    
-    # Emissions
-    fig.add_trace(
-        go.Scatter(x=metrics_df['step'], y=metrics_df['total_emissions'],
-                  mode='lines', name='Emissions (g)', line=dict(color='#ef4444')),
-        row=1, col=2
-    )
-    
-    # Distance
-    fig.add_trace(
-        go.Scatter(x=metrics_df['step'], y=metrics_df['total_distance'],
-                  mode='lines', name='Distance (km)', line=dict(color='#3b82f6')),
-        row=2, col=1
-    )
-    
-    # Modal share (current step)
-    mode_data = pd.DataFrame([
-        {'mode': mode, 'count': count}
+# Show mode breakdown
+with st.expander("Mode Breakdown"):
+    mode_df = pd.DataFrame([
+        {'Mode': mode, 'Count': count}
         for mode, count in mode_counts.items()
     ])
-    
-    colors = [MODE_COLORS_HEX.get(m, '#888888') for m in mode_data['mode']]
-    
-    fig.add_trace(
-        go.Bar(x=mode_data['mode'], y=mode_data['count'],
-               marker_color=colors, name='Agents'),
-        row=2, col=2
-    )
-    
-    fig.update_layout(height=600, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(mode_df)
 
 # ============================================================================
-# Auto-advance animation
+# Auto-advance animation (FIXED)
 # ============================================================================
 
+# Only auto-advance if playing
 if anim.is_playing:
-    import time
-    time.sleep(0.1)  # Small delay
-    if anim.update():
+    # Check if enough time has passed
+    current_time = time.time()
+    time_since_last = current_time - st.session_state.last_rerun_time
+    
+    # Update animation state
+    should_update = anim.update()
+    
+    # Throttle reruns (max 10 FPS)
+    if should_update and time_since_last >= 0.1:
+        st.session_state.last_rerun_time = current_time
         st.rerun()
     elif anim.is_playing:
-        # Still playing but reached end without looping
+        # Still playing but waiting for next frame
+        time.sleep(0.05)
         st.rerun()
 
 # ============================================================================
@@ -599,4 +587,4 @@ if anim.is_playing:
 # ============================================================================
 
 st.markdown("---")
-st.markdown("**RTD_SIM Phase 2.3** | Real-Time Decarbonization Simulator with Advanced Visualization")
+st.caption("**RTD_SIM Phase 2.3 (Fixed)** | Real-Time Decarbonization Simulator")
