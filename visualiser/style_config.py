@@ -87,9 +87,12 @@ ANIMATION_VIEW_STATE = {
     'latitude': 55.9533,
     'longitude': -3.1883,
     'zoom': 13,
-    'pitch': 45,  # Slight tilt for better depth perception
+    'pitch': 0,  # Keep flat for better compatibility
     'bearing': 0,
 }
+
+# Default map style (Carto - no API key needed)
+DEFAULT_MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
 
 # Layer z-order (higher = on top)
 Z_ORDER = {

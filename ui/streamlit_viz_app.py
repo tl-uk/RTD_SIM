@@ -407,19 +407,17 @@ metrics = current_data.get('metrics', {})
 
 st.subheader(f"🗺️ Live Simulation - Step {anim.current_step + 1}/{anim.total_steps}")
 
-# Map style selector
+# Map style selector - ONLY Carto options (no Mapbox token needed)
 map_style_options = {
-    "Light (Mapbox)": "mapbox://styles/mapbox/light-v10",
-    "Dark (Mapbox)": "mapbox://styles/mapbox/dark-v10",
-    "Streets (Mapbox)": "mapbox://styles/mapbox/streets-v11",
-    "Light (Carto)": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-    "Dark (Carto)": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+    "Light": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+    "Dark": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+    "Voyager": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
 }
 
 selected_style = st.selectbox(
-    "Map Style (try different ones if map doesn't load)",
+    "Map Style",
     options=list(map_style_options.keys()),
-    index=3  # Default to Carto Light (more reliable)
+    index=0  # Default to Light
 )
 
 map_style = map_style_options[selected_style]
