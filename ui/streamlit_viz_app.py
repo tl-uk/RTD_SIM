@@ -520,7 +520,7 @@ deck = pdk.Deck(
     map_style=map_style,
 )
 
-st.pydeck_chart(deck, use_container_width=True)
+st.pydeck_chart(deck, width='stretch')
 
 if st.session_state.debug_mode:
     st.write(f"**Layers:** {len(layers)}")
@@ -559,26 +559,26 @@ with st.expander("Mode Breakdown"):
     st.dataframe(mode_df)
 
 # ============================================================================
-# Auto-advance animation (FIXED)
+# Auto-advance animation (SIMPLIFIED & FIXED)
 # ============================================================================
 
-# Only auto-advance if playing
+# Auto-advance if playing
 if anim.is_playing:
-    # Check if enough time has passed
-    current_time = time.time()
-    time_since_last = current_time - st.session_state.last_rerun_time
+    # Small delay to control speed
+    time.sleep(0.2)  # 5 FPS
     
-    # Update animation state
-    should_update = anim.update()
-    
-    # Throttle reruns (max 10 FPS)
-    if should_update and time_since_last >= 0.1:
-        st.session_state.last_rerun_time = current_time
+    # Advance one step
+    if anim.current_step < anim.total_steps - 1:
+        anim.current_step += 1
         st.rerun()
-    elif anim.is_playing:
-        # Still playing but waiting for next frame
-        time.sleep(0.05)
-        st.rerun()
+    else:
+        # Reached end
+        if anim.loop:
+            anim.current_step = 0
+            st.rerun()
+        else:
+            anim.pause()
+            st.rerun()
 
 # ============================================================================
 # Footer
