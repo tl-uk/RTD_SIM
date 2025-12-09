@@ -135,21 +135,48 @@ with st.sidebar:
         
         anim = st.session_state.animation_controller
         
-        # Play/pause button
-        col1, col2, col3 = st.columns(3)
+        # Play/pause button row
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            if st.button("⏮️", help="Reset", use_container_width=True):
+            if st.button("⏮️", help="Reset", use_container_width=True, key='reset_btn'):
                 anim.stop()
                 st.rerun()
         with col2:
-            play_label = "⏸️ Pause" if anim.is_playing else "▶️ Play"
-            if st.button(play_label, use_container_width=True):
-                anim.toggle_play_pause()
-                st.rerun()
+            if st.button("◀️", help="Step Back", use_container_width=True, key='back_btn'):
+                if anim.current_step > 0:
+                    anim.current_step -= 1
+                    st.rerun()
         with col3:
-            if st.button("⏭️", help="End", use_container_width=True):
+            if st.button("▶️", help="Step Forward", use_container_width=True, key='fwd_btn'):
+                if anim.current_step < anim.total_steps - 1:
+                    anim.current_step += 1
+                    st.rerun()
+        with col4:
+            if st.button("⏭️", help="End", use_container_width=True, key='end_btn'):
                 anim.seek(anim.total_steps - 1)
                 st.rerun()
+        
+        # Auto-play toggle
+        st.markdown("---")
+        col_play, col_loop = st.columns(2)
+        with col_play:
+            auto_play = st.checkbox(
+                "▶️ Auto-Play",
+                value=anim.is_playing,
+                key='auto_play_toggle',
+                help="Automatically advance through steps"
+            )
+            if auto_play != anim.is_playing:
+                if auto_play:
+                    anim.play()
+                else:
+                    anim.pause()
+                st.rerun()
+        
+        with col_loop:
+            loop = st.checkbox("🔁 Loop", value=anim.loop, key='loop_toggle')
+            if loop != anim.loop:
+                anim.set_loop(loop)
         
         # Time slider
         current_step = st.slider(
@@ -164,20 +191,16 @@ with st.sidebar:
         
         # Speed control
         speed = st.select_slider(
-            "Speed",
+            "⚡ Speed",
             options=[0.25, 0.5, 1.0, 2.0, 4.0],
             value=anim.speed_multiplier,
-            format_func=lambda x: f"{x}x"
+            format_func=lambda x: f"{x}x",
+            key='speed_slider'
         )
         if speed != anim.speed_multiplier:
             anim.set_speed(speed)
         
-        # Loop control
-        loop = st.checkbox("Loop", value=anim.loop)
-        if loop != anim.loop:
-            anim.set_loop(loop)
-        
-        # Progress info
+        st.markdown("---")
         progress = anim.get_progress()
         st.progress(progress, text=f"Step {anim.current_step + 1}/{anim.total_steps}")
         
@@ -559,26 +582,27 @@ with st.expander("Mode Breakdown"):
     st.dataframe(mode_df)
 
 # ============================================================================
-# Auto-advance animation (SIMPLIFIED & FIXED)
+# Auto-advance animation (CHECKBOX-BASED)
 # ============================================================================
 
-# Auto-advance if playing
+# Only auto-advance if checkbox is enabled
 if anim.is_playing:
-    # Small delay to control speed
-    time.sleep(0.2)  # 5 FPS
+    # Calculate delay based on speed
+    delay = 0.2 / anim.speed_multiplier  # Faster speed = shorter delay
+    time.sleep(delay)
     
-    # Advance one step
+    # Advance to next step
     if anim.current_step < anim.total_steps - 1:
         anim.current_step += 1
         st.rerun()
+    elif anim.loop:
+        # Loop back to start
+        anim.current_step = 0
+        st.rerun()
     else:
-        # Reached end
-        if anim.loop:
-            anim.current_step = 0
-            st.rerun()
-        else:
-            anim.pause()
-            st.rerun()
+        # Reached end, stop playing
+        anim.pause()
+        st.rerun()
 
 # ============================================================================
 # Footer
