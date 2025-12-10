@@ -1,0 +1,172 @@
+# agent/story_combinations.yaml
+# 
+# Defines how user stories and job stories interact
+# Optional: Used for fine-tuning specific combinations
+
+# Default settings for all combinations
+defaults:
+  conflict_resolution: "dynamic"  # dynamic | user_priority | job_priority
+  apply_variance: true
+  desire_blend_weights:
+    from_persona: 0.7  # 70% user story
+    from_job: 0.3      # 30% job context
+
+# Specific combination overrides
+combinations:
+  
+  # Eco warrior during rush hour - willing to leave earlier
+  eco_warrior_morning_commute:
+    persona: "eco_warrior"
+    job: "morning_commute"
+    conflict_resolution: "blend"
+    overrides:
+      time_window_adjust: "-15min"  # Leave 15min earlier to bike
+      notes: "Eco warriors plan ahead to use sustainable transport"
+  
+  # Parent's school run - safety is paramount
+  concerned_parent_school_run_then_work:
+    persona: "concerned_parent"
+    job: "school_run_then_work"
+    conflict_resolution: "job_priority"  # Job constraints dominate
+    desire_blend_weights:
+      from_persona: 0.5
+      from_job: 0.5
+    overrides:
+      desires:
+        safety: "+0.05"  # Extra 5% safety boost
+      weather_sensitivity: 1.3  # 30% more sensitive to weather
+      notes: "Parents prioritize child safety above all else"
+  
+  # Student leisure - maximum flexibility
+  budget_student_flexible_leisure:
+    persona: "budget_student"
+    job: "flexible_leisure"
+    conflict_resolution: "user_priority"
+    overrides:
+      mode_constraints: ["avoid_expensive"]
+      notes: "Students optimize for cost in flexible situations"
+  
+  # Business traveler airport trip - reliability critical
+  business_commuter_airport_transfer:
+    persona: "business_commuter"
+    job: "airport_transfer"
+    conflict_resolution: "job_priority"
+    overrides:
+      desires:
+        reliability: "+0.1"
+        time: "+0.1"
+      buffer_minutes: 45  # Extra time buffer
+      notes: "Missing flights is unacceptable"
+  
+  # Freight operator delivery - compliance first
+  freight_operator_freight_delivery_route:
+    persona: "freight_operator"
+    job: "freight_delivery_route"
+    conflict_resolution: "explicit"
+    conflict_rules:
+      - condition: "compliance_requirement"
+        then: "compliance = 1.0, eco = 0.4"
+      - condition: "delivery_window_critical"
+        then: "time = 0.95, cost = 0.6"
+      - condition: "normal_operation"
+        then: "use persona desires"
+    notes: "Regulatory compliance is non-negotiable"
+  
+  # Disabled commuter - accessibility required
+  disabled_commuter_morning_commute:
+    persona: "disabled_commuter"
+    job: "morning_commute"
+    conflict_resolution: "user_priority"  # Accessibility needs dominate
+    overrides:
+      mode_constraints: ["wheelchair_accessible"]
+      pre_booking_required: true
+      notes: "Accessibility is a hard constraint"
+  
+  # Rural resident shopping - limited options
+  rural_resident_shopping_trip:
+    persona: "rural_resident"
+    job: "shopping_trip"
+    conflict_resolution: "user_priority"
+    overrides:
+      mode_constraints: ["vehicle_likely_needed"]
+      trip_chaining: true  # Combine errands
+      notes: "Rural residents must drive for most errands"
+  
+  # Shift worker night travel - safety paramount
+  shift_worker_night_shift:
+    persona: "shift_worker"
+    job: "night_shift"
+    conflict_resolution: "blend"
+    overrides:
+      desires:
+        safety: "+0.15"  # Significant safety boost
+      mode_constraints: ["well_lit_routes", "avoid_empty_areas"]
+      notes: "Night-time safety is critical concern"
+  
+  # Tourist exploration - experience over efficiency
+  tourist_tourist_exploration:
+    persona: "tourist"
+    job: "tourist_exploration"
+    conflict_resolution: "user_priority"
+    overrides:
+      desires:
+        experience: "+0.1"
+        time: "-0.2"  # Less concerned about time
+      scenic_weight: 2.0  # Double scenic preference
+      notes: "Journey is part of the destination"
+  
+  # Delivery driver gig work - earnings optimization
+  delivery_driver_gig_economy_delivery:
+    persona: "delivery_driver"
+    job: "gig_economy_delivery"
+    conflict_resolution: "job_priority"
+    overrides:
+      desires:
+        time: "+0.1"
+        cost: "+0.1"
+      route_optimization: "maximize_deliveries_per_hour"
+      notes: "Time is literally money in gig economy"
+
+# Prohibited combinations (optional)
+# Some user + job combinations might not make sense
+prohibited:
+  - persona: "freight_operator"
+    job: "school_run_then_work"
+    reason: "Freight operators don't do school runs"
+  
+  - persona: "delivery_driver"
+    job: "tourist_exploration"
+    reason: "Delivery drivers work, don't tour"
+
+# Recommended combinations for testing
+recommended_test_cases:
+  - persona: "eco_warrior"
+    job: "morning_commute"
+    expected_mode: "bike"
+    expected_route_type: "greenest"
+  
+  - persona: "budget_student"
+    job: "flexible_leisure"
+    expected_mode: "walk"
+    expected_cost: "< £2"
+  
+  - persona: "business_commuter"
+    job: "airport_transfer"
+    expected_mode: "taxi"
+    expected_time_priority: "high"
+  
+  - persona: "concerned_parent"
+    job: "school_run_then_work"
+    expected_mode: "car_ev"
+    expected_safety_priority: "highest"
+  
+  - persona: "freight_operator"
+    job: "freight_delivery_route"
+    expected_mode: "ev_truck"
+    expected_compliance: "strict"
+
+# Metadata
+version: "3.0.0"
+description: "Story combination rules for RTD_SIM Phase 3"
+author: "RTD_SIM Project"
+last_updated: "2024-12-10"
