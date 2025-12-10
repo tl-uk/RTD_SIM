@@ -1,0 +1,387 @@
+# RTD_SIM Job Contexts
+# 10 diverse job stories defining task contexts for agent behavior
+# Location: agent/job_contexts.yaml
+
+morning_commute:
+  context: "When commuting to work during rush hour"
+  goal: "I want to arrive on time without stress"
+  outcome: "So I can be productive and start work refreshed"
+  
+  job_type: "commute"
+  
+  time_window:
+    start: "07:00"
+    end: "09:00"
+    flexibility: "low"
+    preferred_arrival: "08:45"
+  
+  destination_type: "workplace"
+  typical_distance_km: [5, 15]
+  
+  parameters:
+    recurring: true
+    frequency: "5/week"
+    urgency: "medium"
+    interruptible: false
+  
+  plan_context:
+    - "Rush hour traffic expected"
+    - "Parking at destination may be limited"
+    - "Public transport crowded during peak"
+    - "Arriving late affects professional reputation"
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
+    optional: ["preferred_arrival", "mode_preference", "max_cost", "workplace_parking"]
+
+
+school_run_then_work:
+  context: "When doing school drop-off then commuting to work"
+  goal: "I want a safe, reliable multi-stage trip"
+  outcome: "So my child arrives safely and I'm on time for work"
+  
+  job_type: "multi_stage"
+  
+  stages:
+    - stage_id: 1
+      destination_type: "school"
+      time_window:
+        start: "08:00"
+        end: "08:45"
+        flexibility: "very_low"
+      constraints:
+        - "child_present"
+        - "weather_dependent_mode"
+      typical_distance_km: [1, 5]
+    
+    - stage_id: 2
+      destination_type: "workplace"
+      time_window:
+        start: "09:00"
+        end: "09:30"
+        flexibility: "low"
+      constraints:
+        - "must_follow_stage_1"
+      typical_distance_km: [3, 10]
+  
+  parameters:
+    recurring: true
+    frequency: "5/week"
+    urgency: "high"
+    stage_dependencies: true
+  
+  plan_context:
+    - "No mode switches with children (Stage 1)"
+    - "Mode switch allowed after school drop-off (Stage 2)"
+    - "Total trip time affects work arrival"
+    - "School bells don't wait"
+  
+  csv_columns:
+    required: ["home_lat", "home_lon", "school_lat", "school_lon", "work_lat", "work_lon"]
+    optional: ["school_arrival_time", "work_arrival_time", "child_age"]
+
+
+freight_delivery_route:
+  context: "When performing multi-stop delivery route with time windows"
+  goal: "I want to complete all deliveries efficiently and on time"
+  outcome: "So I maintain customer satisfaction and operational efficiency"
+  
+  job_type: "delivery"
+  
+  delivery_params:
+    num_stops: [3, 8]
+    stop_duration_min: [10, 20]
+    route_optimization: "time_then_emissions"
+  
+  time_window:
+    start: "06:00"
+    end: "18:00"
+    flexibility: "medium"
+  
+  destination_type: "multiple"
+  typical_distance_km: [30, 150]
+  
+  parameters:
+    recurring: true
+    frequency: "variable"
+    urgency: "medium"
+    vehicle_required: true
+  
+  vehicle_constraints:
+    type: "freight"
+    capacity_kg: [500, 3500]
+    range_km: [150, 300]
+    charging_stops_allowed: true
+  
+  plan_context:
+    - "Some delivery windows are strict"
+    - "Route may require charging stop"
+    - "Traffic congestion affects delivery times"
+    - "Failed delivery requires rescheduling"
+    - "Loading/unloading time varies by stop"
+  
+  csv_columns:
+    required: ["depot_lat", "depot_lon", "stop_1_lat", "stop_1_lon"]
+    optional: ["stop_N_lat", "stop_N_lon", "stop_N_time_window", 
+               "vehicle_type", "load_kg", "delivery_priority"]
+
+
+flexible_leisure:
+  context: "When traveling for leisure or social activities"
+  goal: "I want an enjoyable, stress-free journey"
+  outcome: "So I arrive relaxed and can enjoy the activity"
+  
+  job_type: "leisure"
+  
+  time_window:
+    start: "10:00"
+    end: "20:00"
+    flexibility: "high"
+    preferred_arrival: null
+  
+  destination_type: "leisure"
+  typical_distance_km: [2, 30]
+  
+  parameters:
+    recurring: false
+    frequency: "variable"
+    urgency: "low"
+    interruptible: true
+    scenic_preference: 0.7
+  
+  plan_context:
+    - "Time not critical, experience matters"
+    - "May prefer scenic or interesting routes"
+    - "Open to spontaneous mode changes"
+    - "Weather enhances or detracts from experience"
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
+    optional: ["activity_type", "group_size", "budget", "preferred_mode"]
+
+
+emergency_trip:
+  context: "When responding to urgent situation (medical, family emergency)"
+  goal: "I need to arrive as quickly as possible"
+  outcome: "So I can address the urgent situation"
+  
+  job_type: "emergency"
+  
+  time_window:
+    start: "immediate"
+    end: "+30min"
+    flexibility: "none"
+  
+  destination_type: "emergency"
+  typical_distance_km: [1, 50]
+  
+  parameters:
+    recurring: false
+    frequency: "rare"
+    urgency: "critical"
+    interruptible: false
+    override_preferences: true
+  
+  plan_context:
+    - "Fastest route only, ignore emissions"
+    - "Cost not a factor"
+    - "May violate normal constraints"
+    - "Safety still important but time-dominant"
+  
+  desire_overrides:
+    time: 1.0
+    cost: 0.0
+    eco: 0.0
+    safety: 0.8
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
+    optional: ["emergency_type", "urgency_level"]
+
+
+night_shift:
+  context: "When traveling to/from work during night hours"
+  goal: "I want safe and reliable transport at unsocial hours"
+  outcome: "So I can get to work and return home safely"
+  
+  job_type: "commute"
+  
+  time_window:
+    start: "22:00"
+    end: "06:00"
+    flexibility: "low"
+    preferred_arrival: "22:45"
+  
+  destination_type: "workplace"
+  typical_distance_km: [3, 20]
+  
+  parameters:
+    recurring: true
+    frequency: "3-5/week"
+    urgency: "medium"
+    interruptible: false
+  
+  plan_context:
+    - "Limited public transport at night"
+    - "Personal safety concerns in dark hours"
+    - "Well-lit routes preferred"
+    - "Empty streets may feel unsafe"
+    - "Taxi costs higher at night"
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
+    optional: ["shift_start_time", "shift_end_time", "workplace_security"]
+
+
+shopping_trip:
+  context: "When making regular shopping trips for groceries and essentials"
+  goal: "I want convenient transport that handles shopping bags"
+  outcome: "So I can purchase what I need and get it home easily"
+  
+  job_type: "shopping"
+  
+  time_window:
+    start: "09:00"
+    end: "17:00"
+    flexibility: "high"
+    preferred_arrival: null
+  
+  destination_type: "retail"
+  typical_distance_km: [1, 8]
+  
+  parameters:
+    recurring: true
+    frequency: "1-2/week"
+    urgency: "low"
+    interruptible: true
+    return_journey: true
+  
+  plan_context:
+    - "Must accommodate shopping bags/trolley"
+    - "Active transport limited by carrying capacity"
+    - "Return journey with load affects mode choice"
+    - "May combine with other errands"
+    - "Parking availability at destination"
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
+    optional: ["shopping_volume", "has_car", "preferred_store"]
+
+
+airport_transfer:
+  context: "When traveling to/from airport for flight"
+  goal: "I want reliable transport that gets me there with time to spare"
+  outcome: "So I don't miss my flight and arrive stress-free"
+  
+  job_type: "airport"
+  
+  time_window:
+    start: "variable"
+    end: "flight_time_minus_2h"
+    flexibility: "very_low"
+    buffer_minutes: 30
+  
+  destination_type: "airport"
+  typical_distance_km: [10, 60]
+  
+  parameters:
+    recurring: false
+    frequency: "occasional"
+    urgency: "high"
+    interruptible: false
+    luggage_present: true
+  
+  plan_context:
+    - "Missing flight has severe consequences"
+    - "Luggage limits mode choices"
+    - "Traffic unpredictability requires buffer"
+    - "Public transport must have luggage space"
+    - "Early morning/late night departures common"
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "airport_code"]
+    optional: ["flight_time", "luggage_count", "passenger_count", "flight_type"]
+
+
+tourist_exploration:
+  context: "When exploring tourist attractions and scenic locations"
+  goal: "I want flexible transport that enables spontaneous exploration"
+  outcome: "So I can discover interesting places and have memorable experiences"
+  
+  job_type: "tourism"
+  
+  time_window:
+    start: "09:00"
+    end: "19:00"
+    flexibility: "very_high"
+    preferred_arrival: null
+  
+  destination_type: "tourist_attraction"
+  typical_distance_km: [5, 50]
+  
+  parameters:
+    recurring: false
+    frequency: "during_visit"
+    urgency: "low"
+    interruptible: true
+    scenic_preference: 0.9
+    return_journey: true
+  
+  plan_context:
+    - "Scenic routes highly valued"
+    - "Time not critical, experience is"
+    - "May visit multiple attractions in one trip"
+    - "Photography stops desired"
+    - "Local recommendations influence choices"
+  
+  csv_columns:
+    required: ["hotel_lat", "hotel_lon", "attraction_lat", "attraction_lon"]
+    optional: ["attraction_type", "visit_duration", "group_size", "mobility_needs"]
+
+
+gig_economy_delivery:
+  context: "When performing rapid urban deliveries for food/parcel services"
+  goal: "I want to maximize deliveries per hour while managing costs"
+  outcome: "So I can earn a living wage through volume"
+  
+  job_type: "gig_delivery"
+  
+  delivery_params:
+    num_stops: [8, 25]
+    stop_duration_min: [2, 5]
+    route_optimization: "maximize_deliveries_per_hour"
+    dynamic_routing: true
+  
+  time_window:
+    start: "11:00"
+    end: "23:00"
+    flexibility: "high"
+    peak_hours: ["12:00-14:00", "18:00-21:00"]
+  
+  destination_type: "multiple_urban"
+  typical_distance_km: [15, 40]
+  
+  parameters:
+    recurring: true
+    frequency: "variable"
+    urgency: "high"
+    vehicle_required: true
+    real_time_routing: true
+  
+  vehicle_constraints:
+    type: "light_freight"
+    capacity_kg: [10, 50]
+    range_km: [40, 80]
+    charging_time_critical: true
+  
+  plan_context:
+    - "New orders arrive during shift"
+    - "Customer ratings depend on speed"
+    - "Parking/stopping frequently"
+    - "Weather affects bike/scooter safety"
+    - "Peak hours have higher earnings"
+    - "Vehicle costs eat into earnings"
+  
+  csv_columns:
+    required: ["start_lat", "start_lon"]
+    optional: ["vehicle_type", "shift_duration", "target_earnings", "operating_area"]

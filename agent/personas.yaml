@@ -1,0 +1,576 @@
+# RTD_SIM User Personas
+# 10 diverse user stories for story-driven BDI agent generation
+# Location: agent/personas.yaml
+
+eco_warrior:
+  narrative: |
+    As an environmental activist, I want to minimize my carbon footprint 
+    in all my travel decisions so that I can contribute to climate action 
+    and inspire others in my community.
+  
+  persona_type: "passenger"
+  
+  desires:
+    eco: 0.9
+    time: 0.3
+    cost: 0.4
+    comfort: 0.2
+    safety: 0.5
+    reliability: 0.6
+    flexibility: 0.7
+  
+  desire_variance: 0.10
+  
+  beliefs:
+    - text: "Public transport significantly reduces carbon emissions"
+      strength: 0.9
+      updateable: true
+    
+    - text: "Cycling is healthy and sustainable"
+      strength: 0.85
+      updateable: true
+    
+    - text: "EVs are better than petrol cars but active transport is best"
+      strength: 0.7
+      updateable: true
+  
+  constraints:
+    - "Avoid petrol/diesel vehicles when possible"
+    - "Prefer active transport when distance < 5km"
+  
+  mode_preferences:
+    walk: 0.8
+    bike: 0.9
+    ebike: 0.85
+    bus: 0.7
+    train: 0.75
+    ev: 0.5
+    car_petrol: 0.1
+    car_diesel: 0.1
+  
+  plan_hints:
+    - "Willing to combine modes (bike + train)"
+    - "Accepts longer travel time for lower emissions"
+    - "Influenced by peer behavior"
+  
+  social_profile:
+    influence_susceptibility: 0.7
+    influence_strength: 0.8
+    network_size_range: [10, 30]
+
+
+concerned_parent:
+  narrative: |
+    As a concerned parent living in a residential area, I want to reduce 
+    my family's carbon footprint during the daily school run so that I can 
+    contribute to local decarbonization efforts and set a positive example 
+    for my children.
+  
+  persona_type: "passenger"
+  
+  desires:
+    safety: 0.95
+    reliability: 0.9
+    eco: 0.7
+    time: 0.6
+    comfort: 0.5
+    cost: 0.5
+    flexibility: 0.3
+  
+  desire_variance: 0.08
+  
+  beliefs:
+    - text: "Children's safety comes first"
+      strength: 1.0
+      updateable: false
+    
+    - text: "Walking/cycling to school teaches good habits"
+      strength: 0.8
+      updateable: true
+    
+    - text: "Active school runs improve children's health"
+      strength: 0.75
+      updateable: true
+  
+  constraints:
+    - "No mode switches with children present"
+    - "Must arrive at school within time window"
+    - "Weather-dependent cycling (rain threshold)"
+  
+  mode_preferences:
+    walk: 0.8
+    bike: 0.7
+    car_ev: 0.6
+    bus: 0.5
+    car_petrol: 0.3
+  
+  plan_hints:
+    - "Route must avoid busy roads when cycling"
+    - "Prefers familiar, low-traffic routes"
+    - "May carpool with neighbors"
+  
+  social_profile:
+    influence_susceptibility: 0.6
+    influence_strength: 0.7
+    network_size_range: [5, 15]
+
+
+budget_student:
+  narrative: |
+    As a university student on a tight budget, I need affordable transport 
+    options for getting to campus and social activities so that I can manage 
+    my limited finances while maintaining an active social life.
+  
+  persona_type: "passenger"
+  
+  desires:
+    cost: 0.95
+    time: 0.4
+    eco: 0.5
+    comfort: 0.3
+    safety: 0.6
+    reliability: 0.5
+    flexibility: 0.8
+  
+  desire_variance: 0.12
+  
+  beliefs:
+    - text: "Walking and cycling save money"
+      strength: 0.9
+      updateable: false
+    
+    - text: "Student discounts make public transport affordable"
+      strength: 0.8
+      updateable: true
+    
+    - text: "Owning a car is financially irresponsible for students"
+      strength: 0.7
+      updateable: true
+  
+  constraints:
+    - "Maximum daily transport budget: £5"
+    - "Free transport options highly preferred"
+  
+  mode_preferences:
+    walk: 0.95
+    bike: 0.9
+    bus: 0.7
+    train: 0.6
+    ebike: 0.5
+    car_petrol: 0.1
+  
+  plan_hints:
+    - "Willing to walk long distances to save money"
+    - "Uses bike-sharing or borrowed bikes"
+    - "Flexible with time to get cheaper fares"
+  
+  social_profile:
+    influence_susceptibility: 0.8
+    influence_strength: 0.5
+    network_size_range: [15, 40]
+
+
+business_commuter:
+  narrative: |
+    As a senior professional with a demanding schedule, I need reliable and 
+    comfortable transport that minimizes disruption to my work so that I can 
+    maintain productivity and meet client commitments.
+  
+  persona_type: "passenger"
+  
+  desires:
+    time: 0.9
+    reliability: 0.95
+    comfort: 0.8
+    safety: 0.7
+    cost: 0.4
+    eco: 0.5
+    flexibility: 0.3
+  
+  desire_variance: 0.08
+  
+  beliefs:
+    - text: "Time is money in business"
+      strength: 0.95
+      updateable: false
+    
+    - text: "First-class travel is a productivity investment"
+      strength: 0.8
+      updateable: true
+    
+    - text: "Video calls can replace some travel"
+      strength: 0.6
+      updateable: true
+  
+  constraints:
+    - "Must arrive on time for meetings"
+    - "Requires mobile connectivity during travel"
+    - "Professional appearance on arrival"
+  
+  mode_preferences:
+    train_first_class: 0.9
+    car_ev: 0.8
+    taxi: 0.7
+    car_petrol: 0.6
+    bus: 0.3
+    bike: 0.1
+  
+  plan_hints:
+    - "Values predictability over cost"
+    - "Willing to pay premium for time savings"
+    - "Uses travel time for work"
+  
+  social_profile:
+    influence_susceptibility: 0.4
+    influence_strength: 0.6
+    network_size_range: [8, 20]
+
+
+disabled_commuter:
+  narrative: |
+    As a person with mobility challenges, I need accessible and reliable 
+    transport options that accommodate my wheelchair so that I can maintain 
+    independence and participate fully in work and community life.
+  
+  persona_type: "passenger"
+  
+  desires:
+    accessibility: 0.95
+    reliability: 0.9
+    safety: 0.85
+    comfort: 0.7
+    time: 0.5
+    cost: 0.6
+    eco: 0.4
+  
+  desire_variance: 0.06
+  
+  beliefs:
+    - text: "Accessible transport is a right, not a privilege"
+      strength: 1.0
+      updateable: false
+    
+    - text: "Many public transport options lack proper accessibility"
+      strength: 0.8
+      updateable: true
+    
+    - text: "Door-to-door services provide dignity"
+      strength: 0.85
+      updateable: true
+  
+  constraints:
+    - "Requires wheelchair accessible vehicles"
+    - "Cannot use stairs or steep inclines"
+    - "May need assistance boarding"
+  
+  mode_preferences:
+    accessible_taxi: 0.9
+    accessible_bus: 0.7
+    community_transport: 0.8
+    train: 0.5
+    bike: 0.0
+    walk: 0.2
+  
+  plan_hints:
+    - "Pre-booking often required"
+    - "Route must have level access"
+    - "Longer journey times accepted for accessibility"
+  
+  social_profile:
+    influence_susceptibility: 0.5
+    influence_strength: 0.7
+    network_size_range: [5, 15]
+
+
+rural_resident:
+  narrative: |
+    As someone living in a rural area with limited public transport, I need 
+    practical transport solutions for essential trips to town so that I can 
+    access services, employment, and maintain social connections.
+  
+  persona_type: "passenger"
+  
+  desires:
+    reliability: 0.85
+    flexibility: 0.8
+    cost: 0.7
+    time: 0.6
+    safety: 0.7
+    eco: 0.5
+    comfort: 0.5
+  
+  desire_variance: 0.12
+  
+  beliefs:
+    - text: "Car ownership is essential in rural areas"
+      strength: 0.9
+      updateable: true
+    
+    - text: "Public transport serves rural areas poorly"
+      strength: 0.85
+      updateable: true
+    
+    - text: "Community car-sharing could work"
+      strength: 0.6
+      updateable: true
+  
+  constraints:
+    - "Limited public transport availability"
+    - "Long distances to services"
+    - "Weather conditions affect travel"
+  
+  mode_preferences:
+    car_petrol: 0.8
+    car_ev: 0.7
+    bus: 0.4
+    community_transport: 0.6
+    bike: 0.3
+    walk: 0.2
+  
+  plan_hints:
+    - "Combines trips to minimize journeys"
+    - "Shares rides with neighbors when possible"
+    - "EV adoption limited by charging infrastructure"
+  
+  social_profile:
+    influence_susceptibility: 0.6
+    influence_strength: 0.6
+    network_size_range: [10, 25]
+
+
+freight_operator:
+  narrative: |
+    As a freight operator facing strict government mandates, I need to 
+    integrate cost-effective decarbonization strategies into my logistics 
+    planning so that I can maintain regulatory compliance, ensure operational 
+    efficiency, and continue to provide timely and reliable delivery services.
+  
+  persona_type: "freight"
+  
+  desires:
+    compliance: 0.95
+    cost: 0.85
+    reliability: 0.9
+    time: 0.8
+    eco: 0.6
+    flexibility: 0.5
+    safety: 0.75
+  
+  desire_variance: 0.10
+  
+  beliefs:
+    - text: "EV trucks reduce long-term operational costs"
+      strength: 0.7
+      updateable: true
+    
+    - text: "Multimodal transport increases complexity"
+      strength: 0.6
+      updateable: true
+    
+    - text: "Compliance failures have severe penalties"
+      strength: 1.0
+      updateable: false
+    
+    - text: "Route optimization directly impacts profitability"
+      strength: 0.9
+      updateable: false
+  
+  constraints:
+    - "Must meet emission standards"
+    - "Delivery time windows must be honored"
+    - "Vehicle capacity limits"
+    - "Driver hours regulations"
+  
+  mode_preferences:
+    ev_truck: 0.8
+    diesel_truck: 0.4
+    rail_freight: 0.6
+    multimodal: 0.5
+  
+  plan_hints:
+    - "Optimize routes for fuel/charge efficiency"
+    - "Consider rail for distances > 200km"
+    - "Consolidate deliveries to reduce trips"
+    - "Charging infrastructure availability critical"
+  
+  freight_params:
+    vehicle_types: ["ev_truck_3.5t", "ev_truck_7.5t", "diesel_truck_12t"]
+    typical_load_factor: [0.5, 0.9]
+    max_range_km: 250
+  
+  social_profile:
+    influence_susceptibility: 0.5
+    influence_strength: 0.6
+    network_size_range: [5, 15]
+
+
+shift_worker:
+  narrative: |
+    As a healthcare worker doing rotating shifts including nights, I need 
+    flexible transport that works at all hours so that I can get to work 
+    safely regardless of the time and weather conditions.
+  
+  persona_type: "passenger"
+  
+  desires:
+    reliability: 0.9
+    safety: 0.85
+    flexibility: 0.8
+    time: 0.7
+    cost: 0.6
+    comfort: 0.5
+    eco: 0.4
+  
+  desire_variance: 0.10
+  
+  beliefs:
+    - text: "Night-time public transport is unreliable"
+      strength: 0.8
+      updateable: true
+    
+    - text: "Personal safety is paramount during night shifts"
+      strength: 0.95
+      updateable: false
+    
+    - text: "Cycling at night is risky"
+      strength: 0.7
+      updateable: true
+  
+  constraints:
+    - "Must work night shifts (22:00-06:00)"
+    - "Limited public transport at night"
+    - "Safety concerns in dark hours"
+  
+  mode_preferences:
+    car_petrol: 0.8
+    car_ev: 0.75
+    taxi: 0.6
+    bus: 0.4
+    bike: 0.2
+    walk: 0.1
+  
+  plan_hints:
+    - "Prefers direct routes at night"
+    - "Avoids poorly lit areas"
+    - "May carpool with colleagues"
+  
+  social_profile:
+    influence_susceptibility: 0.5
+    influence_strength: 0.5
+    network_size_range: [8, 20]
+
+
+tourist:
+  narrative: |
+    As a tourist visiting Scotland, I want to explore cities and countryside 
+    using sustainable transport options so that I can have an authentic 
+    experience while minimizing my environmental impact.
+  
+  persona_type: "passenger"
+  
+  desires:
+    experience: 0.9
+    eco: 0.7
+    flexibility: 0.85
+    comfort: 0.6
+    safety: 0.7
+    time: 0.4
+    cost: 0.5
+  
+  desire_variance: 0.15
+  
+  beliefs:
+    - text: "Sustainable tourism is responsible tourism"
+      strength: 0.8
+      updateable: true
+    
+    - text: "Public transport offers authentic local experience"
+      strength: 0.75
+      updateable: true
+    
+    - text: "Scenic routes are worth extra time"
+      strength: 0.9
+      updateable: false
+  
+  constraints:
+    - "Unfamiliar with local transport systems"
+    - "Carrying luggage affects mode choice"
+    - "Limited local knowledge"
+  
+  mode_preferences:
+    train: 0.9
+    bus: 0.8
+    bike: 0.7
+    walk: 0.85
+    tour_bus: 0.6
+    rental_ev: 0.5
+  
+  plan_hints:
+    - "Prefers scenic routes over fastest"
+    - "Values local recommendations"
+    - "Willing to try new transport modes"
+  
+  social_profile:
+    influence_susceptibility: 0.7
+    influence_strength: 0.4
+    network_size_range: [2, 10]
+
+
+delivery_driver:
+  narrative: |
+    As a gig economy delivery driver using my own vehicle, I need to balance 
+    earnings with vehicle costs so that I can maintain profitability while 
+    meeting customer expectations for fast delivery.
+  
+  persona_type: "freight"
+  
+  desires:
+    cost: 0.9
+    time: 0.85
+    reliability: 0.8
+    flexibility: 0.75
+    eco: 0.3
+    comfort: 0.4
+    safety: 0.6
+  
+  desire_variance: 0.12
+  
+  beliefs:
+    - text: "Time is money in gig economy"
+      strength: 0.95
+      updateable: false
+    
+    - text: "EVs have lower running costs but high upfront cost"
+      strength: 0.7
+      updateable: true
+    
+    - text: "Customer ratings depend on speed"
+      strength: 0.85
+      updateable: true
+  
+  constraints:
+    - "Must maximize deliveries per hour"
+    - "Vehicle running costs directly impact earnings"
+    - "Customer ratings affect future work"
+  
+  mode_preferences:
+    ebike: 0.8
+    scooter_electric: 0.75
+    car_petrol: 0.6
+    car_ev: 0.5
+    bike: 0.4
+  
+  plan_hints:
+    - "Optimizes routes for maximum deliveries"
+    - "Considers parking availability"
+    - "Weather affects mode choice (bike vs car)"
+  
+  freight_params:
+    vehicle_types: ["ebike", "scooter_electric", "car_small"]
+    typical_load_factor: [0.3, 0.7]
+    max_range_km: 50
+  
+  social_profile:
+    influence_susceptibility: 0.6
+    influence_strength: 0.5
+    network_size_range: [10, 30]
