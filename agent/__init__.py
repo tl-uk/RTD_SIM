@@ -36,9 +36,13 @@ try:
 except ImportError:
     STORY_FRAMEWORK_AVAILABLE = False
 
-# Phase 4: Social networks (future)
+# Phase 4: Social networks
 try:
-    from agent.social_network import SocialNetwork
+    from agent.social_network import (
+        SocialNetwork,
+        SocialTie,
+        NetworkMetrics
+    )
     SOCIAL_NETWORK_AVAILABLE = True
 except ImportError:
     SOCIAL_NETWORK_AVAILABLE = False
@@ -74,6 +78,6 @@ if STORY_FRAMEWORK_AVAILABLE:
 
 # Add Phase 4 exports if available
 if SOCIAL_NETWORK_AVAILABLE:
-    __all__.append('SocialNetwork')
+    __all__.extend(['SocialNetwork', 'SocialTie', 'NetworkMetrics'])
 
-__version__ = '3.0.0'
+__version__ = '4.0.0'
