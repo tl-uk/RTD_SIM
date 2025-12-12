@@ -47,6 +47,19 @@ try:
 except ImportError:
     SOCIAL_NETWORK_AVAILABLE = False
 
+# Phase 4b: Realistic social influence
+try:
+    from agent.social_influence_dynamics import (
+        RealisticSocialInfluence,
+        InfluenceMemory,
+        HabitState,
+        enhance_social_network_with_realism,
+        calculate_satisfaction
+    )
+    REALISTIC_INFLUENCE_AVAILABLE = True
+except ImportError:
+    REALISTIC_INFLUENCE_AVAILABLE = False
+
 
 __all__ = [
     # Phase 1: Core BDI
@@ -80,4 +93,14 @@ if STORY_FRAMEWORK_AVAILABLE:
 if SOCIAL_NETWORK_AVAILABLE:
     __all__.extend(['SocialNetwork', 'SocialTie', 'NetworkMetrics'])
 
-__version__ = '4.0.0'
+# Add Phase 4b exports if available
+if REALISTIC_INFLUENCE_AVAILABLE:
+    __all__.extend([
+        'RealisticSocialInfluence',
+        'InfluenceMemory', 
+        'HabitState',
+        'enhance_social_network_with_realism',
+        'calculate_satisfaction'
+    ])
+
+__version__ = '4.1.0'
