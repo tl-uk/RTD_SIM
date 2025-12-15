@@ -478,10 +478,14 @@ with tab1:
             loc = state.get('location')
             if loc and len(loc) == 2:
                 mode = state.get('mode', 'walk')
+                # CRITICAL: Convert color list to regular Python list
+                color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
                 agent_data.append({
-                    'lon': loc[0],
-                    'lat': loc[1],
-                    'color': MODE_COLORS_RGB.get(mode, [128, 128, 128]),
+                    'lon': float(loc[0]),
+                    'lat': float(loc[1]),
+                    'r': color_rgb[0],  # Split RGB into separate columns
+                    'g': color_rgb[1],
+                    'b': color_rgb[2],
                     'agent_id': state.get('agent_id', ''),
                     'mode': mode,
                     'arrived': state.get('arrived', False),
@@ -493,7 +497,7 @@ with tab1:
                 'ScatterplotLayer',
                 data=agent_df,
                 get_position='[lon, lat]',
-                get_color='color',
+                get_fill_color='[r, g, b]',  # Use RGB columns
                 get_radius=10,
                 radius_min_pixels=6,
                 radius_max_pixels=15,
@@ -513,11 +517,14 @@ with tab1:
             route = state.get('route')
             if route and len(route) >= 2:
                 mode = state.get('mode', 'walk')
-                path = [[pt[0], pt[1]] for pt in route if len(pt) == 2]
+                path = [[float(pt[0]), float(pt[1])] for pt in route if len(pt) == 2]
                 if len(path) >= 2:
+                    color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
                     route_data.append({
                         'path': path,
-                        'color': MODE_COLORS_RGB.get(mode, [128, 128, 128]),
+                        'r': color_rgb[0],  # Split RGB
+                        'g': color_rgb[1],
+                        'b': color_rgb[2],
                         'mode': mode,
                     })
         
@@ -527,7 +534,7 @@ with tab1:
                 'PathLayer',
                 data=route_df,
                 get_path='path',
-                get_color='color',
+                get_color='[r, g, b]',  # Use RGB columns
                 width_min_pixels=3,
                 opacity=0.6,
             )
@@ -577,6 +584,29 @@ with tab1:
     col2.metric("Most Popular Mode", mode_counts.most_common(1)[0][0].capitalize() if mode_counts else "N/A")
     col3.metric("Total Emissions", f"{emissions:.0f} g CO₂")
     col4.metric("Active Modes", len(mode_counts))
+    
+    # DEBUG: Show color distribution
+    with st.expander("🎨 Debug: Agent Colors"):
+        st.markdown("**Agents by mode (should be different colors):**")
+        for mode, count in mode_counts.most_common():
+            color_hex = MODE_COLORS_HEX.get(mode, '#808080')
+            color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+            st.markdown(
+                f"<span style='color:{color_hex};font-size:24px'>●</span> "
+                f"{mode.capitalize()}: {count} agents (RGB: {color_rgb})",
+                unsafe_allow_html=True
+            )
+        
+        # Show first 5 agents' actual data
+        st.markdown("**First 5 agents in data:**")
+        for i, state in enumerate(agent_states[:5]):
+            mode = state.get('mode', 'unknown')
+            color_hex = MODE_COLORS_HEX.get(mode, '#808080')
+            st.markdown(
+                f"<span style='color:{color_hex};font-size:20px'>●</span> "
+                f"{state.get('agent_id')}: {mode}",
+                unsafe_allow_html=True
+            )
 
 # TAB 2: MODE ADOPTION
 with tab2:
@@ -835,17 +865,27 @@ with tab4:
         """)
 
 # ============================================================================
-# Auto-advance animation
+# Auto-advance animation (FIXED)
 # ============================================================================
 
 if anim.is_playing:
-    time.sleep(0.2 / anim.speed_multiplier)
+    # Use smaller delay for smoother playback
+    delay = 0.15
+    time.sleep(delay)
+    
+    # Advance step
     if anim.current_step < anim.total_steps - 1:
         anim.current_step += 1
+        # Force rerun immediately
         st.rerun()
     else:
-        anim.pause()
-        st.rerun()
+        # Reached end
+        if anim.loop:
+            anim.current_step = 0
+            st.rerun()
+        else:
+            anim.pause()
+            st.rerun()
 
 # ============================================================================
 # Footer
