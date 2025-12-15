@@ -1,14 +1,23 @@
+#!/usr/bin/env python3
+"""
+RTD_SIM Unified Visualization
+Phases 1-4.1: Complete integration with clear, intuitive visualization
+
+Key features:
+- Color-coded agents by mode (walk=green, bike=blue, bus=orange, car=red, EV=purple)
+- Story-driven agent generation
+- Social network influence (realistic or deterministic)
+- Clear, actionable plots and metrics
+"""
+
 from __future__ import annotations
 import sys
 from pathlib import Path
 import random
 import traceback
-import ast
-import pandas as pd
-import plotly.express as px
-import folium
-import numpy as np
-from streamlit_folium import st_folium
+import time
+from collections import Counter, defaultdict
+import statistics
 
 # Project root setup
 THIS_FILE = Path(__file__).resolve()
@@ -17,448 +26,839 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
+import pydeck as pdk
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.controller import SimulationController, SimulationConfig
 from simulation.event_bus import EventBus
-from simulation.data_adapter import DataAdapter
-from agent.cognitive_abm import CognitiveAgent
 from agent.bdi_planner import BDIPlanner
 
-# Initialize session state
-def _init_session():
-    for k, v in {
-        "last_df": None,
-        "last_agent_rows": None,
-        "last_arrivals_df": None,
-        "last_metrics_row": None,
-        "last_params": None,
-        "last_run_ok": False,
-        "last_error": "",
-        "env": None,
-    }.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-_init_session()
+# Phase 3+4 imports
+try:
+    from agent.story_driven_agent import generate_balanced_population
+    from agent.social_network import SocialNetwork
+    from agent.social_influence_dynamics import (
+        RealisticSocialInfluence,
+        enhance_social_network_with_realism,
+        calculate_satisfaction
+    )
+    PHASE_4_AVAILABLE = True
+except ImportError:
+    PHASE_4_AVAILABLE = False
 
-# Page config
-st.set_page_config(page_title="RTD_SIM Dashboard", layout="wide")
-st.title("🚗 RTD_SIM — Phase 2.1 (OSM Optimized)")
+# Visualization
+from visualiser.data_adapters import TimeSeriesStorage
+from visualiser.animation_controller import AnimationController
 
-# Sidebar form
-with st.sidebar.form("scenario_form", clear_on_submit=False):
-    st.markdown("### 🎯 Scenario Setup")
+# ============================================================================
+# Configuration
+# ============================================================================
+
+MODE_COLORS_RGB = {
+    'walk': [34, 197, 94],    # Green
+    'bike': [59, 130, 246],    # Blue
+    'bus': [245, 158, 11],     # Orange/Amber
+    'car': [239, 68, 68],      # Red
+    'ev': [168, 85, 245],      # Purple
+}
+
+MODE_COLORS_HEX = {
+    'walk': '#22c55e',
+    'bike': '#3b82f6',
+    'bus': '#f59e0b',
+    'car': '#ef4444',
+    'ev': '#a855f7',
+}
+
+st.set_page_config(
+    page_title="RTD_SIM - Transport Decarbonization Simulator",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ============================================================================
+# Session State
+# ============================================================================
+
+def init_session_state():
+    defaults = {
+        'simulation_run': False,
+        'time_series': None,
+        'env': None,
+        'agents': None,
+        'network': None,
+        'influence_system': None,
+        'animation_controller': None,
+        'adoption_history': defaultdict(list),
+        'cascade_events': [],
+        'use_realistic_influence': True,
+        'show_agents': True,
+        'show_routes': False,
+    }
     
-    # Basic parameters
-    steps = st.number_input("Steps", min_value=10, max_value=500, value=100, step=10)
-    agents_n = st.number_input("Agents", min_value=1, max_value=50, value=10, step=1)
-    step_minutes = st.number_input("Movement step (min/tick)", min_value=0.1, max_value=5.0, value=0.5, step=0.1)
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+init_session_state()
+
+# ============================================================================
+# Title
+# ============================================================================
+
+st.title("🚦 RTD_SIM - Real-Time Transport Decarbonization Simulator")
+st.markdown("**Interactive agent-based model | Story-driven behavior | Social influence dynamics**")
+
+# ============================================================================
+# Sidebar Configuration
+# ============================================================================
+
+with st.sidebar:
+    st.header("⚙️ Simulation Configuration")
     
-    st.markdown("---")
-    st.markdown("### 🗺️ OSM Configuration")
-    
-    use_osm = st.checkbox("Enable OSM routing", value=False, help="Download and use real street networks")
-    
-    if use_osm:
-        osm_method = st.radio("Load method", ["Place name", "Bounding box"])
+    with st.form("config_form"):
+        # Basic settings
+        st.markdown("### 📊 Basic Settings")
+        steps = st.number_input("Simulation Steps", 20, 200, 100, 20)
+        num_agents = st.number_input("Number of Agents", 10, 100, 50, 10)
         
-        if osm_method == "Place name":
-            place = st.text_input("Place (e.g., 'Edinburgh, UK')", value="Edinburgh, UK")
-            bbox_str = ""
+        # Location
+        st.markdown("---")
+        st.markdown("### 🗺️ Location")
+        use_osm = st.checkbox("Use Real Street Network", value=True)
+        if use_osm:
+            place = st.text_input("City", "Edinburgh, UK")
         else:
             place = ""
-            bbox_str = st.text_input(
-                "Bbox (north,south,east,west)", 
-                value="55.97,55.90,-3.15,-3.30",
-                help="Example: 55.97,55.90,-3.15,-3.30"
-            )
         
-        network_type = st.selectbox(
-            "Network type",
-            ["all", "drive", "walk", "bike"],
-            index=0,
-            help="all = complete network, drive = roads only, walk/bike = pedestrian/cycle paths"
-        )
+        # Advanced features
+        st.markdown("---")
+        st.markdown("### 🔬 Social Influence")
         
-        osm_seed = st.checkbox("Seed agents on OSM nodes", value=True)
-        use_cache = st.checkbox("Use cached graphs", value=True, help="Speed up repeated loads")
-    else:
-        place = ""
-        bbox_str = ""
-        network_type = "all"
-        osm_seed = False
-        use_cache = True
-        st.info("Using Edinburgh fallback coordinates (no OSM)")
-    
-    st.markdown("---")
-    st.markdown("### 🎨 Visualization")
-    smooth_routes = st.checkbox("Densify routes", value=False, help="Add intermediate points for smoother lines")
-    
-    run_btn = st.form_submit_button("🚀 Run Simulation", type="primary")
-
-# Edinburgh fallback bounds
-_EDI_LON_MIN, _EDI_LON_MAX = -3.30, -3.15
-_EDI_LAT_MIN, _EDI_LAT_MAX = 55.90, 55.97
-
-def _rand_lonlat_edinburgh(rng: random.Random) -> tuple[float, float]:
-    return (rng.uniform(_EDI_LON_MIN, _EDI_LON_MAX), rng.uniform(_EDI_LAT_MIN, _EDI_LAT_MAX))
-
-# Build environment with progress
-def build_env(place: str, bbox_str: str, use_osm: bool, network_type: str, use_cache: bool) -> SpatialEnvironment:
-    """Build environment with OSM caching."""
-    
-    # Always create environment with cache directory
-    cache_dir = Path.home() / ".rtd_sim_cache" / "osm_graphs"
-    env = SpatialEnvironment(step_minutes=step_minutes, cache_dir=cache_dir)
-    
-    if not use_osm:
-        st.success("✅ Using Edinburgh fallback (no OSM)")
-        return env
-    
-    # Parse bbox if provided
-    bbox = None
-    if bbox_str:
-        try:
-            parts = [float(x.strip()) for x in bbox_str.split(",")]
-            if len(parts) == 4:
-                bbox = tuple(parts)
+        if PHASE_4_AVAILABLE:
+            enable_social = st.checkbox("Enable Social Networks", value=True,
+                                       help="Agents influence each other's mode choices")
+            
+            if enable_social:
+                use_realistic = st.checkbox("Use Realistic Influence", value=True,
+                    help="Realistic: influences decay, habits form\nDeterministic: permanent influence")
+                
+                if use_realistic:
+                    with st.expander("⚙️ Influence Parameters"):
+                        decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05,
+                            help="How fast peer influences fade")
+                        habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1,
+                            help="Importance of habit formation")
+                else:
+                    decay_rate = 0.0
+                    habit_weight = 0.0
             else:
-                st.error("Bbox must have 4 values: north,south,east,west")
-                return env
-        except Exception:
-            st.error("Invalid bbox format")
-            return env
-    
-    # Load graph with spinner
-    with st.spinner("Loading OSM graph (this may take 30-60s on first load)..."):
-        env.load_osm_graph(
-            place=place or None,
-            bbox=bbox,
-            network_type=network_type,
-            use_cache=use_cache
-        )
-    
-    # Show stats
-    stats = env.get_graph_stats()
-    if stats["loaded"]:
-        st.success(f"✅ OSM graph loaded: {stats['nodes']:,} nodes, {stats['edges']:,} edges")
-        st.info(f"📦 Cache location: {cache_dir}")
-    else:
-        st.warning("⚠️ OSM load failed. Using fallback.")
-    
-    return env
-
-def build_agents(env: SpatialEnvironment, n: int, use_osm_seed: bool) -> list:
-    """Create agents with optional OSM seeding."""
-    planner = BDIPlanner()
-    rng = random.Random(123)
-    agents = []
-    
-    # Precompute nearest nodes if using OSM seeding
-    if use_osm_seed and env.graph_loaded:
-        points = []
-        for _ in range(n * 2):  # Origin + dest for each agent
-            coord = env.get_random_node_coords()
-            if coord:
-                points.append(coord)
-        if points:
-            env.precompute_nearest_nodes(points)
-            st.info(f"✅ Precomputed nearest nodes for {len(points)} points")
-    
-    for i in range(n):
-        # Desire profiles (3 types)
-        desires = {
-            "eco": [0.8, 0.3, 0.5][i % 3],
-            "time": [0.4, 0.7, 0.5][i % 3],
-            "cost": [0.2, 0.4, 0.5][i % 3],
-            "comfort": [0.3, 0.5, 0.4][i % 3],
-            "risk": [0.3, 0.2, 0.3][i % 3],
-        }
-        
-        # Generate origin/dest
-        if use_osm_seed and env.graph_loaded:
-            pair = env.get_random_origin_dest()
-            if pair:
-                origin, dest = pair
-            else:
-                origin = _rand_lonlat_edinburgh(rng)
-                dest = _rand_lonlat_edinburgh(rng)
+                use_realistic = False
+                decay_rate = 0.0
+                habit_weight = 0.0
         else:
-            origin = _rand_lonlat_edinburgh(rng)
-            dest = _rand_lonlat_edinburgh(rng)
+            enable_social = False
+            use_realistic = False
+            decay_rate = 0.0
+            habit_weight = 0.0
+            st.info("Install Phase 4 packages for social networks")
         
-        agents.append(CognitiveAgent(
-            seed=42 + i, 
-            agent_id=f"agent_{i+1}", 
-            desires=desires, 
-            planner=planner, 
-            origin=origin, 
-            dest=dest
-        ))
+        st.markdown("---")
+        run_btn = st.form_submit_button("🚀 Run Simulation", 
+                                        type="primary", 
+                                        use_container_width=True)
     
-    return agents
+    # Animation controls (after simulation)
+    if st.session_state.simulation_run and st.session_state.animation_controller:
+        st.markdown("---")
+        st.header("🎬 Playback")
+        
+        anim = st.session_state.animation_controller
+        
+        # Controls
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("⏮️", use_container_width=True, key='reset'):
+                anim.stop()
+                st.rerun()
+        with col2:
+            if st.button("⏸️" if anim.is_playing else "▶️", 
+                        use_container_width=True, key='play'):
+                anim.toggle_play_pause()
+                st.rerun()
+        with col3:
+            if st.button("⏭️", use_container_width=True, key='end'):
+                anim.seek(anim.total_steps - 1)
+                st.rerun()
+        
+        # Slider
+        step = st.slider("Timeline", 0, anim.total_steps - 1, anim.current_step,
+                        key='timeline')
+        if step != anim.current_step:
+            anim.seek(step)
+        
+        st.progress(anim.get_progress(), 
+                   text=f"Step {anim.current_step + 1}/{anim.total_steps}")
+        
+        # Layer visibility
+        st.markdown("---")
+        st.markdown("**Display Options**")
+        st.session_state.show_agents = st.checkbox("Show Agents", 
+            value=st.session_state.show_agents)
+        st.session_state.show_routes = st.checkbox("Show Routes", 
+            value=st.session_state.show_routes)
 
-def _safe_parse_tuple(v):
-    if isinstance(v, (list, tuple)):
-        return tuple(v)
-    if isinstance(v, str):
-        try:
-            parsed = ast.literal_eval(v)
-            return tuple(parsed) if isinstance(parsed, (list, tuple)) else None
-        except Exception:
-            return None
-    return None
+# ============================================================================
+# Simulation Execution
+# ============================================================================
 
-def _safe_parse_list(v):
-    if isinstance(v, list):
-        return v
-    if isinstance(v, str):
-        try:
-            parsed = ast.literal_eval(v)
-            return parsed if isinstance(parsed, list) else None
-        except Exception:
-            return None
-    return None
-
-def run_snapshot(steps: int, agents_n: int, place: str, bbox_str: str, 
-                osm_seed: bool, use_osm: bool, network_type: str, use_cache: bool):
-    """Run simulation with progress feedback."""
+def run_simulation(steps, num_agents, place, use_osm, enable_social, 
+                   use_realistic, decay_rate, habit_weight):
+    """Run complete simulation with progress tracking."""
     
     progress = st.progress(0, "Initializing...")
-    
-    # Build environment
-    progress.progress(5, "Building environment...")
-    env = build_env(place, bbox_str, use_osm, network_type, use_cache)
-    st.session_state.env = env
-    
-    # Build agents
-    progress.progress(15, f"Creating {agents_n} agents...")
-    agents = build_agents(env, int(agents_n), osm_seed)
-    
-    # Setup simulation
-    progress.progress(25, "Initializing simulation...")
-    bus = EventBus()
-    data = DataAdapter()
-    cfg = SimulationConfig(steps=int(steps))
-    ctl = SimulationController(bus, model=None, data_adapter=data, config=cfg, agents=agents, environment=env)
-    
-    bus.subscribe("state_updated", lambda step, state: data.append_log(step, state))
-    bus.subscribe("metrics_updated", lambda metrics: data.append_log(metrics.get("step", 0), metrics))
-    
-    # Run simulation
-    progress.progress(30, "Running simulation...")
-    ctl.start()
-    
-    chunk_size = max(1, cfg.steps // 10)
-    for chunk in range(10):
-        if not ctl._running:
-            break
-        for _ in range(chunk_size):
-            if ctl._current_step >= cfg.steps:
-                break
-            ctl.step()
-        progress.progress(30 + chunk * 6, f"Step {ctl._current_step}/{cfg.steps}")
-    
-    ctl.stop()
-    
-    # Process data
-    progress.progress(90, "Processing results...")
-    df = pd.DataFrame(data.get_log())
-    if "location" in df.columns:
-        df["location"] = df["location"].apply(_safe_parse_tuple)
-    if "route" in df.columns:
-        df["route"] = df["route"].apply(_safe_parse_list)
-    
-    agent_rows = df[df["agent_id"].notna()].sort_values("t").groupby("agent_id").tail(1) if "agent_id" in df.columns else pd.DataFrame()
-    arrivals_df = agent_rows[agent_rows["arrived"] == True] if not agent_rows.empty and "arrived" in agent_rows.columns else pd.DataFrame()
-    metrics_rows = df[df["modal_share"].notna()] if "modal_share" in df.columns else pd.DataFrame()
-    last_metrics = metrics_rows.iloc[-1] if not metrics_rows.empty else None
-    
-    st.session_state.last_df = df
-    st.session_state.last_agent_rows = agent_rows
-    st.session_state.last_arrivals_df = arrivals_df
-    st.session_state.last_metrics_row = last_metrics
-    st.session_state.last_params = {
-        "steps": steps, "agents_n": agents_n, "place": place,
-        "bbox": bbox_str, "osm_seed": osm_seed, "step_minutes": step_minutes
-    }
-    st.session_state.last_run_ok = True
-    st.session_state.last_error = ""
-    
-    progress.progress(100, "✅ Complete!")
-    progress.empty()
-
-# Run button handler
-if run_btn:
-    if agents_n > 30 or steps > 300:
-        st.warning("⚠️ Large simulation may take 1-2 minutes")
+    status = st.empty()
     
     try:
-        run_snapshot(steps, agents_n, place, bbox_str, osm_seed, use_osm, network_type, use_cache)
+        # Environment
+        status.info("🗺️ Loading environment...")
+        cache_dir = Path.home() / ".rtd_sim_cache" / "osm_graphs"
+        env = SpatialEnvironment(step_minutes=1.0, cache_dir=cache_dir, 
+                                use_congestion=False)
+        
+        if use_osm and place:
+            env.load_osm_graph(place=place, use_cache=True)
+            stats = env.get_graph_stats()
+            status.success(f"✅ Loaded {stats['nodes']:,} nodes")
+        
+        progress.progress(20)
+        
+        # Agents
+        status.info("🤖 Creating agents...")
+        planner = BDIPlanner()
+        
+        def random_od():
+            if use_osm and env.graph_loaded:
+                pair = env.get_random_origin_dest()
+                return pair if pair else ((-3.19, 55.95), (-3.15, 55.97))
+            return (
+                (random.uniform(-3.3, -3.15), random.uniform(55.9, 55.97)),
+                (random.uniform(-3.3, -3.15), random.uniform(55.9, 55.97))
+            )
+        
+        if PHASE_4_AVAILABLE:
+            agents = generate_balanced_population(
+                num_agents=num_agents,
+                user_story_ids=['eco_warrior', 'budget_student', 'business_commuter'],
+                job_story_ids=['morning_commute', 'flexible_leisure'],
+                origin_dest_generator=random_od,
+                planner=planner,
+                seed=42
+            )
+        else:
+            from agent.cognitive_abm import CognitiveAgent
+            agents = []
+            for i in range(num_agents):
+                origin, dest = random_od()
+                agents.append(CognitiveAgent(
+                    seed=42 + i,
+                    agent_id=f"agent_{i+1}",
+                    desires={'eco': 0.5, 'time': 0.5, 'cost': 0.5},
+                    planner=planner,
+                    origin=origin,
+                    dest=dest
+                ))
+        
+        status.success(f"✅ Created {len(agents)} agents")
+        progress.progress(35)
+        
+        # Social network
+        network = None
+        influence_system = None
+        
+        if enable_social and PHASE_4_AVAILABLE:
+            status.info("🌐 Building social network...")
+            network = SocialNetwork(topology='homophily', influence_enabled=True)
+            network.build_network(agents, k=5, seed=42)
+            
+            if use_realistic:
+                influence_system = RealisticSocialInfluence(
+                    decay_rate=decay_rate,
+                    habit_weight=habit_weight,
+                    experience_weight=0.4,
+                    peer_weight=0.2
+                )
+                enhance_social_network_with_realism(network, influence_system)
+                status.success("✅ Realistic influence enabled")
+            else:
+                status.success("✅ Deterministic influence enabled")
+        
+        progress.progress(50)
+        
+        # Run simulation
+        status.info("🏃 Running simulation...")
+        
+        time_series = TimeSeriesStorage()
+        adoption_history = defaultdict(list)
+        cascade_events = []
+        
+        for step in range(steps):
+            if influence_system:
+                influence_system.advance_time()
+            
+            # Agent steps
+            agent_states = []
+            for agent in agents:
+                try:
+                    agent.step(env)
+                except:
+                    agent.step()
+                
+                # Social influence
+                if network:
+                    mode_costs = {
+                        'walk': 1.0, 'bike': 0.9, 'bus': 0.8, 
+                        'car': 1.2, 'ev': 1.0
+                    }
+                    adjusted = network.apply_social_influence(
+                        agent.state.agent_id, mode_costs
+                    )
+                    best_mode = min(adjusted, key=adjusted.get)
+                    agent.state.mode = best_mode
+                    
+                    # Track satisfaction
+                    if influence_system and not agent.state.arrived:
+                        satisfaction = calculate_satisfaction(
+                            agent, env,
+                            actual_time=agent.state.travel_time_min,
+                            expected_time=10.0,
+                            actual_cost=1.0,
+                            expected_cost=1.0
+                        )
+                        influence_system.record_mode_usage(
+                            agent.state.agent_id,
+                            agent.state.mode,
+                            satisfaction
+                        )
+                
+                agent_states.append({
+                    'agent_id': agent.state.agent_id,
+                    'location': agent.state.location,
+                    'mode': agent.state.mode,
+                    'arrived': agent.state.arrived,
+                    'route': agent.state.route,
+                    'distance_km': agent.state.distance_km,
+                    'emissions_g': agent.state.emissions_g,
+                })
+            
+            # Track metrics
+            if network:
+                network.record_mode_snapshot()
+            
+            mode_counts = Counter(a.state.mode for a in agents)
+            for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
+                adoption_history[mode].append(mode_counts.get(mode, 0) / len(agents))
+            
+            # Cascade detection
+            if network:
+                for mode in mode_counts.keys():
+                    cascade, clusters = network.detect_cascade(mode, threshold=0.15)
+                    if cascade:
+                        cascade_events.append({
+                            'step': step,
+                            'mode': mode,
+                            'size': max(len(c) for c in clusters) if clusters else 0
+                        })
+            
+            metrics = {
+                'arrivals': sum(1 for a in agents if a.state.arrived),
+                'emissions': sum(a.state.emissions_g for a in agents),
+                'distance': sum(a.state.distance_km for a in agents),
+            }
+            
+            time_series.store_timestep(step, agent_states, None, metrics)
+            
+            if step % max(1, steps // 10) == 0:
+                progress.progress(50 + int(45 * step / steps))
+        
+        progress.progress(100, "✅ Complete!")
+        status.success(f"✅ Simulation complete: {len(cascade_events)} cascades detected")
+        
+        # Store results
+        st.session_state.simulation_run = True
+        st.session_state.time_series = time_series
+        st.session_state.env = env
+        st.session_state.agents = agents
+        st.session_state.network = network
+        st.session_state.influence_system = influence_system
+        st.session_state.adoption_history = adoption_history
+        st.session_state.cascade_events = cascade_events
+        st.session_state.use_realistic_influence = use_realistic
+        st.session_state.animation_controller = AnimationController(
+            total_steps=steps, fps=5
+        )
+        
+        return True
+        
     except Exception as e:
-        st.session_state.last_run_ok = False
-        st.session_state.last_error = "".join(traceback.format_exception_only(type(e), e))
-        st.error(f"❌ Simulation failed")
+        error_msg = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+        status.error("❌ Simulation failed")
         with st.expander("Error Details"):
-            st.code(st.session_state.last_error)
+            st.code(error_msg)
+        return False
+    finally:
+        progress.empty()
 
-# Load results
-df = st.session_state.last_df
-agent_rows = st.session_state.last_agent_rows
-arrivals_df = st.session_state.last_arrivals_df
-last_metrics = st.session_state.last_metrics_row
-env = st.session_state.get("env", None)
+if run_btn:
+    run_simulation(steps, num_agents, place, use_osm, enable_social,
+                   use_realistic, decay_rate, habit_weight)
+    st.rerun()
 
-if not st.session_state.last_run_ok or df is None:
-    st.info("👈 Configure parameters and click 'Run Simulation'")
+# ============================================================================
+# Main Visualization
+# ============================================================================
+
+if not st.session_state.simulation_run:
+    st.info("👈 Configure parameters in the sidebar and click **Run Simulation**")
     
-    # Show cache management
+    # Quick start guide
     st.markdown("---")
-    st.markdown("### 📦 OSM Cache Management")
-    cache_dir = Path.home() / ".rtd_sim_cache" / "osm_graphs"
-    if cache_dir.exists():
-        cache_files = list(cache_dir.glob("*.pkl"))
-        st.write(f"Cached graphs: {len(cache_files)}")
-        if cache_files:
-            total_size = sum(f.stat().st_size for f in cache_files) / (1024**2)
-            st.write(f"Total size: {total_size:.1f} MB")
-            if st.button("🗑️ Clear Cache"):
-                if env:
-                    env.clear_cache()
-                st.success("Cache cleared!")
-                st.rerun()
+    col1, col2 = st.columns(2)
     
-    if st.session_state.last_error:
-        with st.expander("Previous Error"):
-            st.code(st.session_state.last_error)
+    with col1:
+        st.markdown("### 🎯 Quick Start")
+        st.markdown("1. Keep default settings")
+        st.markdown("2. Click **Run Simulation**")
+        st.markdown("3. Wait ~30 seconds")
+        st.markdown("4. Explore results in tabs below")
+    
+    with col2:
+        st.markdown("### 🎨 Color Guide")
+        for mode, color in MODE_COLORS_HEX.items():
+            st.markdown(f"<span style='color:{color};font-size:20px'>●</span> {mode.capitalize()}", 
+                       unsafe_allow_html=True)
+    
     st.stop()
 
-# KPIs
-st.subheader("📊 Key Performance Indicators")
-col1, col2, col3, col4, col5 = st.columns(5)
-arrivals_count = len(arrivals_df)
-mean_tt = round(arrivals_df["travel_time_min"].mean(), 2) if arrivals_count > 0 else None
-total_emissions = round(float(agent_rows["emissions_g"].sum()), 2) if "emissions_g" in agent_rows.columns else 0.0
-total_distance = round(float(agent_rows["distance_km"].sum()), 3) if "distance_km" in agent_rows.columns else 0.0
-mean_dwell = round(arrivals_df["dwell_time_min"].mean(), 2) if arrivals_count > 0 else None
+# Get data
+time_series = st.session_state.time_series
+anim = st.session_state.animation_controller
+agents = st.session_state.agents
+network = st.session_state.network
+adoption_history = st.session_state.adoption_history
 
-col1.metric("Arrivals", f"{arrivals_count}/{len(agent_rows)}")
-col2.metric("Mean Travel Time", f"{mean_tt} min" if mean_tt else "-")
-col3.metric("Total Emissions", f"{total_emissions} g")
-col4.metric("Total Distance", f"{total_distance} km")
-col5.metric("Mean Dwell", f"{mean_dwell} min" if mean_dwell else "-")
+current_data = time_series.get_timestep(anim.current_step)
+if not current_data:
+    st.error("No data available")
+    st.stop()
 
-# Modal share
-st.subheader("🚦 Modal Share")
-if last_metrics is not None:
-    ms = last_metrics.get("modal_share", {})
-    if isinstance(ms, dict) and ms:
-        ms_df = pd.DataFrame([{"mode": k, "count": v} for k, v in ms.items()])
-        fig = px.bar(ms_df, x="mode", y="count", title="Final Modal Distribution",
-                    color="mode", color_discrete_map={
-                        "walk": "#22c55e", "bike": "#3b82f6", "bus": "#f59e0b",
-                        "car": "#ef4444", "ev": "#a855f7"
-                    })
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No modal share data")
-else:
-    st.info("No modal share data")
+agent_states = current_data['agent_states']
+metrics = current_data.get('metrics', {})
 
-# Distributions
-st.subheader("📈 Distributions (Arrived Agents)")
-if arrivals_count > 0:
-    c1, c2 = st.columns(2)
-    with c1:
-        fig_tt = px.histogram(arrivals_df, x="travel_time_min", nbins=20, title="Travel Time Distribution")
-        st.plotly_chart(fig_tt, use_container_width=True)
-    with c2:
-        fig_dist = px.histogram(arrivals_df, x="distance_km", nbins=20, title="Distance Distribution")
-        st.plotly_chart(fig_dist, use_container_width=True)
-else:
-    st.info("No arrived agents yet")
+# ============================================================================
+# Tabs
+# ============================================================================
 
-# Map
-st.subheader("🗺️ Agent Positions & Routes")
-center_lat, center_lon = 55.95, -3.19
-latlon_list = []
+tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Map", "📈 Mode Adoption", "🎯 Impact", "🌐 Network"])
 
-if not agent_rows.empty and "location" in agent_rows.columns:
-    for _, row in agent_rows.iterrows():
-        loc = row.get("location")
-        if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            latlon_list.append((loc[1], loc[0]))
-
-if latlon_list:
-    arr = np.array(latlon_list)
-    center_lat, center_lon = float(arr[:, 0].mean()), float(arr[:, 1].mean())
-
-m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
-
-# Add markers
-if not agent_rows.empty and "location" in agent_rows.columns:
-    for idx, row in agent_rows.head(50).iterrows():
-        loc = row.get("location")
-        if isinstance(loc, (list, tuple)) and len(loc) == 2:
-            lon, lat = loc
-            mode = row.get("mode", "")
-            color_map = {"walk": "green", "bike": "blue", "bus": "orange", "car": "red", "ev": "purple"}
-            
-            folium.CircleMarker(
-                [lat, lon],
-                radius=6,
-                color=color_map.get(mode, "gray"),
-                fill=True,
-                fillOpacity=0.7,
-                popup=f"<b>{row.get('agent_id', '')}</b><br>Mode: {mode}<br>Arrived: {row.get('arrived', False)}",
-                tooltip=row.get('agent_id', '')
-            ).add_to(m)
-
-# Routes
-show_routes = st.checkbox("Show routes", value=False)
-if show_routes and "route" in agent_rows.columns:
-    route_limit = st.slider("Max routes", 1, min(20, len(agent_rows)), min(10, len(agent_rows)))
+# TAB 1: MAP
+with tab1:
+    st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
     
-    for idx, r in agent_rows.head(route_limit).iterrows():
-        r_raw = r.get("route")
-        if isinstance(r_raw, list) and len(r_raw) >= 2:
-            poly_pts = r_raw
-            if smooth_routes and env is not None:
-                try:
-                    poly_pts = env.densify_route(r_raw, step_meters=20.0)
-                except Exception:
-                    pass
-            
-            poly = [(pt[1], pt[0]) for pt in poly_pts if isinstance(pt, (list, tuple)) and len(pt) == 2]
-            if poly:
-                mode = r.get("mode", "")
-                color_map = {"walk": "green", "bike": "blue", "bus": "orange", "car": "red", "ev": "purple"}
-                folium.PolyLine(
-                    poly, 
-                    color=color_map.get(mode, "gray"),
-                    weight=3,
-                    opacity=0.6
-                ).add_to(m)
+    # Prepare map data
+    layers = []
+    
+    # Agents layer with COLOR BY MODE
+    if st.session_state.show_agents:
+        agent_data = []
+        for state in agent_states:
+            loc = state.get('location')
+            if loc and len(loc) == 2:
+                mode = state.get('mode', 'walk')
+                agent_data.append({
+                    'lon': loc[0],
+                    'lat': loc[1],
+                    'color': MODE_COLORS_RGB.get(mode, [128, 128, 128]),
+                    'agent_id': state.get('agent_id', ''),
+                    'mode': mode,
+                    'arrived': state.get('arrived', False),
+                })
+        
+        if agent_data:
+            agent_df = pd.DataFrame(agent_data)
+            agent_layer = pdk.Layer(
+                'ScatterplotLayer',
+                data=agent_df,
+                get_position='[lon, lat]',
+                get_color='color',
+                get_radius=10,
+                radius_min_pixels=6,
+                radius_max_pixels=15,
+                pickable=True,
+                opacity=0.8,
+                stroked=True,
+                filled=True,
+                line_width_min_pixels=2,
+                get_line_color=[255, 255, 255],
+            )
+            layers.append(agent_layer)
+    
+    # Routes layer with COLOR BY MODE
+    if st.session_state.show_routes:
+        route_data = []
+        for state in agent_states:
+            route = state.get('route')
+            if route and len(route) >= 2:
+                mode = state.get('mode', 'walk')
+                path = [[pt[0], pt[1]] for pt in route if len(pt) == 2]
+                if len(path) >= 2:
+                    route_data.append({
+                        'path': path,
+                        'color': MODE_COLORS_RGB.get(mode, [128, 128, 128]),
+                        'mode': mode,
+                    })
+        
+        if route_data:
+            route_df = pd.DataFrame(route_data)
+            route_layer = pdk.Layer(
+                'PathLayer',
+                data=route_df,
+                get_path='path',
+                get_color='color',
+                width_min_pixels=3,
+                opacity=0.6,
+            )
+            layers.append(route_layer)
+    
+    # View state
+    if agent_states:
+        lons = [s['location'][0] for s in agent_states if s.get('location')]
+        lats = [s['location'][1] for s in agent_states if s.get('location')]
+        if lons and lats:
+            center_lon = sum(lons) / len(lons)
+            center_lat = sum(lats) / len(lats)
+        else:
+            center_lon, center_lat = -3.19, 55.95
+    else:
+        center_lon, center_lat = -3.19, 55.95
+    
+    view_state = pdk.ViewState(
+        longitude=center_lon,
+        latitude=center_lat,
+        zoom=13,
+        pitch=0,
+        bearing=0
+    )
+    
+    deck = pdk.Deck(
+        layers=layers,
+        initial_view_state=view_state,
+        tooltip={
+            'html': '<b>{agent_id}</b><br/>Mode: {mode}<br/>Arrived: {arrived}',
+            'style': {'backgroundColor': 'rgba(0,0,0,0.8)', 'color': 'white'}
+        },
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+    )
+    
+    st.pydeck_chart(deck, use_container_width=True)
+    
+    # Current stats
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    mode_counts = Counter(s['mode'] for s in agent_states)
+    arrivals = metrics.get('arrivals', 0)
+    emissions = metrics.get('emissions', 0)
+    
+    col1.metric("Arrivals", f"{arrivals}/{len(agent_states)}")
+    col2.metric("Most Popular Mode", mode_counts.most_common(1)[0][0].capitalize() if mode_counts else "N/A")
+    col3.metric("Total Emissions", f"{emissions:.0f} g CO₂")
+    col4.metric("Active Modes", len(mode_counts))
 
-st_folium(m, width=1000, height=500)
+# TAB 2: MODE ADOPTION
+with tab2:
+    st.subheader("📈 How Transport Modes Are Being Adopted")
+    
+    st.markdown("""
+    **What this shows:** The percentage of agents using each transport mode over time.
+    
+    - **Rising lines** = mode becoming more popular
+    - **Falling lines** = people switching away
+    - **Flat lines** = stable usage
+    """)
+    
+    # Create adoption plot
+    fig = go.Figure()
+    
+    for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
+        if mode in adoption_history and adoption_history[mode]:
+            fig.add_trace(go.Scatter(
+                x=list(range(len(adoption_history[mode]))),
+                y=[v * 100 for v in adoption_history[mode]],  # Convert to percentage
+                mode='lines',
+                name=mode.capitalize(),
+                line=dict(width=3, color=MODE_COLORS_HEX[mode])
+            ))
+    
+    fig.add_vline(x=anim.current_step, line_dash="dash", line_color="red",
+                 annotation_text="Now", annotation_position="top")
+    
+    fig.update_layout(
+        xaxis_title="Time Step",
+        yaxis_title="Adoption Rate (%)",
+        hovermode='x unified',
+        height=400,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Key insights
+    st.markdown("---")
+    st.markdown("### 🔍 Key Insights")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Peak Adoption:**")
+        for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
+            if mode in adoption_history and adoption_history[mode]:
+                peak = max(adoption_history[mode]) * 100
+                color = MODE_COLORS_HEX[mode]
+                st.markdown(f"<span style='color:{color}'>●</span> {mode.capitalize()}: {peak:.1f}%", 
+                           unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("**Current Share:**")
+        mode_counts = Counter(s['mode'] for s in agent_states)
+        total = len(agent_states)
+        for mode, count in mode_counts.most_common():
+            pct = (count / total) * 100
+            color = MODE_COLORS_HEX.get(mode, '#808080')
+            st.markdown(f"<span style='color:{color}'>●</span> {mode.capitalize()}: {pct:.1f}%", 
+                       unsafe_allow_html=True)
+    
+    # Social influence effect
+    if st.session_state.use_realistic_influence:
+        st.info("""
+        ✅ **Realistic Influence Active:** You'll see modes rise and fall naturally as:
+        - Peer influences decay over time
+        - Agents form habits with modes they use repeatedly
+        - Personal experience matters more than peer pressure
+        """)
+    elif network:
+        st.warning("""
+        ⚠️ **Deterministic Influence Active:** Modes will trend toward 80-100% adoption (unrealistic).
+        Enable "Use Realistic Influence" to see more natural patterns.
+        """)
 
-# Download & debug
-col_dl, col_dbg = st.columns([1, 1])
-
-with col_dl:
-    if df is not None and not df.empty:
-        csv = df.to_csv(index=False)
-        st.download_button(
-            "💾 Download Results (CSV)",
-            csv,
-            "rtd_sim_results.csv",
-            "text/csv",
+# TAB 3: IMPACT
+with tab3:
+    st.subheader("🎯 Environmental & Efficiency Impact")
+    
+    st.markdown("""
+    **What this shows:** The real-world impact of transport mode choices.
+    
+    - **Emissions** = CO₂ pollution (lower is better)
+    - **Distance** = Total travel distance
+    - **Efficiency** = Emissions per kilometer traveled
+    """)
+    
+    # Get full time series
+    all_metrics = []
+    for step_idx in range(len(time_series)):
+        data = time_series.get_timestep(step_idx)
+        if data:
+            all_metrics.append({
+                'step': step_idx,
+                'emissions': data['metrics'].get('emissions', 0),
+                'distance': data['metrics'].get('distance', 0),
+            })
+    
+    if all_metrics:
+        metrics_df = pd.DataFrame(all_metrics)
+        metrics_df['efficiency'] = metrics_df['emissions'] / metrics_df['distance'].replace(0, 1)
+        
+        # Emissions over time
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=metrics_df['step'],
+            y=metrics_df['emissions'],
+            mode='lines',
+            name='Total Emissions',
+            line=dict(color='#ef4444', width=3),
+            fill='tozeroy',
+            fillcolor='rgba(239, 68, 68, 0.2)'
+        ))
+        
+        fig.add_vline(x=anim.current_step, line_dash="dash", line_color="red",
+                     annotation_text="Now")
+        
+        fig.update_layout(
+            title="Total CO₂ Emissions Over Time",
+            xaxis_title="Time Step",
+            yaxis_title="Emissions (g CO₂)",
+            height=300
         )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Key metrics
+        col1, col2, col3 = st.columns(3)
+        
+        current_emissions = metrics_df.iloc[-1]['emissions']
+        peak_emissions = metrics_df['emissions'].max()
+        avg_efficiency = metrics_df['efficiency'].mean()
+        
+        col1.metric("Current Emissions", f"{current_emissions:.0f} g CO₂")
+        col2.metric("Peak Emissions", f"{peak_emissions:.0f} g CO₂")
+        col3.metric("Avg Efficiency", f"{avg_efficiency:.1f} g/km")
+        
+        # Interpretation
+        st.markdown("---")
+        st.markdown("### 💡 What This Means")
+        
+        if current_emissions < peak_emissions * 0.8:
+            st.success(f"""
+            ✅ **Emissions are decreasing!** Current emissions are {((1 - current_emissions/peak_emissions)*100):.0f}% below peak.
+            This suggests agents are shifting to lower-emission modes (walking, cycling, electric).
+            """)
+        elif current_emissions > peak_emissions * 0.9:
+            st.warning("""
+            ⚠️ **Emissions remain high.** Most agents are still using high-emission modes (cars, buses).
+            Consider policy interventions to encourage walking, cycling, or electric vehicles.
+            """)
+        else:
+            st.info("""
+            ℹ️ **Emissions are moderate.** There's a mix of transport modes being used.
+            """)
 
-with col_dbg:
-    with st.expander("🔍 Debug Info"):
-        if env:
-            stats = env.get_graph_stats()
-            st.json(stats)
-        if df is not None:
-            st.write(f"Dataframe shape: {df.shape}")
-            st.dataframe(df.head(10))
+# TAB 4: NETWORK
+with tab4:
+    st.subheader("🌐 Social Network Analysis")
+    
+    if network:
+        st.markdown("""
+        **What this shows:** How agents are socially connected and influence each other's choices.
+        
+        - **Connections** = Social ties between agents
+        - **Cascades** = When a mode choice spreads virally through the network
+        - **Clustering** = How tightly grouped the network is
+        """)
+        
+        # Network metrics
+        net_metrics = network.get_network_metrics()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Agents", net_metrics.total_agents)
+        col2.metric("Connections", net_metrics.total_ties)
+        col3.metric("Avg Connections", f"{net_metrics.avg_degree:.1f}")
+        col4.metric("Clustering", f"{net_metrics.clustering_coefficient:.2f}")
+        
+        # Cascade events
+        if st.session_state.cascade_events:
+            st.markdown("---")
+            st.markdown("### 🌊 Cascade Events (Viral Adoption)")
+            
+            st.markdown("""
+            **Cascades** occur when many agents adopt the same mode due to peer influence.
+            Large cascades indicate strong social influence effects.
+            """)
+            
+            cascade_df = pd.DataFrame(st.session_state.cascade_events)
+            
+            if not cascade_df.empty:
+                fig = px.scatter(
+                    cascade_df,
+                    x='step',
+                    y='size',
+                    color='mode',
+                    color_discrete_map=MODE_COLORS_HEX,
+                    title="Cascade Events Over Time",
+                    labels={'step': 'Time Step', 'size': 'Cascade Size (agents)', 'mode': 'Mode'}
+                )
+                fig.update_traces(marker=dict(size=12))
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown(f"**Total cascades detected:** {len(cascade_df)}")
+        else:
+            st.info("No cascades detected yet. Cascades occur when mode choices spread rapidly through the network.")
+        
+        # Influence explanation
+        st.markdown("---")
+        st.markdown("### 🔬 Influence Dynamics")
+        
+        if st.session_state.use_realistic_influence and st.session_state.influence_system:
+            influence_system = st.session_state.influence_system
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**System Parameters:**")
+                st.write(f"- Decay Rate: {influence_system.decay_rate:.0%} per step")
+                st.write(f"- Habit Weight: {influence_system.habit_weight:.0%}")
+                st.write(f"- Experience Weight: {influence_system.experience_weight:.0%}")
+                st.write(f"- Peer Weight: {influence_system.peer_weight:.0%}")
+            
+            with col2:
+                st.markdown("**What This Means:**")
+                st.write("- 🔻 Influences fade over time")
+                st.write("- 🔄 Repeated use builds habits")
+                st.write("- 💭 Personal experience matters")
+                st.write("- 👥 Peers have some influence")
+            
+            st.success("""
+            ✅ **Realistic Mode:** This produces natural adoption patterns where modes rise and fall,
+            similar to real-world behavior. Peak adoption typically reaches 30-50%.
+            """)
+        
+        elif network:
+            st.warning("""
+            ⚠️ **Deterministic Mode:** Peer influences are permanent and don't decay.
+            This typically leads to unrealistic 80-100% adoption of popular modes.
+            
+            **Recommendation:** Enable "Use Realistic Influence" in sidebar for more natural behavior.
+            """)
+    
+    else:
+        st.info("""
+        Social networks are not enabled for this simulation.
+        
+        Enable "Social Networks" in the sidebar to see:
+        - How agents influence each other's mode choices
+        - Cascade effects (viral adoption)
+        - Network topology effects
+        """)
+
+# ============================================================================
+# Auto-advance animation
+# ============================================================================
+
+if anim.is_playing:
+    time.sleep(0.2 / anim.speed_multiplier)
+    if anim.current_step < anim.total_steps - 1:
+        anim.current_step += 1
+        st.rerun()
+    else:
+        anim.pause()
+        st.rerun()
+
+# ============================================================================
+# Footer
+# ============================================================================
+
+st.markdown("---")
+
+# Status indicator
+if st.session_state.use_realistic_influence:
+    st.success("✅ **Realistic Social Influence Active** - Natural adoption patterns with decay and habits")
+elif network:
+    st.info("📊 **Deterministic Influence Active** - Traditional social influence model")
+else:
+    st.info("🔷 **No Social Influence** - Agents decide independently")
+
+st.caption("**RTD_SIM** - Real-Time Decarbonization Simulator | Agent-Based Transport Model")
