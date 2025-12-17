@@ -74,7 +74,7 @@ class BDIPlanner:
         )
         
         # In bdi_planner.py, after calculating cost:
-        total_cost += random.uniform(-0.05, 0.05)  # Add ±5% noise
+        total_cost += random.uniform(-0.15, 0.15)  # Add ±15% noise
 
         # Debug logging (uncomment to see calculations)
         # print(f"{mode:6s} | T:{time_norm:.2f} C:{cost_norm:.2f} E:{emissions_norm:.2f} | Cost:{total_cost:.2f}")

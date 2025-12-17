@@ -39,6 +39,7 @@ class AgentState:
     dwell_time_min: float = 0.0  # cumulative dwell time (stops, lights, boarding)
 
     mode_history: List[str] = field(default_factory=list)
+    mode_costs: Dict[str, float] = field(default_factory=dict)  # ✅ NEW
     consecutive_same_mode: int = 0
 
 class CognitiveAgent:
@@ -101,18 +102,15 @@ class CognitiveAgent:
             return
         need_plan = (self.t % self._replan_period == 1) or (not s.route)
         if need_plan:
-            # Environment expects (lon, lat) origin/dest; ABM stores (lon, lat) -> pass through.
             scores = self.planner.evaluate_actions(env, s, self.desires, s.location, s.destination)
             best = self.planner.choose_action(scores)
             s.mode = best.mode
-
-            # Ensure route is a list of (lon, lat) tuples (no conversion here)
-            try:
-                s.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
-            except Exception:
-                logger.exception("Route vertices not parseable; falling back to straight-line")
-                s.route = [s.location, s.destination] if s.location and s.destination else []
-
+            
+            # ✅ NEW: Store the cost evaluation for social influence
+            s.mode_costs = {score.action.mode: score.cost for score in scores}
+            
+            # Route assignment...
+            s.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
             s.route_index = 0
             s.route_offset_km = 0.0
             if s.departed_at_step is None:
