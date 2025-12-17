@@ -529,28 +529,25 @@ with tab1:
                 mode = state.get('mode', 'walk')
                 color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
                 
-                # Ensure we have clean Python lists, not numpy arrays or tuples
+                # Split RGB into separate columns (avoids pandas Series issue)
                 agent_data.append({
                     'lon': float(loc[0]),
                     'lat': float(loc[1]),
-                    # 🔧 CRITICAL: Create as Python list explicitly
-                    'color': list([int(color_rgb[0]), int(color_rgb[1]), int(color_rgb[2]), 255]),
-                    'agent_id': str(state.get('agent_id', '')),
-                    'mode': str(mode),
-                    'arrived': bool(state.get('arrived', False)),
+                    'r': int(color_rgb[0]),
+                    'g': int(color_rgb[1]),
+                    'b': int(color_rgb[2]),
+                    'agent_id': state.get('agent_id', ''),
+                    'mode': mode,
+                    'arrived': state.get('arrived', False),
                 })
         
         if agent_data:
             agent_df = pd.DataFrame(agent_data)
-            
-            # 🔬 DIAGNOSTIC: Check what Pydeck receives
-            st.write("DEBUG: First row color:", agent_df.iloc[0]['color'] if len(agent_df) > 0 else "empty")
-            
             agent_layer = pdk.Layer(
                 'ScatterplotLayer',
                 data=agent_df,
                 get_position='[lon, lat]',
-                get_fill_color='color',
+                get_fill_color='[r, g, b]',
                 get_radius=10,
                 radius_min_pixels=6,
                 radius_max_pixels=15,
@@ -575,7 +572,9 @@ with tab1:
                     color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
                     route_data.append({
                         'path': path,
-                        'color': [int(color_rgb[0]), int(color_rgb[1]), int(color_rgb[2]), 200],  # ✅ FIX: RGBA array
+                        'r': int(color_rgb[0]),
+                        'g': int(color_rgb[1]),
+                        'b': int(color_rgb[2]),
                         'mode': mode,
                     })
         
@@ -585,7 +584,7 @@ with tab1:
                 'PathLayer',
                 data=route_df,
                 get_path='path',
-                get_color='color',  # ✅ FIX: Direct reference
+                get_color='[r, g, b]',
                 width_min_pixels=3,
                 opacity=0.6,
             )
