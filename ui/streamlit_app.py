@@ -256,8 +256,10 @@ def run_simulation(steps, num_agents, place, use_osm, enable_social,
         if PHASE_4_AVAILABLE:
             agents = generate_balanced_population(
                 num_agents=num_agents,
-                user_story_ids=['eco_warrior', 'budget_student', 'business_commuter'],
-                job_story_ids=['morning_commute', 'flexible_leisure'],
+                user_story_ids=['eco_warrior', 'budget_student', 'business_commuter', 
+                                'busy_parent', 'accessibility_user', 'delivery_driver'],
+                job_story_ids=['morning_commute', 'flexible_leisure', 'school_run',
+                            'delivery_job', 'emergency_trip'],
                 origin_dest_generator=random_od,
                 planner=planner,
                 seed=42
@@ -316,30 +318,13 @@ def run_simulation(steps, num_agents, place, use_osm, enable_social,
             # Agent steps
             agent_states = []
             for agent in agents:
-                # ✅ CRITICAL: Pass environment to agent.step()
+                # Pass environment to agent.step()
                 try:
-                    agent.step(env)  # ✅ Make sure 'env' is passed
+                    agent.step(env)  # Make sure 'env' is passed
                 except Exception as e:
                     # Fallback without environment (agents won't move)
                     agent.step()
                     print(f"Warning: Agent {agent.state.agent_id} stepped without environment: {e}")
-                
-                # Diagnostic logging
-                if step == 0 or step % 20 == 0:  # Every 20 steps
-                    print(f"\n=== Step {step} ===")
-                    
-                    # Check mode diversity BEFORE social influence
-                    modes_before = Counter(a.state.mode for a in agents)
-                    print(f"Modes before social influence: {dict(modes_before)}")
-                    
-                    # Check desire diversity
-                    desire_samples = [
-                        (a.state.agent_id, a.desires.get('eco', 0), a.desires.get('time', 0), a.desires.get('cost', 0))
-                        for a in agents[:5]  # First 5 agents
-                    ]
-                    print(f"Sample desires (eco, time, cost):")
-                    for agent_id, eco, time, cost in desire_samples:
-                        print(f"  {agent_id}: eco={eco:.2f}, time={time:.2f}, cost={cost:.2f}")
 
                 # Social influence
                 if network:
@@ -368,12 +353,6 @@ def run_simulation(steps, num_agents, place, use_osm, enable_social,
                             agent.state.mode,
                             satisfaction
                         )
-
-                        # Diagnostic logging
-                        if step == 0 or step % 20 == 0:
-                            modes_after = Counter(a.state.mode for a in agents)
-                            print(f"Modes after social influence: {dict(modes_after)}")
-                            print(f"Convergence: {max(modes_after.values()) / len(agents) * 100:.1f}%")
                 
                 agent_states.append({
                     'agent_id': agent.state.agent_id,
@@ -536,7 +515,7 @@ with tab1:
         if test_data:
             test_df = pd.DataFrame(test_data)
             st.write("Test DataFrame:")
-            st.dataframe(test_df)
+            st.write(test_df) # st.dataframe(test_df) / st.table(test_df) for static display
             st.write("DataFrame dtypes:")
             st.write(test_df.dtypes)
             st.write("Sample color column value:")
@@ -722,7 +701,7 @@ with tab2:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Key insights
     st.markdown("---")
@@ -812,7 +791,7 @@ with tab3:
             height=300
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         
         # Key metrics
         col1, col2, col3 = st.columns(3)
@@ -889,7 +868,7 @@ with tab4:
                     labels={'step': 'Time Step', 'size': 'Cascade Size (agents)', 'mode': 'Mode'}
                 )
                 fig.update_traces(marker=dict(size=12))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
                 
                 st.markdown(f"**Total cascades detected:** {len(cascade_df)}")
         else:
