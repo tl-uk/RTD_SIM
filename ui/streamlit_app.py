@@ -184,11 +184,14 @@ with st.sidebar:
             if st.button("⏮️", use_container_width=True, key='reset'):
                 anim.stop()
                 st.rerun()
+        
         with col2:
-            if st.button("⏸️" if anim.is_playing else "▶️", 
-                        use_container_width=True, key='play'):
+            # ✅ FIX: Better state management for play/pause
+            play_label = "⏸️" if anim.is_playing else "▶️"
+            if st.button(play_label, use_container_width=True, key='play'):
                 anim.toggle_play_pause()
                 st.rerun()
+        
         with col3:
             if st.button("⏭️", use_container_width=True, key='end'):
                 anim.seek(anim.total_steps - 1)
@@ -199,9 +202,10 @@ with st.sidebar:
                         key='timeline')
         if step != anim.current_step:
             anim.seek(step)
+            st.rerun()  # FIX: Add rerun after seek
         
         st.progress(anim.get_progress(), 
-                   text=f"Step {anim.current_step + 1}/{anim.total_steps}")
+                text=f"Step {anim.current_step + 1}/{anim.total_steps}")
         
         # Layer visibility
         st.markdown("---")
@@ -478,14 +482,13 @@ with tab1:
             loc = state.get('location')
             if loc and len(loc) == 2:
                 mode = state.get('mode', 'walk')
-                # CRITICAL: Convert color list to regular Python list
                 color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+                
+                # ✅ FIX: Store color as complete RGBA array
                 agent_data.append({
                     'lon': float(loc[0]),
                     'lat': float(loc[1]),
-                    'r': color_rgb[0],  # Split RGB into separate columns
-                    'g': color_rgb[1],
-                    'b': color_rgb[2],
+                    'color': [int(color_rgb[0]), int(color_rgb[1]), int(color_rgb[2]), 255],  # RGBA with alpha
                     'agent_id': state.get('agent_id', ''),
                     'mode': mode,
                     'arrived': state.get('arrived', False),
@@ -497,7 +500,7 @@ with tab1:
                 'ScatterplotLayer',
                 data=agent_df,
                 get_position='[lon, lat]',
-                get_fill_color='[r, g, b]',  # Use RGB columns
+                get_fill_color='color',  # FIX: Direct column reference (no brackets)
                 get_radius=10,
                 radius_min_pixels=6,
                 radius_max_pixels=15,
@@ -522,9 +525,7 @@ with tab1:
                     color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
                     route_data.append({
                         'path': path,
-                        'r': color_rgb[0],  # Split RGB
-                        'g': color_rgb[1],
-                        'b': color_rgb[2],
+                        'color': [int(color_rgb[0]), int(color_rgb[1]), int(color_rgb[2]), 200],  # ✅ FIX: RGBA array
                         'mode': mode,
                     })
         
@@ -534,7 +535,7 @@ with tab1:
                 'PathLayer',
                 data=route_df,
                 get_path='path',
-                get_color='[r, g, b]',  # Use RGB columns
+                get_color='color',  # ✅ FIX: Direct reference
                 width_min_pixels=3,
                 opacity=0.6,
             )
@@ -865,27 +866,29 @@ with tab4:
         """)
 
 # ============================================================================
-# Auto-advance animation (FIXED)
+# Auto-advance animation
 # ============================================================================
 
-if anim.is_playing:
-    # Use smaller delay for smoother playback
-    delay = 0.15
-    time.sleep(delay)
+if st.session_state.simulation_run and st.session_state.animation_controller:
+    anim = st.session_state.animation_controller
     
-    # Advance step
-    if anim.current_step < anim.total_steps - 1:
-        anim.current_step += 1
-        # Force rerun immediately
-        st.rerun()
-    else:
-        # Reached end
-        if anim.loop:
-            anim.current_step = 0
-            st.rerun()
+    if anim.is_playing:
+        # ✅ FIX: Use time.sleep with shorter delay for smoother animation
+        import time
+        time.sleep(0.2)
+        
+        # Advance to next frame
+        if anim.current_step < anim.total_steps - 1:
+            anim.current_step += 1
         else:
-            anim.pause()
-            st.rerun()
+            # Reached end
+            if anim.loop:
+                anim.current_step = 0
+            else:
+                anim.is_playing = False  # ✅ FIX: Set flag directly instead of calling pause()
+        
+        # Force immediate rerun
+        st.rerun()
 
 # ============================================================================
 # Footer
