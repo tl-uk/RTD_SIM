@@ -316,11 +316,31 @@ def run_simulation(steps, num_agents, place, use_osm, enable_social,
             # Agent steps
             agent_states = []
             for agent in agents:
+                # ✅ CRITICAL: Pass environment to agent.step()
                 try:
-                    agent.step(env)
-                except:
+                    agent.step(env)  # ✅ Make sure 'env' is passed
+                except Exception as e:
+                    # Fallback without environment (agents won't move)
                     agent.step()
+                    print(f"Warning: Agent {agent.state.agent_id} stepped without environment: {e}")
                 
+                # Diagnostic logging
+                if step == 0 or step % 20 == 0:  # Every 20 steps
+                    print(f"\n=== Step {step} ===")
+                    
+                    # Check mode diversity BEFORE social influence
+                    modes_before = Counter(a.state.mode for a in agents)
+                    print(f"Modes before social influence: {dict(modes_before)}")
+                    
+                    # Check desire diversity
+                    desire_samples = [
+                        (a.state.agent_id, a.desires.get('eco', 0), a.desires.get('time', 0), a.desires.get('cost', 0))
+                        for a in agents[:5]  # First 5 agents
+                    ]
+                    print(f"Sample desires (eco, time, cost):")
+                    for agent_id, eco, time, cost in desire_samples:
+                        print(f"  {agent_id}: eco={eco:.2f}, time={time:.2f}, cost={cost:.2f}")
+
                 # Social influence
                 if network:
                     # Use the agent's actual BDI-computed costs
@@ -348,6 +368,12 @@ def run_simulation(steps, num_agents, place, use_osm, enable_social,
                             agent.state.mode,
                             satisfaction
                         )
+
+                        # Diagnostic logging
+                        if step == 0 or step % 20 == 0:
+                            modes_after = Counter(a.state.mode for a in agents)
+                            print(f"Modes after social influence: {dict(modes_after)}")
+                            print(f"Convergence: {max(modes_after.values()) / len(agents) * 100:.1f}%")
                 
                 agent_states.append({
                     'agent_id': agent.state.agent_id,
