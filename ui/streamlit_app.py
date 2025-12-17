@@ -472,7 +472,52 @@ tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Map", "📈 Mode Adoption", "🎯 Imp
 with tab1:
     st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
     
-    # Prepare map data
+    # 🔬 DIAGNOSTIC SECTION - Add this
+    with st.expander("🔬 DIAGNOSTIC: Data Inspection", expanded=False):
+        st.markdown("### Agent States Raw Data")
+        if agent_states:
+            sample = agent_states[0]
+            st.write("Sample agent_states[0]:", sample)
+            st.write("Type of location:", type(sample.get('location')))
+            st.write("Type of mode:", type(sample.get('mode')))
+            
+        st.markdown("### Color Lookup Test")
+        test_modes = ['walk', 'bike', 'bus', 'car', 'ev']
+        for mode in test_modes:
+            color = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+            st.write(f"{mode}: {color} (type: {type(color)})")
+            st.write(f"  → RGBA: {[int(color[0]), int(color[1]), int(color[2]), 255]}")
+        
+        st.markdown("### DataFrame Construction Test")
+        # Test with minimal data
+        test_data = []
+        for state in agent_states[:3]:  # Just first 3 agents
+            loc = state.get('location')
+            if loc and len(loc) == 2:
+                mode = state.get('mode', 'walk')
+                color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+                
+                test_row = {
+                    'lon': float(loc[0]),
+                    'lat': float(loc[1]),
+                    'color': [int(color_rgb[0]), int(color_rgb[1]), int(color_rgb[2]), 255],
+                    'mode': mode,
+                }
+                test_data.append(test_row)
+                st.write(f"Row for {mode}:", test_row)
+        
+        if test_data:
+            test_df = pd.DataFrame(test_data)
+            st.write("Test DataFrame:")
+            st.dataframe(test_df)
+            st.write("DataFrame dtypes:")
+            st.write(test_df.dtypes)
+            st.write("Sample color column value:")
+            st.write(test_df.iloc[0]['color'])
+            st.write("Type of color column value:")
+            st.write(type(test_df.iloc[0]['color']))
+    
+    # Continue with normal map rendering...
     layers = []
     
     # Agents layer with COLOR BY MODE
@@ -484,23 +529,28 @@ with tab1:
                 mode = state.get('mode', 'walk')
                 color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
                 
-                # ✅ FIX: Store color as complete RGBA array
+                # Ensure we have clean Python lists, not numpy arrays or tuples
                 agent_data.append({
                     'lon': float(loc[0]),
                     'lat': float(loc[1]),
-                    'color': [int(color_rgb[0]), int(color_rgb[1]), int(color_rgb[2]), 255],  # RGBA with alpha
-                    'agent_id': state.get('agent_id', ''),
-                    'mode': mode,
-                    'arrived': state.get('arrived', False),
+                    # 🔧 CRITICAL: Create as Python list explicitly
+                    'color': list([int(color_rgb[0]), int(color_rgb[1]), int(color_rgb[2]), 255]),
+                    'agent_id': str(state.get('agent_id', '')),
+                    'mode': str(mode),
+                    'arrived': bool(state.get('arrived', False)),
                 })
         
         if agent_data:
             agent_df = pd.DataFrame(agent_data)
+            
+            # 🔬 DIAGNOSTIC: Check what Pydeck receives
+            st.write("DEBUG: First row color:", agent_df.iloc[0]['color'] if len(agent_df) > 0 else "empty")
+            
             agent_layer = pdk.Layer(
                 'ScatterplotLayer',
                 data=agent_df,
                 get_position='[lon, lat]',
-                get_fill_color='color',  # FIX: Direct column reference (no brackets)
+                get_fill_color='color',
                 get_radius=10,
                 radius_min_pixels=6,
                 radius_max_pixels=15,
@@ -873,7 +923,7 @@ if st.session_state.simulation_run and st.session_state.animation_controller:
     anim = st.session_state.animation_controller
     
     if anim.is_playing:
-        # ✅ FIX: Use time.sleep with shorter delay for smoother animation
+        # FIX: Use time.sleep with shorter delay for smoother animation
         import time
         time.sleep(0.2)
         
