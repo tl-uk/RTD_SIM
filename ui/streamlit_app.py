@@ -323,23 +323,16 @@ def run_simulation(steps, num_agents, place, use_osm, enable_social,
                 
                 # Social influence
                 if network:
-                    # Agent has already chosen a mode via BDI planner
-                    current_mode = agent.state.mode
-                    
-                    # Get peer mode share
-                    peer_modes = network.get_peer_mode_share(agent.state.agent_id)
-                    
-                    # Only switch if peers STRONGLY prefer a different mode
-                    if peer_modes:
-                        most_popular = max(peer_modes, key=peer_modes.get)
-                        popularity = peer_modes[most_popular]
-                        
-                        # Only switch if >70% of peers use different mode AND agent's mode is rare
-                        current_popularity = peer_modes.get(current_mode, 0.0)
-                        if popularity > 0.7 and current_popularity < 0.1:
-                            # Small chance to conform
-                            if random.random() < 0.3:  # 30% chance to be influenced
-                                agent.state.mode = most_popular
+                    # Use the agent's actual BDI-computed costs
+                    mode_costs = agent.state.mode_costs
+                    if mode_costs:  # Only apply influence if agent has evaluated costs
+                        adjusted = network.apply_social_influence(
+                            agent.state.agent_id, mode_costs,
+                            influence_strength=0.15,
+                            conformity_pressure=0.15
+                        )
+                        best_mode = min(adjusted, key=adjusted.get)
+                        agent.state.mode = best_mode
                     
                     # Track satisfaction
                     if influence_system and not agent.state.arrived:
