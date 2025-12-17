@@ -256,10 +256,12 @@ def run_simulation(steps, num_agents, place, use_osm, enable_social,
         if PHASE_4_AVAILABLE:
             agents = generate_balanced_population(
                 num_agents=num_agents,
-                user_story_ids=['eco_warrior', 'budget_student', 'business_commuter', 
-                                'busy_parent', 'accessibility_user', 'delivery_driver'],
-                job_story_ids=['morning_commute', 'flexible_leisure', 'school_run',
-                            'delivery_job', 'emergency_trip'],
+                user_story_ids=['eco_warrior', 'concerned_parent', 'budget_student', 'business_commuter', 
+                                'disabled_commuter', 'rural_resident', 'freight_operator', 'shift_worker',
+                                'tourist', 'delivery_driver'],
+                job_story_ids=['morning_commute', 'school_run_then_work', 'freight_delivery_route', 
+                               'flexible_leisure', 'emergency_trip', 'night_shift', 'shopping_trip', 
+                               'airport_transfer', 'tourist_exploration','gig_economy_delivery'],
                 origin_dest_generator=random_od,
                 planner=planner,
                 seed=42
