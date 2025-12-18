@@ -296,39 +296,90 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
         status.info("🤖 Creating agents...")
         planner = BDIPlanner()
         
+        # ✅ FIX: Use cryptographic randomization for better distribution
+        import secrets
+        crypto_rng = random.Random(secrets.randbits(128))
+        
         def random_od():
+            """Generate random origin-destination pairs using real network nodes."""
             if use_osm and env.graph_loaded:
+                # Use actual street network nodes for realistic distribution
                 pair = env.get_random_origin_dest()
                 return pair if pair else ((-3.19, 55.95), (-3.15, 55.97))
-            return (
-                (random.uniform(-3.3, -3.15), random.uniform(55.9, 55.97)),
-                (random.uniform(-3.3, -3.15), random.uniform(55.9, 55.97))
-            )
+            else:
+                # Fallback: Use crypto RNG for better spatial distribution
+                # Edinburgh bbox: lon [-3.35, -3.05], lat [55.85, 56.00]
+                return (
+                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00)),
+                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00))
+                )
         
         if PHASE_4_AVAILABLE and user_stories and job_stories:
-            agents = generate_balanced_population(
-                num_agents=num_agents,
-                user_story_ids=user_stories,
-                job_story_ids=job_stories,
-                origin_dest_generator=random_od,
-                planner=planner,
-                seed=42
-            )
-            status.success(f"✅ Created {len(agents)} story-driven agents")
+            # ✅ FIX: Generate agents with explicit story distribution
+            agents = []
+            
+            # Calculate how many agents per story combination
+            num_combinations = len(user_stories) * len(job_stories)
+            base_agents_per_combo = num_agents // num_combinations
+            remainder = num_agents % num_combinations
+            
+            combo_index = 0
+            for user_story in user_stories:
+                for job_story in job_stories:
+                    # Add base agents + 1 for remainder
+                    count = base_agents_per_combo + (1 if combo_index < remainder else 0)
+                    
+                    for i in range(count):
+                        origin, dest = random_od()
+                        
+                        # Use crypto RNG for per-agent seed
+                        agent_seed = secrets.randbits(32)
+                        
+                        from agent.story_driven_agent import StoryDrivenAgent
+                        agent = StoryDrivenAgent(
+                            user_story_id=user_story,
+                            job_story_id=job_story,
+                            origin=origin,
+                            dest=dest,
+                            planner=planner,
+                            seed=agent_seed,
+                            apply_variance=True  # ✅ Enable desire variance
+                        )
+                        agents.append(agent)
+                    
+                    combo_index += 1
+            
+            status.success(f"✅ Created {len(agents)} story-driven agents "
+                         f"({len(user_stories)} personas × {len(job_stories)} jobs)")
+            
+            # ✅ DEBUG: Show agent distribution
+            from collections import Counter
+            persona_dist = Counter(a.user_story_id for a in agents)
+            status.info(f"Persona distribution: {dict(persona_dist)}")
+            
         else:
             from agent.cognitive_abm import CognitiveAgent
             agents = []
             for i in range(num_agents):
                 origin, dest = random_od()
+                
+                # Use crypto RNG for varied desires
+                agent_seed = secrets.randbits(32)
+                agent_rng = random.Random(agent_seed)
+                
                 agents.append(CognitiveAgent(
-                    seed=42 + i,
+                    seed=agent_seed,
                     agent_id=f"agent_{i+1}",
-                    desires={'eco': 0.5, 'time': 0.5, 'cost': 0.5},
+                    desires={
+                        'eco': agent_rng.uniform(0.2, 0.9),
+                        'time': agent_rng.uniform(0.2, 0.9),
+                        'cost': agent_rng.uniform(0.2, 0.9)
+                    },
                     planner=planner,
                     origin=origin,
                     dest=dest
                 ))
-            status.info("Using basic agents")
+            status.info("Using basic agents with varied desires")
         
         progress.progress(35)
         
@@ -522,6 +573,35 @@ tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Map", "📈 Mode Adoption", "🎯 Imp
 # TAB 1: MAP
 with tab1:
     st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
+    
+    # ✅ DIAGNOSTIC: Show agent distribution
+    with st.expander("📊 Agent Distribution", expanded=False):
+        if agents and hasattr(agents[0], 'user_story_id'):
+            from collections import Counter
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**User Stories:**")
+                user_dist = Counter(a.user_story_id for a in agents)
+                for story, count in sorted(user_dist.items()):
+                    st.write(f"- {story}: {count} agents ({count/len(agents)*100:.1f}%)")
+            
+            with col2:
+                st.markdown("**Job Stories:**")
+                job_dist = Counter(a.job_story_id for a in agents)
+                for story, count in sorted(job_dist.items()):
+                    st.write(f"- {story}: {count} agents ({count/len(agents)*100:.1f}%)")
+            
+            st.markdown("---")
+            st.markdown("**Desire Variation (Sample of 5 agents):**")
+            for agent in agents[:5]:
+                st.write(f"**{agent.user_story_id}** ({agent.job_story_id}):")
+                st.write(f"  - Eco: {agent.desires.get('eco', 0):.2f}, "
+                        f"Time: {agent.desires.get('time', 0):.2f}, "
+                        f"Cost: {agent.desires.get('cost', 0):.2f}")
+        else:
+            st.write("Basic agents - no story information available")
     
     layers = []
     
