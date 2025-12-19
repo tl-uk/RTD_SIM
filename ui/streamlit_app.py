@@ -289,6 +289,19 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
             env.load_osm_graph(place=place, use_cache=True)
             stats = env.get_graph_stats()
             status.success(f"✅ Loaded {stats['nodes']:,} nodes")
+            
+            # ✅ FIX: Initialize congestion AFTER graph is loaded
+            if use_congestion:
+                try:
+                    if hasattr(env, 'initialize_congestion'):
+                        env.initialize_congestion()
+                    elif hasattr(env, 'congestion_heatmap'):
+                        # Verify it exists
+                        _ = env.congestion_heatmap
+                    status.info("✅ Congestion tracking enabled")
+                except Exception as e:
+                    status.warning(f"⚠️ Congestion initialization issue: {e}")
+                    use_congestion = False
         
         progress.progress(20)
         
@@ -352,7 +365,22 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
             status.success(f"✅ Created {len(agents)} story-driven agents "
                          f"({len(user_stories)} personas × {len(job_stories)} jobs)")
             
-            # ✅ DEBUG: Show agent distribution
+            # ✅ DIAGNOSTIC: Check desire variation
+            import statistics
+            eco_values = [a.desires.get('eco', 0) for a in agents]
+            time_values = [a.desires.get('time', 0) for a in agents]
+            cost_values = [a.desires.get('cost', 0) for a in agents]
+            
+            eco_std = statistics.stdev(eco_values) if len(eco_values) > 1 else 0
+            time_std = statistics.stdev(time_values) if len(time_values) > 1 else 0
+            cost_std = statistics.stdev(cost_values) if len(cost_values) > 1 else 0
+            
+            status.info(f"Desire variation - Eco: σ={eco_std:.3f}, Time: σ={time_std:.3f}, Cost: σ={cost_std:.3f}")
+            
+            if eco_std < 0.1 and time_std < 0.1:
+                status.warning("⚠️ Low desire variation detected! Agents may behave similarly.")
+            
+            # Show distribution
             from collections import Counter
             persona_dist = Counter(a.user_story_id for a in agents)
             status.info(f"Persona distribution: {dict(persona_dist)}")
@@ -417,6 +445,17 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
             if influence_system:
                 influence_system.advance_time()
             
+            # ✅ DIAGNOSTIC: Check mode distribution at step 1
+            if step == 1:
+                mode_dist = Counter(a.state.mode for a in agents)
+                print(f"\nStep 1 mode distribution: {dict(mode_dist)}")
+                
+                agents_with_costs = sum(1 for a in agents if hasattr(a.state, 'mode_costs') and a.state.mode_costs)
+                print(f"Agents with stored BDI costs: {agents_with_costs}/{len(agents)}")
+                
+                if agents_with_costs == 0:
+                    print("⚠️ WARNING: No agents have stored mode_costs! BDI decisions won't be influenced properly.")
+            
             # Agent steps
             agent_states = []
             for agent in agents:
@@ -431,11 +470,13 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
                     if mode_costs:
                         adjusted = network.apply_social_influence(
                             agent.state.agent_id, mode_costs,
-                            influence_strength=0.15,
-                            conformity_pressure=0.15
+                            influence_strength=0.10,  # ✅ Reduced influence
+                            conformity_pressure=0.10
                         )
-                        best_mode = min(adjusted, key=adjusted.get)
-                        agent.state.mode = best_mode
+                        # ✅ Only apply influence 50% of time to preserve diversity
+                        if random.random() < 0.5:
+                            best_mode = min(adjusted, key=adjusted.get)
+                            agent.state.mode = best_mode
                     
                     if influence_system and not agent.state.arrived:
                         satisfaction = calculate_satisfaction(
@@ -486,7 +527,16 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
                 'distance': sum(a.state.distance_km for a in agents),
             }
             
-            congestion_heatmap = env.congestion_heatmap if use_congestion else None
+            # ✅ FIX: Safe congestion access
+            congestion_heatmap = None
+            if use_congestion:
+                try:
+                    if hasattr(env, 'congestion_heatmap'):
+                        congestion_heatmap = dict(env.congestion_heatmap)
+                except Exception as e:
+                    if step == 0:
+                        print(f"Warning: Could not access congestion at step {step}: {e}")
+            
             time_series.store_timestep(step, agent_states, congestion_heatmap, metrics)
             
             if step % max(1, steps // 10) == 0:
