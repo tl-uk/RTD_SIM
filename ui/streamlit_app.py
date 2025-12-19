@@ -293,14 +293,18 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
             # ✅ FIX: Initialize congestion AFTER graph is loaded
             if use_congestion:
                 try:
-                    if hasattr(env, 'initialize_congestion'):
-                        env.initialize_congestion()
-                    elif hasattr(env, 'congestion_heatmap'):
-                        # Verify it exists
-                        _ = env.congestion_heatmap
-                    status.info("✅ Congestion tracking enabled")
+                    # Check if congestion_manager exists and is initialized
+                    if hasattr(env, 'congestion_manager') and env.congestion_manager:
+                        status.info("✅ Congestion tracking enabled")
+                    elif hasattr(env, 'get_congestion_heatmap'):
+                        # Try to get initial heatmap to verify it works
+                        test_heatmap = env.get_congestion_heatmap()
+                        status.info(f"✅ Congestion tracking enabled ({len(test_heatmap)} edges)")
+                    else:
+                        status.warning("⚠️ Congestion requested but not available")
+                        use_congestion = False
                 except Exception as e:
-                    status.warning(f"⚠️ Congestion initialization issue: {e}")
+                    status.warning(f"⚠️ Congestion initialization failed: {e}")
                     use_congestion = False
         
         progress.progress(20)
@@ -365,6 +369,10 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
             status.success(f"✅ Created {len(agents)} story-driven agents "
                          f"({len(user_stories)} personas × {len(job_stories)} jobs)")
             
+            # ✅ FIX: Shuffle agents to mix personas spatially
+            crypto_rng.shuffle(agents)
+            status.info("✅ Agents shuffled for spatial diversity")
+            
             # ✅ DIAGNOSTIC: Check desire variation
             import statistics
             eco_values = [a.desires.get('eco', 0) for a in agents]
@@ -377,13 +385,15 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
             
             status.info(f"Desire variation - Eco: σ={eco_std:.3f}, Time: σ={time_std:.3f}, Cost: σ={cost_std:.3f}")
             
-            if eco_std < 0.1 and time_std < 0.1:
-                status.warning("⚠️ Low desire variation detected! Agents may behave similarly.")
+            if eco_std < 0.15 and time_std < 0.15:
+                status.warning("⚠️ Low desire variation detected! Check persona diversity.")
+            else:
+                status.success(f"✅ Good desire diversity (Eco: σ={eco_std:.3f})")
             
             # Show distribution
             from collections import Counter
             persona_dist = Counter(a.user_story_id for a in agents)
-            status.info(f"Persona distribution: {dict(persona_dist)}")
+            status.info(f"Personas: {dict(persona_dist)}")
             
         else:
             from agent.cognitive_abm import CognitiveAgent
