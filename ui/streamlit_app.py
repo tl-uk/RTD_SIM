@@ -748,20 +748,32 @@ with tab1:
     # Routes layer
     if st.session_state.show_routes:
         route_data = []
+        routes_attempted = 0
+        routes_valid = 0
+        
         for state in agent_states:
             route = state.get('route')
+            routes_attempted += 1
+            
             if route and len(route) >= 2:
                 mode = state.get('mode', 'walk')
-                path = [[float(pt[0]), float(pt[1])] for pt in route if len(pt) == 2]
-                if len(path) >= 2:
-                    color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
-                    route_data.append({
-                        'path': path,
-                        'r': int(color_rgb[0]),
-                        'g': int(color_rgb[1]),
-                        'b': int(color_rgb[2]),
-                        'mode': mode,
-                    })
+                try:
+                    path = [[float(pt[0]), float(pt[1])] for pt in route if isinstance(pt, (list, tuple)) and len(pt) == 2]
+                    
+                    if len(path) >= 2:
+                        color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+                        route_data.append({
+                            'path': path,
+                            'r': int(color_rgb[0]),
+                            'g': int(color_rgb[1]),
+                            'b': int(color_rgb[2]),
+                            'mode': mode,
+                            'agent_id': state.get('agent_id', ''),
+                        })
+                        routes_valid += 1
+                except Exception as e:
+                    # Skip invalid routes silently
+                    pass
         
         if route_data:
             route_df = pd.DataFrame(route_data)
@@ -772,8 +784,20 @@ with tab1:
                 get_color='[r, g, b]',
                 width_min_pixels=3,
                 opacity=0.6,
+                pickable=True,
             )
             layers.append(route_layer)
+        
+        # Show route statistics in expander
+        if routes_attempted > 0:
+            with st.expander(f"🛣️ Route Statistics: {routes_valid}/{routes_attempted} valid"):
+                st.write(f"- Routes attempted: {routes_attempted}")
+                st.write(f"- Valid routes: {routes_valid}")
+                st.write(f"- Invalid/empty: {routes_attempted - routes_valid}")
+                
+                if routes_valid == 0:
+                    st.warning("⚠️ No valid routes to display. Agents may not have planned routes yet.")
+                    st.info("💡 Tip: Routes are created after agents start moving. Try advancing a few steps.")
     
     # View state
     if agent_states:
@@ -815,10 +839,13 @@ with tab1:
     arrivals = metrics.get('arrivals', 0)
     emissions = metrics.get('emissions', 0)
     
+    # Count agents with routes
+    agents_with_routes = sum(1 for s in agent_states if s.get('route') and len(s.get('route', [])) > 0)
+    
     col1.metric("Arrivals", f"{arrivals}/{len(agent_states)}")
     col2.metric("Most Popular", mode_counts.most_common(1)[0][0].capitalize() if mode_counts else "N/A")
     col3.metric("Emissions", f"{emissions:.0f} g CO₂")
-    col4.metric("Active Modes", len(mode_counts))
+    col4.metric("Agents w/ Routes", f"{agents_with_routes}/{len(agent_states)}")
 
 # TAB 2: MODE ADOPTION
 with tab2:
