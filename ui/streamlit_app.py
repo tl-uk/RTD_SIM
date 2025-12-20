@@ -383,17 +383,24 @@ def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
             time_std = statistics.stdev(time_values) if len(time_values) > 1 else 0
             cost_std = statistics.stdev(cost_values) if len(cost_values) > 1 else 0
             
-            status.info(f"Desire variation - Eco: σ={eco_std:.3f}, Time: σ={time_std:.3f}, Cost: σ={cost_std:.3f}")
+            # Store in session state for persistent display
+            st.session_state.desire_std = {
+                'eco': eco_std,
+                'time': time_std,
+                'cost': cost_std
+            }
+            
+            status.info(f"📊 Desire diversity - Eco: σ={eco_std:.3f}, Time: σ={time_std:.3f}, Cost: σ={cost_std:.3f}")
             
             if eco_std < 0.15 and time_std < 0.15:
-                status.warning("⚠️ Low desire variation detected! Check persona diversity.")
+                status.warning("⚠️ Low desire variation! Check persona diversity.")
             else:
-                status.success(f"✅ Good desire diversity (Eco: σ={eco_std:.3f})")
+                status.success(f"✅ Excellent diversity! Eco σ={eco_std:.3f}, Time σ={time_std:.3f}")
             
             # Show distribution
             from collections import Counter
             persona_dist = Counter(a.user_story_id for a in agents)
-            status.info(f"Personas: {dict(persona_dist)}")
+            status.info(f"👥 Personas: {dict(persona_dist)}")
             
         else:
             from agent.cognitive_abm import CognitiveAgent
@@ -635,9 +642,43 @@ with tab1:
     st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
     
     # ✅ DIAGNOSTIC: Show agent distribution
-    with st.expander("📊 Agent Distribution", expanded=False):
+    with st.expander("📊 Agent Distribution & Diversity", expanded=False):
         if agents and hasattr(agents[0], 'user_story_id'):
             from collections import Counter
+            import statistics
+            
+            # Calculate diversity metrics
+            eco_values = [a.desires.get('eco', 0) for a in agents]
+            time_values = [a.desires.get('time', 0) for a in agents]
+            cost_values = [a.desires.get('cost', 0) for a in agents]
+            
+            eco_std = statistics.stdev(eco_values) if len(eco_values) > 1 else 0
+            time_std = statistics.stdev(time_values) if len(time_values) > 1 else 0
+            cost_std = statistics.stdev(cost_values) if len(cost_values) > 1 else 0
+            
+            # Show diversity metrics
+            st.markdown("### 📈 Desire Diversity Metrics")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Eco σ", f"{eco_std:.3f}", 
+                         delta="✅ Good" if eco_std > 0.15 else "⚠️ Low",
+                         delta_color="normal" if eco_std > 0.15 else "inverse")
+            with col2:
+                st.metric("Time σ", f"{time_std:.3f}",
+                         delta="✅ Good" if time_std > 0.15 else "⚠️ Low",
+                         delta_color="normal" if time_std > 0.15 else "inverse")
+            with col3:
+                st.metric("Cost σ", f"{cost_std:.3f}",
+                         delta="✅ Good" if cost_std > 0.15 else "⚠️ Low",
+                         delta_color="normal" if cost_std > 0.15 else "inverse")
+            
+            if eco_std > 0.15 and time_std > 0.15:
+                st.success("✅ Excellent diversity! Agents will make varied decisions.")
+            else:
+                st.warning("⚠️ Low diversity - agents may behave similarly.")
+            
+            st.markdown("---")
             
             col1, col2 = st.columns(2)
             
@@ -654,10 +695,10 @@ with tab1:
                     st.write(f"- {story}: {count} agents ({count/len(agents)*100:.1f}%)")
             
             st.markdown("---")
-            st.markdown("**Desire Variation (Sample of 5 agents):**")
-            for agent in agents[:5]:
-                st.write(f"**{agent.user_story_id}** ({agent.job_story_id}):")
-                st.write(f"  - Eco: {agent.desires.get('eco', 0):.2f}, "
+            st.markdown("**Desire Variation (Sample of 10 agents):**")
+            for i, agent in enumerate(agents[:10]):
+                st.write(f"**{i+1}. {agent.user_story_id}** ({agent.job_story_id}):")
+                st.write(f"   - Eco: {agent.desires.get('eco', 0):.2f}, "
                         f"Time: {agent.desires.get('time', 0):.2f}, "
                         f"Cost: {agent.desires.get('cost', 0):.2f}")
         else:
@@ -909,11 +950,26 @@ if anim.is_playing:
 
 st.markdown("---")
 
-if st.session_state.use_realistic_influence:
-    st.success("✅ **Realistic Social Influence Active** - Natural adoption patterns")
-elif network:
-    st.info("📊 **Deterministic Influence Active** - Traditional model")
-else:
-    st.info("📷 **No Social Influence** - Independent decisions")
+# Status indicators
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    if st.session_state.use_realistic_influence:
+        st.success("✅ **Realistic Social Influence Active** - Natural adoption patterns")
+    elif network:
+        st.info("📊 **Deterministic Influence Active** - Traditional model")
+    else:
+        st.info("📷 **No Social Influence** - Independent decisions")
+
+with col2:
+    # Show desire diversity if available
+    if hasattr(st.session_state, 'desire_std'):
+        std = st.session_state.desire_std
+        st.metric(
+            "Desire Diversity",
+            f"σ={std['eco']:.3f}",
+            delta="Good" if std['eco'] > 0.15 else "Low",
+            delta_color="normal" if std['eco'] > 0.15 else "inverse"
+        )
 
 st.caption("**RTD_SIM** - Real-Time Decarbonization Simulator | Phase 1-4.1")
