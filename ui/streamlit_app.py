@@ -1,24 +1,17 @@
 #!/usr/bin/env python3
 """
-RTD_SIM Unified Visualization - MERGED VERSION
-Combines working auto-play from phase4_viz with color fixes and realistic influence
+RTD_SIM Unified Visualization - REFACTORED VERSION
 
-Key features:
-- ✅ Working auto-play animation
-- ✅ Story selection dropdowns
-- ✅ Congestion toggle
-- ✅ Color-coded agents by mode
-- ✅ Realistic social influence
-- ✅ Manual step controls
+Clean separation of concerns:
+- This file: UI orchestration only (~200 lines)
+- simulation_runner.py: All simulation logic
+- visualization.py: All visualization logic
 """
 
 from __future__ import annotations
 import sys
 from pathlib import Path
-import random
-import traceback
 import time
-from collections import Counter, defaultdict
 
 # Project root setup
 THIS_FILE = Path(__file__).resolve()
@@ -27,52 +20,33 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
-import pydeck as pdk
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 
-from simulation.spatial_environment import SpatialEnvironment
-from agent.bdi_planner import BDIPlanner
+# Import our clean modules
+from simulation_runner import SimulationConfig, run_simulation
+from visualiser.visualization import (  # ← Updated path
+    render_map,
+    render_mode_adoption_chart,
+    render_emissions_chart,
+    render_infrastructure_metrics,
+    render_cascade_chart,
+    get_current_stats,
+    get_mode_distribution,
+    render_agent_distribution_analysis,
+    MODE_COLORS_HEX,
+)
+from visualiser.animation_controller import AnimationController
 
-# Phase 3+4 imports
+# Phase 4 availability check
 try:
-    from agent.story_driven_agent import generate_balanced_population
-    from agent.social_network import SocialNetwork
-    from agent.social_influence_dynamics import (
-        RealisticSocialInfluence,
-        enhance_social_network_with_realism,
-        calculate_satisfaction
-    )
     from agent.user_stories import UserStoryParser
     from agent.job_stories import JobStoryParser
     PHASE_4_AVAILABLE = True
 except ImportError:
     PHASE_4_AVAILABLE = False
 
-# Visualization
-from visualiser.data_adapters import TimeSeriesStorage
-from visualiser.animation_controller import AnimationController
-
 # ============================================================================
-# Configuration
+# Page Configuration
 # ============================================================================
-
-MODE_COLORS_RGB = {
-    'walk': [34, 197, 94],
-    'bike': [59, 130, 246],
-    'bus': [245, 158, 11],
-    'car': [239, 68, 68],
-    'ev': [168, 85, 245],
-}
-
-MODE_COLORS_HEX = {
-    'walk': '#22c55e',
-    'bike': '#3b82f6',
-    'bus': '#f59e0b',
-    'car': '#ef4444',
-    'ev': '#a855f7',
-}
 
 st.set_page_config(
     page_title="RTD_SIM - Transport Decarbonization Simulator",
@@ -85,19 +59,14 @@ st.set_page_config(
 # ============================================================================
 
 def init_session_state():
+    """Initialize session state variables."""
     defaults = {
         'simulation_run': False,
-        'time_series': None,
-        'env': None,
-        'agents': None,
-        'network': None,
-        'influence_system': None,
+        'results': None,
         'animation_controller': None,
-        'adoption_history': defaultdict(list),
-        'cascade_events': [],
-        'use_realistic_influence': True,
         'show_agents': True,
         'show_routes': False,
+        'show_infrastructure': True,  # NEW: Default ON for Phase 4.5
     }
     
     for key, value in defaults.items():
@@ -111,7 +80,7 @@ init_session_state()
 # ============================================================================
 
 st.title("🚦 RTD_SIM - Real-Time Transport Decarbonization Simulator")
-st.markdown("**Interactive agent-based model | Story-driven behavior | Social influence dynamics**")
+st.markdown("**Phase 4.5: Infrastructure-Aware Agent-Based Model**")
 
 # ============================================================================
 # Sidebar Configuration
@@ -139,6 +108,9 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("### 📖 Story Selection")
         
+        user_stories = []
+        job_stories = []
+        
         if PHASE_4_AVAILABLE:
             try:
                 user_parser = UserStoryParser()
@@ -163,31 +135,39 @@ with st.sidebar:
                 st.warning("Stories not found - using defaults")
                 user_stories = ['eco_warrior', 'budget_student', 'business_commuter']
                 job_stories = ['morning_commute', 'flexible_leisure']
-        else:
-            user_stories = []
-            job_stories = []
         
         # Advanced features
         st.markdown("---")
         st.markdown("### 🔬 Advanced Features")
         
-        use_congestion = st.checkbox("Enable Congestion", value=False,
-                                     help="Track and visualize traffic congestion")
+        use_congestion = st.checkbox("Enable Congestion", value=False)
         
+        # Infrastructure (NEW for Phase 4.5)
+        st.markdown("**🔌 Infrastructure (Phase 4.5)**")
+        enable_infrastructure = st.checkbox("Enable Infrastructure Awareness", value=True,
+            help="EV range constraints, charging stations, grid capacity")
+        
+        if enable_infrastructure:
+            with st.expander("⚙️ Infrastructure Parameters"):
+                num_chargers = st.slider("Public Chargers", 10, 100, 50, 10)
+                num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
+                grid_capacity_mw = st.slider("Grid Capacity (MW)", 500, 2000, 1000, 100)
+        else:
+            num_chargers = 0
+            num_depots = 0
+            grid_capacity_mw = 1000
+        
+        # Social networks
         if PHASE_4_AVAILABLE:
-            enable_social = st.checkbox("Enable Social Networks", value=True,
-                                       help="Agents influence each other's mode choices")
+            enable_social = st.checkbox("Enable Social Networks", value=True)
             
             if enable_social:
-                use_realistic = st.checkbox("Use Realistic Influence", value=True,
-                    help="Realistic: influences decay, habits form\nDeterministic: permanent influence")
+                use_realistic = st.checkbox("Use Realistic Influence", value=True)
                 
                 if use_realistic:
                     with st.expander("⚙️ Influence Parameters"):
-                        decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05,
-                            help="How fast peer influences fade")
-                        habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1,
-                            help="Importance of habit formation")
+                        decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05)
+                        habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1)
                 else:
                     decay_rate = 0.0
                     habit_weight = 0.0
@@ -206,7 +186,7 @@ with st.sidebar:
                                         type="primary", 
                                         use_container_width=True)
     
-    # Animation controls (after simulation) - WORKING VERSION FROM OLD FILE
+    # Animation controls (after simulation)
     if st.session_state.simulation_run and st.session_state.animation_controller:
         st.markdown("---")
         st.header("🎬 Animation Controls")
@@ -216,7 +196,7 @@ with st.sidebar:
         # Manual step buttons
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            if st.button("⏮️", help="Reset", use_container_width=True, key='reset_btn'):
+            if st.button("⮜", help="Reset", use_container_width=True, key='reset_btn'):
                 anim.stop()
                 st.rerun()
         with col2:
@@ -230,11 +210,11 @@ with st.sidebar:
                     anim.current_step += 1
                     st.rerun()
         with col4:
-            if st.button("⏭️", help="End", use_container_width=True, key='end_btn'):
+            if st.button("⭢", help="End", use_container_width=True, key='end_btn'):
                 anim.seek(anim.total_steps - 1)
                 st.rerun()
         
-        # Auto-play toggle - WORKING VERSION
+        # Auto-play toggle
         st.markdown("---")
         auto_play = st.checkbox("▶️ Auto-Play", value=anim.is_playing, key='auto_play')
         if auto_play != anim.is_playing:
@@ -266,331 +246,58 @@ with st.sidebar:
             value=st.session_state.show_agents)
         st.session_state.show_routes = st.checkbox("Show Routes", 
             value=st.session_state.show_routes)
+        st.session_state.show_infrastructure = st.checkbox("Show Infrastructure", 
+            value=st.session_state.show_infrastructure)
 
 # ============================================================================
 # Simulation Execution
 # ============================================================================
 
-def run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
-                   use_congestion, enable_social, use_realistic, decay_rate, habit_weight):
-    """Run complete simulation with progress tracking."""
-    
-    progress = st.progress(0, "Initializing...")
-    status = st.empty()
-    
-    try:
-        # Environment
-        status.info("🗺️ Loading environment...")
-        cache_dir = Path.home() / ".rtd_sim_cache" / "osm_graphs"
-        env = SpatialEnvironment(step_minutes=1.0, cache_dir=cache_dir, 
-                                use_congestion=use_congestion)
-        
-        if use_osm and place:
-            env.load_osm_graph(place=place, use_cache=True)
-            stats = env.get_graph_stats()
-            status.success(f"✅ Loaded {stats['nodes']:,} nodes")
-            
-            # ✅ FIX: Initialize congestion AFTER graph is loaded
-            if use_congestion:
-                try:
-                    # Check if congestion_manager exists and is initialized
-                    if hasattr(env, 'congestion_manager') and env.congestion_manager:
-                        status.info("✅ Congestion tracking enabled")
-                    elif hasattr(env, 'get_congestion_heatmap'):
-                        # Try to get initial heatmap to verify it works
-                        test_heatmap = env.get_congestion_heatmap()
-                        status.info(f"✅ Congestion tracking enabled ({len(test_heatmap)} edges)")
-                    else:
-                        status.warning("⚠️ Congestion requested but not available")
-                        use_congestion = False
-                except Exception as e:
-                    status.warning(f"⚠️ Congestion initialization failed: {e}")
-                    use_congestion = False
-        
-        progress.progress(20)
-        
-        # Agents
-        status.info("🤖 Creating agents...")
-        planner = BDIPlanner()
-        
-        # ✅ FIX: Use cryptographic randomization for better distribution
-        import secrets
-        crypto_rng = random.Random(secrets.randbits(128))
-        
-        def random_od():
-            """Generate random origin-destination pairs using real network nodes."""
-            if use_osm and env.graph_loaded:
-                # Use actual street network nodes for realistic distribution
-                pair = env.get_random_origin_dest()
-                return pair if pair else ((-3.19, 55.95), (-3.15, 55.97))
-            else:
-                # Fallback: Use crypto RNG for better spatial distribution
-                # Edinburgh bbox: lon [-3.35, -3.05], lat [55.85, 56.00]
-                return (
-                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00)),
-                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00))
-                )
-        
-        if PHASE_4_AVAILABLE and user_stories and job_stories:
-            # ✅ FIX: Generate agents with explicit story distribution
-            agents = []
-            
-            # Calculate how many agents per story combination
-            num_combinations = len(user_stories) * len(job_stories)
-            base_agents_per_combo = num_agents // num_combinations
-            remainder = num_agents % num_combinations
-            
-            combo_index = 0
-            for user_story in user_stories:
-                for job_story in job_stories:
-                    # Add base agents + 1 for remainder
-                    count = base_agents_per_combo + (1 if combo_index < remainder else 0)
-                    
-                    for i in range(count):
-                        origin, dest = random_od()
-                        
-                        # Use crypto RNG for per-agent seed
-                        agent_seed = secrets.randbits(32)
-                        
-                        from agent.story_driven_agent import StoryDrivenAgent
-                        agent = StoryDrivenAgent(
-                            user_story_id=user_story,
-                            job_story_id=job_story,
-                            origin=origin,
-                            dest=dest,
-                            planner=planner,
-                            seed=agent_seed,
-                            apply_variance=True  # ✅ Enable desire variance
-                        )
-                        agents.append(agent)
-                    
-                    combo_index += 1
-            
-            status.success(f"✅ Created {len(agents)} story-driven agents "
-                         f"({len(user_stories)} personas × {len(job_stories)} jobs)")
-            
-            # ✅ FIX: Shuffle agents to mix personas spatially
-            crypto_rng.shuffle(agents)
-            status.info("✅ Agents shuffled for spatial diversity")
-            
-            # ✅ DIAGNOSTIC: Check desire variation
-            import statistics
-            eco_values = [a.desires.get('eco', 0) for a in agents]
-            time_values = [a.desires.get('time', 0) for a in agents]
-            cost_values = [a.desires.get('cost', 0) for a in agents]
-            
-            eco_std = statistics.stdev(eco_values) if len(eco_values) > 1 else 0
-            time_std = statistics.stdev(time_values) if len(time_values) > 1 else 0
-            cost_std = statistics.stdev(cost_values) if len(cost_values) > 1 else 0
-            
-            # Store in session state for persistent display
-            st.session_state.desire_std = {
-                'eco': eco_std,
-                'time': time_std,
-                'cost': cost_std
-            }
-            
-            status.info(f"📊 Desire diversity - Eco: σ={eco_std:.3f}, Time: σ={time_std:.3f}, Cost: σ={cost_std:.3f}")
-            
-            if eco_std < 0.15 and time_std < 0.15:
-                status.warning("⚠️ Low desire variation! Check persona diversity.")
-            else:
-                status.success(f"✅ Excellent diversity! Eco σ={eco_std:.3f}, Time σ={time_std:.3f}")
-            
-            # Show distribution
-            from collections import Counter
-            persona_dist = Counter(a.user_story_id for a in agents)
-            status.info(f"👥 Personas: {dict(persona_dist)}")
-            
-        else:
-            from agent.cognitive_abm import CognitiveAgent
-            agents = []
-            for i in range(num_agents):
-                origin, dest = random_od()
-                
-                # Use crypto RNG for varied desires
-                agent_seed = secrets.randbits(32)
-                agent_rng = random.Random(agent_seed)
-                
-                agents.append(CognitiveAgent(
-                    seed=agent_seed,
-                    agent_id=f"agent_{i+1}",
-                    desires={
-                        'eco': agent_rng.uniform(0.2, 0.9),
-                        'time': agent_rng.uniform(0.2, 0.9),
-                        'cost': agent_rng.uniform(0.2, 0.9)
-                    },
-                    planner=planner,
-                    origin=origin,
-                    dest=dest
-                ))
-            status.info("Using basic agents with varied desires")
-        
-        progress.progress(35)
-        
-        # Social network
-        network = None
-        influence_system = None
-        
-        if enable_social and PHASE_4_AVAILABLE:
-            status.info("🌐 Building social network...")
-            network = SocialNetwork(topology='homophily', influence_enabled=True)
-            network.build_network(agents, k=5, seed=42)
-            
-            if use_realistic:
-                influence_system = RealisticSocialInfluence(
-                    decay_rate=decay_rate,
-                    habit_weight=habit_weight,
-                    experience_weight=0.4,
-                    peer_weight=0.2
-                )
-                enhance_social_network_with_realism(network, influence_system)
-                status.success("✅ Realistic influence enabled")
-            else:
-                status.success("✅ Deterministic influence enabled")
-        
-        progress.progress(50)
-        
-        # Run simulation
-        status.info("🏃 Running simulation...")
-        
-        time_series = TimeSeriesStorage()
-        adoption_history = defaultdict(list)
-        cascade_events = []
-        
-        for step in range(steps):
-            if influence_system:
-                influence_system.advance_time()
-            
-            # ✅ DIAGNOSTIC: Check mode distribution at step 1
-            if step == 1:
-                mode_dist = Counter(a.state.mode for a in agents)
-                print(f"\nStep 1 mode distribution: {dict(mode_dist)}")
-                
-                agents_with_costs = sum(1 for a in agents if hasattr(a.state, 'mode_costs') and a.state.mode_costs)
-                print(f"Agents with stored BDI costs: {agents_with_costs}/{len(agents)}")
-                
-                if agents_with_costs == 0:
-                    print("⚠️ WARNING: No agents have stored mode_costs! BDI decisions won't be influenced properly.")
-            
-            # Agent steps
-            agent_states = []
-            for agent in agents:
-                try:
-                    agent.step(env)
-                except:
-                    agent.step()
-                
-                # Social influence
-                if network:
-                    mode_costs = getattr(agent.state, 'mode_costs', {})
-                    if mode_costs:
-                        adjusted = network.apply_social_influence(
-                            agent.state.agent_id, mode_costs,
-                            influence_strength=0.10,  # ✅ Reduced influence
-                            conformity_pressure=0.10
-                        )
-                        # ✅ Only apply influence 50% of time to preserve diversity
-                        if random.random() < 0.5:
-                            best_mode = min(adjusted, key=adjusted.get)
-                            agent.state.mode = best_mode
-                    
-                    if influence_system and not agent.state.arrived:
-                        satisfaction = calculate_satisfaction(
-                            agent, env,
-                            actual_time=agent.state.travel_time_min,
-                            expected_time=10.0,
-                            actual_cost=1.0,
-                            expected_cost=1.0
-                        )
-                        influence_system.record_mode_usage(
-                            agent.state.agent_id,
-                            agent.state.mode,
-                            satisfaction
-                        )
-                
-                agent_states.append({
-                    'agent_id': agent.state.agent_id,
-                    'location': agent.state.location,
-                    'mode': agent.state.mode,
-                    'arrived': agent.state.arrived,
-                    'route': agent.state.route,
-                    'distance_km': agent.state.distance_km,
-                    'emissions_g': agent.state.emissions_g,
-                })
-            
-            # Track metrics
-            if network:
-                network.record_mode_snapshot()
-            
-            mode_counts = Counter(a.state.mode for a in agents)
-            for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
-                adoption_history[mode].append(mode_counts.get(mode, 0) / len(agents))
-            
-            # Cascade detection
-            if network:
-                for mode in mode_counts.keys():
-                    cascade, clusters = network.detect_cascade(mode, threshold=0.15)
-                    if cascade:
-                        cascade_events.append({
-                            'step': step,
-                            'mode': mode,
-                            'size': max(len(c) for c in clusters) if clusters else 0
-                        })
-            
-            metrics = {
-                'arrivals': sum(1 for a in agents if a.state.arrived),
-                'emissions': sum(a.state.emissions_g for a in agents),
-                'distance': sum(a.state.distance_km for a in agents),
-            }
-            
-            # ✅ FIX: Safe congestion access
-            congestion_heatmap = None
-            if use_congestion:
-                try:
-                    if hasattr(env, 'congestion_heatmap'):
-                        congestion_heatmap = dict(env.congestion_heatmap)
-                except Exception as e:
-                    if step == 0:
-                        print(f"Warning: Could not access congestion at step {step}: {e}")
-            
-            time_series.store_timestep(step, agent_states, congestion_heatmap, metrics)
-            
-            if step % max(1, steps // 10) == 0:
-                progress.progress(50 + int(45 * step / steps))
-        
-        progress.progress(100, "✅ Complete!")
-        status.success(f"✅ Simulation complete: {len(cascade_events)} cascades detected")
-        
-        # Store results
-        st.session_state.simulation_run = True
-        st.session_state.time_series = time_series
-        st.session_state.env = env
-        st.session_state.agents = agents
-        st.session_state.network = network
-        st.session_state.influence_system = influence_system
-        st.session_state.adoption_history = adoption_history
-        st.session_state.cascade_events = cascade_events
-        st.session_state.use_realistic_influence = use_realistic
-        st.session_state.animation_controller = AnimationController(
-            total_steps=steps, fps=5
-        )
-        
-        return True
-        
-    except Exception as e:
-        error_msg = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-        status.error("❌ Simulation failed")
-        with st.expander("Error Details"):
-            st.code(error_msg)
-        return False
-    finally:
-        progress.empty()
-
 if run_btn:
-    run_simulation(steps, num_agents, place, use_osm, user_stories, job_stories,
-                   use_congestion, enable_social, use_realistic, decay_rate, habit_weight)
-    st.rerun()
+    # Create config
+    config = SimulationConfig(
+        steps=steps,
+        num_agents=num_agents,
+        place=place,
+        use_osm=use_osm,
+        user_stories=user_stories,
+        job_stories=job_stories,
+        use_congestion=use_congestion,
+        enable_social=enable_social,
+        use_realistic_influence=use_realistic,
+        decay_rate=decay_rate,
+        habit_weight=habit_weight,
+        enable_infrastructure=enable_infrastructure,
+        num_chargers=num_chargers,
+        num_depots=num_depots,
+        grid_capacity_mw=grid_capacity_mw,
+    )
+    
+    # Progress tracking
+    progress_bar = st.progress(0, "Initializing...")
+    status_text = st.empty()
+    
+    def update_progress(progress: float, message: str):
+        progress_bar.progress(progress, message)
+        status_text.info(message)
+    
+    # Run simulation
+    results = run_simulation(config, progress_callback=update_progress)
+    
+    # Store results
+    if results.success:
+        st.session_state.simulation_run = True
+        st.session_state.results = results
+        st.session_state.animation_controller = AnimationController(
+            total_steps=config.steps, fps=5
+        )
+        status_text.success("✅ Simulation complete!")
+        progress_bar.empty()
+        time.sleep(1)
+        st.rerun()
+    else:
+        status_text.error(f"❌ Simulation failed: {results.error_message}")
+        progress_bar.empty()
 
 # ============================================================================
 # Main Visualization
@@ -604,9 +311,9 @@ if not st.session_state.simulation_run:
     with col1:
         st.markdown("### 🎯 Quick Start")
         st.markdown("1. Select user & job stories")
-        st.markdown("2. Click **Run Simulation**")
-        st.markdown("3. Use animation controls")
-        st.markdown("4. Explore results in tabs")
+        st.markdown("2. Enable infrastructure (Phase 4.5)")
+        st.markdown("3. Click **Run Simulation**")
+        st.markdown("4. Use animation controls")
     
     with col2:
         st.markdown("### 🎨 Color Guide")
@@ -617,13 +324,10 @@ if not st.session_state.simulation_run:
     st.stop()
 
 # Get data
-time_series = st.session_state.time_series
+results = st.session_state.results
 anim = st.session_state.animation_controller
-agents = st.session_state.agents
-network = st.session_state.network
-adoption_history = st.session_state.adoption_history
 
-current_data = time_series.get_timestep(anim.current_step)
+current_data = results.time_series.get_timestep(anim.current_step)
 if not current_data:
     st.error("No data available")
     st.stop()
@@ -635,244 +339,42 @@ metrics = current_data.get('metrics', {})
 # Tabs
 # ============================================================================
 
-tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Map", "📈 Mode Adoption", "🎯 Impact", "🌐 Network"])
+tab_names = ["🗺️ Map", "📈 Mode Adoption", "🎯 Impact", "🌐 Network"]
+if results.infrastructure:
+    tab_names.append("🔌 Infrastructure")
+
+tabs = st.tabs(tab_names)
 
 # TAB 1: MAP
-with tab1:
+with tabs[0]:
     st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
     
-    # ✅ DIAGNOSTIC: Show agent distribution
-    with st.expander("📊 Agent Distribution & Diversity", expanded=False):
-        if agents and hasattr(agents[0], 'user_story_id'):
-            from collections import Counter
-            import statistics
-            
-            # Calculate diversity metrics
-            eco_values = [a.desires.get('eco', 0) for a in agents]
-            time_values = [a.desires.get('time', 0) for a in agents]
-            cost_values = [a.desires.get('cost', 0) for a in agents]
-            
-            eco_std = statistics.stdev(eco_values) if len(eco_values) > 1 else 0
-            time_std = statistics.stdev(time_values) if len(time_values) > 1 else 0
-            cost_std = statistics.stdev(cost_values) if len(cost_values) > 1 else 0
-            
-            # Show diversity metrics
-            st.markdown("### 📈 Desire Diversity Metrics")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Eco σ", f"{eco_std:.3f}", 
-                         delta="✅ Good" if eco_std > 0.15 else "⚠️ Low",
-                         delta_color="normal" if eco_std > 0.15 else "inverse")
-            with col2:
-                st.metric("Time σ", f"{time_std:.3f}",
-                         delta="✅ Good" if time_std > 0.15 else "⚠️ Low",
-                         delta_color="normal" if time_std > 0.15 else "inverse")
-            with col3:
-                st.metric("Cost σ", f"{cost_std:.3f}",
-                         delta="✅ Good" if cost_std > 0.15 else "⚠️ Low",
-                         delta_color="normal" if cost_std > 0.15 else "inverse")
-            
-            if eco_std > 0.15 and time_std > 0.15:
-                st.success("✅ Excellent diversity! Agents will make varied decisions.")
-            else:
-                st.warning("⚠️ Low diversity - agents may behave similarly.")
-            
-            st.markdown("---")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**User Stories:**")
-                user_dist = Counter(a.user_story_id for a in agents)
-                for story, count in sorted(user_dist.items()):
-                    st.write(f"- {story}: {count} agents ({count/len(agents)*100:.1f}%)")
-            
-            with col2:
-                st.markdown("**Job Stories:**")
-                job_dist = Counter(a.job_story_id for a in agents)
-                for story, count in sorted(job_dist.items()):
-                    st.write(f"- {story}: {count} agents ({count/len(agents)*100:.1f}%)")
-            
-            st.markdown("---")
-            st.markdown("**Desire Variation (Sample of 10 agents):**")
-            for i, agent in enumerate(agents[:10]):
-                st.write(f"**{i+1}. {agent.user_story_id}** ({agent.job_story_id}):")
-                st.write(f"   - Eco: {agent.desires.get('eco', 0):.2f}, "
-                        f"Time: {agent.desires.get('time', 0):.2f}, "
-                        f"Cost: {agent.desires.get('cost', 0):.2f}")
-        else:
-            st.write("Basic agents - no story information available")
-    
-    layers = []
-    
-    # Agents layer - WORKING COLOR FIX
-    if st.session_state.show_agents:
-        agent_data = []
-        for state in agent_states:
-            loc = state.get('location')
-            if loc and len(loc) == 2:
-                mode = state.get('mode', 'walk')
-                color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
-                
-                agent_data.append({
-                    'lon': float(loc[0]),
-                    'lat': float(loc[1]),
-                    'r': int(color_rgb[0]),
-                    'g': int(color_rgb[1]),
-                    'b': int(color_rgb[2]),
-                    'agent_id': state.get('agent_id', ''),
-                    'mode': mode,
-                    'arrived': state.get('arrived', False),
-                })
-        
-        if agent_data:
-            agent_df = pd.DataFrame(agent_data)
-            agent_layer = pdk.Layer(
-                'ScatterplotLayer',
-                data=agent_df,
-                get_position='[lon, lat]',
-                get_fill_color='[r, g, b]',
-                get_radius=10,
-                radius_min_pixels=6,
-                radius_max_pixels=15,
-                pickable=True,
-                opacity=0.8,
-                stroked=True,
-                filled=True,
-                line_width_min_pixels=2,
-                get_line_color=[255, 255, 255],
-            )
-            layers.append(agent_layer)
-    
-    # Routes layer
-    if st.session_state.show_routes:
-        route_data = []
-        routes_attempted = 0
-        routes_valid = 0
-        
-        for state in agent_states:
-            route = state.get('route')
-            routes_attempted += 1
-            
-            if route and len(route) >= 2:
-                mode = state.get('mode', 'walk')
-                try:
-                    path = [[float(pt[0]), float(pt[1])] for pt in route if isinstance(pt, (list, tuple)) and len(pt) == 2]
-                    
-                    if len(path) >= 2:
-                        color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
-                        route_data.append({
-                            'path': path,
-                            'r': int(color_rgb[0]),
-                            'g': int(color_rgb[1]),
-                            'b': int(color_rgb[2]),
-                            'mode': mode,
-                            'agent_id': state.get('agent_id', ''),
-                        })
-                        routes_valid += 1
-                except Exception as e:
-                    # Skip invalid routes silently
-                    pass
-        
-        if route_data:
-            route_df = pd.DataFrame(route_data)
-            route_layer = pdk.Layer(
-                'PathLayer',
-                data=route_df,
-                get_path='path',
-                get_color='[r, g, b]',
-                width_min_pixels=3,
-                opacity=0.6,
-                pickable=True,
-            )
-            layers.append(route_layer)
-        
-        # Show route statistics in expander
-        if routes_attempted > 0:
-            with st.expander(f"🛣️ Route Statistics: {routes_valid}/{routes_attempted} valid"):
-                st.write(f"- Routes attempted: {routes_attempted}")
-                st.write(f"- Valid routes: {routes_valid}")
-                st.write(f"- Invalid/empty: {routes_attempted - routes_valid}")
-                
-                if routes_valid == 0:
-                    st.warning("⚠️ No valid routes to display. Agents may not have planned routes yet.")
-                    st.info("💡 Tip: Routes are created after agents start moving. Try advancing a few steps.")
-    
-    # View state
-    if agent_states:
-        lons = [s['location'][0] for s in agent_states if s.get('location')]
-        lats = [s['location'][1] for s in agent_states if s.get('location')]
-        if lons and lats:
-            center_lon = sum(lons) / len(lons)
-            center_lat = sum(lats) / len(lats)
-        else:
-            center_lon, center_lat = -3.19, 55.95
-    else:
-        center_lon, center_lat = -3.19, 55.95
-    
-    view_state = pdk.ViewState(
-        longitude=center_lon,
-        latitude=center_lat,
-        zoom=13,
-        pitch=0,
-        bearing=0
-    )
-    
-    deck = pdk.Deck(
-        layers=layers,
-        initial_view_state=view_state,
-        tooltip={
-            'html': '<b>{agent_id}</b><br/>Mode: {mode}<br/>Arrived: {arrived}',
-            'style': {'backgroundColor': 'rgba(0,0,0,0.8)', 'color': 'white'}
-        },
-        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+    # Render map
+    deck = render_map(
+        agent_states=agent_states,
+        show_agents=st.session_state.show_agents,
+        show_routes=st.session_state.show_routes,
+        show_infrastructure=st.session_state.show_infrastructure,
+        infrastructure_manager=results.infrastructure,
     )
     
     st.pydeck_chart(deck, use_container_width=True)
     
     # Current stats
     st.markdown("---")
+    stats = get_current_stats(agent_states, metrics)
+    
     col1, col2, col3, col4 = st.columns(4)
-    
-    mode_counts = Counter(s['mode'] for s in agent_states)
-    arrivals = metrics.get('arrivals', 0)
-    emissions = metrics.get('emissions', 0)
-    
-    # Count agents with routes
-    agents_with_routes = sum(1 for s in agent_states if s.get('route') and len(s.get('route', [])) > 0)
-    
-    col1.metric("Arrivals", f"{arrivals}/{len(agent_states)}")
-    col2.metric("Most Popular", mode_counts.most_common(1)[0][0].capitalize() if mode_counts else "N/A")
-    col3.metric("Emissions", f"{emissions:.0f} g CO₂")
-    col4.metric("Agents w/ Routes", f"{agents_with_routes}/{len(agent_states)}")
+    col1.metric("Arrivals", stats['arrivals'])
+    col2.metric("Most Popular", stats['most_popular_mode'])
+    col3.metric("Emissions", stats['total_emissions'])
+    col4.metric("Agents w/ Routes", stats['agents_with_routes'])
 
 # TAB 2: MODE ADOPTION
-with tab2:
+with tabs[1]:
     st.subheader("📈 Mode Adoption Over Time")
     
-    fig = go.Figure()
-    
-    for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
-        if mode in adoption_history and adoption_history[mode]:
-            fig.add_trace(go.Scatter(
-                x=list(range(len(adoption_history[mode]))),
-                y=[v * 100 for v in adoption_history[mode]],
-                mode='lines',
-                name=mode.capitalize(),
-                line=dict(width=3, color=MODE_COLORS_HEX[mode])
-            ))
-    
-    fig.add_vline(x=anim.current_step, line_dash="dash", line_color="red",
-                 annotation_text="Now")
-    
-    fig.update_layout(
-        xaxis_title="Time Step",
-        yaxis_title="Adoption Rate (%)",
-        hovermode='x unified',
-        height=400,
-    )
-    
+    fig = render_mode_adoption_chart(results.adoption_history, anim.current_step)
     st.plotly_chart(fig, use_container_width=True)
     
     # Statistics
@@ -881,85 +383,86 @@ with tab2:
     with col1:
         st.markdown("**Peak Adoption:**")
         for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
-            if mode in adoption_history and adoption_history[mode]:
-                peak = max(adoption_history[mode]) * 100
+            if mode in results.adoption_history and results.adoption_history[mode]:
+                peak = max(results.adoption_history[mode]) * 100
                 color = MODE_COLORS_HEX[mode]
                 st.markdown(f"<span style='color:{color}'>●</span> {mode.capitalize()}: {peak:.1f}%", 
                            unsafe_allow_html=True)
     
     with col2:
         st.markdown("**Current Share:**")
-        total = len(agent_states)
-        for mode, count in mode_counts.most_common():
-            pct = (count / total) * 100
-            color = MODE_COLORS_HEX.get(mode, '#808080')
-            st.markdown(f"<span style='color:{color}'>●</span> {mode.capitalize()}: {pct:.1f}%", 
+        mode_dist = get_mode_distribution(agent_states)
+        for _, row in mode_dist.iterrows():
+            st.markdown(f"<span style='color:{row['color']}'>●</span> {row['mode']}: {row['percentage']:.1f}%", 
                        unsafe_allow_html=True)
 
 # TAB 3: IMPACT
-with tab3:
+with tabs[2]:
     st.subheader("🎯 Environmental Impact")
     
-    all_metrics = []
-    for step_idx in range(len(time_series)):
-        data = time_series.get_timestep(step_idx)
-        if data:
-            all_metrics.append({
-                'step': step_idx,
-                'emissions': data['metrics'].get('emissions', 0),
-                'distance': data['metrics'].get('distance', 0),
-            })
-    
-    if all_metrics:
-        metrics_df = pd.DataFrame(all_metrics)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=metrics_df['step'],
-            y=metrics_df['emissions'],
-            mode='lines',
-            fill='tozeroy',
-            line=dict(color='#ef4444', width=3),
-        ))
-        
-        fig.update_layout(
-            title="Total CO₂ Emissions",
-            xaxis_title="Time Step",
-            yaxis_title="Emissions (g CO₂)",
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+    fig = render_emissions_chart(results.time_series)
+    st.plotly_chart(fig, use_container_width=True)
 
 # TAB 4: NETWORK
-with tab4:
+with tabs[3]:
     st.subheader("🌐 Social Network Analysis")
     
-    if network:
-        net_metrics = network.get_network_metrics()
+    if results.network:
+        net_metrics = results.network.get_network_metrics()
         
         col1, col2, col3 = st.columns(3)
         col1.metric("Connections", net_metrics.total_ties)
         col2.metric("Avg Degree", f"{net_metrics.avg_degree:.1f}")
         col3.metric("Clustering", f"{net_metrics.clustering_coefficient:.2f}")
         
-        if st.session_state.cascade_events:
+        if results.cascade_events:
             st.markdown("### 🌊 Cascade Events")
-            cascade_df = pd.DataFrame(st.session_state.cascade_events)
-            
-            if not cascade_df.empty:
-                fig = px.scatter(
-                    cascade_df,
-                    x='step',
-                    y='size',
-                    color='mode',
-                    color_discrete_map=MODE_COLORS_HEX,
-                )
+            fig = render_cascade_chart(results.cascade_events)
+            if fig:
                 st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Social network not enabled")
 
+# TAB 5: INFRASTRUCTURE (NEW)
+if results.infrastructure:
+    with tabs[4]:
+        st.subheader("🔌 Infrastructure Metrics")
+        
+        infra_data = render_infrastructure_metrics(results.infrastructure)
+        metrics = infra_data['metrics']
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        col1.metric(
+            "Charger Utilization",
+            f"{metrics['utilization']:.1%}",
+            delta="High" if metrics['utilization'] > 0.7 else "Normal"
+        )
+        
+        col2.metric(
+            "Grid Load",
+            f"{metrics['grid_load_mw']:.1f} MW",
+            delta=f"{metrics['grid_utilization']:.0%}"
+        )
+        
+        col3.metric(
+            "Queued Agents",
+            metrics['queued_agents'],
+            delta="⚠️" if metrics['queued_agents'] > 10 else "✅"
+        )
+        
+        col4.metric(
+            "Hotspots",
+            len(infra_data['hotspots']),
+            delta="Critical" if len(infra_data['hotspots']) > 5 else "OK"
+        )
+        
+        # Grid stress over time
+        if infra_data['grid_figure']:
+            st.plotly_chart(infra_data['grid_figure'], use_container_width=True)
+
 # ============================================================================
-# Auto-advance animation - WORKING VERSION FROM OLD FILE
+# Auto-advance animation
 # ============================================================================
 
 if anim.is_playing:
@@ -977,21 +480,21 @@ if anim.is_playing:
 
 st.markdown("---")
 
-# Status indicators
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    if st.session_state.use_realistic_influence:
-        st.success("✅ **Realistic Social Influence Active** - Natural adoption patterns")
-    elif network:
-        st.info("📊 **Deterministic Influence Active** - Traditional model")
+    if results.infrastructure:
+        st.success("✅ **Infrastructure-Aware Mode** - Phase 4.5 Active")
+    elif results.network and st.session_state.get('use_realistic_influence'):
+        st.success("✅ **Realistic Social Influence Active**")
+    elif results.network:
+        st.info("📊 **Deterministic Influence Active**")
     else:
-        st.info("📷 **No Social Influence** - Independent decisions")
+        st.info("🔷 **No Social Influence**")
 
 with col2:
-    # Show desire diversity if available
-    if hasattr(st.session_state, 'desire_std'):
-        std = st.session_state.desire_std
+    if results.desire_std:
+        std = results.desire_std
         st.metric(
             "Desire Diversity",
             f"σ={std['eco']:.3f}",
@@ -999,4 +502,4 @@ with col2:
             delta_color="normal" if std['eco'] > 0.15 else "inverse"
         )
 
-st.caption("**RTD_SIM** - Real-Time Decarbonization Simulator | Phase 1-4.1")
+st.caption("**RTD_SIM** - Real-Time Decarbonization Simulator | Phase 4.5 Infrastructure-Aware")

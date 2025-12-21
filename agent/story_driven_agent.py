@@ -72,6 +72,9 @@ class StoryDrivenAgent(CognitiveAgent):
         
         self.user_story = user_parser.load_from_yaml(user_story_id)
         self.job_story = job_parser.load_from_yaml(job_story_id)
+
+        # Extract context from job story
+        agent_context = self._extract_agent_context()
         
         # Generate task context
         self.task_context = self.job_story.to_task_context(origin, dest, csv_data)
@@ -91,6 +94,7 @@ class StoryDrivenAgent(CognitiveAgent):
         super().__init__(
             seed=seed,
             agent_id=agent_id,
+            agent_context=agent_context,
             desires=desires,
             planner=planner,
             origin=origin,
@@ -100,6 +104,29 @@ class StoryDrivenAgent(CognitiveAgent):
         logger.info(f"Created StoryDrivenAgent: {agent_id} "
                    f"({user_story_id} + {job_story_id})")
     
+    def _extract_agent_context(self) -> Dict:
+        """Extract infrastructure-relevant context from stories."""
+        context = {}
+        
+        # Vehicle requirements from job story
+        if self.job_story.vehicle_constraints:
+            context['vehicle_type'] = self.job_story.vehicle_constraints.get('type', 'personal')
+            context['cargo_capacity'] = self.job_story.vehicle_constraints.get('cargo', False)
+        
+        # Priority from desire overrides
+        if self.job_story.desire_overrides:
+            # Emergency services have overridden desires
+            context['priority'] = 'emergency'
+        elif self.job_story.delivery_params:
+            context['priority'] = 'commercial'
+        else:
+            context['priority'] = 'normal'
+        
+        # Recurring trips affect charging strategy
+        context['recurring'] = self.job_story.parameters.get('recurring', False)
+        
+        return context
+
     def _resolve_desires(self) -> Dict[str, float]:
         """
         Resolve desires from user story + job story.

@@ -2,7 +2,7 @@
 # agent/cognitive_abm.py
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import random
 import logging
 
@@ -56,7 +56,8 @@ class CognitiveAgent:
         desires: Dict[str, float] | None = None,
         planner=None,
         origin: Tuple[float, float] | None = None,
-        dest: Tuple[float, float] | None = None
+        dest: Tuple[float, float] | None = None,
+        agent_context: Optional[Dict] = None  # NEW
     ):
         self.rng = random.Random(seed)
         self.state = AgentState(agent_id=agent_id or f'agent_{abs(self.rng.randint(1, 9999))}')
@@ -68,6 +69,10 @@ class CognitiveAgent:
         self.planner = planner
         self.t = 0
         self._replan_period = 10  # steps between replans
+        # Store agent context for infrastructure queries
+        # Examples: {'vehicle_type': 'personal', 'priority': 'normal'}
+        self.agent_context = agent_context or {}
+
 
     def _apply_habit_bonus(self, costs: dict) -> dict:
         """Add habit discount to recently used modes."""
@@ -106,8 +111,11 @@ class CognitiveAgent:
             best = self.planner.choose_action(scores)
             s.mode = best.mode
             
-            # ✅ NEW: Store the cost evaluation for social influence
+            # Store the cost evaluation for social influence
             s.mode_costs = {score.action.mode: score.cost for score in scores}
+            
+            # NEW: Store infrastructure params
+            s.action_params = best.params
             
             # Route assignment...
             s.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
