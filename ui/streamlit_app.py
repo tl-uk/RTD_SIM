@@ -151,7 +151,7 @@ with st.sidebar:
             with st.expander("⚙️ Infrastructure Parameters"):
                 num_chargers = st.slider("Public Chargers", 10, 100, 50, 10)
                 num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
-                grid_capacity_mw = st.slider("Grid Capacity (MW)", 500, 2000, 1000, 100)
+                grid_capacity_mw = st.slider("Grid Capacity (MW)", 100, 500, 2000, 1000, 100)
         else:
             num_chargers = 0
             num_depots = 0
@@ -206,14 +206,29 @@ with st.sidebar:
             
             # Infrastructure state
             if results.infrastructure:
-                st.metric("Agents That Attempted Charging", 
-                         len(results.infrastructure.agent_charging_state))
+                current_charging = len(results.infrastructure.agent_charging_state)
+                st.metric("Currently Charging", current_charging)
+                
+                # Peak charging (from history)
+                if results.infrastructure.historical_utilization:
+                    peak_util = max(results.infrastructure.historical_utilization)
+                    peak_load = peak_util * results.infrastructure.grid_regions['default'].capacity_mw
+                    st.metric("Peak Grid Load", f"{peak_load:.1f} MW ({peak_util:.1%})")
+                
+                # Charging attempts log
+                st.markdown("**Charging Activity:**")
+                occupied = sum(s.currently_occupied for s in results.infrastructure.charging_stations.values())
+                total_ports = sum(s.num_ports for s in results.infrastructure.charging_stations.values())
+                st.write(f"- Occupied ports: {occupied}/{total_ports}")
+                st.write(f"- Active charging sessions: {current_charging}")
                 
                 # Show sample agent params
                 st.markdown("**Sample EV Agent Params:**")
                 for a in ev_agents[:3]:
                     if hasattr(a.state, 'action_params') and a.state.action_params:
-                        st.code(f"{a.state.agent_id}: {a.state.action_params}")
+                        st.code(f"{a.state.agent_id}: distance={a.state.distance_km:.1f}km, arrived={a.state.arrived}")
+                        if 'nearest_charger' in a.state.action_params:
+                            st.code(f"  charger: {a.state.action_params.get('nearest_charger')}")
                     else:
                         st.code(f"{a.state.agent_id}: NO PARAMS")
     

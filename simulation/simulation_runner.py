@@ -450,21 +450,42 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                             params = agent.state.action_params
                             
                             if 'nearest_charger' in params:
-                                # Check if agent has traveled enough to need charging
-                                # Or if agent has arrived at destination
-                                if agent.state.arrived or agent.state.distance_km > 5.0:
+                                # More realistic charging triggers:
+                                # 1. Agent has arrived at destination
+                                # 2. Agent has traveled significant distance (>3km)
+                                # 3. Random charging stops (10% chance per step for realism)
+                                should_charge = (
+                                    agent.state.arrived or 
+                                    agent.state.distance_km > 3.0 or
+                                    (agent.state.distance_km > 1.0 and random.random() < 0.1)
+                                )
+                                
+                                if should_charge:
                                     station_id = params['nearest_charger']
+                                    
+                                    # Realistic charging duration based on trip
+                                    # Short trips (<5km): 15-30 min top-up
+                                    # Medium trips (5-15km): 30-60 min
+                                    # Long trips (>15km): 60-120 min
+                                    trip_distance = params.get('trip_distance_km', 5.0)
+                                    if trip_distance < 5.0:
+                                        charge_duration = random.uniform(15, 30)
+                                    elif trip_distance < 15.0:
+                                        charge_duration = random.uniform(30, 60)
+                                    else:
+                                        charge_duration = random.uniform(60, 120)
+                                    
                                     success = infrastructure.reserve_charger(
                                         agent_id,
                                         station_id,
-                                        duration_min=30.0
+                                        duration_min=charge_duration
                                     )
                                     
                                     if success:
                                         # Immediately transition to charging status
                                         infrastructure.agent_charging_state[agent_id]['status'] = 'charging'
                                         infrastructure.agent_charging_state[agent_id]['start_time'] = step
-                                        logger.debug(f"Step {step}: Agent {agent_id} started charging at {station_id}")
+                                        logger.debug(f"Step {step}: Agent {agent_id} started charging at {station_id} ({charge_duration:.0f} min)")
                     
                     else:
                         # Agent is already charging - check if done

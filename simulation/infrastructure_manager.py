@@ -465,7 +465,7 @@ class InfrastructureManager:
                 owner_type='public'
             )
         
-        # DC Fast chargers (fewer, higher power)
+        # Change 20% of chargers to DC Fast (50kW instead of 7kW)
         for i in range(num_public // 5):
             lon = random.uniform(lon_min, lon_max)
             lat = random.uniform(lat_min, lat_max)
@@ -475,7 +475,7 @@ class InfrastructureManager:
                 location=(lon, lat),
                 charger_type='dcfast',
                 num_ports=random.choice([2, 4]),
-                power_kw=50.0,
+                power_kw=50.0,  # ← Much higher!
                 cost_per_kwh=0.25,
                 owner_type='commercial'
             )
