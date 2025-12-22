@@ -151,7 +151,7 @@ with st.sidebar:
             with st.expander("⚙️ Infrastructure Parameters"):
                 num_chargers = st.slider("Public Chargers", 10, 100, 50, 10)
                 num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
-                grid_capacity_mw = st.slider("Grid Capacity (MW)", 100, 500, 2000, 1000, 100)
+                grid_capacity_mw = st.slider("Grid Capacity (MW)", 100, 2000, 1000, 100)
         else:
             num_chargers = 0
             num_depots = 0
