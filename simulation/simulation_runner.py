@@ -439,18 +439,47 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                             satisfaction
                         )
                 
-                # Infrastructure interaction
+                # Infrastructure interaction (Phase 4.5)
                 if infrastructure and agent.state.mode == 'ev':
-                    if hasattr(agent.state, 'action_params'):
-                        params = agent.state.action_params
-                        if 'nearest_charger' in params and not agent.state.arrived:
-                            if step % 10 == 0:  # Check periodically
-                                station_id = params['nearest_charger']
-                                infrastructure.reserve_charger(
-                                    agent.state.agent_id,
-                                    station_id,
-                                    duration_min=30.0
-                                )
+                    agent_id = agent.state.agent_id
+                    
+                    # Check if agent is already charging
+                    if agent_id not in infrastructure.agent_charging_state:
+                        # Agent not yet charging - check if should start
+                        if hasattr(agent.state, 'action_params') and agent.state.action_params:
+                            params = agent.state.action_params
+                            
+                            if 'nearest_charger' in params:
+                                # Check if agent has traveled enough to need charging
+                                # Or if agent has arrived at destination
+                                if agent.state.arrived or agent.state.distance_km > 5.0:
+                                    station_id = params['nearest_charger']
+                                    success = infrastructure.reserve_charger(
+                                        agent_id,
+                                        station_id,
+                                        duration_min=30.0
+                                    )
+                                    
+                                    if success:
+                                        # Immediately transition to charging status
+                                        infrastructure.agent_charging_state[agent_id]['status'] = 'charging'
+                                        infrastructure.agent_charging_state[agent_id]['start_time'] = step
+                                        logger.debug(f"Step {step}: Agent {agent_id} started charging at {station_id}")
+                    
+                    else:
+                        # Agent is already charging - check if done
+                        charge_state = infrastructure.agent_charging_state[agent_id]
+                        if charge_state['status'] == 'charging':
+                            start_time = charge_state.get('start_time', step)
+                            duration = charge_state['duration_min']
+                            
+                            # Convert steps to minutes (step_minutes from env)
+                            elapsed_min = (step - start_time) * 1.0  # Assuming 1 step = 1 minute
+                            
+                            if elapsed_min >= duration:
+                                # Charging complete - release
+                                infrastructure.release_charger(agent_id)
+                                logger.debug(f"Step {step}: Agent {agent_id} finished charging ({elapsed_min:.0f} min)")
                 
                 # Collect state
                 agent_states.append({

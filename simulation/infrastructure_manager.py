@@ -284,7 +284,8 @@ class InfrastructureManager:
         total_load_kw = 0.0
         
         for agent_id, state in self.agent_charging_state.items():
-            if state['status'] == 'charging':
+            # FIX: Count both 'charging' and 'reserved' as active
+            if state['status'] in ('charging', 'reserved'):
                 station_id = state['station_id']
                 if station_id in self.charging_stations:
                     station = self.charging_stations[station_id]
@@ -294,6 +295,12 @@ class InfrastructureManager:
         
         # Track history
         self.historical_utilization.append(grid.utilization())
+        
+        # Log every 20 steps for monitoring
+        if step % 20 == 0 and total_load_kw > 0:
+            logger.info(f"Step {step}: Grid load {grid.current_load_mw:.2f} MW "
+                       f"({grid.utilization():.1%}), "
+                       f"{len(self.agent_charging_state)} agents charging")
         
         if grid.is_overloaded():
             logger.warning(f"Step {step}: Grid overloaded! ({grid.utilization():.1%})")
