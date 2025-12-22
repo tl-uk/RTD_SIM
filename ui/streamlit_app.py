@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 
 # Import our clean modules
-from simulation.simulation_runner import SimulationConfig, run_simulation
+from simulation_runner import SimulationConfig, run_simulation
 from visualiser.visualization import (  # ← Updated path
     render_map,
     render_mode_adoption_chart,
@@ -185,6 +185,37 @@ with st.sidebar:
         run_btn = st.form_submit_button("🚀 Run Simulation", 
                                         type="primary", 
                                         use_container_width=True)
+    
+    # Diagnostics Panel (NEW - for debugging Phase 4.5)
+    if st.session_state.simulation_run:
+        with st.expander("🔍 Infrastructure Diagnostics", expanded=False):
+            results = st.session_state.results
+            
+            # EV agent count
+            ev_agents = [a for a in results.agents if a.state.mode == 'ev']
+            st.metric("EV Agents", f"{len(ev_agents)}/{len(results.agents)} ({len(ev_agents)/len(results.agents)*100:.1f}%)")
+            
+            # Agents with charger info
+            agents_with_charger_info = sum(
+                1 for a in results.agents 
+                if hasattr(a.state, 'action_params') 
+                and a.state.action_params
+                and 'nearest_charger' in a.state.action_params
+            )
+            st.metric("Agents w/ Charger Info", f"{agents_with_charger_info}/{len(results.agents)}")
+            
+            # Infrastructure state
+            if results.infrastructure:
+                st.metric("Agents That Attempted Charging", 
+                         len(results.infrastructure.agent_charging_state))
+                
+                # Show sample agent params
+                st.markdown("**Sample EV Agent Params:**")
+                for a in ev_agents[:3]:
+                    if hasattr(a.state, 'action_params') and a.state.action_params:
+                        st.code(f"{a.state.agent_id}: {a.state.action_params}")
+                    else:
+                        st.code(f"{a.state.agent_id}: NO PARAMS")
     
     # Animation controls (after simulation)
     if st.session_state.simulation_run and st.session_state.animation_controller:
