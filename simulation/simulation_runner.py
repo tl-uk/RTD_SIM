@@ -43,6 +43,7 @@ class SimulationConfig:
         steps: int = 100,
         num_agents: int = 50,
         place: str = "Edinburgh, UK",
+        extended_bbox: Optional[Tuple[float, float, float, float]] = None,  # NEW
         use_osm: bool = True,
         user_stories: List[str] = None,
         job_stories: List[str] = None,
@@ -51,14 +52,15 @@ class SimulationConfig:
         use_realistic_influence: bool = True,
         decay_rate: float = 0.15,
         habit_weight: float = 0.4,
-        enable_infrastructure: bool = True,  # NEW
-        num_chargers: int = 50,              # NEW
-        num_depots: int = 5,                 # NEW
-        grid_capacity_mw: float = 1000.0,   # NEW
+        enable_infrastructure: bool = True,
+        num_chargers: int = 50,
+        num_depots: int = 5,
+        grid_capacity_mw: float = 1000.0,
     ):
         self.steps = steps
         self.num_agents = num_agents
         self.place = place
+        self.extended_bbox = extended_bbox  # NEW
         self.use_osm = use_osm
         self.user_stories = user_stories or []
         self.job_stories = job_stories or []
@@ -111,10 +113,28 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
         use_congestion=config.use_congestion
     )
     
-    if config.use_osm and config.place:
-        env.load_osm_graph(place=config.place, use_cache=True)
+    if config.use_osm:
+        # NEW: Support extended bbox for freight scenarios
+        if config.extended_bbox:
+            # Regional scale (e.g., Edinburgh-Glasgow corridor)
+            west, south, east, north = config.extended_bbox
+            logger.info(f"Loading extended region: bbox {config.extended_bbox}")
+            env.load_osm_graph(bbox=(north, south, east, west), use_cache=True)
+            region_name = "Central Scotland"
+        elif config.place:
+            # City scale
+            logger.info(f"Loading city: {config.place}")
+            env.load_osm_graph(place=config.place, use_cache=True)
+            region_name = config.place
+        else:
+            logger.warning("No place or bbox specified")
+            return env
+        
         stats = env.get_graph_stats()
-        logger.info(f"✅ Loaded {stats['nodes']:,} nodes")
+        logger.info(f"✅ Loaded {region_name}: {stats['nodes']:,} nodes")
+        
+        if progress_callback:
+            progress_callback(0.15, f"✅ Loaded {region_name}")
         
         # Verify congestion if enabled
         if config.use_congestion:
@@ -153,10 +173,49 @@ def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Op
         progress_callback(0.25, "🔌 Setting up infrastructure...")
     
     infrastructure = InfrastructureManager(grid_capacity_mw=config.grid_capacity_mw)
-    infrastructure.populate_edinburgh_chargers(
-        num_public=config.num_chargers,
-        num_depot=config.num_depots
-    )
+    
+    # Determine spatial bounds for charger placement
+    if config.extended_bbox:
+        # Regional scale - place chargers across extended region
+        west, south, east, north = config.extended_bbox
+        logger.info(f"Populating infrastructure across extended region")
+        
+        # For extended region, use custom placement
+        import random
+        for i in range(config.num_chargers):
+            lon = random.uniform(west, east)
+            lat = random.uniform(south, north)
+            
+            infrastructure.add_charging_station(
+                station_id=f"regional_{i:03d}",
+                location=(lon, lat),
+                charger_type=random.choice(['level2', 'dcfast']),
+                num_ports=random.choice([2, 4, 6]),
+                power_kw=7.0 if i % 5 != 0 else 50.0,  # 20% DC fast
+                cost_per_kwh=0.15 if i % 5 != 0 else 0.25,
+                owner_type='public'
+            )
+        
+        # Add depots in major cities (Glasgow and Edinburgh)
+        depot_locations = [
+            (-4.25, 55.86, "Glasgow"),   # Glasgow
+            (-3.19, 55.95, "Edinburgh"),  # Edinburgh
+        ]
+        
+        for i, (lon, lat, city) in enumerate(depot_locations):
+            infrastructure.add_depot(
+                depot_id=f"depot_{city.lower()}_{i:02d}",
+                location=(lon, lat),
+                depot_type=random.choice(['delivery', 'freight']),
+                num_chargers=random.choice([10, 20]),
+                charger_power_kw=50.0
+            )
+    else:
+        # City scale - use default Edinburgh placement
+        infrastructure.populate_edinburgh_chargers(
+            num_public=config.num_chargers,
+            num_depot=config.num_depots
+        )
     
     metrics = infrastructure.get_infrastructure_metrics()
     logger.info(f"✅ Infrastructure: {metrics['charging_stations']} stations, "
@@ -218,11 +277,19 @@ def create_agents(
             pair = env.get_random_origin_dest()
             return pair if pair else ((-3.19, 55.95), (-3.15, 55.97))
         else:
-            # Edinburgh bbox
-            return (
-                (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00)),
-                (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00))
-            )
+            # Use bbox bounds if extended, otherwise Edinburgh default
+            if config.extended_bbox:
+                west, south, east, north = config.extended_bbox
+                return (
+                    (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north)),
+                    (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
+                )
+            else:
+                # Edinburgh bbox
+                return (
+                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00)),
+                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00))
+                )
     
     agents = []
     

@@ -82,6 +82,19 @@ init_session_state()
 st.title("🚦 RTD_SIM - Real-Time Transport Decarbonization Simulator")
 st.markdown("**Phase 4.5: Infrastructure-Aware Agent-Based Model**")
 
+# Show active region if simulation running
+if st.session_state.simulation_run:
+    results = st.session_state.results
+    if results.env and results.env.graph_loaded:
+        stats = results.env.get_graph_stats()
+        # Detect region from config (stored in results)
+        if hasattr(st.session_state, 'current_region'):
+            region_name = st.session_state.current_region
+        else:
+            region_name = "Loaded Region"
+        
+        st.info(f"🗺️ **Active Region**: {region_name} | {stats['nodes']:,} nodes, {stats['edges']:,} edges")
+
 # ============================================================================
 # Sidebar Configuration
 # ============================================================================
@@ -100,9 +113,27 @@ with st.sidebar:
         st.markdown("### 🗺️ Location")
         use_osm = st.checkbox("Use Real Street Network", value=True)
         if use_osm:
-            place = st.text_input("City", "Edinburgh, UK")
+            region_choice = st.selectbox(
+                "Region",
+                options=['Edinburgh City', 'Central Scotland (Edinburgh-Glasgow)', 'Custom Place'],
+                index=0,
+                help="Select spatial extent for simulation"
+            )
+            
+            if region_choice == 'Edinburgh City':
+                place = "Edinburgh, UK"
+                extended_bbox = None
+                st.info("📍 City scale: ~30km radius, good for walk/bike/car/EV")
+            elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
+                place = None
+                extended_bbox = (-4.50, 55.70, -2.90, 56.10)  # (west, south, east, north)
+                st.success("📦 Regional scale: ~100km, enables freight between cities")
+            else:
+                place = st.text_input("City/Place Name", "Edinburgh, UK")
+                extended_bbox = None
         else:
             place = ""
+            extended_bbox = None
         
         # Story selection
         st.markdown("---")
@@ -151,7 +182,7 @@ with st.sidebar:
             with st.expander("⚙️ Infrastructure Parameters"):
                 num_chargers = st.slider("Public Chargers", 10, 100, 50, 10)
                 num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
-                grid_capacity_mw = st.slider("Grid Capacity (MW)", 100, 2000, 1000, 100)
+                grid_capacity_mw = st.slider("Grid Capacity (MW)", 500, 2000, 1000, 100)
         else:
             num_chargers = 0
             num_depots = 0
@@ -305,6 +336,7 @@ if run_btn:
         steps=steps,
         num_agents=num_agents,
         place=place,
+        extended_bbox=extended_bbox,  # NEW
         use_osm=use_osm,
         user_stories=user_stories,
         job_stories=job_stories,
@@ -337,6 +369,14 @@ if run_btn:
         st.session_state.animation_controller = AnimationController(
             total_steps=config.steps, fps=5
         )
+        # Store region name for display
+        if config.extended_bbox:
+            st.session_state.current_region = "Central Scotland (Edinburgh-Glasgow)"
+        elif config.place:
+            st.session_state.current_region = config.place
+        else:
+            st.session_state.current_region = "Unknown Region"
+        
         status_text.success("✅ Simulation complete!")
         progress_bar.empty()
         time.sleep(1)
