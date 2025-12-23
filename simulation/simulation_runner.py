@@ -1,5 +1,5 @@
 """
-simulation_runner.py
+simulation/simulation_runner.py
 
 Simulation execution logic separated from UI.
 Handles infrastructure setup, agent creation, and main simulation loop.
@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.infrastructure_manager import InfrastructureManager
-from agent.bdi_planner import BDIPlanner  # Now handles both Phase 4 and 4.5
+from agent.bdi_planner import BDIPlanner
 from visualiser.data_adapters import TimeSeriesStorage
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class SimulationConfig:
         steps: int = 100,
         num_agents: int = 50,
         place: str = "Edinburgh, UK",
-        extended_bbox: Optional[Tuple[float, float, float, float]] = None,  # NEW
+        extended_bbox: Optional[Tuple[float, float, float, float]] = None,
         use_osm: bool = True,
         user_stories: List[str] = None,
         job_stories: List[str] = None,
@@ -60,7 +60,7 @@ class SimulationConfig:
         self.steps = steps
         self.num_agents = num_agents
         self.place = place
-        self.extended_bbox = extended_bbox  # NEW
+        self.extended_bbox = extended_bbox
         self.use_osm = use_osm
         self.user_stories = user_stories or []
         self.job_stories = job_stories or []
@@ -84,7 +84,7 @@ class SimulationResults:
         self.agents: List[Any] = []
         self.network: Optional[SocialNetwork] = None
         self.influence_system: Optional[RealisticSocialInfluence] = None
-        self.infrastructure: Optional[InfrastructureManager] = None  # NEW
+        self.infrastructure: Optional[InfrastructureManager] = None
         self.adoption_history: Dict[str, List[float]] = defaultdict(list)
         self.cascade_events: List[Dict] = []
         self.desire_std: Dict[str, float] = {}
@@ -114,7 +114,7 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
     )
     
     if config.use_osm:
-        # NEW: Support extended bbox for freight scenarios
+        # Support extended bbox for freight scenarios
         if config.extended_bbox:
             # Regional scale (e.g., Edinburgh-Glasgow corridor)
             west, south, east, north = config.extended_bbox
@@ -198,13 +198,13 @@ def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Op
         
         # Add depots in major cities (Glasgow and Edinburgh)
         depot_locations = [
-            (-4.25, 55.86, "Glasgow"),   # Glasgow
-            (-3.19, 55.95, "Edinburgh"),  # Edinburgh
+            (-4.25, 55.86, "glasgow"),   # Glasgow
+            (-3.19, 55.95, "edinburgh"),  # Edinburgh
         ]
         
         for i, (lon, lat, city) in enumerate(depot_locations):
             infrastructure.add_depot(
-                depot_id=f"depot_{city.lower()}_{i:02d}",
+                depot_id=f"depot_{city}_{i:02d}",
                 location=(lon, lat),
                 depot_type=random.choice(['delivery', 'freight']),
                 num_chargers=random.choice([10, 20]),
@@ -252,7 +252,7 @@ def create_agents(
     env: SpatialEnvironment,
     planner: Any,
     progress_callback=None
-) -> List[Any]:
+) -> Tuple[List[Any], Dict[str, float]]:
     """
     Create agent population.
     
@@ -263,7 +263,7 @@ def create_agents(
         progress_callback: Optional callback(progress: float, message: str)
     
     Returns:
-        List of agents
+        Tuple of (agents list, desire_std dict)
     """
     if progress_callback:
         progress_callback(0.35, "🤖 Creating agents...")
@@ -438,12 +438,8 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
         planner = create_planner(infrastructure)
         
         # Create agents
-        agents_result = create_agents(config, env, planner, progress_callback)
-        if isinstance(agents_result, tuple):
-            agents, desire_std = agents_result
-            results.desire_std = desire_std
-        else:
-            agents = agents_result
+        agents, desire_std = create_agents(config, env, planner, progress_callback)
+        results.desire_std = desire_std
         results.agents = agents
         
         # Setup social network
@@ -517,10 +513,7 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                             params = agent.state.action_params
                             
                             if 'nearest_charger' in params:
-                                # More realistic charging triggers:
-                                # 1. Agent has arrived at destination
-                                # 2. Agent has traveled significant distance (>3km)
-                                # 3. Random charging stops (10% chance per step for realism)
+                                # More realistic charging triggers
                                 should_charge = (
                                     agent.state.arrived or 
                                     agent.state.distance_km > 3.0 or
@@ -531,9 +524,6 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                                     station_id = params['nearest_charger']
                                     
                                     # Realistic charging duration based on trip
-                                    # Short trips (<5km): 15-30 min top-up
-                                    # Medium trips (5-15km): 30-60 min
-                                    # Long trips (>15km): 60-120 min
                                     trip_distance = params.get('trip_distance_km', 5.0)
                                     if trip_distance < 5.0:
                                         charge_duration = random.uniform(15, 30)
@@ -549,7 +539,6 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                                     )
                                     
                                     if success:
-                                        # Immediately transition to charging status
                                         infrastructure.agent_charging_state[agent_id]['status'] = 'charging'
                                         infrastructure.agent_charging_state[agent_id]['start_time'] = step
                                         logger.debug(f"Step {step}: Agent {agent_id} started charging at {station_id} ({charge_duration:.0f} min)")
@@ -560,12 +549,9 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                         if charge_state['status'] == 'charging':
                             start_time = charge_state.get('start_time', step)
                             duration = charge_state['duration_min']
-                            
-                            # Convert steps to minutes (step_minutes from env)
-                            elapsed_min = (step - start_time) * 1.0  # Assuming 1 step = 1 minute
+                            elapsed_min = (step - start_time) * 1.0
                             
                             if elapsed_min >= duration:
-                                # Charging complete - release
                                 infrastructure.release_charger(agent_id)
                                 logger.debug(f"Step {step}: Agent {agent_id} finished charging ({elapsed_min:.0f} min)")
                 
@@ -605,11 +591,6 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                 'emissions': sum(a.state.emissions_g for a in agents),
                 'distance': sum(a.state.distance_km for a in agents),
             }
-            
-            # Infrastructure metrics
-            infra_metrics = None
-            if infrastructure:
-                infra_metrics = infrastructure.get_infrastructure_metrics()
             
             # Store timestep
             time_series.store_timestep(step, agent_states, None, metrics)

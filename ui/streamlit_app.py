@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 """
 RTD_SIM Unified Visualization - REFACTORED VERSION
-
-Clean separation of concerns:
-- This file: UI orchestration only (~200 lines)
-- simulation_runner.py: All simulation logic
-- visualization.py: All visualization logic
+Phase 4.5 with Extended Regional Support
 """
 
 from __future__ import annotations
@@ -23,7 +19,7 @@ import streamlit as st
 
 # Import our clean modules
 from simulation.simulation_runner import SimulationConfig, run_simulation
-from visualiser.visualization import (  # ← Updated path
+from visualiser.visualization import (
     render_map,
     render_mode_adoption_chart,
     render_emissions_chart,
@@ -44,19 +40,11 @@ try:
 except ImportError:
     PHASE_4_AVAILABLE = False
 
-# ============================================================================
-# Page Configuration
-# ============================================================================
-
 st.set_page_config(
     page_title="RTD_SIM - Transport Decarbonization Simulator",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# ============================================================================
-# Session State
-# ============================================================================
 
 def init_session_state():
     """Initialize session state variables."""
@@ -66,7 +54,8 @@ def init_session_state():
         'animation_controller': None,
         'show_agents': True,
         'show_routes': False,
-        'show_infrastructure': True,  # NEW: Default ON for Phase 4.5
+        'show_infrastructure': True,
+        'current_region': None,
     }
     
     for key, value in defaults.items():
@@ -75,40 +64,25 @@ def init_session_state():
 
 init_session_state()
 
-# ============================================================================
-# Title
-# ============================================================================
-
 st.title("🚦 RTD_SIM - Real-Time Transport Decarbonization Simulator")
-st.markdown("**Phase 4.5: Infrastructure-Aware Agent-Based Model**")
+st.markdown("**Phase 4.5E-Lite: Multi-Scale Infrastructure**")
 
 # Show active region if simulation running
-if st.session_state.simulation_run:
+if st.session_state.simulation_run and st.session_state.current_region:
     results = st.session_state.results
     if results.env and results.env.graph_loaded:
         stats = results.env.get_graph_stats()
-        # Detect region from config (stored in results)
-        if hasattr(st.session_state, 'current_region'):
-            region_name = st.session_state.current_region
-        else:
-            region_name = "Loaded Region"
-        
-        st.info(f"🗺️ **Active Region**: {region_name} | {stats['nodes']:,} nodes, {stats['edges']:,} edges")
-
-# ============================================================================
-# Sidebar Configuration
-# ============================================================================
+        st.info(f"🗺️ **Active Region**: {st.session_state.current_region} | "
+               f"{stats['nodes']:,} nodes, {stats['edges']:,} edges")
 
 with st.sidebar:
     st.header("⚙️ Simulation Configuration")
     
     with st.form("config_form"):
-        # Basic settings
         st.markdown("### 📊 Basic Settings")
         steps = st.number_input("Simulation Steps", 20, 200, 100, 20)
         num_agents = st.number_input("Number of Agents", 10, 100, 50, 10)
         
-        # Location
         st.markdown("---")
         st.markdown("### 🗺️ Location")
         use_osm = st.checkbox("Use Real Street Network", value=True)
@@ -135,7 +109,6 @@ with st.sidebar:
             place = ""
             extended_bbox = None
         
-        # Story selection
         st.markdown("---")
         st.markdown("### 📖 Story Selection")
         
@@ -167,13 +140,11 @@ with st.sidebar:
                 user_stories = ['eco_warrior', 'budget_student', 'business_commuter']
                 job_stories = ['morning_commute', 'flexible_leisure']
         
-        # Advanced features
         st.markdown("---")
         st.markdown("### 🔬 Advanced Features")
         
         use_congestion = st.checkbox("Enable Congestion", value=False)
         
-        # Infrastructure (NEW for Phase 4.5)
         st.markdown("**🔌 Infrastructure (Phase 4.5)**")
         enable_infrastructure = st.checkbox("Enable Infrastructure Awareness", value=True,
             help="EV range constraints, charging stations, grid capacity")
@@ -182,13 +153,12 @@ with st.sidebar:
             with st.expander("⚙️ Infrastructure Parameters"):
                 num_chargers = st.slider("Public Chargers", 10, 100, 50, 10)
                 num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
-                grid_capacity_mw = st.slider("Grid Capacity (MW)", 500, 2000, 1000, 100)
+                grid_capacity_mw = st.slider("Grid Capacity (MW)", 100, 2000, 1000, 100)
         else:
             num_chargers = 0
             num_depots = 0
             grid_capacity_mw = 1000
         
-        # Social networks
         if PHASE_4_AVAILABLE:
             enable_social = st.checkbox("Enable Social Networks", value=True)
             
@@ -217,16 +187,14 @@ with st.sidebar:
                                         type="primary", 
                                         use_container_width=True)
     
-    # Diagnostics Panel (NEW - for debugging Phase 4.5)
+    # Diagnostics Panel
     if st.session_state.simulation_run:
         with st.expander("🔍 Infrastructure Diagnostics", expanded=False):
             results = st.session_state.results
             
-            # EV agent count
             ev_agents = [a for a in results.agents if a.state.mode == 'ev']
             st.metric("EV Agents", f"{len(ev_agents)}/{len(results.agents)} ({len(ev_agents)/len(results.agents)*100:.1f}%)")
             
-            # Agents with charger info
             agents_with_charger_info = sum(
                 1 for a in results.agents 
                 if hasattr(a.state, 'action_params') 
@@ -235,25 +203,21 @@ with st.sidebar:
             )
             st.metric("Agents w/ Charger Info", f"{agents_with_charger_info}/{len(results.agents)}")
             
-            # Infrastructure state
             if results.infrastructure:
                 current_charging = len(results.infrastructure.agent_charging_state)
                 st.metric("Currently Charging", current_charging)
                 
-                # Peak charging (from history)
                 if results.infrastructure.historical_utilization:
                     peak_util = max(results.infrastructure.historical_utilization)
                     peak_load = peak_util * results.infrastructure.grid_regions['default'].capacity_mw
                     st.metric("Peak Grid Load", f"{peak_load:.1f} MW ({peak_util:.1%})")
                 
-                # Charging attempts log
                 st.markdown("**Charging Activity:**")
                 occupied = sum(s.currently_occupied for s in results.infrastructure.charging_stations.values())
                 total_ports = sum(s.num_ports for s in results.infrastructure.charging_stations.values())
                 st.write(f"- Occupied ports: {occupied}/{total_ports}")
                 st.write(f"- Active charging sessions: {current_charging}")
                 
-                # Show sample agent params
                 st.markdown("**Sample EV Agent Params:**")
                 for a in ev_agents[:3]:
                     if hasattr(a.state, 'action_params') and a.state.action_params:
@@ -263,14 +227,13 @@ with st.sidebar:
                     else:
                         st.code(f"{a.state.agent_id}: NO PARAMS")
     
-    # Animation controls (after simulation)
+    # Animation controls
     if st.session_state.simulation_run and st.session_state.animation_controller:
         st.markdown("---")
         st.header("🎬 Animation Controls")
         
         anim = st.session_state.animation_controller
         
-        # Manual step buttons
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             if st.button("⮜", help="Reset", use_container_width=True, key='reset_btn'):
@@ -291,7 +254,6 @@ with st.sidebar:
                 anim.seek(anim.total_steps - 1)
                 st.rerun()
         
-        # Auto-play toggle
         st.markdown("---")
         auto_play = st.checkbox("▶️ Auto-Play", value=anim.is_playing, key='auto_play')
         if auto_play != anim.is_playing:
@@ -301,7 +263,6 @@ with st.sidebar:
                 anim.pause()
             st.rerun()
         
-        # Time slider
         current_step = st.slider(
             "Timeline",
             0, anim.total_steps - 1,
@@ -316,7 +277,6 @@ with st.sidebar:
         st.progress(anim.get_progress(), 
                    text=f"Step {anim.current_step + 1}/{anim.total_steps}")
         
-        # Layer visibility
         st.markdown("---")
         st.markdown("**Display Options**")
         st.session_state.show_agents = st.checkbox("Show Agents", 
@@ -326,17 +286,12 @@ with st.sidebar:
         st.session_state.show_infrastructure = st.checkbox("Show Infrastructure", 
             value=st.session_state.show_infrastructure)
 
-# ============================================================================
-# Simulation Execution
-# ============================================================================
-
 if run_btn:
-    # Create config
     config = SimulationConfig(
         steps=steps,
         num_agents=num_agents,
         place=place,
-        extended_bbox=extended_bbox,  # NEW
+        extended_bbox=extended_bbox,
         use_osm=use_osm,
         user_stories=user_stories,
         job_stories=job_stories,
@@ -351,7 +306,6 @@ if run_btn:
         grid_capacity_mw=grid_capacity_mw,
     )
     
-    # Progress tracking
     progress_bar = st.progress(0, "Initializing...")
     status_text = st.empty()
     
@@ -359,17 +313,15 @@ if run_btn:
         progress_bar.progress(progress, message)
         status_text.info(message)
     
-    # Run simulation
     results = run_simulation(config, progress_callback=update_progress)
     
-    # Store results
     if results.success:
         st.session_state.simulation_run = True
         st.session_state.results = results
         st.session_state.animation_controller = AnimationController(
             total_steps=config.steps, fps=5
         )
-        # Store region name for display
+        # Store region name
         if config.extended_bbox:
             st.session_state.current_region = "Central Scotland (Edinburgh-Glasgow)"
         elif config.place:
@@ -385,10 +337,6 @@ if run_btn:
         status_text.error(f"❌ Simulation failed: {results.error_message}")
         progress_bar.empty()
 
-# ============================================================================
-# Main Visualization
-# ============================================================================
-
 if not st.session_state.simulation_run:
     st.info("👈 Configure parameters in the sidebar and click **Run Simulation**")
     
@@ -396,10 +344,10 @@ if not st.session_state.simulation_run:
     
     with col1:
         st.markdown("### 🎯 Quick Start")
-        st.markdown("1. Select user & job stories")
-        st.markdown("2. Enable infrastructure (Phase 4.5)")
-        st.markdown("3. Click **Run Simulation**")
-        st.markdown("4. Use animation controls")
+        st.markdown("1. Select region (City or Regional)")
+        st.markdown("2. Choose user & job stories")
+        st.markdown("3. Enable infrastructure")
+        st.markdown("4. Click **Run Simulation**")
     
     with col2:
         st.markdown("### 🎨 Color Guide")
@@ -409,7 +357,6 @@ if not st.session_state.simulation_run:
     
     st.stop()
 
-# Get data
 results = st.session_state.results
 anim = st.session_state.animation_controller
 
@@ -421,21 +368,15 @@ if not current_data:
 agent_states = current_data['agent_states']
 metrics = current_data.get('metrics', {})
 
-# ============================================================================
-# Tabs
-# ============================================================================
-
 tab_names = ["🗺️ Map", "📈 Mode Adoption", "🎯 Impact", "🌐 Network"]
 if results.infrastructure:
     tab_names.append("🔌 Infrastructure")
 
 tabs = st.tabs(tab_names)
 
-# TAB 1: MAP
 with tabs[0]:
     st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
     
-    # Render map
     deck = render_map(
         agent_states=agent_states,
         show_agents=st.session_state.show_agents,
@@ -446,7 +387,6 @@ with tabs[0]:
     
     st.pydeck_chart(deck, use_container_width=True)
     
-    # Current stats
     st.markdown("---")
     stats = get_current_stats(agent_states, metrics)
     
@@ -456,14 +396,12 @@ with tabs[0]:
     col3.metric("Emissions", stats['total_emissions'])
     col4.metric("Agents w/ Routes", stats['agents_with_routes'])
 
-# TAB 2: MODE ADOPTION
 with tabs[1]:
     st.subheader("📈 Mode Adoption Over Time")
     
     fig = render_mode_adoption_chart(results.adoption_history, anim.current_step)
     st.plotly_chart(fig, use_container_width=True)
     
-    # Statistics
     col1, col2 = st.columns(2)
     
     with col1:
@@ -482,14 +420,12 @@ with tabs[1]:
             st.markdown(f"<span style='color:{row['color']}'>●</span> {row['mode']}: {row['percentage']:.1f}%", 
                        unsafe_allow_html=True)
 
-# TAB 3: IMPACT
 with tabs[2]:
     st.subheader("🎯 Environmental Impact")
     
     fig = render_emissions_chart(results.time_series)
     st.plotly_chart(fig, use_container_width=True)
 
-# TAB 4: NETWORK
 with tabs[3]:
     st.subheader("🌐 Social Network Analysis")
     
@@ -509,7 +445,6 @@ with tabs[3]:
     else:
         st.info("Social network not enabled")
 
-# TAB 5: INFRASTRUCTURE (NEW)
 if results.infrastructure:
     with tabs[4]:
         st.subheader("🔌 Infrastructure Metrics")
@@ -543,13 +478,8 @@ if results.infrastructure:
             delta="Critical" if len(infra_data['hotspots']) > 5 else "OK"
         )
         
-        # Grid stress over time
         if infra_data['grid_figure']:
             st.plotly_chart(infra_data['grid_figure'], use_container_width=True)
-
-# ============================================================================
-# Auto-advance animation
-# ============================================================================
 
 if anim.is_playing:
     time.sleep(0.3 / anim.speed_multiplier)
@@ -560,18 +490,14 @@ if anim.is_playing:
         anim.pause()
         st.rerun()
 
-# ============================================================================
-# Footer
-# ============================================================================
-
 st.markdown("---")
 
 col1, col2 = st.columns([2, 1])
 
 with col1:
     if results.infrastructure:
-        st.success("✅ **Infrastructure-Aware Mode** - Phase 4.5 Active")
-    elif results.network and st.session_state.get('use_realistic_influence'):
+        st.success("✅ **Infrastructure-Aware Mode** - Phase 4.5E-Lite Active")
+    elif results.network and use_realistic:
         st.success("✅ **Realistic Social Influence Active**")
     elif results.network:
         st.info("📊 **Deterministic Influence Active**")
@@ -588,4 +514,4 @@ with col2:
             delta_color="normal" if std['eco'] > 0.15 else "inverse"
         )
 
-st.caption("**RTD_SIM** - Real-Time Decarbonization Simulator | Phase 4.5 Infrastructure-Aware")
+st.caption("**RTD_SIM** - Phase 4.5E-Lite: Multi-Scale Infrastructure | Glasgow-Edinburgh Corridor Ready")
