@@ -16,13 +16,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-# Color schemes
 MODE_COLORS_RGB = {
     'walk': [34, 197, 94],
     'bike': [59, 130, 246],
     'bus': [245, 158, 11],
     'car': [239, 68, 68],
     'ev': [168, 85, 245],
+    'van_electric': [16, 185, 129],   # NEW: Green for electric van
+    'van_diesel': [107, 114, 128],    # NEW: Gray for diesel van
 }
 
 MODE_COLORS_HEX = {
@@ -31,6 +32,8 @@ MODE_COLORS_HEX = {
     'bus': '#f59e0b',
     'car': '#ef4444',
     'ev': '#a855f7',
+    'van_electric': '#10b981',  # NEW
+    'van_diesel': '#6b7280',    # NEW
 }
 
 
@@ -245,7 +248,7 @@ def render_mode_adoption_chart(
     """
     fig = go.Figure()
     
-    for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
+    for mode in ['walk', 'bike', 'bus', 'car', 'ev', 'van_electric', 'van_diesel']:  # NEW
         if mode in adoption_history and adoption_history[mode]:
             fig.add_trace(go.Scatter(
                 x=list(range(len(adoption_history[mode]))),

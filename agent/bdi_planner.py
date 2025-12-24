@@ -65,7 +65,9 @@ class BDIPlanner:
         Args:
             infrastructure_manager: Optional InfrastructureManager for Phase 4.5
         """
-        self.default_modes = ['walk', 'bike', 'bus', 'car', 'ev']
+        self.default_modes = ['walk', 'bike', 'bus', 'car', 'ev',
+            'van_electric', 'van_diesel',  # NEW: Freight modes
+        ]
         self.infrastructure = infrastructure_manager
         
         # Log which mode we're in
@@ -121,7 +123,7 @@ class BDIPlanner:
             params = {}
             
             # EV infrastructure params (Phase 4.5)
-            if mode == 'ev' and self.has_infrastructure:
+            if mode in ['ev', 'van_electric'] and self.has_infrastructure:  # ← HERE!
                 params = self._get_ev_params(origin, dest, route, context)
             
             actions.append(Action(mode=mode, route=route, params=params))
@@ -165,6 +167,13 @@ class BDIPlanner:
         # Get vehicle type
         vehicle_type = context.get('vehicle_type', 'personal')
         ev_type = 'ev_delivery' if vehicle_type == 'commercial' else 'ev'
+
+        # NEW: Determine EV type with freight support
+        if mode == 'van_electric' or vehicle_type == 'commercial':
+            ev_type = 'ev_delivery'
+        else:
+            ev_type = 'ev'
+
         max_range = self.EV_RANGE_KM.get(ev_type, 350.0)
         
         # Range check with 90% safety margin
@@ -188,6 +197,7 @@ class BDIPlanner:
         route: List,
         context: Dict
     ) -> Dict:
+        
         """Get EV infrastructure parameters."""
         from simulation.spatial.coordinate_utils import route_distance_km
         
@@ -252,7 +262,7 @@ class BDIPlanner:
         
         infrastructure_penalty = 0.0
         
-        if mode == 'ev' and self.has_infrastructure:
+        if mode in ['ev', 'van_electric'] and self.has_infrastructure:
             # Range anxiety
             trip_distance = params.get('trip_distance_km', 0)
             vehicle_type = context.get('vehicle_type', 'personal')

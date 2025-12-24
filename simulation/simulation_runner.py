@@ -571,7 +571,7 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
                 network.record_mode_snapshot()
             
             mode_counts = Counter(a.state.mode for a in agents)
-            for mode in ['walk', 'bike', 'bus', 'car', 'ev']:
+            for mode in ['walk', 'bike', 'bus', 'car', 'ev', 'van_electric', 'van_diesel']:
                 adoption_history[mode].append(mode_counts.get(mode, 0) / len(agents))
             
             # Cascade detection

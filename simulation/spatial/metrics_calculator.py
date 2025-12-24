@@ -38,11 +38,13 @@ class MetricsCalculator:
         """Initialize with default mode speeds and parameters."""
         # Speed in km per minute
         self.speeds_km_min = {
-            'walk': 0.083,   # ~5 km/h
-            'bike': 0.25,    # ~15 km/h
-            'bus': 0.33,     # ~20 km/h
-            'car': 0.5,      # ~30 km/h
-            'ev': 0.5,       # ~30 km/h
+            'walk': 0.083,
+            'bike': 0.25,
+            'bus': 0.33,
+            'car': 0.5,
+            'ev': 0.5,
+            'van_electric': 0.45,   # NEW: Slightly slower due to weight
+            'van_diesel': 0.45,     # NEW: Same speed as EV van
         }
         
         # Base emissions in grams CO2 per km
@@ -52,6 +54,8 @@ class MetricsCalculator:
             'bus': 80.0,
             'car': 180.0,
             'ev': 60.0,
+            'van_electric': 90.0,    # NEW: Heavier than car EV
+            'van_diesel': 250.0,     # NEW: Worse than car diesel
         }
         
         # Monetary cost (base fare + per km)
@@ -61,6 +65,8 @@ class MetricsCalculator:
             'bus': {'base': 1.5, 'per_km': 0.0},
             'car': {'base': 0.0, 'per_km': 0.5},
             'ev': {'base': 0.0, 'per_km': 0.3},
+            'van_electric': {'base': 0.0, 'per_km': 0.4},   # NEW: Cheaper than diesel
+            'van_diesel': {'base': 0.0, 'per_km': 0.6},     # NEW: Expensive fuel
         }
         
         # Comfort scores (0-1, higher = more comfortable)
@@ -70,6 +76,8 @@ class MetricsCalculator:
             'bus': 0.7,
             'car': 0.8,
             'ev': 0.85,
+            'van_electric': 0.7,  # NEW: Commercial vehicle
+            'van_diesel': 0.7,    # NEW: Same comfort
         }
         
         # Risk scores (0-1, higher = more risky)
@@ -79,6 +87,8 @@ class MetricsCalculator:
             'bus': 0.15,
             'car': 0.25,
             'ev': 0.20,
+            'van_electric': 0.25,  # NEW: Larger vehicle
+            'van_diesel': 0.25,    # NEW: Same risk
         }
     
     def calculate_distance(self, route: List[Tuple[float, float]]) -> float:

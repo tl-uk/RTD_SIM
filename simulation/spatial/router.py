@@ -55,6 +55,8 @@ class Router:
             'bus': 'drive',
             'car': 'drive',
             'ev': 'drive',
+            'van_electric': 'drive',  # NEW: Use drive network
+            'van_diesel': 'drive',    # NEW: Use drive network
         }
         
         # Speed in km per minute for time-based routing
@@ -64,6 +66,8 @@ class Router:
             'bus': 0.33,
             'car': 0.5,
             'ev': 0.5,
+            'van_electric': 0.45,  # NEW
+            'van_diesel': 0.45,    # NEW
         }
     
     def compute_route(
