@@ -1,14 +1,10 @@
 """
-agent/bdi_planner.py
+agent/bdi_planner.py - FIXED VERSION
 
-BDI planner with optional infrastructure awareness.
-
-Usage:
-    # Phase 4 (basic):
-    planner = BDIPlanner()
-    
-    # Phase 4.5 (infrastructure-aware):
-    planner = BDIPlanner(infrastructure_manager=infra)
+Key fixes:
+1. Include freight modes in vehicle_required filtering
+2. Add distance-based mode filtering
+3. Better freight feasibility checks
 """
 
 from __future__ import annotations
@@ -32,17 +28,13 @@ class Action:
 class ActionScore:
     action: Action
     cost: float
-    breakdown: Optional[Dict[str, float]] = None  # For explainability
+    breakdown: Optional[Dict[str, float]] = None
 
 
 class BDIPlanner:
-    """
-    BDI planner with optional infrastructure awareness.
+    """BDI planner with optional infrastructure awareness."""
     
-    Backward compatible: Works with or without infrastructure_manager.
-    """
-    
-    # EV constraints (Phase 4.5)
+    # EV constraints
     EV_RANGE_KM = {
         'ev': 350.0,
         'ev_delivery': 200.0,
@@ -55,22 +47,26 @@ class BDIPlanner:
         'depot': 480.0,
     }
     
-    def __init__(
-        self,
-        infrastructure_manager: Optional[Any] = None
-    ) -> None:
-        """
-        Initialize planner.
-        
-        Args:
-            infrastructure_manager: Optional InfrastructureManager for Phase 4.5
-        """
-        self.default_modes = ['walk', 'bike', 'bus', 'car', 'ev',
-            'van_electric', 'van_diesel',  # NEW: Freight modes
+    # NEW: Distance-based mode constraints
+    MODE_MAX_DISTANCE_KM = {
+        'walk': 5.0,
+        'bike': 20.0,
+        'bus': 100.0,
+        'car': 500.0,
+        'ev': 350.0,
+        'van_electric': 200.0,
+        'van_diesel': 500.0,
+    }
+    
+    def __init__(self, infrastructure_manager: Optional[Any] = None) -> None:
+        """Initialize planner."""
+        self.default_modes = [
+            'walk', 'bike', 'bus', 
+            'car', 'ev',
+            'van_electric', 'van_diesel',
         ]
         self.infrastructure = infrastructure_manager
         
-        # Log which mode we're in
         if self.infrastructure:
             logger.info("BDI planner: infrastructure-aware mode (Phase 4.5)")
         else:
@@ -89,27 +85,19 @@ class BDIPlanner:
         dest,
         agent_context: Optional[Dict] = None
     ) -> List[Action]:
-        """
-        Generate possible actions.
-        
-        Args:
-            env: SpatialEnvironment
-            state: Agent state
-            origin: Origin coordinates
-            dest: Destination coordinates
-            agent_context: Optional context (vehicle_type, priority, etc.)
-        
-        Returns:
-            List of feasible actions
-        """
+        """Generate possible actions."""
         actions: List[Action] = []
         context = agent_context or {}
         
-        # Filter modes based on context (Phase 4.5)
-        available_modes = self._filter_modes_by_context(context)
+        # Calculate trip distance for filtering
+        from simulation.spatial.coordinate_utils import haversine_km
+        trip_distance = haversine_km(origin, dest)
+        
+        # Filter modes based on context AND distance
+        available_modes = self._filter_modes_by_context(context, trip_distance)
         
         for mode in available_modes:
-            # Infrastructure feasibility check (Phase 4.5)
+            # Infrastructure feasibility check
             if not self._is_mode_feasible(mode, origin, dest, state, context):
                 continue
             
@@ -122,29 +110,67 @@ class BDIPlanner:
             
             params = {}
             
-            # EV infrastructure params (Phase 4.5)
-            if mode in ['ev', 'van_electric'] and self.has_infrastructure:  # ← HERE!
+            # EV infrastructure params
+            if mode in ['ev', 'van_electric'] and self.has_infrastructure:
                 params = self._get_ev_params(origin, dest, route, context)
             
             actions.append(Action(mode=mode, route=route, params=params))
         
         return actions
     
-    def _filter_modes_by_context(self, context: Dict) -> List[str]:
-        """Filter modes based on agent context."""
+    def _filter_modes_by_context(
+        self, 
+        context: Dict,
+        trip_distance_km: float = 0.0
+    ) -> List[str]:
+        """
+        Filter modes based on agent context AND trip distance.
+        
+        FIX #1: Include freight modes for vehicle_required
+        FIX #2: Filter by distance constraints
+        """
         if not context:
-            return self.default_modes
+            modes = self.default_modes.copy()
+        else:
+            priority = context.get('priority', 'normal')
+            vehicle_required = context.get('vehicle_required', False)
+            cargo_capacity = context.get('cargo_capacity', False)
+            vehicle_type = context.get('vehicle_type', 'personal')
+            
+            modes = self.default_modes.copy()
+            
+            # Priority-based filtering
+            if priority == 'emergency':
+                modes = ['car', 'ev']
+            
+            # FIX: Include freight modes when vehicle required
+            elif cargo_capacity or vehicle_required or vehicle_type == 'commercial':
+                modes = ['car', 'ev', 'van_electric', 'van_diesel']
+                logger.debug(f"Context requires vehicle: offering {modes}")
+            
+            # Luggage/accessibility constraints
+            elif context.get('luggage_present') or context.get('wheelchair_accessible'):
+                modes = ['car', 'ev', 'bus', 'taxi']
         
-        priority = context.get('priority', 'normal')
-        vehicle_required = context.get('vehicle_required', False)
-        cargo_capacity = context.get('cargo_capacity', False)
-        
-        modes = self.default_modes.copy()
-        
-        if priority == 'emergency':
-            modes = ['car', 'ev']
-        elif cargo_capacity or vehicle_required:
-            modes = ['car', 'ev', 'bus']
+        # FIX #2: Distance-based filtering
+        if trip_distance_km > 0:
+            original_count = len(modes)
+            modes = [
+                m for m in modes 
+                if trip_distance_km <= self.MODE_MAX_DISTANCE_KM.get(m, float('inf'))
+            ]
+            
+            if len(modes) < original_count:
+                filtered = set(self.default_modes) - set(modes)
+                logger.debug(f"Filtered {filtered} for {trip_distance_km:.1f}km trip")
+            
+            # Always keep at least one mode (fallback to car/van)
+            if not modes:
+                if trip_distance_km > 50:
+                    modes = ['van_diesel', 'car']
+                else:
+                    modes = ['car']
+                logger.warning(f"No modes available for {trip_distance_km:.1f}km, using fallback: {modes}")
         
         return modes
     
@@ -156,28 +182,27 @@ class BDIPlanner:
         state,
         context: Dict
     ) -> bool:
-        """Check if mode is feasible (Phase 4.5 infrastructure check)."""
-        if not self.has_infrastructure or mode != 'ev':
+        """Check if mode is feasible (infrastructure check)."""
+        # Only check infrastructure for EVs
+        if not self.has_infrastructure or mode not in ['ev', 'van_electric']:
             return True
         
         # Calculate trip distance
         from simulation.spatial.coordinate_utils import haversine_km
         trip_distance = haversine_km(origin, dest)
         
-        # Get vehicle type
+        # Determine EV type
         vehicle_type = context.get('vehicle_type', 'personal')
-        ev_type = 'ev_delivery' if vehicle_type == 'commercial' else 'ev'
-
-        # NEW: Determine EV type with freight support
         if mode == 'van_electric' or vehicle_type == 'commercial':
             ev_type = 'ev_delivery'
         else:
             ev_type = 'ev'
-
+        
         max_range = self.EV_RANGE_KM.get(ev_type, 350.0)
         
         # Range check with 90% safety margin
         if trip_distance > max_range * 0.9:
+            logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
         
         # Check charger availability for long trips
@@ -186,6 +211,7 @@ class BDIPlanner:
                 dest, max_distance_km=5.0
             )
             if nearest is None:
+                logger.debug(f"{mode} not feasible: no charger within 5km of destination")
                 return False
         
         return True
@@ -197,7 +223,6 @@ class BDIPlanner:
         route: List,
         context: Dict
     ) -> Dict:
-        
         """Get EV infrastructure parameters."""
         from simulation.spatial.coordinate_utils import route_distance_km
         
@@ -228,9 +253,7 @@ class BDIPlanner:
         desires: Dict[str, float],
         agent_context: Optional[Dict] = None
     ) -> float:
-        """
-        Calculate action cost with optional infrastructure awareness.
-        """
+        """Calculate action cost with infrastructure awareness."""
         route = action.route
         mode = action.mode
         params = action.params
@@ -256,10 +279,7 @@ class BDIPlanner:
         emissions_norm = min(1.0, emissions_g / 500.0)
         comfort_penalty = 1.0 - comfort
         
-        # ====================================================================
-        # INFRASTRUCTURE ADJUSTMENTS (Phase 4.5)
-        # ====================================================================
-        
+        # Infrastructure adjustments
         infrastructure_penalty = 0.0
         
         if mode in ['ev', 'van_electric'] and self.has_infrastructure:
@@ -298,17 +318,14 @@ class BDIPlanner:
             else:
                 infrastructure_penalty += 1.0
             
-            # Grid stress factor
+            # Grid stress
             if self.infrastructure:
                 grid_stress = self.infrastructure.get_grid_stress_factor()
                 if grid_stress > 1.0:
                     time_norm *= grid_stress
                     cost_norm *= grid_stress
         
-        # ====================================================================
-        # PRIORITY ADJUSTMENTS (Phase 4.5)
-        # ====================================================================
-        
+        # Priority adjustments
         priority = context.get('priority', 'normal')
         
         if priority == 'emergency':
@@ -319,10 +336,7 @@ class BDIPlanner:
             w_time = 0.7
             w_cost = 0.5
         
-        # ====================================================================
         # Calculate total cost
-        # ====================================================================
-        
         total_cost = (
             w_time * time_norm +
             w_cost * cost_norm +
@@ -353,7 +367,6 @@ class BDIPlanner:
         for action in actions:
             cost = self.cost(action, env, state, desires, agent_context)
             
-            # Calculate breakdown for explainability (optional)
             breakdown = None
             if self.has_infrastructure:
                 breakdown = self._calculate_cost_breakdown(action, env, desires, agent_context)
@@ -381,7 +394,7 @@ class BDIPlanner:
             'emissions': env.estimate_emissions(route, mode) / 500.0,
         }
         
-        if mode == 'ev':
+        if mode in ['ev', 'van_electric']:
             breakdown['charging_wait'] = action.params.get('charger_wait_min', 0) / 60.0
             breakdown['range_anxiety'] = action.params.get('trip_distance_km', 0) / 350.0
         
@@ -401,9 +414,7 @@ class BDIPlanner:
         all_scores: List[ActionScore],
         desires: Dict[str, float]
     ) -> str:
-        """
-        Explain why an action was chosen (XAI).
-        """
+        """Explain why an action was chosen (XAI)."""
         mode = chosen.mode
         
         chosen_score = next((s for s in all_scores if s.action.mode == mode), None)
@@ -421,7 +432,7 @@ class BDIPlanner:
         )
         
         # Infrastructure notes
-        if mode == 'ev' and 'charger_wait_min' in chosen.params:
+        if mode in ['ev', 'van_electric'] and 'charger_wait_min' in chosen.params:
             wait = chosen.params['charger_wait_min']
             if wait > 0:
                 explanation += f"  (Charging wait: {wait:.0f} min)\n"
