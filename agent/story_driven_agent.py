@@ -1,8 +1,10 @@
 """
-agent/story_driven_agent.py
+agent/story_driven_agent.py - FIXED VERSION
 
-Story-driven BDI agent that generates behavior from user + job stories.
-Extends CognitiveAgent with story-based instantiation.
+Key fixes:
+1. Extract vehicle_required from job_story.parameters
+2. Set vehicle_type based on vehicle_constraints
+3. Add cargo_capacity flag
 """
 
 from __future__ import annotations
@@ -41,26 +43,10 @@ class StoryDrivenAgent(CognitiveAgent):
         user_stories_path: Optional[Path] = None,
         job_stories_path: Optional[Path] = None,
         csv_data: Optional[Dict[str, Any]] = None,
-        conflict_resolution: str = 'dynamic',  # 'dynamic', 'user_priority', 'job_priority'
+        conflict_resolution: str = 'dynamic',
         apply_variance: bool = True
     ):
-        """
-        Initialize story-driven agent.
-        
-        Args:
-            user_story_id: User story identifier (e.g., 'eco_warrior')
-            job_story_id: Job story identifier (e.g., 'morning_commute')
-            origin: Origin coordinates (lon, lat)
-            dest: Destination coordinates (lon, lat)
-            agent_id: Optional agent ID (auto-generated if None)
-            planner: BDI planner instance
-            seed: Random seed for variance
-            user_stories_path: Path to personas.yaml
-            job_stories_path: Path to job_contexts.yaml
-            csv_data: Optional CSV row data
-            conflict_resolution: How to resolve desire conflicts
-            apply_variance: Whether to apply stochastic variance
-        """
+        """Initialize story-driven agent."""
         # Store story IDs for reference
         self.user_story_id = user_story_id
         self.job_story_id = job_story_id
@@ -72,12 +58,12 @@ class StoryDrivenAgent(CognitiveAgent):
         
         self.user_story = user_parser.load_from_yaml(user_story_id)
         self.job_story = job_parser.load_from_yaml(job_story_id)
-
-        # Extract context from job story
-        agent_context = self._extract_agent_context()
         
         # Generate task context
         self.task_context = self.job_story.to_task_context(origin, dest, csv_data)
+        
+        # FIX: Extract agent_context AFTER task_context is created
+        agent_context = self._extract_agent_context()
         
         # Resolve desires (combine user + job)
         desires = self._resolve_desires()
@@ -101,23 +87,41 @@ class StoryDrivenAgent(CognitiveAgent):
             dest=dest
         )
         
-        logger.info(f"Created StoryDrivenAgent: {agent_id} "
-                   f"({user_story_id} + {job_story_id})")
-          
+        # DEBUG: Log context immediately after creation
+        logger.info(f"Created {agent_id}: job={job_story_id}, "
+                   f"vehicle_required={agent_context.get('vehicle_required')}, "
+                   f"vehicle_type={agent_context.get('vehicle_type')}")
+    
     def _extract_agent_context(self) -> Dict:
-        """Extract infrastructure-relevant context from stories."""
+        """
+        Extract infrastructure-relevant context from stories.
+        
+        FIX: Now properly extracts vehicle_required from job_story.parameters
+        """
         context = {}
         
-        # Vehicle requirements from job story
-        if self.job_story.vehicle_constraints:
-            context['vehicle_type'] = self.job_story.vehicle_constraints.get('type', 'personal')
-            context['cargo_capacity'] = self.job_story.vehicle_constraints.get('cargo', False)
+        # FIX #1: Extract vehicle_required from job story parameters
+        context['vehicle_required'] = self.task_context.parameters.get('vehicle_required', False)
         
-        # Priority from desire overrides
+        # FIX #2: Extract cargo_capacity
+        context['cargo_capacity'] = self.task_context.parameters.get('cargo_capacity', False)
+        
+        # FIX #3: Vehicle type from job story vehicle_constraints
+        if self.job_story.vehicle_constraints:
+            vehicle_type = self.job_story.vehicle_constraints.get('type', 'personal')
+            
+            # Map freight types to 'commercial'
+            if vehicle_type in ['freight', 'light_freight', 'delivery']:
+                context['vehicle_type'] = 'commercial'
+            else:
+                context['vehicle_type'] = 'personal'
+        else:
+            context['vehicle_type'] = 'personal'
+        
+        # Priority from desire overrides or job type
         if self.job_story.desire_overrides:
-            # Emergency services have overridden desires
             context['priority'] = 'emergency'
-        elif self.job_story.delivery_params:
+        elif self.job_story.job_type in ['delivery', 'gig_delivery']:
             context['priority'] = 'commercial'
         else:
             context['priority'] = 'normal'
@@ -125,14 +129,13 @@ class StoryDrivenAgent(CognitiveAgent):
         # Recurring trips affect charging strategy
         context['recurring'] = self.job_story.parameters.get('recurring', False)
         
-        return context
-
-    def _resolve_desires(self) -> Dict[str, float]:
-        """
-        Resolve desires from user story + job story.
+        # Luggage constraints
+        context['luggage_present'] = self.task_context.parameters.get('luggage_present', False)
         
-        Handles conflicts based on conflict_resolution strategy.
-        """
+        return context
+    
+    def _resolve_desires(self) -> Dict[str, float]:
+        """Resolve desires from user story + job story."""
         # Get base desires from user story
         user_desires = self.user_story.to_bdi_desires()
         
@@ -146,27 +149,17 @@ class StoryDrivenAgent(CognitiveAgent):
         
         # Apply conflict resolution strategy
         if self.conflict_resolution == 'user_priority':
-            # User story dominates
             return user_desires
-        
         elif self.conflict_resolution == 'job_priority':
-            # Job story context modifies desires
             return self._apply_job_context_weights(user_desires)
-        
         elif self.conflict_resolution == 'dynamic':
-            # Dynamic weighting based on urgency
             return self._dynamic_weighting(user_desires)
-        
         else:
             logger.warning(f"Unknown conflict resolution: {self.conflict_resolution}")
             return user_desires
     
     def _apply_job_context_weights(self, desires: Dict[str, float]) -> Dict[str, float]:
-        """
-        Modify desires based on job context.
-        
-        Example: Time-critical job increases time desire.
-        """
+        """Modify desires based on job context."""
         modified = desires.copy()
         
         # Urgency affects time desire
@@ -188,11 +181,7 @@ class StoryDrivenAgent(CognitiveAgent):
         return modified
     
     def _dynamic_weighting(self, desires: Dict[str, float]) -> Dict[str, float]:
-        """
-        Dynamic weighting: blend user + job based on importance.
-        
-        Default: 70% user personality, 30% job context.
-        """
+        """Dynamic weighting: blend user + job based on importance."""
         modified = self._apply_job_context_weights(desires)
         
         # Blend with original
@@ -210,11 +199,7 @@ class StoryDrivenAgent(CognitiveAgent):
         desires: Dict[str, float], 
         seed: Optional[int]
     ) -> Dict[str, float]:
-        """
-        Apply stochastic variance to desires.
-        
-        Variance amount from user story (default ±10%).
-        """
+        """Apply stochastic variance to desires."""
         variance = self.user_story.desire_variance
         rng = random.Random(seed)
         
@@ -227,11 +212,7 @@ class StoryDrivenAgent(CognitiveAgent):
         return varied
     
     def get_story_context(self) -> Dict[str, Any]:
-        """
-        Get full story context for this agent.
-        
-        Useful for debugging and explanation.
-        """
+        """Get full story context for this agent."""
         return {
             'user_story_id': self.user_story_id,
             'job_story_id': self.job_story_id,
@@ -244,11 +225,7 @@ class StoryDrivenAgent(CognitiveAgent):
         }
     
     def explain_decision(self, action: str) -> str:
-        """
-        Explain why agent chose this action (for explainability).
-        
-        BDI agents can articulate their reasoning!
-        """
+        """Explain why agent chose this action (for explainability)."""
         context = self.get_story_context()
         
         explanation = (
@@ -288,27 +265,7 @@ def generate_agents_from_stories(
     user_stories_path: Optional[Path] = None,
     job_stories_path: Optional[Path] = None
 ) -> List[StoryDrivenAgent]:
-    """
-    Generate multiple agents from story combinations.
-    
-    Args:
-        user_story_ids: List of user story IDs
-        job_story_ids: List of job story IDs
-        origin_dest_pairs: List of (origin, dest) coordinate pairs
-        planner: BDI planner instance
-        seed: Random seed for reproducibility
-        user_stories_path: Path to personas.yaml
-        job_stories_path: Path to job_contexts.yaml
-    
-    Returns:
-        List of StoryDrivenAgent instances
-    
-    Example:
-        >>> user_stories = ['eco_warrior', 'busy_parent', 'student']
-        >>> job_stories = ['morning_commute', 'school_run']
-        >>> od_pairs = [((lon1, lat1), (lon2, lat2)), ...]
-        >>> agents = generate_agents_from_stories(user_stories, job_stories, od_pairs)
-    """
+    """Generate multiple agents from story combinations."""
     agents = []
     rng = random.Random(seed)
     
@@ -337,30 +294,13 @@ def generate_balanced_population(
     num_agents: int,
     user_story_ids: List[str],
     job_story_ids: List[str],
-    origin_dest_generator,  # Callable that returns (origin, dest)
+    origin_dest_generator,
     planner = None,
     seed: Optional[int] = None,
     user_stories_path: Optional[Path] = None,
     job_stories_path: Optional[Path] = None
 ) -> List[StoryDrivenAgent]:
-    """
-    Generate balanced population with even story distribution.
-    
-    Ensures each user story + job story combination is represented.
-    
-    Args:
-        num_agents: Target number of agents
-        user_story_ids: List of user story IDs
-        job_story_ids: List of job story IDs
-        origin_dest_generator: Function that returns (origin, dest) tuple
-        planner: BDI planner instance
-        seed: Random seed
-        user_stories_path: Path to personas.yaml
-        job_stories_path: Path to job_contexts.yaml
-    
-    Returns:
-        List of StoryDrivenAgent instances
-    """
+    """Generate balanced population with even story distribution."""
     agents = []
     rng = random.Random(seed)
     

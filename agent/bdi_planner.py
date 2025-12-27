@@ -94,7 +94,7 @@ class BDIPlanner:
         trip_distance = haversine_km(origin, dest)
         
         # Filter modes based on context AND distance
-        available_modes = self._filter_modes_by_context(context, trip_distance)
+        available_modes = self._filter_modes_by_context(context, trip_distance_km=trip_distance)
         
         for mode in available_modes:
             # Infrastructure feasibility check

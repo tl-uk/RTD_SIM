@@ -256,14 +256,7 @@ def create_agents(
     """
     Create agent population.
     
-    Args:
-        config: SimulationConfig instance
-        env: SpatialEnvironment instance
-        planner: BDI planner instance
-        progress_callback: Optional callback(progress: float, message: str)
-    
-    Returns:
-        Tuple of (agents list, desire_std dict)
+    FIX: Now filters incompatible story combinations and logs context.
     """
     if progress_callback:
         progress_callback(0.35, "🤖 Creating agents...")
@@ -295,31 +288,51 @@ def create_agents(
     
     # Story-driven agents
     if PHASE_4_AVAILABLE and config.user_stories and config.job_stories:
-        num_combinations = len(config.user_stories) * len(config.job_stories)
-        base_agents_per_combo = config.num_agents // num_combinations
-        remainder = config.num_agents % num_combinations
+        # FIX: Import and use story compatibility filter
+        try:
+            from agent.story_compatibility import create_realistic_agent_pool
+            
+            # Create filtered agent pool
+            agent_pool = create_realistic_agent_pool(
+                num_agents=config.num_agents,
+                user_story_ids=config.user_stories,
+                job_story_ids=config.job_stories,
+                strategy='compatible'  # Filter nonsensical combinations
+            )
+            
+            logger.info(f"Creating {len(agent_pool)} agents from filtered combinations")
+            
+        except ImportError:
+            # Fallback to old method if story_compatibility.py doesn't exist
+            logger.warning("story_compatibility.py not found - using unfiltered combinations")
+            num_combinations = len(config.user_stories) * len(config.job_stories)
+            base_agents_per_combo = config.num_agents // num_combinations
+            remainder = config.num_agents % num_combinations
+            
+            agent_pool = []
+            combo_index = 0
+            for user_story in config.user_stories:
+                for job_story in config.job_stories:
+                    count = base_agents_per_combo + (1 if combo_index < remainder else 0)
+                    for _ in range(count):
+                        agent_pool.append((user_story, job_story))
+                    combo_index += 1
         
-        combo_index = 0
-        for user_story in config.user_stories:
-            for job_story in config.job_stories:
-                count = base_agents_per_combo + (1 if combo_index < remainder else 0)
-                
-                for i in range(count):
-                    origin, dest = random_od()
-                    agent_seed = secrets.randbits(32)
-                    
-                    agent = StoryDrivenAgent(
-                        user_story_id=user_story,
-                        job_story_id=job_story,
-                        origin=origin,
-                        dest=dest,
-                        planner=planner,
-                        seed=agent_seed,
-                        apply_variance=True
-                    )
-                    agents.append(agent)
-                
-                combo_index += 1
+        # Create agents from pool
+        for user_story, job_story in agent_pool:
+            origin, dest = random_od()
+            agent_seed = secrets.randbits(32)
+            
+            agent = StoryDrivenAgent(
+                user_story_id=user_story,
+                job_story_id=job_story,
+                origin=origin,
+                dest=dest,
+                planner=planner,
+                seed=agent_seed,
+                apply_variance=True
+            )
+            agents.append(agent)
         
         # Shuffle for spatial diversity
         crypto_rng.shuffle(agents)
@@ -336,9 +349,30 @@ def create_agents(
         
         desire_std = {'eco': eco_std, 'time': time_std, 'cost': cost_std}
         
-        logger.info(f"✅ Created {len(agents)} story-driven agents "
-                   f"({len(config.user_stories)} personas × {len(config.job_stories)} jobs)")
+        # FIX: Log vehicle_required statistics
+        vehicle_required_count = sum(
+            1 for a in agents 
+            if hasattr(a, 'agent_context') 
+            and a.agent_context.get('vehicle_required', False)
+        )
+        
+        freight_job_count = sum(
+            1 for a in agents
+            if hasattr(a, 'job_story_id')
+            and 'freight' in a.job_story_id.lower() or 'delivery' in a.job_story_id.lower()
+        )
+        
+        logger.info(f"✅ Created {len(agents)} story-driven agents")
         logger.info(f"📊 Desire diversity - Eco: σ={eco_std:.3f}, Time: σ={time_std:.3f}, Cost: σ={cost_std:.3f}")
+        logger.info(f"🚚 Freight context: {vehicle_required_count} agents with vehicle_required=True")
+        logger.info(f"📦 Job distribution: {freight_job_count} freight/delivery jobs")
+        
+        # DEBUG: Show first 3 agents' contexts
+        for i, agent in enumerate(agents[:3]):
+            context = getattr(agent, 'agent_context', {})
+            logger.info(f"   Sample {i+1}: {agent.state.agent_id} -> "
+                       f"vehicle_required={context.get('vehicle_required')}, "
+                       f"vehicle_type={context.get('vehicle_type')}")
         
         return agents, desire_std
     
