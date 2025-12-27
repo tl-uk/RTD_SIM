@@ -192,40 +192,180 @@ with st.sidebar:
         with st.expander("🔍 Infrastructure Diagnostics", expanded=False):
             results = st.session_state.results
             
-            ev_agents = [a for a in results.agents if a.state.mode == 'ev']
-            st.metric("EV Agents", f"{len(ev_agents)}/{len(results.agents)} ({len(ev_agents)/len(results.agents)*100:.1f}%)")
+            st.markdown("### 📊 Mode Distribution Analysis")
             
-            agents_with_charger_info = sum(
-                1 for a in results.agents 
-                if hasattr(a.state, 'action_params') 
-                and a.state.action_params
-                and 'nearest_charger' in a.state.action_params
-            )
-            st.metric("Agents w/ Charger Info", f"{agents_with_charger_info}/{len(results.agents)}")
+            # Count all modes
+            mode_counts = {}
+            for agent in results.agents:
+                mode = agent.state.mode
+                mode_counts[mode] = mode_counts.get(mode, 0) + 1
+            
+            # Display as table
+            mode_data = []
+            for mode in ['walk', 'bike', 'bus', 'car', 'ev', 'van_electric', 'van_diesel']:
+                count = mode_counts.get(mode, 0)
+                pct = (count / len(results.agents) * 100) if results.agents else 0
+                mode_data.append({
+                    'Mode': mode,
+                    'Count': count,
+                    'Percentage': f"{pct:.1f}%"
+                })
+            
+            import pandas as pd
+            st.dataframe(pd.DataFrame(mode_data), use_container_width=True)
+            
+            # Highlight freight modes
+            freight_count = mode_counts.get('van_electric', 0) + mode_counts.get('van_diesel', 0)
+            if freight_count == 0:
+                st.error(f"❌ **NO FREIGHT MODES DETECTED** ({freight_count}/50 agents)")
+                st.warning("This indicates mode filtering or job context issues")
+            else:
+                st.success(f"✅ **Freight modes active**: {freight_count}/50 agents ({freight_count/50*100:.1f}%)")
+            
+            st.markdown("---")
+            st.markdown("### 🔌 Infrastructure Status")
+            
+            # EV-specific metrics
+            ev_agents = [a for a in results.agents if a.state.mode in ['ev', 'van_electric']]
+            st.metric("EV/Van Electric Agents", f"{len(ev_agents)}/{len(results.agents)} ({len(ev_agents)/len(results.agents)*100:.1f}%)")
+            
+            # Agent context analysis
+            st.markdown("### 🎭 Agent Context Analysis")
+            
+            job_types = {}
+            vehicle_required_count = 0
+            
+            for agent in results.agents:
+                # Get job type
+                job_id = getattr(agent, 'job_story_id', 'unknown')
+                job_types[job_id] = job_types.get(job_id, 0) + 1
+                
+                # Check vehicle_required flag
+                context = getattr(agent, 'agent_context', {})
+                if context.get('vehicle_required', False):
+                    vehicle_required_count += 1
+            
+            st.write(f"**Agents with vehicle_required=True**: {vehicle_required_count}/{len(results.agents)}")
+            
+            if vehicle_required_count == 0:
+                st.error("❌ **CRITICAL**: No agents have vehicle_required flag set!")
+                st.info("💡 This means job_contexts.yaml is missing `vehicle_required: true` parameter")
+            
+            st.markdown("**Job Story Distribution:**")
+            for job_id, count in sorted(job_types.items(), key=lambda x: x[1], reverse=True):
+                st.write(f"- {job_id}: {count} agents")
+            
+            st.markdown("---")
+            st.markdown("### 🚗 Sample Agent Details")
+            
+            # Show first 5 agents with full context
+            for i, agent in enumerate(results.agents[:5]):
+                with st.expander(f"Agent {i+1}: {agent.state.agent_id}"):
+                    st.write(f"**Mode**: {agent.state.mode}")
+                    st.write(f"**Distance**: {agent.state.distance_km:.1f} km")
+                    st.write(f"**Arrived**: {agent.state.arrived}")
+                    
+                    # Show origin/dest
+                    origin = getattr(agent, 'origin', None)
+                    dest = getattr(agent, 'dest', None)
+                    if origin and dest:
+                        from simulation.spatial.coordinate_utils import haversine_km
+                        trip_dist = haversine_km(origin, dest)
+                        st.write(f"**Trip Distance (O-D)**: {trip_dist:.1f} km")
+                    
+                    # Show job context
+                    context = getattr(agent, 'agent_context', {})
+                    st.write(f"**Agent Context**:")
+                    st.json(context)
+                    
+                    # Show available modes (if we can access planner)
+                    job_id = getattr(agent, 'job_story_id', None)
+                    if job_id:
+                        st.write(f"**Job Story**: {job_id}")
+            
+            st.markdown("---")
+            st.markdown("### ⚡ Grid & Charging Analysis")
             
             if results.infrastructure:
+                # Current charging state
                 current_charging = len(results.infrastructure.agent_charging_state)
                 st.metric("Currently Charging", current_charging)
                 
-                if results.infrastructure.historical_utilization:
-                    peak_util = max(results.infrastructure.historical_utilization)
-                    peak_load = peak_util * results.infrastructure.grid_regions['default'].capacity_mw
-                    st.metric("Peak Grid Load", f"{peak_load:.1f} MW ({peak_util:.1%})")
+                # Check grid load calculation
+                grid = results.infrastructure.grid_regions['default']
+                st.write(f"**Grid Capacity**: {grid.capacity_mw:.1f} MW")
+                st.write(f"**Current Load**: {grid.current_load_mw:.3f} MW")
+                st.write(f"**Utilization**: {grid.utilization():.2%}")
                 
-                st.markdown("**Charging Activity:**")
+                # Debug: Calculate expected load
+                expected_load_kw = 0.0
+                for agent_id, state in results.infrastructure.agent_charging_state.items():
+                    station_id = state.get('station_id')
+                    if station_id in results.infrastructure.charging_stations:
+                        station = results.infrastructure.charging_stations[station_id]
+                        expected_load_kw += station.power_kw
+                
+                st.write(f"**Expected Load (calculated)**: {expected_load_kw/1000:.3f} MW")
+                
+                if grid.current_load_mw == 0 and current_charging > 0:
+                    st.error("❌ **BUG DETECTED**: Agents are charging but grid load = 0!")
+                    st.info("💡 Check `infrastructure_manager.update_grid_load()` - status field issue")
+                
+                # Charging station utilization
                 occupied = sum(s.currently_occupied for s in results.infrastructure.charging_stations.values())
                 total_ports = sum(s.num_ports for s in results.infrastructure.charging_stations.values())
-                st.write(f"- Occupied ports: {occupied}/{total_ports}")
-                st.write(f"- Active charging sessions: {current_charging}")
+                st.write(f"**Station Utilization**: {occupied}/{total_ports} ports ({occupied/total_ports*100:.1f}%)")
                 
-                st.markdown("**Sample EV Agent Params:**")
-                for a in ev_agents[:3]:
-                    if hasattr(a.state, 'action_params') and a.state.action_params:
-                        st.code(f"{a.state.agent_id}: distance={a.state.distance_km:.1f}km, arrived={a.state.arrived}")
-                        if 'nearest_charger' in a.state.action_params:
-                            st.code(f"  charger: {a.state.action_params.get('nearest_charger')}")
-                    else:
-                        st.code(f"{a.state.agent_id}: NO PARAMS")
+                # Show charging agents
+                if current_charging > 0:
+                    st.markdown("**Active Charging Sessions:**")
+                    for agent_id, state in list(results.infrastructure.agent_charging_state.items())[:5]:
+                        station_id = state.get('station_id', 'unknown')
+                        status = state.get('status', 'unknown')
+                        duration = state.get('duration_min', 0)
+                        st.write(f"- {agent_id}: {station_id} ({status}, {duration:.0f}min)")
+                
+                # Peak utilization
+                if results.infrastructure.historical_utilization:
+                    peak_util = max(results.infrastructure.historical_utilization)
+                    avg_util = sum(results.infrastructure.historical_utilization) / len(results.infrastructure.historical_utilization)
+                    st.write(f"**Peak Utilization**: {peak_util:.1%}")
+                    st.write(f"**Average Utilization**: {avg_util:.1%}")
+            
+            st.markdown("---")
+            st.markdown("### 🧪 Mode Filtering Test")
+            
+            # Test mode filtering for a sample agent
+            if results.agents:
+                test_agent = results.agents[0]
+                context = getattr(test_agent, 'agent_context', {})
+                
+                # Try to access planner
+                planner = getattr(test_agent, 'planner', None)
+                if planner:
+                    st.write("**Testing mode filtering for first agent:**")
+                    st.write(f"Context: {context}")
+                    
+                    # Calculate trip distance
+                    origin = getattr(test_agent, 'origin', None)
+                    dest = getattr(test_agent, 'dest', None)
+                    
+                    if origin and dest:
+                        from simulation.spatial.coordinate_utils import haversine_km
+                        trip_distance = haversine_km(origin, dest)
+                        
+                        # Call the filter function
+                        available_modes = planner._filter_modes_by_context(context, trip_distance)
+                        
+                        st.write(f"**Trip Distance**: {trip_distance:.1f} km")
+                        st.write(f"**Available Modes**: {available_modes}")
+                        
+                        if 'van_electric' not in available_modes and 'van_diesel' not in available_modes:
+                            st.error("❌ Freight modes NOT in available modes!")
+                            if context.get('vehicle_required'):
+                                st.error("❌ vehicle_required=True but freight modes excluded - BDI planner bug!")
+                            else:
+                                st.warning("⚠️ vehicle_required=False - job context not propagating")
     
     # Animation controls
     if st.session_state.simulation_run and st.session_state.animation_controller:

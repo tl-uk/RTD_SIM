@@ -277,19 +277,22 @@ class InfrastructureManager:
         Update grid load based on active charging.
         
         Call this each simulation step.
+        
+        FIX: Count ALL agents in agent_charging_state, not just status='charging'
         """
         grid = self.grid_regions['default']
         
         # Calculate total load from all active charging
         total_load_kw = 0.0
         
+        # FIX: Just check if agent is in the dict, don't filter by status
+        # Both 'reserved' and 'charging' should contribute to grid load
         for agent_id, state in self.agent_charging_state.items():
-            # FIX: Count both 'charging' and 'reserved' as active
-            if state['status'] in ('charging', 'reserved'):
-                station_id = state['station_id']
-                if station_id in self.charging_stations:
-                    station = self.charging_stations[station_id]
-                    total_load_kw += station.power_kw
+            station_id = state.get('station_id')
+            if station_id in self.charging_stations:
+                station = self.charging_stations[station_id]
+                # Add the station's power to load
+                total_load_kw += station.power_kw
         
         grid.current_load_mw = total_load_kw / 1000.0
         
@@ -299,11 +302,12 @@ class InfrastructureManager:
         # Log every 20 steps for monitoring
         if step % 20 == 0 and total_load_kw > 0:
             logger.info(f"Step {step}: Grid load {grid.current_load_mw:.2f} MW "
-                       f"({grid.utilization():.1%}), "
-                       f"{len(self.agent_charging_state)} agents charging")
+                    f"({grid.utilization():.1%}), "
+                    f"{len(self.agent_charging_state)} agents charging")
         
         if grid.is_overloaded():
             logger.warning(f"Step {step}: Grid overloaded! ({grid.utilization():.1%})")
+
     
     def get_grid_stress_factor(self) -> float:
         """

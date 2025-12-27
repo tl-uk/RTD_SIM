@@ -103,7 +103,7 @@ class StoryDrivenAgent(CognitiveAgent):
         
         logger.info(f"Created StoryDrivenAgent: {agent_id} "
                    f"({user_story_id} + {job_story_id})")
-    
+          
     def _extract_agent_context(self) -> Dict:
         """Extract infrastructure-relevant context from stories."""
         context = {}
