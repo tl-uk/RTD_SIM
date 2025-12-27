@@ -1,10 +1,10 @@
 """
-agent/story_driven_agent.py - FIXED VERSION
+agent/story_driven_agent.py
 
-Key fixes:
-1. Extract vehicle_required from job_story.parameters
-2. Set vehicle_type based on vehicle_constraints
-3. Add cargo_capacity flag
+Story-driven BDI agent that generates behavior from user + job stories.
+Extends CognitiveAgent with story-based instantiation.
+
+REPLACE YOUR ENTIRE story_driven_agent.py WITH THIS VERSION
 """
 
 from __future__ import annotations
@@ -59,10 +59,10 @@ class StoryDrivenAgent(CognitiveAgent):
         self.user_story = user_parser.load_from_yaml(user_story_id)
         self.job_story = job_parser.load_from_yaml(job_story_id)
         
-        # Generate task context
+        # Generate task context FIRST (needed for agent_context extraction)
         self.task_context = self.job_story.to_task_context(origin, dest, csv_data)
         
-        # FIX: Extract agent_context AFTER task_context is created
+        # NOW extract agent_context (uses self.task_context)
         agent_context = self._extract_agent_context()
         
         # Resolve desires (combine user + job)
@@ -100,7 +100,8 @@ class StoryDrivenAgent(CognitiveAgent):
         """
         context = {}
         
-        # FIX #1: Extract vehicle_required from job story parameters
+        # FIX #1: Extract vehicle_required from task context parameters
+        # task_context.parameters comes from job_story.parameters
         context['vehicle_required'] = self.task_context.parameters.get('vehicle_required', False)
         
         # FIX #2: Extract cargo_capacity

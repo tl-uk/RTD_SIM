@@ -3,6 +3,8 @@ agent/story_compatibility.py
 
 Filters out nonsensical user story + job story combinations.
 Ensures realistic agent generation.
+
+CREATE THIS FILE: agent/story_compatibility.py
 """
 
 from typing import List, Tuple, Set
