@@ -382,40 +382,65 @@ with st.sidebar:
                 
                 # Check first 3 freight agents
                 for i, agent in enumerate(freight_agents[:3]):
-                    with st.expander(f"Freight Agent {i+1}: {agent.state.agent_id}"):
+                    with st.expander(f"Freight Agent {i+1}: {agent.state.agent_id}", expanded=(i==0)):
                         context = getattr(agent, 'agent_context', {})
                         origin = getattr(agent, 'origin', None)
                         dest = getattr(agent, 'dest', None)
+                        planner = getattr(agent, 'planner', None)
                         
                         st.write(f"**Job Story**: {agent.job_story_id}")
+                        st.write(f"**User Story**: {agent.user_story_id}")
                         st.write(f"**Mode Chosen**: {agent.state.mode}")
-                        st.write(f"**Distance**: {agent.state.distance_km:.1f} km")
+                        st.write(f"**Distance Traveled**: {agent.state.distance_km:.1f} km")
                         
                         st.write(f"**Agent Context**:")
                         st.json(context)
                         
                         # Test mode filtering for this specific agent
-                        if origin and dest:
-                            from simulation.spatial.coordinate_utils import haversine_km
-                            trip_distance = haversine_km(origin, dest)
-                            
-                            planner = getattr(agent, 'planner', None)
-                            if planner:
+                        if origin and dest and planner:
+                            try:
+                                from simulation.spatial.coordinate_utils import haversine_km
+                                trip_distance = haversine_km(origin, dest)
+                                
+                                st.write(f"**Trip Distance (O-D)**: {trip_distance:.1f} km")
+                                
+                                # Call the filter function with DEBUG
                                 available_modes = planner._filter_modes_by_context(context, trip_distance)
                                 
-                                st.write(f"**Trip Distance**: {trip_distance:.1f} km")
-                                st.write(f"**Available Modes**: {available_modes}")
+                                st.write(f"**Available Modes from Filter**: {available_modes}")
                                 
-                                if 'van_electric' in available_modes or 'van_diesel' in available_modes:
-                                    st.success("✅ Freight modes AVAILABLE")
+                                # Check if freight modes are in the list
+                                has_freight = 'van_electric' in available_modes or 'van_diesel' in available_modes
+                                
+                                if has_freight:
+                                    st.success("✅ Freight modes ARE AVAILABLE")
+                                    
+                                    # But agent didn't choose them - why?
+                                    if agent.state.mode not in ['van_electric', 'van_diesel']:
+                                        st.error(f"⚠️ Agent chose {agent.state.mode} instead of freight mode")
+                                        st.write("**Possible reasons:**")
+                                        st.write("1. BDI cost function prefers the chosen mode")
+                                        st.write("2. Freight mode not feasible (infrastructure check)")
+                                        st.write("3. Agent desires favor non-freight modes")
+                                        
+                                        # Show agent desires
+                                        desires = getattr(agent, 'desires', {})
+                                        st.write(f"**Agent Desires**: {desires}")
                                 else:
                                     st.error("❌ Freight modes NOT AVAILABLE")
-                                    st.write("**This is the bug!** Freight modes should be available but aren't being offered.")
-                                
-                                if agent.state.mode not in ['van_electric', 'van_diesel']:
-                                    st.warning(f"⚠️ Agent chose {agent.state.mode} instead of freight mode")
+                                    st.write("**BUG CONFIRMED!** Mode filtering is wrong")
+                                    st.write(f"Context shows vehicle_required={context.get('vehicle_required')}")
+                                    st.write(f"But filter returned: {available_modes}")
+                                    
+                            except Exception as e:
+                                st.error(f"Error testing mode filter: {e}")
+                                import traceback
+                                st.code(traceback.format_exc())
+                        else:
+                            st.warning("Cannot test - missing origin/dest/planner")
             else:
                 st.warning("No freight/delivery agents found - check job story selection")
+
 
     # Animation controls
     if st.session_state.simulation_run and st.session_state.animation_controller:
