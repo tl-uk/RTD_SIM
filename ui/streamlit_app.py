@@ -367,6 +367,56 @@ with st.sidebar:
                             else:
                                 st.warning("⚠️ vehicle_required=False - job context not propagating")
     
+            st.markdown("---")
+            st.markdown("### 🔍 Freight Agent Deep Dive")
+
+            # Find agents with freight jobs
+            freight_agents = [
+                a for a in results.agents
+                if hasattr(a, 'job_story_id')
+                and ('freight' in a.job_story_id.lower() or 'delivery' in a.job_story_id.lower())
+            ]
+
+            if freight_agents:
+                st.write(f"**Found {len(freight_agents)} freight/delivery agents**")
+                
+                # Check first 3 freight agents
+                for i, agent in enumerate(freight_agents[:3]):
+                    with st.expander(f"Freight Agent {i+1}: {agent.state.agent_id}"):
+                        context = getattr(agent, 'agent_context', {})
+                        origin = getattr(agent, 'origin', None)
+                        dest = getattr(agent, 'dest', None)
+                        
+                        st.write(f"**Job Story**: {agent.job_story_id}")
+                        st.write(f"**Mode Chosen**: {agent.state.mode}")
+                        st.write(f"**Distance**: {agent.state.distance_km:.1f} km")
+                        
+                        st.write(f"**Agent Context**:")
+                        st.json(context)
+                        
+                        # Test mode filtering for this specific agent
+                        if origin and dest:
+                            from simulation.spatial.coordinate_utils import haversine_km
+                            trip_distance = haversine_km(origin, dest)
+                            
+                            planner = getattr(agent, 'planner', None)
+                            if planner:
+                                available_modes = planner._filter_modes_by_context(context, trip_distance)
+                                
+                                st.write(f"**Trip Distance**: {trip_distance:.1f} km")
+                                st.write(f"**Available Modes**: {available_modes}")
+                                
+                                if 'van_electric' in available_modes or 'van_diesel' in available_modes:
+                                    st.success("✅ Freight modes AVAILABLE")
+                                else:
+                                    st.error("❌ Freight modes NOT AVAILABLE")
+                                    st.write("**This is the bug!** Freight modes should be available but aren't being offered.")
+                                
+                                if agent.state.mode not in ['van_electric', 'van_diesel']:
+                                    st.warning(f"⚠️ Agent chose {agent.state.mode} instead of freight mode")
+            else:
+                st.warning("No freight/delivery agents found - check job story selection")
+
     # Animation controls
     if st.session_state.simulation_run and st.session_state.animation_controller:
         st.markdown("---")

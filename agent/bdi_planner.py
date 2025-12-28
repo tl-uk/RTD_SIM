@@ -1,10 +1,8 @@
 """
-agent/bdi_planner.py - FIXED VERSION
+agent/bdi_planner.py - FIXED VERSION v2
 
-Key fixes:
-1. Include freight modes in vehicle_required filtering
-2. Add distance-based mode filtering
-3. Better freight feasibility checks
+CRITICAL FIX: Filter by context BEFORE filtering by distance
+Otherwise freight modes get removed before they can be added!
 """
 
 from __future__ import annotations
@@ -47,7 +45,7 @@ class BDIPlanner:
         'depot': 480.0,
     }
     
-    # NEW: Distance-based mode constraints
+    # Distance-based mode constraints
     MODE_MAX_DISTANCE_KM = {
         'walk': 5.0,
         'bike': 20.0,
@@ -93,8 +91,10 @@ class BDIPlanner:
         from simulation.spatial.coordinate_utils import haversine_km
         trip_distance = haversine_km(origin, dest)
         
-        # Filter modes based on context AND distance
-        available_modes = self._filter_modes_by_context(context, trip_distance_km=trip_distance)
+        # CRITICAL FIX: Pass distance to filter function
+        available_modes = self._filter_modes_by_context(context, trip_distance)
+        
+        logger.debug(f"Agent context: {context}, trip_distance: {trip_distance:.1f}km, available_modes: {available_modes}")
         
         for mode in available_modes:
             # Infrastructure feasibility check
@@ -126,51 +126,48 @@ class BDIPlanner:
         """
         Filter modes based on agent context AND trip distance.
         
-        FIX #1: Include freight modes for vehicle_required
-        FIX #2: Filter by distance constraints
+        CRITICAL FIX: Apply context filtering FIRST, then distance filtering
         """
-        if not context:
-            modes = self.default_modes.copy()
-        else:
-            priority = context.get('priority', 'normal')
-            vehicle_required = context.get('vehicle_required', False)
-            cargo_capacity = context.get('cargo_capacity', False)
-            vehicle_type = context.get('vehicle_type', 'personal')
-            
-            modes = self.default_modes.copy()
-            
-            # Priority-based filtering
-            if priority == 'emergency':
-                modes = ['car', 'ev']
-            
-            # FIX: Include freight modes when vehicle required
-            elif cargo_capacity or vehicle_required or vehicle_type == 'commercial':
-                modes = ['car', 'ev', 'van_electric', 'van_diesel']
-                logger.debug(f"Context requires vehicle: offering {modes}")
-            
-            # Luggage/accessibility constraints
-            elif context.get('luggage_present') or context.get('wheelchair_accessible'):
-                modes = ['car', 'ev', 'bus', 'taxi']
+        # STEP 1: Context-based filtering
+        vehicle_required = context.get('vehicle_required', False)
+        cargo_capacity = context.get('cargo_capacity', False)
+        vehicle_type = context.get('vehicle_type', 'personal')
+        priority = context.get('priority', 'normal')
         
-        # FIX #2: Distance-based filtering
+        # Determine base mode set
+        if priority == 'emergency':
+            modes = ['car', 'ev']
+        elif cargo_capacity or vehicle_required or vehicle_type == 'commercial':
+            # FREIGHT CONTEXT: Include freight modes
+            modes = ['car', 'ev', 'van_electric', 'van_diesel']
+            logger.debug(f"Freight context detected: offering {modes}")
+        elif context.get('luggage_present') or context.get('wheelchair_accessible'):
+            modes = ['car', 'ev', 'bus']
+        else:
+            # Normal context: all modes
+            modes = self.default_modes.copy()
+        
+        # STEP 2: Distance-based filtering (AFTER context filtering)
         if trip_distance_km > 0:
-            original_count = len(modes)
+            original_modes = modes.copy()
             modes = [
                 m for m in modes 
                 if trip_distance_km <= self.MODE_MAX_DISTANCE_KM.get(m, float('inf'))
             ]
             
-            if len(modes) < original_count:
-                filtered = set(self.default_modes) - set(modes)
-                logger.debug(f"Filtered {filtered} for {trip_distance_km:.1f}km trip")
+            filtered = set(original_modes) - set(modes)
+            if filtered:
+                logger.debug(f"Distance filter ({trip_distance_km:.1f}km): removed {filtered}")
             
-            # Always keep at least one mode (fallback to car/van)
+            # Fallback: Always keep at least one mode
             if not modes:
                 if trip_distance_km > 50:
                     modes = ['van_diesel', 'car']
+                elif trip_distance_km > 20:
+                    modes = ['car', 'bus']
                 else:
                     modes = ['car']
-                logger.warning(f"No modes available for {trip_distance_km:.1f}km, using fallback: {modes}")
+                logger.warning(f"No modes left after filtering! Using fallback: {modes}")
         
         return modes
     
