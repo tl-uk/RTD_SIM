@@ -1,4 +1,3 @@
-
 # agent/cognitive_abm.py
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -39,8 +38,9 @@ class AgentState:
     dwell_time_min: float = 0.0  # cumulative dwell time (stops, lights, boarding)
 
     mode_history: List[str] = field(default_factory=list)
-    mode_costs: Dict[str, float] = field(default_factory=dict)  # ✅ NEW
+    mode_costs: Dict[str, float] = field(default_factory=dict)
     consecutive_same_mode: int = 0
+    action_params: Dict[str, Any] = field(default_factory=dict)  # NEW: Store action params
 
 class CognitiveAgent:
     """Toy cognitive agent + planner + movement + arrival + dwell tracking.
@@ -57,7 +57,7 @@ class CognitiveAgent:
         planner=None,
         origin: Tuple[float, float] | None = None,
         dest: Tuple[float, float] | None = None,
-        agent_context: Optional[Dict] = None  # NEW
+        agent_context: Optional[Dict] = None
     ):
         self.rng = random.Random(seed)
         self.state = AgentState(agent_id=agent_id or f'agent_{abs(self.rng.randint(1, 9999))}')
@@ -69,9 +69,13 @@ class CognitiveAgent:
         self.planner = planner
         self.t = 0
         self._replan_period = 10  # steps between replans
-        # Store agent context for infrastructure queries
-        # Examples: {'vehicle_type': 'personal', 'priority': 'normal'}
+        
+        # CRITICAL FIX: Store agent context for infrastructure queries
         self.agent_context = agent_context or {}
+        
+        # Store origin/dest for diagnostics
+        self.origin = origin
+        self.dest = dest
 
 
     def _apply_habit_bonus(self, costs: dict) -> dict:
@@ -107,14 +111,22 @@ class CognitiveAgent:
             return
         need_plan = (self.t % self._replan_period == 1) or (not s.route)
         if need_plan:
-            scores = self.planner.evaluate_actions(env, s, self.desires, s.location, s.destination)
+            # CRITICAL FIX: Pass agent_context to planner
+            scores = self.planner.evaluate_actions(
+                env, 
+                s, 
+                self.desires, 
+                s.location, 
+                s.destination,
+                agent_context=self.agent_context  # ← ADDED THIS LINE!
+            )
             best = self.planner.choose_action(scores)
             s.mode = best.mode
             
             # Store the cost evaluation for social influence
             s.mode_costs = {score.action.mode: score.cost for score in scores}
             
-            # NEW: Store infrastructure params
+            # Store infrastructure params
             s.action_params = best.params
             
             # Route assignment...
@@ -132,7 +144,6 @@ class CognitiveAgent:
             'bus': 0.50,
             'car': 0.00,
             'ev': 0.00,
-            # future: 'tram': 0.40, 'rail': 0.60
         }
         return dwell_lookup.get(mode, 0.0)
 
@@ -151,10 +162,9 @@ class CognitiveAgent:
         # accumulate distance/time/emissions if movement occurred
         if prev_loc is not None and s.location is not None and s.location != prev_loc:
             try:
-                d_km = env._segment_distance_km(prev_loc, s.location)  # type: ignore
+                d_km = env._segment_distance_km(prev_loc, s.location)
             except Exception:
                 from math import hypot
-                # Cartesian fallback in case of non lon/lat testing values
                 d_km = hypot(s.location[0] - prev_loc[0], s.location[1] - prev_loc[1])
             s.distance_km += d_km
 
@@ -173,13 +183,13 @@ class CognitiveAgent:
         if delta_segments > 0:
             dwell_added = self._dwell_per_segment(s.mode) * delta_segments
             s.dwell_time_min += dwell_added
-            s.travel_time_min += dwell_added  # dwell contributes to total trip time
+            s.travel_time_min += dwell_added
 
         # arrival check with epsilon (~10 m)
         if s.route and s.location is not None:
             last = s.route[-1]
             try:
-                remaining_km = env._segment_distance_km(s.location, last)  # type: ignore
+                remaining_km = env._segment_distance_km(s.location, last)
             except Exception:
                 from math import hypot
                 remaining_km = hypot(s.location[0] - last[0], s.location[1] - last[1])
@@ -212,8 +222,8 @@ class CognitiveAgent:
             'stress': round(s.stress, 4),
             'performance': round(s.performance, 4),
             'mode': s.mode,
-            'location': s.location,       # (lon, lat)
-            'destination': s.destination, # (lon, lat)
+            'location': s.location,
+            'destination': s.destination,
             'arrived': s.arrived,
             'departed_at_step': s.departed_at_step,
             'arrived_at_step': s.arrived_at_step,
