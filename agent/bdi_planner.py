@@ -126,7 +126,7 @@ class BDIPlanner:
         """
         Filter modes based on agent context AND trip distance.
         
-        CRITICAL FIX: Apply context filtering FIRST, then distance filtering
+        FIX: Stricter distance filtering to prevent bikes on long trips
         """
         # STEP 1: Context-based filtering
         vehicle_required = context.get('vehicle_required', False)
@@ -147,12 +147,14 @@ class BDIPlanner:
             # Normal context: all modes
             modes = self.default_modes.copy()
         
-        # STEP 2: Distance-based filtering (AFTER context filtering)
+        # STEP 2: Distance-based filtering (STRICTER)
         if trip_distance_km > 0:
             original_modes = modes.copy()
+            
+            # FIX: Use strict inequality to prevent edge cases
             modes = [
                 m for m in modes 
-                if trip_distance_km <= self.MODE_MAX_DISTANCE_KM.get(m, float('inf'))
+                if trip_distance_km < self.MODE_MAX_DISTANCE_KM.get(m, float('inf'))  # Changed <= to <
             ]
             
             filtered = set(original_modes) - set(modes)
