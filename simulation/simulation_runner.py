@@ -34,6 +34,12 @@ except ImportError:
     PHASE_4_AVAILABLE = False
     logger.warning("Phase 4 story-driven agents not available")
 
+try:
+    from scenarios.scenario_manager import ScenarioManager
+    SCENARIOS_AVAILABLE = True
+except ImportError:
+    SCENARIOS_AVAILABLE = False
+    logger.warning("Scenario framework not available")
 
 class SimulationConfig:
     """Configuration for a simulation run."""
@@ -56,6 +62,9 @@ class SimulationConfig:
         num_chargers: int = 50,
         num_depots: int = 5,
         grid_capacity_mw: float = 1000.0,
+        scenario_name: Optional[str] = None,  # Name of policy scenario to apply
+        scenarios_dir: Optional[Path] = None,  # Path to scenarios directory
+
     ):
         self.steps = steps
         self.num_agents = num_agents
@@ -74,6 +83,9 @@ class SimulationConfig:
         self.num_depots = num_depots
         self.grid_capacity_mw = grid_capacity_mw
 
+        # ADD THESE NEW ATTRIBUTES:
+        self.scenario_name = scenario_name
+        self.scenarios_dir = scenarios_dir
 
 class SimulationResults:
     """Container for simulation results."""
@@ -90,6 +102,8 @@ class SimulationResults:
         self.desire_std: Dict[str, float] = {}
         self.success: bool = False
         self.error_message: str = ""
+
+        self.scenario_report: Optional[Dict] = None  # Scenario info if applied
 
 
 def setup_environment(config: SimulationConfig, progress_callback=None) -> SpatialEnvironment:
@@ -445,7 +459,60 @@ def setup_social_network(
     
     return network, influence_system
 
-
+def apply_scenario_policies(
+    config: SimulationConfig,
+    env: SpatialEnvironment,
+    progress_callback=None
+) -> Optional[Dict]:
+    """
+    Apply policy scenario to environment if specified.
+    
+    Args:
+        config: SimulationConfig instance
+        env: SpatialEnvironment to modify
+        progress_callback: Optional callback
+    
+    Returns:
+        Scenario report dict or None
+    """
+    if not SCENARIOS_AVAILABLE or not config.scenario_name:
+        return None
+    
+    if progress_callback:
+        progress_callback(0.48, f"📋 Applying scenario: {config.scenario_name}")
+    
+    try:
+        # Initialize scenario manager
+        scenarios_dir = config.scenarios_dir or (Path(__file__).parent.parent / 'scenarios' / 'configs')
+        manager = ScenarioManager(scenarios_dir)
+        
+        # Activate scenario
+        success = manager.activate_scenario(config.scenario_name)
+        if not success:
+            logger.error(f"Failed to activate scenario: {config.scenario_name}")
+            return None
+        
+        # Apply policies to environment
+        manager.apply_to_environment(env)
+        
+        # Generate report
+        report = manager.get_scenario_report()
+        
+        # Log applied policies
+        logger.info(f"📋 Scenario Active: {report['name']}")
+        logger.info(f"   {report['description']}")
+        for policy in report['policies']:
+            mode_info = f" ({policy['mode']})" if policy.get('mode') else ""
+            logger.info(f"   - {policy['parameter']}: {policy['value']}{mode_info}")
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"Failed to apply scenario: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    
 def run_simulation(config: SimulationConfig, progress_callback=None) -> SimulationResults:
     """
     Execute complete simulation.
@@ -470,6 +537,11 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
         
         # Create planner
         planner = create_planner(infrastructure)
+
+        # Apply scenario policies BEFORE creating agents
+        # This ensures agents use modified costs when planning
+        scenario_report = apply_scenario_policies(config, env, progress_callback)
+        results.scenario_report = scenario_report
         
         # Create agents
         agents, desire_std = create_agents(config, env, planner, progress_callback)
