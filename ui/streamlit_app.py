@@ -18,7 +18,14 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 
 # Import our clean modules
-from simulation.simulation_runner import SimulationConfig, run_simulation
+from simulation.simulation_runner import (
+    SimulationConfig, 
+    run_simulation,
+    list_available_scenarios,  # NEW
+    get_scenario_info,          # NEW
+    compare_scenarios           # NEW
+)
+
 from visualiser.visualization import (
     render_map,
     render_mode_adoption_chart,

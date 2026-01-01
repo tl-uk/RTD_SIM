@@ -1,0 +1,19 @@
+name: Congestion Charge
+description: "London-style \xA315 congestion charge in city center"
+policies:
+- parameter: cost_multiplier
+  value: 4.0
+  target: mode
+  mode: car
+- parameter: cost_multiplier
+  value: 3.0
+  target: mode
+  mode: van_diesel
+duration: 100
+expected_outcomes:
+  car_reduction: 0.3
+  bus_increase: 0.2
+  ev_increase: 0.1
+metadata:
+  policy_type: congestion_pricing
+  zone: city_center

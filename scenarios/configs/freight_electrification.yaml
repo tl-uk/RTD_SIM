@@ -1,0 +1,18 @@
+name: Freight Electrification
+description: Subsidize electric vans and add freight charging stations
+policies:
+- parameter: cost_reduction
+  value: 40.0
+  target: mode
+  mode: van_electric
+- parameter: add_chargers
+  value: 20
+  target: infrastructure
+duration: 100
+expected_outcomes:
+  van_electric_increase: 0.6
+  van_diesel_reduction: 0.5
+  freight_emissions_reduction: 0.4
+metadata:
+  policy_type: sector_specific
+  target_sector: freight

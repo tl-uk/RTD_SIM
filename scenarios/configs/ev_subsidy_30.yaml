@@ -1,0 +1,19 @@
+name: EV Subsidy 30%
+description: Government subsidizes EVs by 30% to boost adoption
+policies:
+- parameter: cost_reduction
+  value: 30.0
+  target: mode
+  mode: ev
+- parameter: cost_reduction
+  value: 30.0
+  target: mode
+  mode: van_electric
+duration: 100
+expected_outcomes:
+  ev_adoption_increase: 0.4
+  car_reduction: 0.2
+  emissions_reduction: 0.15
+metadata:
+  policy_type: financial_incentive
+  target_group: all_users

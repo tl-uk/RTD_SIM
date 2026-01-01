@@ -723,3 +723,191 @@ def run_simulation(config: SimulationConfig, progress_callback=None) -> Simulati
         results.error_message = str(e)
     
     return results
+
+# --------------------------------
+# Scenario management functions
+# --------------------------------
+def list_available_scenarios(scenarios_dir: Optional[Path] = None) -> List[str]:
+    """
+    Get list of available policy scenarios.
+    
+    Args:
+        scenarios_dir: Optional path to scenarios directory
+    
+    Returns:
+        List of scenario names
+    """
+    if not SCENARIOS_AVAILABLE:
+        return []
+    
+    try:
+        scenarios_dir = scenarios_dir or (Path(__file__).parent.parent / 'scenarios' / 'configs')
+        manager = ScenarioManager(scenarios_dir)
+        return manager.list_scenarios()
+    except Exception as e:
+        logger.error(f"Failed to list scenarios: {e}")
+        return []
+
+
+def get_scenario_info(scenario_name: str, scenarios_dir: Optional[Path] = None) -> Optional[Dict]:
+    """
+    Get details about a specific scenario.
+    
+    Args:
+        scenario_name: Name of scenario
+        scenarios_dir: Optional path to scenarios directory
+    
+    Returns:
+        Scenario info dict or None
+    """
+    if not SCENARIOS_AVAILABLE:
+        return None
+    
+    try:
+        scenarios_dir = scenarios_dir or (Path(__file__).parent.parent / 'scenarios' / 'configs')
+        manager = ScenarioManager(scenarios_dir)
+        return manager.get_scenario_info(scenario_name)
+    except Exception as e:
+        logger.error(f"Failed to get scenario info: {e}")
+        return None
+
+
+def compare_scenarios(
+    base_config: SimulationConfig,
+    scenario_names: List[Optional[str]],
+    num_runs_per_scenario: int = 3,
+    progress_callback=None
+) -> Dict[str, Any]:
+    """
+    Run multiple scenarios and compare outcomes.
+    
+    Args:
+        base_config: Base SimulationConfig (will be modified with scenario)
+        scenario_names: List of scenarios to test (None = baseline)
+        num_runs_per_scenario: Repeat runs for statistical validity
+        progress_callback: Optional callback
+    
+    Returns:
+        Comparison results with metrics for each scenario
+    """
+    import statistics
+    
+    comparison_results = {}
+    
+    total_runs = len(scenario_names) * num_runs_per_scenario
+    current_run = 0
+    
+    for scenario in scenario_names:
+        scenario_key = scenario if scenario else 'baseline'
+        comparison_results[scenario_key] = {
+            'runs': [],
+            'mode_shares': {},
+            'avg_emissions': 0,
+            'avg_travel_time': 0
+        }
+        
+        for run_num in range(num_runs_per_scenario):
+            current_run += 1
+            
+            if progress_callback:
+                progress_callback(
+                    current_run / total_runs * 0.95,
+                    f"Running {scenario_key} ({run_num+1}/{num_runs_per_scenario})"
+                )
+            
+            # Create config copy with scenario
+            config = SimulationConfig(
+                steps=base_config.steps,
+                num_agents=base_config.num_agents,
+                place=base_config.place,
+                extended_bbox=base_config.extended_bbox,
+                use_osm=base_config.use_osm,
+                user_stories=base_config.user_stories,
+                job_stories=base_config.job_stories,
+                use_congestion=base_config.use_congestion,
+                enable_social=base_config.enable_social,
+                use_realistic_influence=base_config.use_realistic_influence,
+                enable_infrastructure=base_config.enable_infrastructure,
+                scenario_name=scenario  # Apply scenario
+            )
+            
+            # Run simulation
+            result = run_simulation(config, progress_callback=None)
+            
+            if result.success:
+                # Extract metrics
+                mode_counts = Counter(a.state.mode for a in result.agents)
+                total_agents = len(result.agents)
+                mode_shares = {mode: count/total_agents for mode, count in mode_counts.items()}
+                
+                avg_emissions = statistics.mean(a.state.emissions_g for a in result.agents) if result.agents else 0
+                avg_travel_time = statistics.mean(a.state.travel_time_min for a in result.agents) if result.agents else 0
+                
+                comparison_results[scenario_key]['runs'].append({
+                    'mode_shares': mode_shares,
+                    'avg_emissions': avg_emissions,
+                    'avg_travel_time': avg_travel_time
+                })
+        
+        # Aggregate across runs
+        if comparison_results[scenario_key]['runs']:
+            all_mode_shares = defaultdict(list)
+            all_emissions = []
+            all_times = []
+            
+            for run in comparison_results[scenario_key]['runs']:
+                for mode, share in run['mode_shares'].items():
+                    all_mode_shares[mode].append(share)
+                all_emissions.append(run['avg_emissions'])
+                all_times.append(run['avg_travel_time'])
+            
+            # Calculate means
+            comparison_results[scenario_key]['mode_shares'] = {
+                mode: statistics.mean(shares) 
+                for mode, shares in all_mode_shares.items()
+            }
+            comparison_results[scenario_key]['avg_emissions'] = statistics.mean(all_emissions)
+            comparison_results[scenario_key]['avg_travel_time'] = statistics.mean(all_times)
+    
+    # Calculate deltas from baseline
+    baseline = comparison_results.get('baseline', {})
+    baseline_modes = baseline.get('mode_shares', {})
+    baseline_emissions = baseline.get('avg_emissions', 0)
+    baseline_time = baseline.get('avg_travel_time', 0)
+    
+    deltas = {}
+    for scenario_key, data in comparison_results.items():
+        if scenario_key == 'baseline':
+            continue
+        
+        mode_changes = {}
+        for mode in set(baseline_modes.keys()) | set(data['mode_shares'].keys()):
+            base_val = baseline_modes.get(mode, 0)
+            scen_val = data['mode_shares'].get(mode, 0)
+            if base_val > 0:
+                change_pct = ((scen_val - base_val) / base_val) * 100
+            else:
+                change_pct = scen_val * 100 if scen_val > 0 else 0
+            mode_changes[mode] = change_pct
+        
+        emissions_change = 0
+        if baseline_emissions > 0:
+            emissions_change = ((data['avg_emissions'] - baseline_emissions) / baseline_emissions) * 100
+        
+        time_change = 0
+        if baseline_time > 0:
+            time_change = ((data['avg_travel_time'] - baseline_time) / baseline_time) * 100
+        
+        deltas[scenario_key] = {
+            'mode_share_changes': mode_changes,
+            'emissions_change_pct': emissions_change,
+            'travel_time_change_pct': time_change
+        }
+    
+    if progress_callback:
+        progress_callback(1.0, "✅ Comparison complete!")
+    
+    return {
+        'scenarios': comparison_results,
+        'deltas': deltas
+    }

@@ -1,0 +1,20 @@
+name: Car Free Zone
+description: Ban private cars in city center, promote active transport
+policies:
+- parameter: cost_multiplier
+  value: 10.0
+  target: mode
+  mode: car
+- parameter: cost_reduction
+  value: 50.0
+  target: mode
+  mode: bike
+duration: 100
+expected_outcomes:
+  car_reduction: 0.7
+  bike_increase: 0.4
+  walk_increase: 0.2
+  bus_increase: 0.15
+metadata:
+  policy_type: modal_restriction
+  zone: city_center

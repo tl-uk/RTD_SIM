@@ -1,0 +1,19 @@
+name: Bus Rapid Transit
+description: Dedicated bus lanes increase bus speeds by 40%
+policies:
+- parameter: speed_multiplier
+  value: 1.4
+  target: mode
+  mode: bus
+- parameter: cost_reduction
+  value: 20.0
+  target: mode
+  mode: bus
+duration: 100
+expected_outcomes:
+  bus_increase: 0.35
+  car_reduction: 0.2
+  travel_time_reduction: 0.15
+metadata:
+  policy_type: infrastructure_improvement
+  infrastructure: dedicated_lanes
