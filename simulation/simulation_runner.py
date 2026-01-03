@@ -64,7 +64,8 @@ class SimulationConfig:
         grid_capacity_mw: float = 1000.0,
         scenario_name: Optional[str] = None,  # Name of policy scenario to apply
         scenarios_dir: Optional[Path] = None,  # Path to scenarios directory
-
+        enable_route_diversity: bool = True,  # 🆕 NEW
+        route_diversity_mode: str = 'perturbed',  # 'perturbed' or 'k_shortest'
     ):
         self.steps = steps
         self.num_agents = num_agents
@@ -83,9 +84,12 @@ class SimulationConfig:
         self.num_depots = num_depots
         self.grid_capacity_mw = grid_capacity_mw
 
-        # ADD THESE NEW ATTRIBUTES:
+        # ADD SCENARIO ATTRIBUTES:
         self.scenario_name = scenario_name
         self.scenarios_dir = scenarios_dir
+        # ADDRoute diversity attributes
+        self.enable_route_diversity = enable_route_diversity
+        self.route_diversity_mode = route_diversity_mode
 
 class SimulationResults:
     """Container for simulation results."""
@@ -285,19 +289,8 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
         cache_dir=cache_dir,
         use_congestion=config.use_congestion
     )
-
-    # ADD ROUTE DIVERSITY
-    if config.use_osm:
-        # Choose strategy:
-        # - Option 1: Simple and fast
-        env = add_route_diversity(env)
-        
-        # - Option 2: More realistic but slower (uncomment to use)
-        # env = add_k_shortest_diversity(env, k=3)
-        
-        logger.info("✅ Route diversity enabled (perturbed weights)")
     
-    # if config.use_osm:
+    if config.use_osm:
         # Support extended bbox for freight scenarios
         if config.extended_bbox:
             # Regional scale (e.g., Edinburgh-Glasgow corridor)
@@ -332,6 +325,15 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
                     logger.warning("⚠️ Congestion requested but not available")
             except Exception as e:
                 logger.warning(f"⚠️ Congestion initialization failed: {e}")
+
+        # Configurable route diversity
+        if config.use_osm and config.enable_route_diversity:
+            if config.route_diversity_mode == 'perturbed':
+                env = add_route_diversity(env)
+                logger.info("✅ Route diversity: perturbed weights")
+            elif config.route_diversity_mode == 'k_shortest':
+                env = add_k_shortest_diversity(env, k=3)
+                logger.info("✅ Route diversity: k-shortest paths")
     
     if progress_callback:
         progress_callback(0.2, "✅ Environment loaded")
