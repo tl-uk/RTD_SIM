@@ -105,6 +105,165 @@ class SimulationResults:
 
         self.scenario_report: Optional[Dict] = None  # Scenario info if applied
 
+# ----------------------------------------------------------------
+# ROUTE DIVERSITY FUNCTIONS
+# ============================================
+# OPTION 1: Simple Perturbation (Easiest)
+# ============================================
+
+def add_route_diversity(env):
+    """
+    Add simple route diversity through edge weight perturbation.
+    
+    This makes routing non-deterministic by adding agent-specific
+    random noise to edge weights before computing shortest path.
+    """
+    import random
+    
+    # Monkey-patch the compute_route method to add perturbation
+    original_compute_route = env.compute_route
+    
+    def diversified_compute_route(agent_id, origin, dest, mode='drive'):
+        """
+        Compute route with agent-specific random perturbation.
+        
+        Each agent gets consistent but different routes based on their ID.
+        """
+        # Use agent ID as seed for consistency (same agent = same preferences)
+        agent_seed = hash(agent_id) % (2**32)
+        rng = random.Random(agent_seed)
+        
+        # Get the appropriate graph
+        network_type = {
+            'walk': 'walk',
+            'bike': 'bike', 
+            'bus': 'drive',
+            'car': 'drive',
+            'ev': 'drive',
+            'van_electric': 'drive',
+            'van_diesel': 'drive'
+        }.get(mode, 'drive')
+        
+        graph = env.graph_manager.get_graph(network_type)
+        if graph is None:
+            return []
+        
+        # Get origin and dest nodes
+        origin_node = env.graph_manager.get_nearest_node(origin, network_type)
+        dest_node = env.graph_manager.get_nearest_node(dest, network_type)
+        
+        if origin_node is None or dest_node is None:
+            return []
+        
+        # Perturb edge weights (each agent has different preferences)
+        import networkx as nx
+        temp_graph = graph.copy()
+        
+        for u, v, key, data in temp_graph.edges(keys=True, data=True):
+            original_weight = data.get('length', 1.0)
+            # Add ±15% random noise based on agent preferences
+            perturbation = rng.uniform(0.85, 1.15)
+            temp_graph[u][v][key]['perturbed_length'] = original_weight * perturbation
+        
+        # Find shortest path with perturbed weights
+        try:
+            node_path = nx.shortest_path(
+                temp_graph, 
+                origin_node, 
+                dest_node, 
+                weight='perturbed_length'
+            )
+            
+            # Convert nodes to coordinates
+            route = [(graph.nodes[n]['x'], graph.nodes[n]['y']) for n in node_path]
+            return route
+            
+        except nx.NetworkXNoPath:
+            # Fallback to original method
+            return original_compute_route(agent_id, origin, dest, mode)
+    
+    # Replace method
+    env.compute_route = diversified_compute_route
+    return env
+
+
+# ============================================
+# OPTION 2: K-Shortest Paths (More Realistic)
+# ============================================
+
+def add_k_shortest_diversity(env, k=3):
+    """
+    Add route diversity using k-shortest paths algorithm.
+    
+    Each agent randomly selects from top-k shortest paths,
+    weighted by path length (prefer shorter but allow longer).
+    """
+    import random
+    import networkx as nx
+    
+    original_compute_route = env.compute_route
+    
+    def k_shortest_compute_route(agent_id, origin, dest, mode='drive'):
+        """Find k shortest paths and randomly select one."""
+        
+        agent_seed = hash(agent_id) % (2**32)
+        rng = random.Random(agent_seed)
+        
+        network_type = {
+            'walk': 'walk', 'bike': 'bike'
+        }.get(mode, 'drive')
+        
+        graph = env.graph_manager.get_graph(network_type)
+        if graph is None:
+            return []
+        
+        origin_node = env.graph_manager.get_nearest_node(origin, network_type)
+        dest_node = env.graph_manager.get_nearest_node(dest, network_type)
+        
+        if origin_node is None or dest_node is None:
+            return []
+        
+        try:
+            # Get all simple paths up to length k*shortest
+            shortest_path = nx.shortest_path(graph, origin_node, dest_node, weight='length')
+            shortest_length = sum(
+                graph[shortest_path[i]][shortest_path[i+1]][0]['length']
+                for i in range(len(shortest_path) - 1)
+            )
+            
+            # Find paths up to 1.5x shortest length
+            all_paths = []
+            for path in nx.all_simple_paths(graph, origin_node, dest_node, cutoff=len(shortest_path) + 5):
+                path_length = sum(
+                    graph[path[i]][path[i+1]][0]['length']
+                    for i in range(len(path) - 1)
+                )
+                if path_length <= shortest_length * 1.5:
+                    all_paths.append((path, path_length))
+                
+                if len(all_paths) >= k:
+                    break
+            
+            if not all_paths:
+                all_paths = [(shortest_path, shortest_length)]
+            
+            # Weight by inverse length (prefer shorter)
+            min_length = min(length for _, length in all_paths)
+            weights = [1.0 / (1.0 + (length - min_length) / min_length) for _, length in all_paths]
+            
+            # Random selection weighted by path quality
+            chosen_path, _ = rng.choices(all_paths, weights=weights, k=1)[0]
+            
+            # Convert to coordinates
+            route = [(graph.nodes[n]['x'], graph.nodes[n]['y']) for n in chosen_path]
+            return route
+            
+        except Exception as e:
+            return original_compute_route(agent_id, origin, dest, mode)
+    
+    env.compute_route = k_shortest_compute_route
+    return env
+# ----------------------------------------------------------------
 
 def setup_environment(config: SimulationConfig, progress_callback=None) -> SpatialEnvironment:
     """
@@ -126,8 +285,19 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
         cache_dir=cache_dir,
         use_congestion=config.use_congestion
     )
-    
+
+    # ADD ROUTE DIVERSITY
     if config.use_osm:
+        # Choose strategy:
+        # - Option 1: Simple and fast
+        env = add_route_diversity(env)
+        
+        # - Option 2: More realistic but slower (uncomment to use)
+        # env = add_k_shortest_diversity(env, k=3)
+        
+        logger.info("✅ Route diversity enabled (perturbed weights)")
+    
+    # if config.use_osm:
         # Support extended bbox for freight scenarios
         if config.extended_bbox:
             # Regional scale (e.g., Edinburgh-Glasgow corridor)
