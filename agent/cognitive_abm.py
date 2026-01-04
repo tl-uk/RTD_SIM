@@ -68,9 +68,9 @@ class CognitiveAgent:
         self.desires = desires or {'eco': 0.6, 'time': 0.5, 'cost': 0.3, 'comfort': 0.3, 'risk': 0.3}
         self.planner = planner
         self.t = 0
-        self._replan_period = 10  # steps between replans
+        self._replan_period = 20  # steps between replans
         
-        # CRITICAL FIX: Store agent context for infrastructure queries
+        # CRITICAL: Store agent context for infrastructure queries
         self.agent_context = agent_context or {}
         
         # Store origin/dest for diagnostics
