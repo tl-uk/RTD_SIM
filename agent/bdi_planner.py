@@ -83,30 +83,42 @@ class BDIPlanner:
         dest,
         agent_context: Optional[Dict] = None
     ) -> List[Action]:
-        """Generate possible actions."""
+        """Generate possible actions with ROUTE-BASED distance filtering."""
         actions: List[Action] = []
         context = agent_context or {}
         
-        # Calculate trip distance for filtering
+        # Calculate STRAIGHT-LINE distance for initial context filtering
         from simulation.spatial.coordinate_utils import haversine_km
-        trip_distance = haversine_km(origin, dest)
+        straight_line_distance = haversine_km(origin, dest)
         
-        # CRITICAL FIX: Pass distance to filter function
-        available_modes = self._filter_modes_by_context(context, trip_distance)
+        # Get candidate modes (use straight-line distance for initial filter)
+        available_modes = self._filter_modes_by_context(context, straight_line_distance)
         
-        logger.debug(f"Agent context: {context}, trip_distance: {trip_distance:.1f}km, available_modes: {available_modes}")
+        logger.debug(f"Agent context: {context}, straight_line: {straight_line_distance:.1f}km, candidate modes: {available_modes}")
         
         for mode in available_modes:
             # Infrastructure feasibility check
             if not self._is_mode_feasible(mode, origin, dest, state, context):
                 continue
             
+            # Compute actual route
             route = env.compute_route(
                 agent_id=getattr(state, 'agent_id', 'agent'),
                 origin=origin,
                 dest=dest,
                 mode=mode
             )
+            
+            # Check ACTUAL ROUTE distance, not straight-line
+            if route:
+                from simulation.spatial.coordinate_utils import route_distance_km
+                actual_route_distance = route_distance_km(route)
+                
+                # Apply strict distance constraint
+                max_distance = self.MODE_MAX_DISTANCE_KM.get(mode, float('inf'))
+                if actual_route_distance >= max_distance:  # Use >= for strict enforcement
+                    logger.debug(f"Rejected {mode}: route {actual_route_distance:.1f}km >= max {max_distance}km")
+                    continue
             
             params = {}
             
@@ -117,6 +129,7 @@ class BDIPlanner:
             actions.append(Action(mode=mode, route=route, params=params))
         
         return actions
+
     
     def _filter_modes_by_context(
         self, 
@@ -126,9 +139,9 @@ class BDIPlanner:
         """
         Filter modes based on agent context AND trip distance.
         
-        FIX: Stricter distance filtering to prevent bikes on long trips
+        🆕 FIX: Use safety margin for straight-line distance
         """
-        # STEP 1: Context-based filtering
+        # STEP 1: Context-based filtering (unchanged)
         vehicle_required = context.get('vehicle_required', False)
         cargo_capacity = context.get('cargo_capacity', False)
         vehicle_type = context.get('vehicle_type', 'personal')
@@ -138,28 +151,27 @@ class BDIPlanner:
         if priority == 'emergency':
             modes = ['car', 'ev']
         elif cargo_capacity or vehicle_required or vehicle_type == 'commercial':
-            # FREIGHT CONTEXT: Include freight modes
             modes = ['car', 'ev', 'van_electric', 'van_diesel']
             logger.debug(f"Freight context detected: offering {modes}")
         elif context.get('luggage_present') or context.get('wheelchair_accessible'):
             modes = ['car', 'ev', 'bus']
         else:
-            # Normal context: all modes
             modes = self.default_modes.copy()
         
-        # STEP 2: Distance-based filtering (STRICTER)
+        # STEP 2: Distance-based filtering with SAFETY MARGIN
         if trip_distance_km > 0:
             original_modes = modes.copy()
             
-            # FIX: Use strict inequality to prevent edge cases
+            # Apply 0.65x safety margin to account for route vs straight-line
+            # (Typical route distance is ~1.3-1.5x straight-line distance)
             modes = [
                 m for m in modes 
-                if trip_distance_km < self.MODE_MAX_DISTANCE_KM.get(m, float('inf'))  # Changed <= to <
+                if trip_distance_km < (self.MODE_MAX_DISTANCE_KM.get(m, float('inf')) * 0.65)
             ]
             
             filtered = set(original_modes) - set(modes)
             if filtered:
-                logger.debug(f"Distance filter ({trip_distance_km:.1f}km): removed {filtered}")
+                logger.debug(f"Distance filter ({trip_distance_km:.1f}km with 0.65x margin): removed {filtered}")
             
             # Fallback: Always keep at least one mode
             if not modes:
@@ -172,6 +184,7 @@ class BDIPlanner:
                 logger.warning(f"No modes left after filtering! Using fallback: {modes}")
         
         return modes
+
     
     def _is_mode_feasible(
         self,
