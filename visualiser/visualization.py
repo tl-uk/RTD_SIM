@@ -389,11 +389,11 @@ def render_cascade_chart(
     fig = px.scatter(
         cascade_df,
         x='step',
-        y='size',
+        y='growth',
         color='mode',
         color_discrete_map=MODE_COLORS_HEX,
         title="Cascade Events",
-        labels={'step': 'Time Step', 'size': 'Cascade Size', 'mode': 'Mode'},
+        labels={'step': 'Time Step', 'growth': 'Cascade Growth', 'mode': 'Mode'},
         height=height,
     )
     
