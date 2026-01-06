@@ -124,7 +124,12 @@ with st.sidebar:
     render_animation_controls(anim)
 
 # Main visualization tabs
-current_data = results.time_series.get_timestep(anim.current_step)
+# Handle time_series as list of dicts
+if isinstance(results.time_series, list):
+    current_data = results.time_series[anim.current_step] if anim.current_step < len(results.time_series) else None
+else:
+    current_data = results.time_series.get_timestep(anim.current_step)
+    
 if not current_data:
     st.error("No data available")
     st.stop()
