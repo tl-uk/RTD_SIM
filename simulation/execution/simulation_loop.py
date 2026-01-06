@@ -13,6 +13,7 @@ from collections import defaultdict
 
 from simulation.config.simulation_config import SimulationConfig
 from simulation.spatial_environment import SpatialEnvironment
+from simulation.execution.timeseries import TimeSeries
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ def run_simulation_loop(
         Dict with time_series, adoption_history, cascade_events
     """
     # Initialize tracking structures
-    time_series = []
+    time_series = TimeSeries()
     adoption_history = defaultdict(list)
     cascade_events = []
     
@@ -250,10 +251,11 @@ def run_simulation_loop(
                 'emissions_g': agent.state.emissions_g,
             })
         
-        # Record this timestep
+        # Record this timestep (use 'agent_states' to match UI expectations)
         time_series.append({
             'step': step,
-            'agents': agent_states
+            'agent_states': agent_states,
+            'metrics': {}  # Empty metrics for compatibility
         })
         
         # Record adoption

@@ -2,6 +2,7 @@
 ui/main_tabs.py
 
 Main visualization tabs: Map, charts, network, infrastructure, scenario report.
+Fixed: use_container_width deprecation warnings
 """
 
 import streamlit as st
@@ -86,7 +87,7 @@ def _render_map_tab(results, anim, agent_states, metrics):
         infrastructure_manager=results.infrastructure,
     )
     
-    st.pydeck_chart(deck, use_container_width=True)
+    st.pydeck_chart(deck, width='stretch')
     
     st.markdown("---")
     
@@ -105,7 +106,7 @@ def _render_mode_adoption_tab(results, anim, agent_states):
     st.subheader("📈 Mode Adoption Over Time")
     
     fig = render_mode_adoption_chart(results.adoption_history, anim.current_step)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     col1, col2 = st.columns(2)
     
@@ -135,7 +136,7 @@ def _render_impact_tab(results):
     st.subheader("🎯 Environmental Impact")
     
     fig = render_emissions_chart(results.time_series)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def _render_network_tab(results):
@@ -154,7 +155,7 @@ def _render_network_tab(results):
             st.markdown("### 🌊 Cascade Events")
             fig = render_cascade_chart(results.cascade_events)
             if fig:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
     else:
         st.info("Social network not enabled")
 
@@ -193,7 +194,7 @@ def _render_infrastructure_tab(results):
     )
     
     if infra_data['grid_figure']:
-        st.plotly_chart(infra_data['grid_figure'], use_container_width=True)
+        st.plotly_chart(infra_data['grid_figure'], width='stretch')
 
 
 def _render_scenario_report_tab(results):
