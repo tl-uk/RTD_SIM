@@ -100,14 +100,20 @@ class StoryDrivenAgent(CognitiveAgent):
         """
         context = {}
         
-        # FIX #1: Extract vehicle_required from task context parameters
-        # task_context.parameters comes from job_story.parameters
-        context['vehicle_required'] = self.task_context.parameters.get('vehicle_required', False)
+        if 'freight' in self.job_story_id or 'delivery' in self.job_story_id:
+            logger.info(f"FORCING freight context for {self.job_story_id}")
+            context['vehicle_required'] = True
+            context['cargo_capacity'] = True
+            context['vehicle_type'] = 'commercial'
+            context['priority'] = 'commercial'
+        else:
+            # Extract vehicle_required from task context parameters
+            # task_context.parameters comes from job_story.parameters
+            context['vehicle_required'] = self.task_context.parameters.get('vehicle_required', False)
+            # Extract cargo_capacity
+            context['cargo_capacity'] = self.task_context.parameters.get('cargo_capacity', False)
         
-        # FIX #2: Extract cargo_capacity
-        context['cargo_capacity'] = self.task_context.parameters.get('cargo_capacity', False)
-        
-        # FIX #3: Vehicle type from job story vehicle_constraints
+        # #3: Vehicle type from job story vehicle_constraints
         if self.job_story.vehicle_constraints:
             vehicle_type = self.job_story.vehicle_constraints.get('type', 'personal')
             
