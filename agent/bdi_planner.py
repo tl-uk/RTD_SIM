@@ -93,6 +93,10 @@ class BDIPlanner:
         
         # Get candidate modes (use straight-line distance for initial filter)
         available_modes = self._filter_modes_by_context(context, straight_line_distance)
+
+        # DEBUG LOGGING for freight agents
+        if context.get('vehicle_required'):
+            logger.info(f"FREIGHT AGENT: context={context}, distance={straight_line_distance:.1f}km, modes offered={available_modes}")
         
         logger.debug(f"Agent context: {context}, straight_line: {straight_line_distance:.1f}km, candidate modes: {available_modes}")
         
