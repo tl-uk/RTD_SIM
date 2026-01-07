@@ -133,3 +133,21 @@ def _render_sample_agents(results):
             context = getattr(agent, 'agent_context', {})
             if context:
                 st.json(context)
+
+    # Fright agent debug:
+    st.markdown("### 🔍 Freight Agent Debug")
+    freight_agents = [
+        a for a in results.agents 
+        if 'freight' in a.job_story_id or 'delivery' in a.job_story_id
+    ]
+    if freight_agents:
+        fa = freight_agents[0]
+        st.code(f"""
+    Freight Agent: {fa.state.agent_id}
+    Job: {fa.job_story_id}
+    Mode: {fa.state.mode}
+    agent_context: {fa.agent_context}
+    task_context.parameters: {fa.task_context.parameters if hasattr(fa, 'task_context') else 'N/A'}
+        """)
+    else:
+        st.write("No freight agents found")
