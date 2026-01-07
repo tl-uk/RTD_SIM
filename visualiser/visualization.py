@@ -289,10 +289,15 @@ def render_emissions_chart(
     for step_idx in range(len(time_series)):
         data = time_series.get_timestep(step_idx)
         if data:
+            # FIX: Calculate from agent_states instead of metrics
+            agent_states = data.get('agent_states', [])
+            total_emissions = sum(s.get('emissions_g', 0) for s in agent_states)
+            total_distance = sum(s.get('distance_km', 0) for s in agent_states)
+            
             all_metrics.append({
                 'step': step_idx,
-                'emissions': data['metrics'].get('emissions', 0),
-                'distance': data['metrics'].get('distance', 0),
+                'emissions': total_emissions,
+                'distance': total_distance,
             })
     
     if not all_metrics:
@@ -412,8 +417,12 @@ def get_current_stats(agent_states: List[Dict], metrics: Dict) -> Dict[str, Any]
         Dict of formatted statistics
     """
     mode_counts = Counter(s['mode'] for s in agent_states)
-    arrivals = metrics.get('arrivals', 0)
-    emissions = metrics.get('emissions', 0)
+    
+    # FIX: Calculate arrivals from agent_states, not metrics
+    arrivals = sum(1 for s in agent_states if s.get('arrived', False))
+    
+    # FIX: Calculate emissions from agent_states
+    emissions = sum(s.get('emissions_g', 0) for s in agent_states)
     
     agents_with_routes = sum(1 for s in agent_states 
                             if s.get('route') and len(s.get('route', [])) > 0)
