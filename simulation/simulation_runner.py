@@ -13,6 +13,8 @@ Refactored from 1194 lines to ~150 lines by extracting:
 - Analysis → simulation/analysis/scenario_comparison.py
 """
 
+from __future__ import annotations
+
 # Enable logging to console
 import logging
 logging.basicConfig(
@@ -21,7 +23,6 @@ logging.basicConfig(
     force=True  # Override Streamlit's logging config
 )
 
-from __future__ import annotations
 import logging
 from typing import Optional, Callable
 
