@@ -351,6 +351,10 @@ class BDIPlanner:
         elif priority == 'commercial':
             w_time = 0.7
             w_cost = 0.5
+
+            # BONUS: Prefer vans for freight
+            if mode in ['van_electric', 'van_diesel']:
+                total_cost *= 0.7  # 30% cost reduction for vans
         
         # Calculate total cost
         total_cost = (
