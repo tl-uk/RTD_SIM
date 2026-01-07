@@ -343,15 +343,15 @@ class BDIPlanner:
         
         # Priority adjustments
         priority = context.get('priority', 'normal')
-        
+
         if priority == 'emergency':
             w_time = 1.0
             w_cost = 0.0
             w_risk = 0.0
         elif priority == 'commercial':
             w_time = 0.7
-            w_cost = 0.5
-        
+            w_cost = 0.2  # Commercial agents less sensitive to cost
+
         # Calculate total cost
         total_cost = (
             w_time * time_norm +
@@ -361,11 +361,11 @@ class BDIPlanner:
             w_eco * emissions_norm +
             infrastructure_penalty
         )
-        
-        # BONUS: Prefer vans for freight
-        if mode in ['van_electric', 'van_diesel']:
-            total_cost *= 0.7  # 30% cost reduction for vans
-            
+
+        # Apply van preference bonus AFTER calculating cost
+        if priority == 'commercial' and mode in ['van_electric', 'van_diesel']:
+            total_cost *= 0.7  # 30% discount for freight agents using vans
+
         # Add stochastic noise (±15%)
         total_cost += random.uniform(-0.15, 0.15)
         
