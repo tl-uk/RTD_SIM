@@ -20,7 +20,7 @@ def __getattr__(name):
     elif name == 'MetricsCalculator':
         from simulation.spatial.metrics_calculator import MetricsCalculator
         return MetricsCalculator
-    elif name == 'CongestionManager':  # NEW
+    elif name == 'CongestionManager': 
         from simulation.spatial.congestion_manager import CongestionManager
         return CongestionManager
     elif name == 'coordinate_utils':
@@ -32,6 +32,6 @@ __all__ = [
     'GraphManager',
     'Router', 
     'MetricsCalculator',
-    'CongestionManager',  # NEW
+    'CongestionManager', 
     'coordinate_utils',
 ]

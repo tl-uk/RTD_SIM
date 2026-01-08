@@ -1,0 +1,297 @@
+# scenarios/configs/ - Phase 4.5C: Time-of-Day Pricing Scenarios
+
+# ============================================================================
+# dynamic_electricity_pricing.yaml
+# ============================================================================
+name: Dynamic Electricity Pricing
+description: Implement time-of-day pricing to incentivize off-peak charging
+policies:
+  # Enable time-of-day pricing (this would be a config flag)
+  - parameter: enable_tod_pricing
+    value: true
+    target: infrastructure
+  
+  # Increase peak-time charging costs
+  - parameter: peak_pricing_multiplier
+    value: 1.75
+    target: grid
+  
+  # Decrease off-peak costs
+  - parameter: offpeak_pricing_multiplier
+    value: 0.5
+    target: grid
+  
+  # Add smart charging optimization
+  - parameter: enable_smart_charging
+    value: true
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  offpeak_charging_increase: 0.45
+  peak_charging_reduction: 0.35
+  grid_stress_reduction: 0.25
+  user_cost_savings: 0.20
+metadata:
+  policy_type: demand_management
+  technology: smart_charging
+  target_behavior: load_shifting
+
+# ============================================================================
+# economy_7_style_tariff.yaml
+# ============================================================================
+---
+name: Economy 7 Style Tariff
+description: UK-style overnight cheap rate for EVs (similar to Economy 7)
+policies:
+  - parameter: enable_tod_pricing
+    value: true
+    target: infrastructure
+  
+  # Very cheap overnight rates (00:00-07:00)
+  - parameter: night_pricing_multiplier
+    value: 0.4
+    target: grid
+  
+  # Standard daytime rates
+  - parameter: day_pricing_multiplier
+    value: 1.0
+    target: grid
+  
+  # Encourage home charging infrastructure
+  - parameter: add_chargers
+    value: 20
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  overnight_charging_adoption: 0.65
+  daytime_charging_reduction: 0.40
+  user_satisfaction_increase: 0.25
+  grid_efficiency_improvement: 0.20
+metadata:
+  policy_type: tariff_incentive
+  similar_to: UK_Economy_7
+  target_sector: residential_charging
+
+# ============================================================================
+# octopus_agile_style.yaml
+# ============================================================================
+---
+name: Octopus Agile Style Dynamic Pricing
+description: Real-time dynamic pricing based on grid demand (like Octopus Agile)
+policies:
+  - parameter: enable_tod_pricing
+    value: true
+    target: infrastructure
+  
+  - parameter: enable_smart_charging
+    value: true
+    target: infrastructure
+  
+  # More extreme price variation
+  - parameter: peak_pricing_multiplier
+    value: 2.0
+    target: grid
+  
+  - parameter: offpeak_pricing_multiplier
+    value: 0.3
+    target: grid
+  
+  # Grid stress responsive pricing
+  - parameter: grid_stress_pricing
+    value: true
+    target: grid
+
+duration: 100
+expected_outcomes:
+  smart_charging_adoption: 0.70
+  peak_avoidance: 0.50
+  cost_savings_average: 0.30
+  grid_stress_reduction: 0.35
+metadata:
+  policy_type: real_time_pricing
+  similar_to: Octopus_Agile
+  automation_level: high
+
+# ============================================================================
+# workplace_charging_incentive.yaml
+# ============================================================================
+---
+name: Workplace Charging Incentive
+description: Subsidize workplace charging during solar peak (9am-3pm)
+policies:
+  - parameter: enable_tod_pricing
+    value: true
+    target: infrastructure
+  
+  # Cheap midday rates (when solar is abundant)
+  - parameter: midday_pricing_multiplier
+    value: 0.6
+    target: grid
+  
+  # Add workplace chargers
+  - parameter: add_chargers
+    value: 30
+    target: infrastructure
+  
+  # Workplace charging subsidy
+  - parameter: cost_reduction
+    value: 40.0
+    target: mode
+    mode: ev
+    time_restriction: "09:00-15:00"
+
+duration: 100
+expected_outcomes:
+  midday_charging_increase: 0.55
+  solar_utilization_improvement: 0.30
+  residential_grid_stress_reduction: 0.20
+  workplace_ev_adoption: 0.25
+metadata:
+  policy_type: workplace_incentive
+  renewable_integration: solar
+  target_time: midday
+
+# ============================================================================
+# depot_overnight_charging.yaml
+# ============================================================================
+---
+name: Depot Overnight Charging Optimization
+description: Optimize commercial fleet charging for depot return-to-base operations
+policies:
+  - parameter: enable_tod_pricing
+    value: true
+    target: infrastructure
+  
+  - parameter: enable_smart_charging
+    value: true
+    target: infrastructure
+  
+  # Very cheap overnight depot rates
+  - parameter: depot_night_rate
+    value: 0.05
+    target: infrastructure
+    vehicle_types: ['van_electric', 'truck_electric', 'hgv_electric']
+  
+  # Increase depot capacity
+  - parameter: increase_capacity
+    value: 1.5
+    target: infrastructure
+  
+  # Subsidy for depot charging infrastructure
+  - parameter: depot_charger_subsidy
+    value: 50.0
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  overnight_fleet_charging: 0.85
+  depot_cost_savings: 0.35
+  commercial_ev_adoption: 0.30
+  grid_load_balance_improvement: 0.25
+metadata:
+  policy_type: commercial_fleet_optimization
+  target_sector: freight_delivery
+  infrastructure: depot_based
+
+# ============================================================================
+# v2g_grid_services.yaml
+# ============================================================================
+---
+name: Vehicle-to-Grid (V2G) Pilot
+description: Allow EVs to sell power back to grid during peak times
+policies:
+  - parameter: enable_tod_pricing
+    value: true
+    target: infrastructure
+  
+  - parameter: enable_v2g
+    value: true
+    target: infrastructure
+  
+  # High peak prices to make V2G profitable
+  - parameter: peak_pricing_multiplier
+    value: 2.5
+    target: grid
+  
+  # V2G export rate (sell back to grid)
+  - parameter: v2g_export_rate
+    value: 0.20
+    target: infrastructure
+  
+  # Subsidize V2G-capable chargers
+  - parameter: v2g_charger_subsidy
+    value: 60.0
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  v2g_participation: 0.20
+  peak_grid_stress_reduction: 0.30
+  user_revenue_generation: 0.15
+  renewable_integration: 0.25
+metadata:
+  policy_type: grid_services
+  technology: vehicle_to_grid
+  bidirectional_charging: true
+
+# ============================================================================
+# combined_freight_smart_charging.yaml
+# ============================================================================
+---
+name: Combined Freight Electrification + Smart Charging
+description: Combine freight subsidies with smart charging optimization
+policies:
+  # Freight electrification (from Phase 4.5F)
+  - parameter: cost_reduction
+    value: 40.0
+    target: mode
+    mode: van_electric
+  
+  - parameter: cost_reduction
+    value: 35.0
+    target: mode
+    mode: truck_electric
+  
+  - parameter: cost_reduction
+    value: 30.0
+    target: mode
+    mode: hgv_electric
+  
+  # Time-of-day pricing
+  - parameter: enable_tod_pricing
+    value: true
+    target: infrastructure
+  
+  - parameter: enable_smart_charging
+    value: true
+    target: infrastructure
+  
+  # Depot overnight rates
+  - parameter: depot_night_rate
+    value: 0.06
+    target: infrastructure
+  
+  # Infrastructure expansion
+  - parameter: add_chargers
+    value: 35
+    target: infrastructure
+  
+  - parameter: increase_capacity
+    value: 1.8
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  van_electric_adoption: 0.70
+  truck_electric_adoption: 0.45
+  hgv_electric_adoption: 0.25
+  overnight_charging_adoption: 0.80
+  total_cost_savings: 0.40
+  grid_efficiency: 0.30
+metadata:
+  policy_type: comprehensive
+  combines: [freight_electrification, smart_charging]
+  target_sector: all_freight
+  technology_level: advanced

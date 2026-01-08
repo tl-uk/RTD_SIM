@@ -12,6 +12,11 @@ from collections import defaultdict
 import logging
 import math
 
+from simulation.infrastructure.time_of_day_pricing import (
+    TimeOfDayPricingManager,
+    SmartChargingOptimizer
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,7 +98,7 @@ class InfrastructureManager:
     - Provide infrastructure queries for BDI planner
     """
     
-    def __init__(self, grid_capacity_mw: float = 1000.0):
+    def __init__(self, grid_capacity_mw: float = 1000.0, enable_time_of_day_pricing: bool = False):
         """
         Initialize infrastructure manager.
         
@@ -110,6 +115,26 @@ class InfrastructureManager:
             region_id='default',
             capacity_mw=grid_capacity_mw
         )
+        
+        # Phase 4.5C: Time-of-day pricing
+        self.enable_tod_pricing = enable_time_of_day_pricing
+        
+        if enable_time_of_day_pricing:
+            self.tod_pricing = TimeOfDayPricingManager(
+                base_price_per_kwh=0.16,  # UK average
+                enable_dynamic_pricing=True
+            )
+            self.smart_charging = SmartChargingOptimizer(
+                pricing_manager=self.tod_pricing,
+                max_concurrent_sessions=50
+            )
+            logger.info("Time-of-day pricing and smart charging enabled")
+        else:
+            self.tod_pricing = None
+            self.smart_charging = None
+        
+        # Track current simulation hour (0-23)
+        self.current_hour = 8  # Start at 8 AM by default
         
         # Usage tracking
         self.agent_charging_state: Dict[str, Dict] = {}  # agent_id -> state
@@ -267,6 +292,257 @@ class InfrastructureManager:
         
         del self.agent_charging_state[agent_id]
         logger.debug(f"Agent {agent_id} released charger at {station_id}")
+
+    # ========================================================================
+    # Time-of-Day Pricing & Smart Charging
+    # ========================================================================
+
+    def update_time(self, step: int, steps_per_hour: int = 6) -> None:
+        """
+        Update current simulation time.
+        
+        Args:
+            step: Current simulation step
+            steps_per_hour: How many steps equal one hour (default: 6 = 10 min/step)
+        """
+        if self.enable_tod_pricing:
+            self.current_hour = (8 + (step // steps_per_hour)) % 24  # Start at 8 AM
+            logger.debug(f"Simulation time: {self.current_hour:02d}:00")
+
+
+    def get_current_charging_cost(self, station_id: str) -> float:
+        """
+        Get current charging cost per kWh at station.
+        
+        Args:
+            station_id: Charging station identifier
+        
+        Returns:
+            Cost in GBP per kWh
+        """
+        if not self.enable_tod_pricing or station_id not in self.charging_stations:
+            return 0.15  # Default flat rate
+        
+        station = self.charging_stations[station_id]
+        base_cost = station.get('cost_per_kwh', 0.15)
+        
+        # Apply time-of-day multiplier
+        current_price = self.tod_pricing.get_price_at_time(self.current_hour)
+        
+        return current_price
+
+
+    def schedule_smart_charging(
+        self,
+        agent_id: str,
+        vehicle_mode: str,
+        energy_needed_kwh: float,
+        urgency: str = 'normal'
+    ) -> Dict:
+        """
+        Schedule smart charging session for agent.
+        
+        Args:
+            agent_id: Agent identifier
+            vehicle_mode: Vehicle type
+            energy_needed_kwh: Energy to charge
+            urgency: 'immediate', 'normal', or 'flexible'
+        
+        Returns:
+            Dict with scheduled_start, estimated_cost
+        """
+        if not self.enable_tod_pricing:
+            # Fallback to immediate charging
+            cost = energy_needed_kwh * 0.15
+            return {
+                'scheduled_start': self.current_hour,
+                'estimated_cost': cost,
+                'smart_charging_used': False
+            }
+        
+        # Determine charging rate based on vehicle type
+        charging_rate_map = {
+            'ev': 7.0,              # 7 kW home charger
+            'van_electric': 11.0,   # 11 kW depot charger
+            'cargo_bike': 0.5,      # 500W charger
+            'truck_electric': 50.0, # 50 kW depot charger
+            'hgv_electric': 150.0,  # 150 kW megacharger
+            'hgv_hydrogen': 0.0,    # N/A for hydrogen
+        }
+        
+        charging_rate_kw = charging_rate_map.get(vehicle_mode, 7.0)
+        
+        # Schedule charging
+        session = self.smart_charging.schedule_charging(
+            agent_id=agent_id,
+            vehicle_mode=vehicle_mode,
+            energy_needed_kwh=energy_needed_kwh,
+            charging_rate_kw=charging_rate_kw,
+            urgency=urgency,
+            earliest_hour=self.current_hour,
+            latest_hour=(self.current_hour + 16) % 24
+        )
+        
+        return {
+            'scheduled_start': session.scheduled_start,
+            'estimated_cost': session.estimated_cost,
+            'smart_charging_used': True,
+            'completion_hour': session.latest_completion,
+        }
+
+
+    def get_tod_pricing_metrics(self) -> Dict:
+        """Get time-of-day pricing metrics and status."""
+        if not self.enable_tod_pricing:
+            return {'enabled': False}
+        
+        current_tier = self.tod_pricing.get_current_tier(self.current_hour)
+        summary = self.tod_pricing.get_daily_summary()
+        
+        # Get smart charging metrics
+        charging_metrics = self.smart_charging.get_cost_savings_report()
+        load_profile = self.smart_charging.get_load_profile(hours_ahead=24)
+        
+        return {
+            'enabled': True,
+            'current_hour': self.current_hour,
+            'current_tier': current_tier.name,
+            'current_price': current_tier.price_per_kwh,
+            'daily_summary': summary,
+            'smart_charging': charging_metrics,
+            'load_profile': load_profile,
+        }
+
+
+    def get_charging_recommendation(
+        self,
+        agent_id: str,
+        energy_needed_kwh: float,
+        urgency: str = 'normal'
+    ) -> Dict:
+        """
+        Get charging recommendation with cost comparison.
+        
+        Args:
+            agent_id: Agent identifier
+            energy_needed_kwh: Energy needed
+            urgency: Urgency level
+        
+        Returns:
+            Dict with immediate_cost, optimal_cost, recommended_start, savings
+        """
+        if not self.enable_tod_pricing:
+            cost = energy_needed_kwh * 0.15
+            return {
+                'immediate_cost': cost,
+                'optimal_cost': cost,
+                'recommended_start': self.current_hour,
+                'savings': 0.0,
+                'savings_percentage': 0.0,
+            }
+        
+        # Cost if charging immediately
+        immediate_cost = self.tod_pricing.calculate_charging_cost(
+            energy_kwh=energy_needed_kwh,
+            start_hour=self.current_hour,
+            duration_hours=energy_needed_kwh / 7.0  # Assume 7kW charger
+        )
+        
+        # Cost if charging optimally
+        optimal_start, optimal_cost = self.tod_pricing.find_optimal_charging_window(
+            energy_kwh=energy_needed_kwh,
+            charging_rate_kw=7.0,
+            earliest_hour=self.current_hour,
+            latest_hour=(self.current_hour + 16) % 24,
+            required_completion_hour=(self.current_hour + 12) % 24
+        )
+        
+        savings = immediate_cost - optimal_cost
+        savings_pct = (savings / immediate_cost * 100) if immediate_cost > 0 else 0
+        
+        return {
+            'immediate_cost': immediate_cost,
+            'optimal_cost': optimal_cost,
+            'recommended_start': optimal_start,
+            'savings': savings,
+            'savings_percentage': savings_pct,
+        }
+    
+    # =======================================================================
+    # Vehicle Charging Management
+    # =======================================================================
+    def charge_vehicle(
+        self,
+        agent_id: str,
+        station_id: str,
+        vehicle_mode: str,
+        energy_kwh: float,
+        use_smart_charging: bool = True
+    ) -> Dict:
+        """
+        Charge vehicle with optional smart charging.
+        
+        Args:
+            agent_id: Agent identifier
+            station_id: Charging station ID
+            vehicle_mode: Vehicle type
+            energy_kwh: Energy to charge
+            use_smart_charging: Use smart charging optimization
+        
+        Returns:
+            Dict with cost, duration, scheduled_start
+        """
+        if station_id not in self.charging_stations:
+            return {'success': False, 'reason': 'station_not_found'}
+        
+        station = self.charging_stations[station_id]
+        
+        # Check availability
+        if not station.is_available():
+            return {'success': False, 'reason': 'no_ports_available'}
+        
+        # Get charging cost (time-of-day aware)
+        cost_per_kwh = self.get_current_charging_cost(station_id)
+        
+        # Smart charging optimization
+        if use_smart_charging and self.enable_tod_pricing:
+            schedule = self.schedule_smart_charging(
+                agent_id=agent_id,
+                vehicle_mode=vehicle_mode,
+                energy_needed_kwh=energy_kwh,
+                urgency='normal'
+            )
+            
+            total_cost = schedule['estimated_cost']
+            scheduled_start = schedule['scheduled_start']
+        else:
+            # Immediate charging
+            total_cost = energy_kwh * cost_per_kwh
+            scheduled_start = self.current_hour
+        
+        # Occupy port
+        station.occupy_port()
+        
+        # Track charging session
+        self.agent_charging_state[agent_id] = {
+            'station_id': station_id,
+            'start_hour': scheduled_start,
+            'energy_kwh': energy_kwh,
+            'cost': total_cost,
+        }
+        
+        # Update grid load
+        charging_power = energy_kwh / 2.0  # Assume 2-hour charging
+        grid_region = 'default'
+        self.add_grid_load(grid_region, charging_power)
+        
+        return {
+            'success': True,
+            'cost': total_cost,
+            'cost_per_kwh': cost_per_kwh,
+            'scheduled_start': scheduled_start,
+            'smart_charging_used': use_smart_charging and self.enable_tod_pricing,
+        }
     
     # ========================================================================
     # Grid Management

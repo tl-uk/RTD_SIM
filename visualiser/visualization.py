@@ -17,23 +17,53 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 MODE_COLORS_RGB = {
-    'walk': [34, 197, 94],
-    'bike': [59, 130, 246],
-    'bus': [245, 158, 11],
-    'car': [239, 68, 68],
-    'ev': [168, 85, 245],
-    'van_electric': [16, 185, 129],   # NEW: Green for electric van
-    'van_diesel': [107, 114, 128],    # NEW: Gray for diesel van
+    # Personal transport
+    'walk': [34, 197, 94],      # Green
+    'bike': [59, 130, 246],     # Blue
+    'bus': [245, 158, 11],      # Orange
+    'car': [239, 68, 68],       # Red
+    'ev': [168, 85, 245],       # Purple
+    
+    # Micro-delivery
+    'cargo_bike': [34, 197, 94],      # Bright green (eco-friendly)
+    
+    # Light freight (vans)
+    'van_electric': [16, 185, 129],   # Teal green (existing)
+    'van_diesel': [107, 114, 128],    # Gray (existing)
+    
+    # Medium freight (trucks)
+    'truck_electric': [74, 222, 128],  # Light green
+    'truck_diesel': [120, 113, 108],   # Brown-gray
+    
+    # Heavy freight (HGVs)
+    'hgv_electric': [52, 211, 153],    # Aqua green
+    'hgv_diesel': [75, 85, 99],        # Dark gray
+    'hgv_hydrogen': [96, 165, 250],    # Light blue (future tech)
 }
 
 MODE_COLORS_HEX = {
+    # Personal transport
     'walk': '#22c55e',
     'bike': '#3b82f6',
     'bus': '#f59e0b',
     'car': '#ef4444',
     'ev': '#a855f7',
-    'van_electric': '#10b981',  # NEW
-    'van_diesel': '#6b7280',    # NEW
+    
+    # Micro-delivery
+    'cargo_bike': '#22c55e',
+    
+    # Light freight (vans)
+    'van_electric': '#10b981',
+    'van_diesel': '#6b7280',
+    
+    # Medium freight (trucks)
+    'truck_electric': '#4ade80',
+    'truck_diesel': '#78716c',
+    
+    # Heavy freight (HGVs)
+    'hgv_electric': '#34d399',
+    'hgv_diesel': '#4b5563',
+    'hgv_hydrogen': '#60a5fa',
 }
 
 
@@ -230,32 +260,31 @@ def render_map(
     return deck
 
 
+# Update render_mode_adoption_chart to include all modes
 def render_mode_adoption_chart(
     adoption_history: Dict[str, List[float]],
     current_step: int,
     height: int = 400
 ) -> go.Figure:
-    """
-    Render mode adoption over time chart.
-    
-    Args:
-        adoption_history: Dict mapping mode to adoption rates over time
-        current_step: Current simulation step (for vertical line)
-        height: Chart height in pixels
-    
-    Returns:
-        Plotly Figure
-    """
+    """Render mode adoption over time chart with all freight modes."""
     fig = go.Figure()
     
-    for mode in ['walk', 'bike', 'bus', 'car', 'ev', 'van_electric', 'van_diesel']:  # NEW
+    all_modes = [
+        'walk', 'bike', 'cargo_bike',
+        'bus', 'car', 'ev',
+        'van_electric', 'van_diesel',
+        'truck_electric', 'truck_diesel',
+        'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'
+    ]
+    
+    for mode in all_modes:
         if mode in adoption_history and adoption_history[mode]:
             fig.add_trace(go.Scatter(
                 x=list(range(len(adoption_history[mode]))),
                 y=[v * 100 for v in adoption_history[mode]],
                 mode='lines',
-                name=mode.capitalize(),
-                line=dict(width=3, color=MODE_COLORS_HEX[mode])
+                name=mode.replace('_', ' ').title(),
+                line=dict(width=3, color=MODE_COLORS_HEX.get(mode, '#808080'))
             ))
     
     fig.add_vline(x=current_step, line_dash="dash", line_color="red",
@@ -266,6 +295,13 @@ def render_mode_adoption_chart(
         yaxis_title="Adoption Rate (%)",
         hovermode='x unified',
         height=height,
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02
+        )
     )
     
     return fig
