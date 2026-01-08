@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from simulation.spatial_environment import SpatialEnvironment
-from simulation.infrastructure_manager import InfrastructureManager
+from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 from simulation.config.simulation_config import SimulationConfig
 
 logger = logging.getLogger(__name__)

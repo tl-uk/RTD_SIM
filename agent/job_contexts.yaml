@@ -1,326 +1,107 @@
-# RTD_SIM Job Contexts - Phase 4.5F: Expanded Freight
-# Key fix: Add vehicle_required flag to freight_delivery_route
+# RTD_SIM Job Contexts - Unified Format
+# Phase 4.5F: Expanded freight modes with proper BDI story structure
 
 # ============================================================================
 # MICRO-DELIVERY (Last-Mile Urban)
 # ============================================================================
 
 urban_food_delivery:
-  job_type: delivery
-  description: Quick-commerce food delivery in dense urban area
+  context: "When delivering food orders in dense urban areas during peak hours"
+  goal: "I want to complete maximum deliveries per hour efficiently"
+  outcome: "So I can maximize earnings and maintain customer ratings"
+  
+  job_type: "gig_delivery"
+  
+  delivery_params:
+    num_stops: [5, 15]
+    stop_duration_min: [2, 5]
+    route_optimization: "maximize_deliveries_per_hour"
+    dynamic_routing: true
+  
+  time_window:
+    start: "11:00"
+    end: "23:00"
+    flexibility: "medium"
+    peak_hours: ["12:00-14:00", "18:00-21:00"]
+  
+  destination_type: "multiple_urban"
+  typical_distance_km: [5, 10]
+  
   parameters:
     vehicle_required: true
-    cargo_capacity: false  # Small packages only
+    cargo_capacity: false
     vehicle_type: micro_mobility
     recurring: true
     urgency: high
     time_sensitive: true
+  
   vehicle_constraints:
     type: micro_mobility
     max_distance_km: 10
     preferred_modes: ['cargo_bike', 'bike']
+  
   desire_overrides:
-    time: 0.9  # Speed is critical
+    time: 0.9
     cost: 0.2
+  
+  plan_context:
+    - "Speed is critical for customer satisfaction"
+    - "Multiple short stops require quick parking"
+    - "Weather affects cargo bike safety"
+    - "Peak hours have surge pricing"
+    - "Battery/range management crucial"
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
+    optional: ["delivery_window", "customer_rating_impact", "surge_multiplier"]
 
 urban_parcel_delivery:
-  job_type: delivery
-  description: Last-mile parcel delivery in city center
+  context: "When delivering parcels in city center with tight delivery windows"
+  goal: "I want reliable transport that handles packages safely"
+  outcome: "So I meet delivery commitments and avoid failed deliveries"
+  
+  job_type: "delivery"
+  
+  delivery_params:
+    num_stops: [8, 20]
+    stop_duration_min: [3, 8]
+    route_optimization: "time_then_cost"
+    dynamic_routing: false
+  
+  time_window:
+    start: "08:00"
+    end: "18:00"
+    flexibility: "low"
+  
+  destination_type: "multiple_urban"
+  typical_distance_km: [10, 15]
+  
   parameters:
     vehicle_required: true
     cargo_capacity: false
     vehicle_type: micro_mobility
     recurring: true
     urgency: medium
+  
   vehicle_constraints:
     type: micro_mobility
     max_distance_km: 15
+    capacity_kg: [5, 30]
     preferred_modes: ['cargo_bike', 'van_electric']
+  
+  plan_context:
+    - "Must protect packages from weather"
+    - "Signature collection required"
+    - "Redelivery costs are high"
+    - "Zero-emission zones in city center"
+  
+  csv_columns:
+    required: ["depot_lat", "depot_lon", "stop_1_lat", "stop_1_lon"]
+    optional: ["stop_N_lat", "stop_N_lon", "package_weight", "delivery_time_window"]
 
 # ============================================================================
 # LIGHT COMMERCIAL (Vans)
 # ============================================================================
-
-gig_economy_delivery:
-  job_type: delivery
-  description: Gig economy package delivery, flexible routes
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: commercial
-    recurring: true
-    urgency: medium
-  vehicle_constraints:
-    type: light_freight
-    min_capacity_kg: 500
-    max_range_km: 200
-    preferred_modes: ['van_electric', 'van_diesel']
-
-service_engineer_call:
-  job_type: service
-  description: Mobile engineer with tools and parts
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: commercial
-    recurring: false
-    urgency: high
-  vehicle_constraints:
-    type: light_freight
-    min_capacity_kg: 300
-    preferred_modes: ['van_electric', 'van_diesel']
-
-trades_contractor:
-  job_type: service
-  description: Tradesperson (plumber/electrician) with equipment
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: commercial
-    recurring: true
-    urgency: medium
-  vehicle_constraints:
-    type: light_freight
-    preferred_modes: ['van_diesel', 'van_electric']
-
-# ============================================================================
-# MEDIUM FREIGHT (Trucks 7.5-18t)
-# ============================================================================
-
-regional_distribution:
-  job_type: freight
-  description: Regional distribution center to retail stores
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: medium_freight
-    recurring: true
-    urgency: medium
-  vehicle_constraints:
-    type: medium_freight
-    min_capacity_kg: 5000
-    max_range_km: 300
-    preferred_modes: ['truck_electric', 'truck_diesel']
-
-furniture_delivery:
-  job_type: delivery
-  description: Large furniture delivery to customer home
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: medium_freight
-    recurring: false
-    urgency: low
-  vehicle_constraints:
-    type: medium_freight
-    min_capacity_kg: 3000
-    preferred_modes: ['truck_diesel', 'truck_electric']
-
-construction_materials:
-  job_type: freight
-  description: Construction materials to building site
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: medium_freight
-    recurring: true
-    urgency: medium
-  vehicle_constraints:
-    type: medium_freight
-    min_capacity_kg: 8000
-    preferred_modes: ['truck_diesel']
-
-# ============================================================================
-# HEAVY FREIGHT (HGVs 44t)
-# ============================================================================
-
-long_haul_freight:
-  job_type: freight
-  description: Long-haul inter-city freight (400+ km)
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: heavy_freight
-    recurring: true
-    urgency: medium
-  vehicle_constraints:
-    type: heavy_freight
-    min_capacity_kg: 20000
-    max_range_km: 800
-    preferred_modes: ['hgv_diesel', 'hgv_hydrogen']
-
-port_to_warehouse:
-  job_type: freight
-  description: Container freight from port to distribution center
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: heavy_freight
-    recurring: true
-    urgency: high
-  vehicle_constraints:
-    type: heavy_freight
-    min_capacity_kg: 25000
-    max_range_km: 400
-    preferred_modes: ['hgv_electric', 'hgv_diesel', 'hgv_hydrogen']
-
-supermarket_supply:
-  job_type: freight
-  description: Supermarket distribution center to stores
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: heavy_freight
-    recurring: true
-    urgency: high
-    time_window:
-      start: 6
-      end: 22
-      flexibility: low
-  vehicle_constraints:
-    type: heavy_freight
-    min_capacity_kg: 15000
-    max_range_km: 300
-    preferred_modes: ['hgv_electric', 'hgv_diesel']
-
-manufacturing_supply_chain:
-  job_type: freight
-  description: Just-in-time manufacturing component delivery
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: heavy_freight
-    recurring: true
-    urgency: critical
-  vehicle_constraints:
-    type: heavy_freight
-    min_capacity_kg: 10000
-    preferred_modes: ['hgv_diesel', 'hgv_electric']
-  desire_overrides:
-    time: 0.95
-    reliability: 0.9
-
-# ============================================================================
-# SPECIALIZED FREIGHT
-# ============================================================================
-
-refrigerated_transport:
-  job_type: freight
-  description: Temperature-controlled goods transport
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: medium_freight
-    recurring: true
-    urgency: high
-    special_requirements: ['refrigeration']
-  vehicle_constraints:
-    type: medium_freight
-    min_capacity_kg: 5000
-    preferred_modes: ['truck_diesel', 'truck_electric']
-
-waste_collection:
-  job_type: service
-  description: Commercial waste collection route
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: medium_freight
-    recurring: true
-    urgency: low
-  vehicle_constraints:
-    type: medium_freight
-    preferred_modes: ['truck_diesel', 'truck_electric']
-
-# ============================================================================
-# EXISTING FREIGHT JOBS (keep these for backward compatibility)
-# ============================================================================
-
-freight_delivery_route:
-  job_type: freight
-  description: Standard freight delivery route
-  parameters:
-    vehicle_required: true
-    cargo_capacity: true
-    vehicle_type: commercial
-    recurring: true
-    urgency: medium
-  vehicle_constraints:
-    type: light_freight
-    preferred_modes: ['van_electric', 'van_diesel']
-
-# ============================================================================
-# PERSONAL NON-FREIGHT (for comparison)
-# ============================================================================
-
-commute_flexible:
-  job_type: commute
-  description: Daily commute with flexible timing
-  parameters:
-    vehicle_required: false
-    recurring: true
-    urgency: medium
-  time_window:
-    start: 7
-    end: 10
-    flexibility: high
-
-shopping_trip:
-  job_type: shopping
-  description: Weekly grocery shopping trip
-  parameters:
-    vehicle_required: false
-    luggage_present: true
-    recurring: true
-    urgency: low
-
-# ============================================================================
-# OLD DETAILED JOB STORIES
-# ============================================================================
-freight_delivery_route:
-  context: "When performing multi-stop delivery route with time windows"
-  goal: "I want to complete all deliveries efficiently and on time"
-  outcome: "So I maintain customer satisfaction and operational efficiency"
-  
-  job_type: "delivery"
-  
-  delivery_params:
-    num_stops: [3, 8]
-    stop_duration_min: [10, 20]
-    route_optimization: "time_then_emissions"
-  
-  time_window:
-    start: "06:00"
-    end: "18:00"
-    flexibility: "medium"
-  
-  destination_type: "multiple"
-  typical_distance_km: [30, 150]
-  
-  parameters:
-    recurring: true
-    frequency: "variable"
-    urgency: "medium"
-    vehicle_required: true  
-  
-  vehicle_constraints:
-    type: "freight"
-    capacity_kg: [500, 3500]
-    range_km: [150, 300]
-    charging_stops_allowed: true
-  
-  plan_context:
-    - "Some delivery windows are strict"
-    - "Route may require charging stop"
-    - "Traffic congestion affects delivery times"
-    - "Failed delivery requires rescheduling"
-    - "Loading/unloading time varies by stop"
-  
-  csv_columns:
-    required: ["depot_lat", "depot_lon", "stop_1_lat", "stop_1_lon"]
-    optional: ["stop_N_lat", "stop_N_lon", "stop_N_time_window", 
-               "vehicle_type", "load_kg", "delivery_priority"]
-
 
 gig_economy_delivery:
   context: "When performing rapid urban deliveries for food/parcel services"
@@ -345,32 +126,596 @@ gig_economy_delivery:
   typical_distance_km: [15, 40]
   
   parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: commercial
     recurring: true
-    frequency: "variable"
-    urgency: "high"
-    vehicle_required: true  
+    urgency: medium
     real_time_routing: true
   
   vehicle_constraints:
-    type: "light_freight"
-    capacity_kg: [10, 50]
-    range_km: [40, 80]
-    charging_time_critical: true
+    type: light_freight
+    capacity_kg: [500, 3500]
+    max_range_km: 200
+    charging_stops_allowed: true
+    preferred_modes: ['van_electric', 'van_diesel']
   
   plan_context:
     - "New orders arrive during shift"
     - "Customer ratings depend on speed"
     - "Parking/stopping frequently"
-    - "Weather affects bike/scooter safety"
+    - "Weather affects safety"
     - "Peak hours have higher earnings"
     - "Vehicle costs eat into earnings"
+    - "Charging time must be minimized"
   
   csv_columns:
     required: ["start_lat", "start_lon"]
     optional: ["vehicle_type", "shift_duration", "target_earnings", "operating_area"]
 
+service_engineer_call:
+  context: "When responding to service calls with tools and replacement parts"
+  goal: "I want reliable transport to reach customers quickly with all equipment"
+  outcome: "So I can fix problems on first visit and maintain SLA commitments"
+  
+  job_type: "service"
+  
+  time_window:
+    start: "08:00"
+    end: "18:00"
+    flexibility: "low"
+    response_time_target: 120  # 2 hours
+  
+  destination_type: "single_urgent"
+  typical_distance_km: [10, 50]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: commercial
+    recurring: false
+    urgency: high
+  
+  vehicle_constraints:
+    type: light_freight
+    capacity_kg: [300, 1000]
+    tool_storage: true
+    preferred_modes: ['van_electric', 'van_diesel']
+  
+  plan_context:
+    - "Response time affects customer satisfaction"
+    - "Must carry specialized tools and parts"
+    - "Cannot risk running out of charge mid-job"
+    - "Traffic delays impact SLA compliance"
+    - "May require multiple trips for complex jobs"
+  
+  csv_columns:
+    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
+    optional: ["urgency_level", "customer_priority", "parts_required"]
+
+trades_contractor:
+  context: "When traveling to job sites with tools, materials, and equipment"
+  goal: "I want dependable transport that accommodates my work requirements"
+  outcome: "So I arrive on time with everything needed to complete the job"
+  
+  job_type: "service"
+  
+  time_window:
+    start: "07:00"
+    end: "17:00"
+    flexibility: "medium"
+  
+  destination_type: "single_or_multiple"
+  typical_distance_km: [5, 30]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: commercial
+    recurring: true
+    urgency: medium
+  
+  vehicle_constraints:
+    type: light_freight
+    capacity_kg: [200, 800]
+    secure_storage: true
+    preferred_modes: ['van_diesel', 'van_electric']
+  
+  plan_context:
+    - "Tools and materials are expensive and need security"
+    - "Some jobs require multiple trips for materials"
+    - "Parking at job sites can be challenging"
+    - "Early morning starts are common"
+    - "Fuel/charging costs are business expense"
+  
+  csv_columns:
+    required: ["home_lat", "home_lon", "job_site_lat", "job_site_lon"]
+    optional: ["job_type", "materials_required", "estimated_duration"]
+
 # ============================================================================
-# Other job stories (unchanged but included for completeness)
+# MEDIUM FREIGHT (Trucks 7.5-18t)
+# ============================================================================
+
+regional_distribution:
+  context: "When delivering goods from regional distribution center to retail stores"
+  goal: "I want efficient multi-stop routes that minimize time and fuel"
+  outcome: "So I complete routes on schedule and reduce operational costs"
+  
+  job_type: "freight"
+  
+  delivery_params:
+    num_stops: [5, 12]
+    stop_duration_min: [15, 45]
+    route_optimization: "time_then_cost"
+    loading_dock_required: true
+  
+  time_window:
+    start: "06:00"
+    end: "20:00"
+    flexibility: "medium"
+  
+  destination_type: "multiple_commercial"
+  typical_distance_km: [50, 300]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: medium
+  
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg: [5000, 15000]
+    max_range_km: 300
+    loading_equipment: true
+    preferred_modes: ['truck_electric', 'truck_diesel']
+  
+  plan_context:
+    - "Delivery windows must be respected"
+    - "Loading docks have limited availability"
+    - "Range anxiety for electric trucks on long routes"
+    - "Weight restrictions on some roads"
+    - "Depot charging available overnight"
+  
+  csv_columns:
+    required: ["depot_lat", "depot_lon", "store_1_lat", "store_1_lon"]
+    optional: ["store_N_lat", "store_N_lon", "delivery_window", "cargo_weight"]
+
+furniture_delivery:
+  context: "When delivering large furniture items to residential customers"
+  goal: "I want to deliver items safely without damage"
+  outcome: "So customers are satisfied and we avoid costly returns"
+  
+  job_type: "delivery"
+  
+  delivery_params:
+    num_stops: [1, 3]
+    stop_duration_min: [20, 60]
+    assembly_required: true
+  
+  time_window:
+    start: "09:00"
+    end: "18:00"
+    flexibility: "low"
+    customer_must_be_present: true
+  
+  destination_type: "residential"
+  typical_distance_km: [20, 100]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: false
+    urgency: low
+  
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg: [3000, 8000]
+    tail_lift: true
+    preferred_modes: ['truck_diesel', 'truck_electric']
+  
+  plan_context:
+    - "Bulky items require careful handling"
+    - "Access to properties varies"
+    - "Two-person crew usually required"
+    - "Customer scheduling is inflexible"
+    - "Damage claims are expensive"
+  
+  csv_columns:
+    required: ["warehouse_lat", "warehouse_lon", "customer_lat", "customer_lon"]
+    optional: ["delivery_window", "assembly_required", "access_restrictions"]
+
+construction_materials:
+  context: "When transporting construction materials to active building sites"
+  goal: "I want reliable delivery that doesn't delay construction schedules"
+  outcome: "So projects stay on timeline and we maintain contractor relationships"
+  
+  job_type: "freight"
+  
+  delivery_params:
+    num_stops: [1, 3]
+    stop_duration_min: [30, 90]
+    crane_or_forklift_available: "sometimes"
+  
+  time_window:
+    start: "06:00"
+    end: "16:00"
+    flexibility: "very_low"
+  
+  destination_type: "construction_site"
+  typical_distance_km: [10, 80]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: medium
+  
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg: [8000, 18000]
+    off_road_capable: true
+    preferred_modes: ['truck_diesel']
+  
+  plan_context:
+    - "Construction sites have limited access"
+    - "Delays cascade through project timeline"
+    - "Weather affects site accessibility"
+    - "Heavy loads require specialized equipment"
+    - "Range not critical for local deliveries"
+  
+  csv_columns:
+    required: ["supplier_lat", "supplier_lon", "site_lat", "site_lon"]
+    optional: ["material_type", "weight_tonnes", "site_access_type"]
+
+# ============================================================================
+# HEAVY FREIGHT (HGVs 44t)
+# ============================================================================
+
+long_haul_freight:
+  context: "When transporting full loads over long distances between cities"
+  goal: "I want to complete routes efficiently while managing driver hours and costs"
+  outcome: "So we maximize fleet utilization and maintain delivery schedules"
+  
+  job_type: "freight"
+  
+  delivery_params:
+    num_stops: [1, 3]
+    stop_duration_min: [45, 180]
+    driver_hours_regulated: true
+    rest_breaks_required: true
+  
+  time_window:
+    start: "00:00"
+    end: "23:59"
+    flexibility: "medium"
+  
+  destination_type: "warehouse_or_port"
+  typical_distance_km: [400, 800]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: medium
+  
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg: [20000, 44000]
+    max_range_km: 800
+    tachograph_compliant: true
+    preferred_modes: ['hgv_diesel', 'hgv_hydrogen']
+  
+  plan_context:
+    - "Driver hours limited by regulations"
+    - "Fuel/hydrogen refueling infrastructure sparse"
+    - "Route planning must consider weight restrictions"
+    - "Weather delays on long routes are common"
+    - "Overnight parking security important"
+    - "Electric range insufficient for long haul (currently)"
+  
+  csv_columns:
+    required: ["origin_depot_lat", "origin_depot_lon", "dest_depot_lat", "dest_depot_lon"]
+    optional: ["cargo_type", "weight_tonnes", "delivery_deadline", "driver_id"]
+
+port_to_warehouse:
+  context: "When moving container freight from port to distribution centers"
+  goal: "I want rapid turnaround to minimize port demurrage charges"
+  outcome: "So we reduce costs and maintain supply chain efficiency"
+  
+  job_type: "freight"
+  
+  delivery_params:
+    num_stops: [1, 2]
+    stop_duration_min: [60, 120]
+    container_handling: true
+  
+  time_window:
+    start: "00:00"
+    end: "23:59"
+    flexibility: "low"
+    demurrage_deadline: true
+  
+  destination_type: "port_to_warehouse"
+  typical_distance_km: [50, 400]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: high
+  
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg: [25000, 44000]
+    max_range_km: 400
+    container_chassis: true
+    preferred_modes: ['hgv_electric', 'hgv_diesel', 'hgv_hydrogen']
+  
+  plan_context:
+    - "Port demurrage charges escalate quickly"
+    - "Container slot booking affects timing"
+    - "Traffic around ports is unpredictable"
+    - "Electric trucks viable for port-warehouse routes"
+    - "Depot charging infrastructure available"
+  
+  csv_columns:
+    required: ["port_lat", "port_lon", "warehouse_lat", "warehouse_lon"]
+    optional: ["container_id", "weight_tonnes", "demurrage_deadline", "customs_cleared"]
+
+supermarket_supply:
+  context: "When delivering goods from distribution center to supermarket stores"
+  goal: "I want reliable delivery during store operating hours"
+  outcome: "So shelves are stocked and we meet retail partner commitments"
+  
+  job_type: "freight"
+  
+  delivery_params:
+    num_stops: [1, 4]
+    stop_duration_min: [30, 120]
+    temperature_controlled: "sometimes"
+  
+  time_window:
+    start: "06:00"
+    end: "22:00"
+    flexibility: "low"
+    night_delivery_restricted: true
+  
+  destination_type: "retail"
+  typical_distance_km: [50, 300]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: high
+  
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg: [15000, 30000]
+    max_range_km: 300
+    temperature_control: "optional"
+    preferred_modes: ['hgv_electric', 'hgv_diesel']
+  
+  plan_context:
+    - "Delivery windows are strictly enforced"
+    - "Store loading bays have limited capacity"
+    - "Fresh food deliveries cannot be delayed"
+    - "Urban access restrictions apply"
+    - "Zero-emission zones favor electric trucks"
+  
+  time_window:
+    start: 6
+    end: 22
+    flexibility: low
+  
+  csv_columns:
+    required: ["dc_lat", "dc_lon", "store_lat", "store_lon"]
+    optional: ["delivery_window", "refrigerated", "store_capacity"]
+
+manufacturing_supply_chain:
+  context: "When delivering components for just-in-time manufacturing"
+  goal: "I want guaranteed on-time delivery to prevent production line stops"
+  outcome: "So manufacturing schedules are maintained and we avoid costly delays"
+  
+  job_type: "freight"
+  
+  delivery_params:
+    num_stops: [1, 2]
+    stop_duration_min: [30, 90]
+    just_in_time: true
+  
+  time_window:
+    start: "00:00"
+    end: "23:59"
+    flexibility: "very_low"
+    production_line_dependent: true
+  
+  destination_type: "manufacturing_plant"
+  typical_distance_km: [100, 500]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: critical
+  
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg: [10000, 25000]
+    tracked_gps: true
+    backup_vehicle_available: true
+    preferred_modes: ['hgv_diesel', 'hgv_electric']
+  
+  desire_overrides:
+    time: 0.95
+    reliability: 0.9
+    cost: 0.1
+  
+  plan_context:
+    - "Production line stops cost thousands per hour"
+    - "Timing is more critical than cost"
+    - "Real-time tracking required"
+    - "Backup plans essential"
+    - "Weather-related delays must be anticipated"
+  
+  csv_columns:
+    required: ["supplier_lat", "supplier_lon", "plant_lat", "plant_lon"]
+    optional: ["production_slot", "component_type", "delivery_tolerance_min"]
+
+# ============================================================================
+# SPECIALIZED FREIGHT
+# ============================================================================
+
+refrigerated_transport:
+  context: "When transporting temperature-sensitive goods"
+  goal: "I want to maintain cold chain integrity throughout transport"
+  outcome: "So products arrive in saleable condition and we avoid costly spoilage"
+  
+  job_type: "freight"
+  
+  delivery_params:
+    num_stops: [3, 10]
+    stop_duration_min: [10, 30]
+    temperature_monitoring: "continuous"
+  
+  time_window:
+    start: "04:00"
+    end: "18:00"
+    flexibility: "low"
+  
+  destination_type: "multiple_retail_food"
+  typical_distance_km: [50, 300]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: high
+    special_requirements: ['refrigeration']
+  
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg: [5000, 15000]
+    temperature_controlled: true
+    temperature_range: [-20, 5]  # Celsius
+    preferred_modes: ['truck_diesel', 'truck_electric']
+  
+  plan_context:
+    - "Temperature breaches cause product loss"
+    - "Door opening time must be minimized"
+    - "Refrigeration unit consumes significant power"
+    - "Electric trucks challenged by refrigeration load"
+    - "Route must minimize delivery time"
+  
+  csv_columns:
+    required: ["cold_storage_lat", "cold_storage_lon", "dest_lat", "dest_lon"]
+    optional: ["temperature_range", "product_type", "max_door_open_time"]
+
+waste_collection:
+  context: "When collecting commercial waste on scheduled routes"
+  goal: "I want efficient routes that serve all customers reliably"
+  outcome: "So waste is removed on schedule and we maintain service contracts"
+  
+  job_type: "service"
+  
+  delivery_params:
+    num_stops: [15, 40]
+    stop_duration_min: [5, 15]
+    route_optimization: "minimize_distance"
+  
+  time_window:
+    start: "05:00"
+    end: "14:00"
+    flexibility: "medium"
+  
+  destination_type: "multiple_commercial"
+  typical_distance_km: [40, 100]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: low
+  
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg: [8000, 15000]
+    compactor_body: true
+    preferred_modes: ['truck_diesel', 'truck_electric']
+  
+  plan_context:
+    - "Fixed routes with regular customers"
+    - "Early morning starts to avoid traffic"
+    - "Weight increases throughout route"
+    - "Noise restrictions in residential areas"
+    - "Electric trucks reduce emissions and noise"
+  
+  csv_columns:
+    required: ["depot_lat", "depot_lon", "route_id"]
+    optional: ["customer_list", "estimated_tonnage"]
+
+# ============================================================================
+# EXISTING JOBS (Backward Compatibility)
+# ============================================================================
+
+freight_delivery_route:
+  context: "When performing multi-stop delivery route with time windows"
+  goal: "I want to complete all deliveries efficiently and on time"
+  outcome: "So I maintain customer satisfaction and operational efficiency"
+  
+  job_type: "delivery"
+  
+  delivery_params:
+    num_stops: [3, 8]
+    stop_duration_min: [10, 20]
+    route_optimization: "time_then_emissions"
+  
+  time_window:
+    start: "06:00"
+    end: "18:00"
+    flexibility: "medium"
+  
+  destination_type: "multiple"
+  typical_distance_km: [30, 150]
+  
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: commercial
+    recurring: true
+    urgency: medium
+  
+  vehicle_constraints:
+    type: light_freight
+    capacity_kg: [500, 3500]
+    max_range_km: 200
+    charging_stops_allowed: true
+    preferred_modes: ['van_electric', 'van_diesel']
+  
+  plan_context:
+    - "Some delivery windows are strict"
+    - "Route may require charging stop"
+    - "Traffic congestion affects delivery times"
+    - "Failed delivery requires rescheduling"
+    - "Loading/unloading time varies by stop"
+  
+  csv_columns:
+    required: ["depot_lat", "depot_lon", "stop_1_lat", "stop_1_lon"]
+    optional: ["stop_N_lat", "stop_N_lon", "stop_N_time_window", 
+               "vehicle_type", "load_kg", "delivery_priority"]
+
+# ============================================================================
+# NON-FREIGHT JOBS (For Comparison)
 # ============================================================================
 
 morning_commute:
@@ -390,9 +735,10 @@ morning_commute:
   typical_distance_km: [5, 15]
   
   parameters:
+    vehicle_required: false
     recurring: true
     frequency: "5/week"
-    urgency: "medium"
+    urgency: medium
     interruptible: false
   
   plan_context:
@@ -405,148 +751,29 @@ morning_commute:
     required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
     optional: ["preferred_arrival", "mode_preference", "max_cost", "workplace_parking"]
 
-flexible_leisure:
-  context: "When traveling for leisure or social activities"
-  goal: "I want an enjoyable, stress-free journey"
-  outcome: "So I arrive relaxed and can enjoy the activity"
-  
-  job_type: "leisure"
-  
-  time_window:
-    start: "10:00"
-    end: "20:00"
-    flexibility: "high"
-    preferred_arrival: null
-  
-  destination_type: "leisure"
-  typical_distance_km: [2, 30]
-  
-  parameters:
-    recurring: false
-    frequency: "variable"
-    urgency: "low"
-    interruptible: true
-    scenic_preference: 0.7
-  
-  plan_context:
-    - "Time not critical, experience matters"
-    - "May prefer scenic or interesting routes"
-    - "Open to spontaneous mode changes"
-    - "Weather enhances or detracts from experience"
-  
-  csv_columns:
-    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
-    optional: ["activity_type", "group_size", "budget", "preferred_mode"]
-
-school_run_then_work:
-  context: "When doing school drop-off then commuting to work"
-  goal: "I want a safe, reliable multi-stage trip"
-  outcome: "So my child arrives safely and I'm on time for work"
-  
-  job_type: "multi_stage"
-  
-  stages:
-    - stage_id: 1
-      destination_type: "school"
-      time_window:
-        start: "08:00"
-        end: "08:45"
-        flexibility: "very_low"
-      constraints:
-        - "child_present"
-        - "weather_dependent_mode"
-      typical_distance_km: [1, 5]
-    
-    - stage_id: 2
-      destination_type: "workplace"
-      time_window:
-        start: "09:00"
-        end: "09:30"
-        flexibility: "low"
-      constraints:
-        - "must_follow_stage_1"
-      typical_distance_km: [3, 10]
-  
-  parameters:
-    recurring: true
-    frequency: "5/week"
-    urgency: "high"
-    stage_dependencies: true
-  
-  plan_context:
-    - "No mode switches with children (Stage 1)"
-    - "Mode switch allowed after school drop-off (Stage 2)"
-    - "Total trip time affects work arrival"
-    - "School bells don't wait"
-  
-  csv_columns:
-    required: ["home_lat", "home_lon", "school_lat", "school_lon", "work_lat", "work_lon"]
-    optional: ["school_arrival_time", "work_arrival_time", "child_age"]
-
-emergency_trip:
-  context: "When responding to urgent situation (medical, family emergency)"
-  goal: "I need to arrive as quickly as possible"
-  outcome: "So I can address the urgent situation"
-  
-  job_type: "emergency"
-  
-  time_window:
-    start: "immediate"
-    end: "+30min"
-    flexibility: "none"
-  
-  destination_type: "emergency"
-  typical_distance_km: [1, 50]
-  
-  parameters:
-    recurring: false
-    frequency: "rare"
-    urgency: "critical"
-    interruptible: false
-    override_preferences: true
-  
-  desire_overrides:
-    time: 1.0
-    cost: 0.0
-    eco: 0.0
-    safety: 0.8
-  
-  csv_columns:
-    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
-    optional: ["emergency_type", "urgency_level"]
-
-night_shift:
-  context: "When traveling to/from work during night hours"
-  goal: "I want safe and reliable transport at unsocial hours"
-  outcome: "So I can get to work and return home safely"
+commute_flexible:
+  context: "When commuting to work with flexible timing"
+  goal: "I want a pleasant journey that fits my schedule"
+  outcome: "So I arrive ready to work without time pressure"
   
   job_type: "commute"
   
   time_window:
-    start: "22:00"
-    end: "06:00"
-    flexibility: "low"
-    preferred_arrival: "22:45"
+    start: 7
+    end: 10
+    flexibility: high
   
   destination_type: "workplace"
-  typical_distance_km: [3, 20]
+  typical_distance_km: [3, 12]
   
   parameters:
+    vehicle_required: false
     recurring: true
-    frequency: "3-5/week"
-    urgency: "medium"
-    interruptible: false
-  
-  plan_context:
-    - "Limited public transport at night"
-    - "Personal safety concerns in dark hours"
-    - "Well-lit routes preferred"
-    - "Empty streets may feel unsafe"
-    - "Taxi costs higher at night"
+    urgency: medium
   
   csv_columns:
-    required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
-    optional: ["shift_start_time", "shift_end_time", "workplace_security"]
+    required: ["home_lat", "home_lon", "work_lat", "work_lon"]
+    optional: ["preferred_mode", "flex_hours"]
 
 shopping_trip:
   context: "When making regular shopping trips for groceries and essentials"
@@ -559,16 +786,15 @@ shopping_trip:
     start: "09:00"
     end: "17:00"
     flexibility: "high"
-    preferred_arrival: null
   
   destination_type: "retail"
   typical_distance_km: [1, 8]
   
   parameters:
+    vehicle_required: false
+    luggage_present: true
     recurring: true
-    frequency: "1-2/week"
-    urgency: "low"
-    interruptible: true
+    urgency: low
     return_journey: true
   
   plan_context:
@@ -581,72 +807,3 @@ shopping_trip:
   csv_columns:
     required: ["origin_lat", "origin_lon", "dest_lat", "dest_lon"]
     optional: ["shopping_volume", "has_car", "preferred_store"]
-
-airport_transfer:
-  context: "When traveling to/from airport for flight"
-  goal: "I want reliable transport that gets me there with time to spare"
-  outcome: "So I don't miss my flight and arrive stress-free"
-  
-  job_type: "airport"
-  
-  time_window:
-    start: "variable"
-    end: "flight_time_minus_2h"
-    flexibility: "very_low"
-    buffer_minutes: 30
-  
-  destination_type: "airport"
-  typical_distance_km: [10, 60]
-  
-  parameters:
-    recurring: false
-    frequency: "occasional"
-    urgency: "high"
-    interruptible: false
-    luggage_present: true
-  
-  plan_context:
-    - "Missing flight has severe consequences"
-    - "Luggage limits mode choices"
-    - "Traffic unpredictability requires buffer"
-    - "Public transport must have luggage space"
-    - "Early morning/late night departures common"
-  
-  csv_columns:
-    required: ["origin_lat", "origin_lon", "airport_code"]
-    optional: ["flight_time", "luggage_count", "passenger_count", "flight_type"]
-
-tourist_exploration:
-  context: "When exploring tourist attractions and scenic locations"
-  goal: "I want flexible transport that enables spontaneous exploration"
-  outcome: "So I can discover interesting places and have memorable experiences"
-  
-  job_type: "tourism"
-  
-  time_window:
-    start: "09:00"
-    end: "19:00"
-    flexibility: "very_high"
-    preferred_arrival: null
-  
-  destination_type: "tourist_attraction"
-  typical_distance_km: [5, 50]
-  
-  parameters:
-    recurring: false
-    frequency: "during_visit"
-    urgency: "low"
-    interruptible: true
-    scenic_preference: 0.9
-    return_journey: true
-  
-  plan_context:
-    - "Scenic routes highly valued"
-    - "Time not critical, experience is"
-    - "May visit multiple attractions in one trip"
-    - "Photography stops desired"
-    - "Local recommendations influence choices"
-  
-  csv_columns:
-    required: ["hotel_lat", "hotel_lon", "attraction_lat", "attraction_lon"]
-    optional: ["attraction_type", "visit_duration", "group_size", "mobility_needs"]

@@ -1,15 +1,23 @@
 """
 simulation/infrastructure/__init__.py
 
-Docstring for simulation.infrastructure
+Infrastructure module for RTD_SIM Phase 4.5+
 """
 
+from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 from simulation.infrastructure.time_of_day_pricing import (
     TimeOfDayPricingManager,
-    SmartChargingOptimizer
+    SmartChargingOptimizer,
+    TimeOfDay,
+    PricingTier,
+    SmartChargingSession
 )
 
 __all__ = [
+    'InfrastructureManager',
     'TimeOfDayPricingManager',
-    'SmartChargingOptimizer'
+    'SmartChargingOptimizer',
+    'TimeOfDay',
+    'PricingTier',
+    'SmartChargingSession'
 ]
