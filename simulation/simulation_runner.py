@@ -23,7 +23,6 @@ logging.basicConfig(
     force=True  # Override Streamlit's logging config
 )
 
-import logging
 from typing import Optional, Callable
 
 from simulation.config.simulation_config import SimulationConfig, SimulationResults
