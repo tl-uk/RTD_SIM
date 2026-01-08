@@ -1,10 +1,8 @@
 """
 agent/story_driven_agent.py
 
-Story-driven BDI agent that generates behavior from user + job stories.
-Extends CognitiveAgent with story-based instantiation.
-
-REPLACE YOUR ENTIRE story_driven_agent.py WITH THIS VERSION
+FIXED: Proper context extraction from unified job_contexts.yaml format
+Handles both simple parameters and vehicle_constraints structure
 """
 
 from __future__ import annotations
@@ -62,7 +60,7 @@ class StoryDrivenAgent(CognitiveAgent):
         # Generate task context FIRST (needed for agent_context extraction)
         self.task_context = self.job_story.to_task_context(origin, dest, csv_data)
         
-        # NOW extract agent_context (uses self.task_context)
+        # NOW extract agent_context (uses self.task_context and self.job_story)
         agent_context = self._extract_agent_context()
         
         # Resolve desires (combine user + job)
@@ -96,48 +94,75 @@ class StoryDrivenAgent(CognitiveAgent):
         """
         Extract infrastructure-relevant context from stories.
         
-        FIX: Now properly extracts vehicle_required from job_story.parameters
+        FIXED: Properly extracts from unified job_contexts.yaml format.
+        Checks both parameters and vehicle_constraints sections.
         """
         context = {}
         
-        if 'freight' in self.job_story_id or 'delivery' in self.job_story_id:
-            logger.info(f"FORCING freight context for {self.job_story_id}")
-            context['vehicle_required'] = True
-            context['cargo_capacity'] = True
-            context['vehicle_type'] = 'commercial'
-            context['priority'] = 'commercial'
-        else:
-            # Extract vehicle_required from task context parameters
-            # task_context.parameters comes from job_story.parameters
-            context['vehicle_required'] = self.task_context.parameters.get('vehicle_required', False)
-            # Extract cargo_capacity
-            context['cargo_capacity'] = self.task_context.parameters.get('cargo_capacity', False)
+        # === STEP 1: Extract from parameters (simple format) ===
+        params = self.task_context.parameters
         
-        # #3: Vehicle type from job story vehicle_constraints
-        if self.job_story.vehicle_constraints:
-            vehicle_type = self.job_story.vehicle_constraints.get('type', 'personal')
-            
-            # Map freight types to 'commercial'
-            if vehicle_type in ['freight', 'light_freight', 'delivery']:
+        context['vehicle_required'] = params.get('vehicle_required', False)
+        context['cargo_capacity'] = params.get('cargo_capacity', False)
+        context['recurring'] = params.get('recurring', False)
+        context['luggage_present'] = params.get('luggage_present', False)
+        
+        # === STEP 2: Extract vehicle_type from parameters OR vehicle_constraints ===
+        # First try parameters (simple format)
+        vehicle_type_param = params.get('vehicle_type', None)
+        
+        if vehicle_type_param:
+            # Map to standard types
+            if vehicle_type_param in ['micro_mobility']:
+                context['vehicle_type'] = 'micro_mobility'
+            elif vehicle_type_param in ['commercial', 'light_freight']:
                 context['vehicle_type'] = 'commercial'
+            elif vehicle_type_param in ['medium_freight']:
+                context['vehicle_type'] = 'medium_freight'
+            elif vehicle_type_param in ['heavy_freight']:
+                context['vehicle_type'] = 'heavy_freight'
+            else:
+                context['vehicle_type'] = 'personal'
+        
+        # If not in parameters, try vehicle_constraints (detailed format)
+        elif self.job_story.vehicle_constraints:
+            vc_type = self.job_story.vehicle_constraints.get('type', 'personal')
+            
+            # Map constraint types to vehicle_type
+            if vc_type in ['micro_mobility']:
+                context['vehicle_type'] = 'micro_mobility'
+            elif vc_type in ['light_freight', 'freight']:
+                context['vehicle_type'] = 'commercial'
+            elif vc_type in ['medium_freight']:
+                context['vehicle_type'] = 'medium_freight'
+            elif vc_type in ['heavy_freight']:
+                context['vehicle_type'] = 'heavy_freight'
             else:
                 context['vehicle_type'] = 'personal'
         else:
             context['vehicle_type'] = 'personal'
         
-        # Priority from desire overrides or job type
+        # === STEP 3: Determine priority ===
+        urgency = params.get('urgency', 'medium')
+        
         if self.job_story.desire_overrides:
+            # Emergency jobs (desire_overrides present)
             context['priority'] = 'emergency'
-        elif self.job_story.job_type in ['delivery', 'gig_delivery']:
+        elif self.job_story.job_type in ['delivery', 'freight', 'gig_delivery']:
+            # Commercial jobs
+            context['priority'] = 'commercial'
+        elif urgency == 'critical':
+            context['priority'] = 'emergency'
+        elif urgency == 'high':
             context['priority'] = 'commercial'
         else:
             context['priority'] = 'normal'
         
-        # Recurring trips affect charging strategy
-        context['recurring'] = self.job_story.parameters.get('recurring', False)
-        
-        # Luggage constraints
-        context['luggage_present'] = self.task_context.parameters.get('luggage_present', False)
+        # === STEP 4: Log for debugging ===
+        logger.debug(f"Extracted context for {self.job_story_id}: "
+                    f"vehicle_required={context['vehicle_required']}, "
+                    f"vehicle_type={context['vehicle_type']}, "
+                    f"priority={context['priority']}")
         
         return context
     

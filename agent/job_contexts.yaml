@@ -30,7 +30,7 @@ urban_food_delivery:
   parameters:
     vehicle_required: true
     cargo_capacity: false
-    vehicle_type: micro_mobility
+    vehicle_type: micro_mobility  # CRITICAL: This sets the mode filter
     recurring: true
     urgency: high
     time_sensitive: true

@@ -42,6 +42,9 @@ class BDIPlanner:
         'truck_electric': 250.0,
         'hgv_electric': 300.0,
         'hgv_hydrogen': 600.0,
+        'e_scooter': 30.0,           # NEW
+        'ferry_electric': 50.0,      # NEW
+        'flight_electric': 500.0,    # NEW (future tech)
     }
     
     CHARGING_TIME_MIN = {
@@ -55,17 +58,25 @@ class BDIPlanner:
     MODE_MAX_DISTANCE_KM = {
         'walk': 5.0,
         'bike': 20.0,
-        'cargo_bike': 10.0,           # NEW: Urban micro-delivery
+        'cargo_bike': 10.0,           # Urban micro-delivery
+        'tram': 25.0,                 # Public transport
+        'local_train': 150.0,
+        'intercity_train': 800.0,
+        'ferry_diesel': 200.0,        # Maritime
+        'ferry_electric': 50.0,       # Short electric ferry
+        'flight_domestic': 1000.0,    # Aviation
+        'flight_electric': 500.0,
+        'e_scooter': 30.0,            # Micromobility
         'bus': 100.0,
         'car': 500.0,
         'ev': 350.0,
         'van_electric': 200.0,
         'van_diesel': 500.0,
-        'truck_electric': 250.0,       # NEW: Medium freight electric
-        'truck_diesel': 600.0,         # NEW: Medium freight diesel
-        'hgv_electric': 300.0,         # NEW: Heavy electric
-        'hgv_diesel': 800.0,           # NEW: Heavy diesel
-        'hgv_hydrogen': 600.0,         # NEW: Heavy hydrogen
+        'truck_electric': 250.0,       # Medium freight electric
+        'truck_diesel': 600.0,         # Medium freight diesel
+        'hgv_electric': 300.0,         # Heavy electric
+        'hgv_diesel': 800.0,           # Heavy diesel
+        'hgv_hydrogen': 600.0,         # Heavy hydrogen
     }
     
     def __init__(self, infrastructure_manager: Optional[Any] = None) -> None:
@@ -205,6 +216,20 @@ class BDIPlanner:
         # === DISTANCE FILTERING WITH SAFETY MARGIN ===
         if trip_distance_km > 0:
             original_modes = modes.copy()
+
+            # Add public transport modes for longer trips
+            if trip_distance_km > 30 and not vehicle_required:
+                if trip_distance_km > 80:
+                    modes.extend(['intercity_train', 'flight_domestic'])
+                modes.extend(['local_train', 'tram'])
+            
+            # Add ferry for coastal/island routes (would need geography check)
+            if context.get('coastal_route') or context.get('island_destination'):
+                modes.extend(['ferry_diesel', 'ferry_electric'])
+            
+            # E-scooter for short urban trips
+            if trip_distance_km < 15 and not cargo_capacity:
+                modes.append('e_scooter')
             
             # Apply 0.65x safety margin (route typically 1.3-1.5x straight-line)
             modes = [
