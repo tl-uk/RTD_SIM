@@ -2,6 +2,7 @@
 simulation/execution/simulation_loop.py
 
 Main simulation loop execution with metrics tracking.
+FIXED: Infrastructure policy application with correct variable references.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ def apply_scenario_policies(
     
     try:
         # Initialize scenario manager
-        scenarios_dir = config.scenarios_dir or (Path(__file__).parent.parent / 'scenarios' / 'configs')
+        scenarios_dir = config.scenarios_dir or (Path(__file__).parent.parent.parent / 'scenarios' / 'configs')
         manager = ScenarioManager(scenarios_dir)
         
         # Activate scenario
@@ -86,53 +87,108 @@ def apply_scenario_policies(
             mode_info = f" ({policy['mode']})" if policy.get('mode') else ""
             logger.info(f"   - {policy['parameter']}: {policy['value']}{mode_info}")
 
+        # ====================================================================
         # NEW: Apply infrastructure policies
+        # ====================================================================
         infrastructure_changes = {}
         
-        for policy in scenario.get('policies', []):
-            if policy['target'] == 'infrastructure':
-                param = policy['parameter']
+        # Get scenario data (FIX: use manager.active_scenario instead of undefined 'scenario')
+        if manager.active_scenario and config.infrastructure:
+            scenario_data = manager.active_scenario
+            
+            for policy in scenario_data.get('policies', []):
+                target = policy.get('target', '')
                 
-                if param == 'add_chargers':
-                    num = policy['value']
-                    strategy = policy.get('placement_strategy', 'demand_heatmap')
-                    charger_type = policy.get('charger_type', 'level2')
+                if target == 'infrastructure':
+                    param = policy['parameter']
                     
-                    new_stations = config.infrastructure.add_chargers_by_demand(
-                        num_chargers=num,
-                        charger_type=charger_type,
-                        strategy=strategy
-                    )
+                    # Add chargers
+                    if param == 'add_chargers':
+                        num = policy['value']
+                        strategy = policy.get('placement_strategy', 'demand_heatmap')
+                        charger_type = policy.get('charger_type', 'level2')
+                        power_kw = policy.get('power_kw', 7.0)
+                        
+                        # Add chargers using infrastructure manager
+                        new_stations = config.infrastructure.add_chargers_by_demand(
+                            num_chargers=num,
+                            charger_type=charger_type,
+                            strategy=strategy
+                        )
+                        
+                        infrastructure_changes['added_chargers'] = {
+                            'count': len(new_stations),
+                            'station_ids': new_stations,
+                            'strategy': strategy,
+                            'charger_type': charger_type,
+                            'power_kw': power_kw
+                        }
+                        
+                        logger.info(f"✅ Added {len(new_stations)} {charger_type} chargers using {strategy} strategy")
                     
-                    infrastructure_changes['added_chargers'] = new_stations
-                    logger.info(f"Added {len(new_stations)} chargers using {strategy}")
-                
-                elif param == 'relocate_chargers':
-                    num = policy['value']
-                    relocated = config.infrastructure.relocate_underutilized_chargers(
-                        num_to_relocate=num
-                    )
+                    # Relocate underutilized chargers
+                    elif param == 'relocate_chargers':
+                        num = policy['value']
+                        threshold = policy.get('utilization_threshold', 0.2)
+                        
+                        relocated = config.infrastructure.relocate_underutilized_chargers(
+                            num_to_relocate=num,
+                            utilization_threshold=threshold
+                        )
+                        
+                        infrastructure_changes['relocated_chargers'] = {
+                            'count': len(relocated),
+                            'station_ids': relocated,
+                            'threshold': threshold
+                        }
+                        
+                        logger.info(f"✅ Relocated {len(relocated)} underutilized chargers")
                     
-                    infrastructure_changes['relocated_chargers'] = relocated
-                    logger.info(f"Relocated {len(relocated)} underutilized chargers")
-                
-                elif param == 'increase_grid_capacity':
-                    multiplier = policy['value']
-                    region = policy.get('region', 'default')
+                    # Increase grid capacity
+                    elif param == 'increase_capacity':
+                        multiplier = policy['value']
+                        region = policy.get('region', 'default')
+                        
+                        if region in config.infrastructure.grid_regions:
+                            grid = config.infrastructure.grid_regions[region]
+                            old_capacity = grid.capacity_mw
+                            grid.capacity_mw *= multiplier
+                            
+                            infrastructure_changes['grid_capacity_increase'] = {
+                                'region': region,
+                                'old_capacity_mw': old_capacity,
+                                'new_capacity_mw': grid.capacity_mw,
+                                'multiplier': multiplier
+                            }
+                            
+                            logger.info(f"✅ Increased grid capacity: {old_capacity:.0f} MW → {grid.capacity_mw:.0f} MW ({multiplier}x)")
+                        else:
+                            logger.warning(f"Grid region '{region}' not found")
                     
-                    grid = config.infrastructure.grid_regions[region]
-                    old_capacity = grid.capacity_mw
-                    grid.capacity_mw *= multiplier
-                    
-                    infrastructure_changes['grid_capacity_increase'] = {
-                        'region': region,
-                        'old_capacity_mw': old_capacity,
-                        'new_capacity_mw': grid.capacity_mw,
-                        'multiplier': multiplier
-                    }
-                    logger.info(f"Increased grid capacity: {old_capacity:.0f} → {grid.capacity_mw:.0f} MW")
+                    # Reduce charging costs (multiplier)
+                    elif param == 'charging_cost_multiplier':
+                        multiplier = policy['value']
+                        
+                        # Apply to all charging stations
+                        updated_count = 0
+                        for station in config.infrastructure.charging_stations.values():
+                            station.cost_per_kwh *= multiplier
+                            updated_count += 1
+                        
+                        infrastructure_changes['charging_cost_adjustment'] = {
+                            'multiplier': multiplier,
+                            'stations_updated': updated_count
+                        }
+                        
+                        logger.info(f"✅ Adjusted charging costs by {multiplier}x for {updated_count} stations")
         
-        report['infrastructure_changes'] = infrastructure_changes
+        # Add infrastructure changes to report
+        if infrastructure_changes:
+            report['infrastructure_changes'] = infrastructure_changes
+            logger.info(f"📊 Infrastructure changes: {len(infrastructure_changes)} types applied")
+        else:
+            report['infrastructure_changes'] = None
+        
         return report
         
     except Exception as e:
@@ -179,7 +235,16 @@ def run_simulation_loop(
             mode = agent.state.mode
             mode_counts[mode] += 1
         
-        for mode in ['walk', 'bike', 'bus', 'car', 'ev', 'van_electric', 'van_diesel']:
+        # Include all freight modes
+        all_modes = [
+            'walk', 'bike', 'bus', 'car', 'ev',
+            'cargo_bike',
+            'van_electric', 'van_diesel',
+            'truck_electric', 'truck_diesel',
+            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'
+        ]
+        
+        for mode in all_modes:
             adoption_history[mode].append(mode_counts.get(mode, 0))
     
     # Main simulation loop
@@ -194,6 +259,7 @@ def run_simulation_loop(
         
         if infrastructure:
             infrastructure.update_grid_load(step)
+            infrastructure.update_time(step)  # Update time for time-of-day pricing
         
         # Agent steps
         agent_states = []
@@ -235,7 +301,7 @@ def run_simulation_loop(
                     )
             
             # Infrastructure interaction (Phase 4.5)
-            if infrastructure and agent.state.mode in ['ev', 'van_electric']:
+            if infrastructure and agent.state.mode in ['ev', 'van_electric', 'truck_electric', 'hgv_electric']:
                 agent_id = agent.state.agent_id
                 
                 # Check if agent is already charging
