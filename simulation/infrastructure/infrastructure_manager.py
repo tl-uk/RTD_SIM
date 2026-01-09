@@ -650,6 +650,134 @@ class InfrastructureManager:
         return nearest
     
     # ========================================================================
+    # Infrastructure Expansion & Optimization
+    # ========================================================================
+    def add_chargers_by_demand(
+        self,
+        num_chargers: int,
+        charger_type: str = 'level2',
+        strategy: str = 'demand_heatmap'
+    ) -> List[str]:
+        """
+        Add chargers using simple heuristics.
+        
+        Strategies:
+        - demand_heatmap: Place where agent density is highest
+        - grid_capacity: Place where grid has spare capacity
+        - coverage_gaps: Fill areas >5km from nearest charger
+        - equitable: Spread evenly across region
+        """
+        new_station_ids = []
+        
+        if strategy == 'demand_heatmap':
+            # Use agent destinations to build demand heatmap
+            hotspots = self._calculate_demand_hotspots()
+            for i, (lon, lat) in enumerate(hotspots[:num_chargers]):
+                station_id = f"demand_{i:03d}"
+                self.add_charging_station(
+                    station_id=station_id,
+                    location=(lon, lat),
+                    charger_type=charger_type,
+                    num_ports=4,
+                    power_kw=50.0 if charger_type == 'dcfast' else 7.0
+                )
+                new_station_ids.append(station_id)
+        
+        elif strategy == 'coverage_gaps':
+            # Find locations >5km from any charger
+            gaps = self._find_coverage_gaps(min_distance_km=5.0)
+            for i, (lon, lat) in enumerate(gaps[:num_chargers]):
+                station_id = f"coverage_{i:03d}"
+                self.add_charging_station(
+                    station_id=station_id,
+                    location=(lon, lat),
+                    charger_type=charger_type,
+                    num_ports=2,
+                    power_kw=7.0
+                )
+                new_station_ids.append(station_id)
+        
+        elif strategy == 'grid_capacity':
+            # Place where grid has spare capacity
+            # (Simplified: random with grid utilization check)
+            for i in range(num_chargers):
+                location = self._sample_location_with_grid_capacity()
+                station_id = f"grid_{i:03d}"
+                self.add_charging_station(
+                    station_id=station_id,
+                    location=location,
+                    charger_type=charger_type,
+                    num_ports=6,
+                    power_kw=50.0
+                )
+                new_station_ids.append(station_id)
+        
+        logger.info(f"Added {len(new_station_ids)} chargers using {strategy}")
+        return new_station_ids
+    
+    def _calculate_demand_hotspots(self) -> List[Tuple[float, float]]:
+        """Find top demand locations (simplified: agent destinations)."""
+        # In real implementation, use agent destination history
+        # For now, return random high-demand locations
+        import random
+        hotspots = []
+        for _ in range(50):
+            lon = random.uniform(-3.35, -3.05)
+            lat = random.uniform(55.85, 56.00)
+            hotspots.append((lon, lat))
+        return hotspots
+    
+    def _find_coverage_gaps(self, min_distance_km: float) -> List[Tuple[float, float]]:
+        """Find locations far from any charger."""
+        gaps = []
+        # Sample grid and check distance to nearest charger
+        for lon in range(-335, -305, 5):  # Every 0.05 degrees
+            for lat in range(5585, 5600, 5):
+                loc = (lon/100, lat/100)
+                nearest = self.find_nearest_charger(loc, max_distance_km=100)
+                if nearest is None or nearest[1] > min_distance_km:
+                    gaps.append(loc)
+        return gaps
+    
+    def _sample_location_with_grid_capacity(self) -> Tuple[float, float]:
+        """Sample location where grid has spare capacity."""
+        # Simplified: random location (would use grid capacity map in Phase 5)
+        import random
+        lon = random.uniform(-3.35, -3.05)
+        lat = random.uniform(55.85, 56.00)
+        return (lon, lat)
+    
+    def relocate_underutilized_chargers(
+        self,
+        num_to_relocate: int,
+        utilization_threshold: float = 0.2
+    ) -> List[str]:
+        """Relocate chargers with <20% utilization to high-demand areas."""
+        # Find underutilized chargers
+        underutilized = [
+            sid for sid, station in self.charging_stations.items()
+            if station.occupancy_rate() < utilization_threshold
+        ]
+        
+        # Find high-demand locations
+        hotspots = self._calculate_demand_hotspots()
+        
+        relocated = []
+        for i, station_id in enumerate(underutilized[:num_to_relocate]):
+            if i < len(hotspots):
+                # Move charger to hotspot
+                station = self.charging_stations[station_id]
+                old_location = station.location
+                new_location = hotspots[i]
+                
+                station.location = new_location
+                relocated.append(station_id)
+                
+                logger.info(f"Relocated {station_id}: {old_location} → {new_location}")
+        
+        return relocated
+    
+    # ========================================================================
     # Metrics & Analytics
     # ========================================================================
     

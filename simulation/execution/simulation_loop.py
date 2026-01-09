@@ -85,7 +85,54 @@ def apply_scenario_policies(
         for policy in report['policies']:
             mode_info = f" ({policy['mode']})" if policy.get('mode') else ""
             logger.info(f"   - {policy['parameter']}: {policy['value']}{mode_info}")
+
+        # NEW: Apply infrastructure policies
+        infrastructure_changes = {}
         
+        for policy in scenario.get('policies', []):
+            if policy['target'] == 'infrastructure':
+                param = policy['parameter']
+                
+                if param == 'add_chargers':
+                    num = policy['value']
+                    strategy = policy.get('placement_strategy', 'demand_heatmap')
+                    charger_type = policy.get('charger_type', 'level2')
+                    
+                    new_stations = config.infrastructure.add_chargers_by_demand(
+                        num_chargers=num,
+                        charger_type=charger_type,
+                        strategy=strategy
+                    )
+                    
+                    infrastructure_changes['added_chargers'] = new_stations
+                    logger.info(f"Added {len(new_stations)} chargers using {strategy}")
+                
+                elif param == 'relocate_chargers':
+                    num = policy['value']
+                    relocated = config.infrastructure.relocate_underutilized_chargers(
+                        num_to_relocate=num
+                    )
+                    
+                    infrastructure_changes['relocated_chargers'] = relocated
+                    logger.info(f"Relocated {len(relocated)} underutilized chargers")
+                
+                elif param == 'increase_grid_capacity':
+                    multiplier = policy['value']
+                    region = policy.get('region', 'default')
+                    
+                    grid = config.infrastructure.grid_regions[region]
+                    old_capacity = grid.capacity_mw
+                    grid.capacity_mw *= multiplier
+                    
+                    infrastructure_changes['grid_capacity_increase'] = {
+                        'region': region,
+                        'old_capacity_mw': old_capacity,
+                        'new_capacity_mw': grid.capacity_mw,
+                        'multiplier': multiplier
+                    }
+                    logger.info(f"Increased grid capacity: {old_capacity:.0f} → {grid.capacity_mw:.0f} MW")
+        
+        report['infrastructure_changes'] = infrastructure_changes
         return report
         
     except Exception as e:

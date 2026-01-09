@@ -193,8 +193,8 @@ class BDIPlanner:
             logger.debug(f"Heavy freight context ({trip_distance_km:.1f}km): offering {modes}")
         
         elif vehicle_type == 'medium_freight':
-            # Medium freight: trucks
-            modes = ['truck_electric', 'truck_diesel', 'van_electric', 'van_diesel']
+            # Medium freight: trucks ONLY (not vans - those are light freight)
+            modes = ['truck_electric', 'truck_diesel']
             logger.debug(f"Medium freight context: offering {modes}")
         
         elif vehicle_type == 'commercial' or cargo_capacity or vehicle_required:
