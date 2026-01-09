@@ -48,7 +48,7 @@ def _render_mode_distribution(results):
         mode = agent.state.mode
         mode_counts[mode] = mode_counts.get(mode, 0) + 1
     
-    # ALL MODES - Phase 4.5F expanded list
+    # ALL MODES including new freight modes
     all_modes = [
         'walk', 'bike', 'cargo_bike',
         'bus', 'car', 'ev',

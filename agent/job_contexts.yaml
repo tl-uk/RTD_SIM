@@ -30,13 +30,13 @@ urban_food_delivery:
   parameters:
     vehicle_required: true
     cargo_capacity: false
-    vehicle_type: micro_mobility  # CRITICAL: This sets the mode filter
+    vehicle_type: micro_mobility  #← Checked first
     recurring: true
     urgency: high
     time_sensitive: true
   
   vehicle_constraints:
-    type: micro_mobility
+    type: micro_mobility  # ← Also checked as fallback
     max_distance_km: 10
     preferred_modes: ['cargo_bike', 'bike']
   
