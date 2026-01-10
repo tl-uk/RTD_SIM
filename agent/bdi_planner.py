@@ -177,6 +177,7 @@ class BDIPlanner:
         priority = context.get('priority', 'normal')
         
         # === FREIGHT MODE SELECTION ===
+        # CRITICAL: Check vehicle_type FIRST before falling back to generic flags
         if vehicle_type == 'micro_mobility':
             # Urban micro-delivery: cargo bikes
             modes = ['cargo_bike', 'bike']
@@ -197,7 +198,7 @@ class BDIPlanner:
             modes = ['truck_electric', 'truck_diesel']
             logger.debug(f"Medium freight context: offering {modes}")
         
-        elif vehicle_type == 'commercial' or cargo_capacity or vehicle_required:
+        elif vehicle_type == 'commercial' or (cargo_capacity and vehicle_type == 'personal') or (vehicle_required and vehicle_type == 'personal'):
             # Light commercial/delivery: vans and light trucks
             if trip_distance_km > 300:
                 modes = ['truck_diesel', 'van_diesel']
