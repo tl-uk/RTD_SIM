@@ -4,6 +4,8 @@ Phase 4.5B: Policy Scenario Framework
 
 Enables YAML-based policy configurations with runtime injection.
 Supports what-if analysis and automated policy testing.
+
+UPDATED: Handles multi-document YAML files (multiple scenarios per file)
 """
 
 from __future__ import annotations
@@ -51,49 +53,98 @@ class ScenarioManager:
             self.load_all_scenarios()
     
     def load_all_scenarios(self) -> None:
-        """Load all YAML scenario files."""
+        """
+        Load all YAML scenario files.
+        
+        UPDATED: Handles multi-document YAML files with '---' separators.
+        """
         if not self.scenarios_dir.exists():
             logger.warning(f"Scenarios directory not found: {self.scenarios_dir}")
             return
         
         yaml_files = list(self.scenarios_dir.glob('*.yaml'))
+        total_loaded = 0
+        
         for yaml_file in yaml_files:
             try:
-                scenario = self.load_scenario(yaml_file)
-                self.scenarios[scenario.name] = scenario
-                logger.info(f"Loaded scenario: {scenario.name}")
+                # FIXED: Load all documents from file (handles '---' separators)
+                scenarios_from_file = self.load_scenarios_from_file(yaml_file)
+                
+                for scenario in scenarios_from_file:
+                    self.scenarios[scenario.name] = scenario
+                    logger.info(f"Loaded scenario: {scenario.name}")
+                    total_loaded += 1
+                    
             except Exception as e:
                 logger.error(f"Failed to load {yaml_file}: {e}")
         
-        logger.info(f"Loaded {len(self.scenarios)} scenarios")
+        logger.info(f"Loaded {total_loaded} scenarios from {len(yaml_files)} files")
+    
+    def load_scenarios_from_file(self, path: Path) -> List[Scenario]:
+        """
+        Load all scenarios from a single YAML file.
+        
+        Args:
+            path: Path to YAML file
+        
+        Returns:
+            List of Scenario objects (one per document in file)
+        """
+        scenarios = []
+        
+        with open(path, 'r') as f:
+            # CRITICAL FIX: Use safe_load_all to handle multi-document YAML
+            documents = yaml.safe_load_all(f)
+            
+            for doc in documents:
+                if doc is None:
+                    continue
+                
+                if 'name' not in doc:
+                    logger.warning(f"Scenario in {path.name} missing 'name' field, skipping")
+                    continue
+                
+                # Parse policies
+                policies = []
+                for p in doc.get('policies', []):
+                    policies.append(PolicyModifier(
+                        parameter=p['parameter'],
+                        value=p['value'],
+                        target=p['target'],
+                        mode=p.get('mode')
+                    ))
+                
+                # Create scenario object
+                scenario = Scenario(
+                    name=doc['name'],
+                    description=doc.get('description', ''),
+                    policies=policies,
+                    duration=doc.get('duration', 100),
+                    expected_outcomes=doc.get('expected_outcomes', {}),
+                    metadata=doc.get('metadata', {})
+                )
+                
+                scenarios.append(scenario)
+        
+        return scenarios
     
     def load_scenario(self, path: Path) -> Scenario:
-        """Load single scenario from YAML."""
-        with open(path, 'r') as f:
-            config = yaml.safe_load(f)
+        """
+        Load single scenario from YAML (legacy method - kept for compatibility).
         
-        policies = []
-        for p in config.get('policies', []):
-            policies.append(PolicyModifier(
-                parameter=p['parameter'],
-                value=p['value'],
-                target=p['target'],
-                mode=p.get('mode')
-            ))
-        
-        return Scenario(
-            name=config['name'],
-            description=config['description'],
-            policies=policies,
-            duration=config.get('duration', 100),
-            expected_outcomes=config.get('expected_outcomes', {}),
-            metadata=config.get('metadata', {})
-        )
+        NOTE: This now loads the FIRST scenario from the file.
+        Use load_scenarios_from_file() to get all scenarios.
+        """
+        scenarios = self.load_scenarios_from_file(path)
+        if not scenarios:
+            raise ValueError(f"No valid scenarios found in {path}")
+        return scenarios[0]
     
     def activate_scenario(self, scenario_name: str) -> bool:
         """Activate a scenario for the next simulation."""
         if scenario_name not in self.scenarios:
             logger.error(f"Scenario not found: {scenario_name}")
+            logger.info(f"Available scenarios: {list(self.scenarios.keys())}")
             return False
         
         self.active_scenario = self.scenarios[scenario_name]
@@ -118,7 +169,8 @@ class ScenarioManager:
         if policy.target == 'mode':
             self._apply_mode_policy(policy, env)
         elif policy.target == 'infrastructure':
-            self._apply_infrastructure_policy(policy, env)
+            # Infrastructure policies are handled in simulation_loop.py
+            logger.debug(f"Infrastructure policy {policy.parameter} will be applied in simulation_loop")
         elif policy.target == 'grid':
             self._apply_grid_policy(policy, env)
         elif policy.target == 'agent_desire':
@@ -166,7 +218,11 @@ class ScenarioManager:
             logger.warning(f"Mode ban not yet implemented: {policy.mode}")
     
     def _apply_infrastructure_policy(self, policy: PolicyModifier, env) -> None:
-        """Modify charging infrastructure."""
+        """
+        Modify charging infrastructure.
+        
+        NOTE: Most infrastructure policies are now handled in simulation_loop.py
+        """
         if not hasattr(env, 'infrastructure'):
             logger.warning("Environment has no infrastructure manager")
             return
@@ -174,23 +230,18 @@ class ScenarioManager:
         infra = env.infrastructure
         
         if policy.parameter == 'add_chargers':
-            # Add N random chargers
-            num_to_add = policy.value
-            # This would need spatial bounds from simulation
-            logger.info(f"Would add {num_to_add} chargers (needs spatial bounds)")
+            # This is now handled in simulation_loop.py
+            logger.debug(f"add_chargers policy will be applied in simulation_loop")
         
         elif policy.parameter == 'charging_cost_multiplier':
             # Modify charging costs
-            for station_id in infra.chargers:
-                station = infra.chargers[station_id]
-                station['cost_per_kwh'] *= policy.value
+            for station_id, station in infra.charging_stations.items():
+                station.cost_per_kwh *= policy.value
             logger.info(f"Applied {policy.value}x charging cost multiplier")
         
         elif policy.parameter == 'increase_capacity':
-            # Increase grid capacity
-            old_capacity = infra.grid_capacity_mw
-            infra.grid_capacity_mw *= policy.value
-            logger.info(f"Increased grid capacity: {old_capacity:.1f} → {infra.grid_capacity_mw:.1f} MW")
+            # This is now handled in simulation_loop.py
+            logger.debug(f"increase_capacity policy will be applied in simulation_loop")
     
     def _apply_grid_policy(self, policy: PolicyModifier, env) -> None:
         """Modify grid parameters."""
@@ -234,7 +285,7 @@ class ScenarioManager:
     
     def list_scenarios(self) -> List[str]:
         """Get list of available scenario names."""
-        return list(self.scenarios.keys())
+        return sorted(list(self.scenarios.keys()))
     
     def get_scenario_info(self, name: str) -> Optional[Dict]:
         """Get info about a specific scenario."""
@@ -246,8 +297,35 @@ class ScenarioManager:
             'name': scenario.name,
             'description': scenario.description,
             'num_policies': len(scenario.policies),
-            'expected_outcomes': scenario.expected_outcomes
+            'expected_outcomes': scenario.expected_outcomes,
+            'metadata': scenario.metadata
         }
+    
+    def get_scenarios_by_type(self, policy_type: str) -> List[str]:
+        """
+        Get scenarios of a specific type.
+        
+        Args:
+            policy_type: Type from metadata (e.g., 'comprehensive_electrification')
+        
+        Returns:
+            List of scenario names matching the type
+        """
+        matching = []
+        for name, scenario in self.scenarios.items():
+            if scenario.metadata.get('policy_type') == policy_type:
+                matching.append(name)
+        return matching
+    
+    def get_infrastructure_scenarios(self) -> List[str]:
+        """Get scenarios that modify infrastructure."""
+        infrastructure_scenarios = []
+        for name, scenario in self.scenarios.items():
+            for policy in scenario.policies:
+                if policy.target == 'infrastructure':
+                    infrastructure_scenarios.append(name)
+                    break
+        return infrastructure_scenarios
 
 
 def create_example_scenarios(output_dir: Path) -> None:
