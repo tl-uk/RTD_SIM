@@ -377,25 +377,47 @@ def render_infrastructure_metrics(
     """
     metrics = infrastructure_manager.get_infrastructure_metrics()
     
-    # Grid utilization chart
+    # Grid utilization chart with thresholds
     grid_fig = None
     if infrastructure_manager.historical_utilization:
+        import plotly.graph_objects as go
+        
         grid_fig = go.Figure()
+        
+        # Main utilization line
         grid_fig.add_trace(go.Scatter(
             y=[v * 100 for v in infrastructure_manager.historical_utilization],
             mode='lines',
             name='Grid Utilization',
-            line=dict(color='orange', width=2)
+            line=dict(color='#3b82f6', width=3),
+            fill='tozeroy',
+            fillcolor='rgba(59, 130, 246, 0.2)'
         ))
         
-        grid_fig.add_hline(y=95, line_dash="dash", line_color="red",
-                          annotation_text="Critical Threshold")
+        # Add threshold lines
+        grid_fig.add_hline(
+            y=95, 
+            line_dash="dash", 
+            line_color="red",
+            annotation_text="Critical (95%)",
+            annotation_position="right"
+        )
+        
+        grid_fig.add_hline(
+            y=70, 
+            line_dash="dot", 
+            line_color="orange",
+            annotation_text="High (70%)",
+            annotation_position="right"
+        )
         
         grid_fig.update_layout(
             title="Grid Utilization Over Time",
             yaxis_title="Utilization (%)",
             xaxis_title="Time Step",
             height=height,
+            hovermode='x unified',
+            showlegend=True
         )
     
     # Hotspot map
