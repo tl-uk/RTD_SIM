@@ -45,6 +45,14 @@ class MetricsCalculator:
             'ev': 0.5,
             'van_electric': 0.45,   # Slightly slower
             'van_diesel': 0.45,
+            'tram': {'city': 25, 'highway': 25},
+            'local_train': {'city': 60, 'highway': 60},
+            'intercity_train': {'city': 120, 'highway': 120},
+            'ferry_diesel': {'city': 35, 'highway': 35},
+            'ferry_electric': {'city': 30, 'highway': 30},
+            'flight_domestic': {'city': 450, 'highway': 450},
+            'flight_electric': {'city': 350, 'highway': 350},
+            'e_scooter': {'city': 20, 'highway': 20},
         }
         
         # Base emissions in grams CO2 per km
@@ -56,6 +64,14 @@ class MetricsCalculator:
             'ev': 60.0,
             'van_electric': 90.0,    # Heavier vehicle
             'van_diesel': 250.0,     # Worse than car
+            'tram': 30,              # Electric (grid carbon)
+            'local_train': 35,       # Electric rail
+            'intercity_train': 25,   # High-efficiency electric
+            'ferry_diesel': 120,     # Per passenger
+            'ferry_electric': 40,    # Battery ferry
+            'flight_domestic': 250,  # High emissions
+            'flight_electric': 50,   # Future e-aviation
+            'e_scooter': 0,         # Battery-powered
         }
         
         # Monetary cost (base fare + per km)
@@ -67,6 +83,15 @@ class MetricsCalculator:
             'ev': {'base': 0.0, 'per_km': 0.3},
             'van_electric': {'base': 0.0, 'per_km': 0.35},  # Changed from 0.4 → 0.35 (cheaper than diesel)
             'van_diesel': {'base': 0.0, 'per_km': 0.55},    # Changed from 0.6 → 0.55 (similar to car)
+            # Costs (per trip)
+            'tram': {'base': 2.0, 'per_km': 0.08},
+            'local_train': {'base': 3.0, 'per_km': 0.12},
+            'intercity_train': {'base': 10.0, 'per_km': 0.15},
+            'ferry_diesel': {'base': 15.0, 'per_km': 0.25},
+            'ferry_electric': {'base': 12.0, 'per_km': 0.20},
+            'flight_domestic': {'base': 50.0, 'per_km': 0.20},
+            'flight_electric': {'base': 60.0, 'per_km': 0.15},
+            'e_scooter': {'base': 1.0, 'per_km': 0.25},
         }
         
         # Comfort scores (0-1, higher = more comfortable)

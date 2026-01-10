@@ -399,6 +399,7 @@ long_haul_freight:
   parameters:
     vehicle_required: true
     cargo_capacity: true
+    cargo_weight_kg: 15000  # 15 tonnes
     vehicle_type: heavy_freight
     recurring: true
     urgency: medium

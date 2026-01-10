@@ -39,6 +39,22 @@ MODE_COLORS_RGB = {
     'hgv_electric': [52, 211, 153],    # Aqua green
     'hgv_diesel': [75, 85, 99],        # Dark gray
     'hgv_hydrogen': [96, 165, 250],    # Light blue (future tech)
+
+    # NEW: Public transport
+    'tram': [255, 193, 7],        # Amber/Yellow
+    'local_train': [33, 150, 243], # Blue
+    'intercity_train': [63, 81, 181], # Indigo
+    
+    # NEW: Maritime
+    'ferry_diesel': [0, 150, 136],   # Teal
+    'ferry_electric': [0, 188, 212], # Cyan
+    
+    # NEW: Aviation
+    'flight_domestic': [244, 67, 54], # Red
+    'flight_electric': [233, 30, 99], # Pink
+    
+    # NEW: Micro-mobility
+    'e_scooter': [139, 195, 74],   # Light green
 }
 
 MODE_COLORS_HEX = {
@@ -64,6 +80,15 @@ MODE_COLORS_HEX = {
     'hgv_electric': '#34d399',
     'hgv_diesel': '#4b5563',
     'hgv_hydrogen': '#60a5fa',
+
+    'tram': '#ffc107',
+    'local_train': '#2196f3',
+    'intercity_train': '#3f51b5',
+    'ferry_diesel': '#009688',
+    'ferry_electric': '#00bcd4',
+    'flight_domestic': '#f44336',
+    'flight_electric': '#e91e63',
+    'e_scooter': '#8bc34a',
 }
 
 

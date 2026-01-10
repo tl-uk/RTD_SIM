@@ -116,7 +116,7 @@ class InfrastructureManager:
             capacity_mw=grid_capacity_mw
         )
         
-        # Phase 4.5C: Time-of-day pricing
+        # Time-of-day pricing
         self.enable_tod_pricing = enable_time_of_day_pricing
         
         if enable_time_of_day_pricing:
@@ -467,6 +467,31 @@ class InfrastructureManager:
             'savings': savings,
             'savings_percentage': savings_pct,
         }
+    
+    # =======================================================================
+    # Chrarging Time Calculation
+    # =======================================================================
+    def calculate_freight_charging_time(
+        vehicle_mode: str,
+        cargo_weight_kg: float,
+        distance_traveled_km: float
+    ) -> float:
+        """Heavier loads = faster battery drain = longer charging."""
+        base_charging_min = {
+            'van_electric': 60,
+            'truck_electric': 120,
+            'hgv_electric': 180,
+        }
+        
+        base_time = base_charging_min.get(vehicle_mode, 60)
+        
+        # Weight multiplier
+        weight_multiplier = 1 + (cargo_weight_kg / 10000)  # +10% per tonne
+        
+        # Distance multiplier
+        distance_multiplier = 1 + (distance_traveled_km / 100)  # +10% per 100km
+        
+        return base_time * weight_multiplier * distance_multiplier
     
     # =======================================================================
     # Vehicle Charging Management
