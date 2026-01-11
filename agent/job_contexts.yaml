@@ -128,28 +128,32 @@ gig_economy_delivery:
   parameters:
     vehicle_required: true
     cargo_capacity: true
-    vehicle_type: commercial
+    vehicle_type: micro_mobility  # ✅ CHANGED FROM 'commercial'
     recurring: true
     urgency: medium
     real_time_routing: true
   
-  vehicle_constraints:
-    type: light_freight
-    capacity_kg: [500, 3500]
-    max_range_km: 200
-    charging_stops_allowed: true
-    preferred_modes: ['van_electric', 'van_diesel']
-  
-  plan_context:
-    - "New orders arrive during shift"
-    - "Customer ratings depend on speed"
-    - "Parking/stopping frequently"
-    - "Weather affects safety"
-    - "Peak hours have higher earnings"
-    - "Vehicle costs eat into earnings"
-    - "Charging time must be minimized"
-  
-  csv_columns:
+    # ✅ ADD THIS SECTION
+    vehicle_constraints:
+      type: micro_mobility
+      capacity_kg: [5, 30]
+      max_range_km: 50
+      preferred_modes: ['cargo_bike', 'van_electric']
+    
+    desire_overrides:
+      time: 0.85  # High time pressure
+      cost: 0.7   # Cost-conscious gig workers
+    
+    plan_context:
+      - "New orders arrive during shift"
+      - "Customer ratings depend on speed"
+      - "Parking/stopping frequently"
+      - "Weather affects safety"
+      - "Peak hours have higher earnings"
+      - "Vehicle costs eat into earnings"
+      - "Charging time must be minimized"
+    
+    csv_columns:
     required: ["start_lat", "start_lon"]
     optional: ["vehicle_type", "shift_duration", "target_earnings", "operating_area"]
 

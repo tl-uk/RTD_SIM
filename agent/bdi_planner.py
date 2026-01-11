@@ -189,32 +189,38 @@ class BDIPlanner:
         # === FREIGHT MODE SELECTION ===
         # CRITICAL: Check vehicle_type FIRST before falling back to generic flags
         if vehicle_type == 'micro_mobility':
-            # Urban micro-delivery: cargo bikes
+            # Urban micro-delivery: cargo bikes ONLY (not vans!)
             modes = ['cargo_bike', 'bike']
             logger.debug(f"Micro-mobility context: offering {modes}")
-        
+
         elif vehicle_type == 'heavy_freight':
             # Long-haul heavy goods
             if trip_distance_km > 400:
-                # Long-haul: prefer HGVs
                 modes = ['hgv_diesel', 'hgv_electric', 'hgv_hydrogen']
             else:
-                # Medium-haul: trucks and vans
                 modes = ['truck_diesel', 'truck_electric', 'van_diesel', 'van_electric']
             logger.debug(f"Heavy freight context ({trip_distance_km:.1f}km): offering {modes}")
-        
+
         elif vehicle_type == 'medium_freight':
-            # Medium freight: trucks ONLY (not vans - those are light freight)
+            # Medium freight: trucks ONLY (not vans)
             modes = ['truck_electric', 'truck_diesel']
             logger.debug(f"Medium freight context: offering {modes}")
-        
-        elif vehicle_type == 'commercial' or (cargo_capacity and vehicle_type == 'personal') or (vehicle_required and vehicle_type == 'personal'):
-            # Light commercial/delivery: vans and light trucks
-            if trip_distance_km > 300:
-                modes = ['truck_diesel', 'van_diesel']
+
+        elif vehicle_type == 'commercial':
+            # ✅ REFINED: Light commercial - distance-aware van selection
+            # Short trips (<30km): Prefer cargo bike, allow vans
+            # Medium trips (30-100km): Vans only
+            # Long trips (>100km): Vans and trucks
+            
+            if trip_distance_km < 30:
+                modes = ['cargo_bike', 'van_electric', 'van_diesel']
+                logger.debug(f"Short commercial delivery ({trip_distance_km:.1f}km): cargo bike + vans")
+            elif trip_distance_km < 100:
+                modes = ['van_electric', 'van_diesel']
+                logger.debug(f"Medium commercial delivery ({trip_distance_km:.1f}km): vans only")
             else:
-                modes = ['van_electric', 'van_diesel', 'truck_electric', 'truck_diesel']
-            logger.debug(f"Commercial context: offering {modes}")
+                modes = ['van_diesel', 'truck_diesel', 'truck_electric']
+                logger.debug(f"Long commercial delivery ({trip_distance_km:.1f}km): vans + trucks")
         
         # === NON-FREIGHT MODES ===
         elif priority == 'emergency':
