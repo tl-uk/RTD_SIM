@@ -1,0 +1,266 @@
+regional_distribution:
+  context: When delivering goods from regional distribution center to retail stores
+  goal: I want efficient multi-stop routes that minimize time and fuel
+  outcome: So I complete routes on schedule and reduce operational costs
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 5
+    - 12
+    stop_duration_min:
+    - 15
+    - 45
+    route_optimization: time_then_cost
+    loading_dock_required: true
+  time_window:
+    start: 06:00
+    end: '20:00'
+    flexibility: medium
+  destination_type: multiple_commercial
+  typical_distance_km:
+  - 50
+  - 300
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: medium
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg:
+    - 5000
+    - 15000
+    max_range_km: 300
+    loading_equipment: true
+    preferred_modes:
+    - truck_electric
+    - truck_diesel
+  plan_context:
+  - Delivery windows must be respected
+  - Loading docks have limited availability
+  - Range anxiety for electric trucks on long routes
+  - Weight restrictions on some roads
+  - Depot charging available overnight
+  csv_columns:
+    required:
+    - depot_lat
+    - depot_lon
+    - store_1_lat
+    - store_1_lon
+    optional:
+    - store_N_lat
+    - store_N_lon
+    - delivery_window
+    - cargo_weight
+furniture_delivery:
+  context: When delivering large furniture items to residential customers
+  goal: I want to deliver items safely without damage
+  outcome: So customers are satisfied and we avoid costly returns
+  job_type: delivery
+  delivery_params:
+    num_stops:
+    - 1
+    - 3
+    stop_duration_min:
+    - 20
+    - 60
+    assembly_required: true
+  time_window:
+    start: 09:00
+    end: '18:00'
+    flexibility: low
+    customer_must_be_present: true
+  destination_type: residential
+  typical_distance_km:
+  - 20
+  - 100
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: false
+    urgency: low
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg:
+    - 3000
+    - 8000
+    tail_lift: true
+    preferred_modes:
+    - truck_diesel
+    - truck_electric
+  plan_context:
+  - Bulky items require careful handling
+  - Access to properties varies
+  - Two-person crew usually required
+  - Customer scheduling is inflexible
+  - Damage claims are expensive
+  csv_columns:
+    required:
+    - warehouse_lat
+    - warehouse_lon
+    - customer_lat
+    - customer_lon
+    optional:
+    - delivery_window
+    - assembly_required
+    - access_restrictions
+construction_materials:
+  context: When transporting construction materials to active building sites
+  goal: I want reliable delivery that doesn't delay construction schedules
+  outcome: So projects stay on timeline and we maintain contractor relationships
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 1
+    - 3
+    stop_duration_min:
+    - 30
+    - 90
+    crane_or_forklift_available: sometimes
+  time_window:
+    start: 06:00
+    end: '16:00'
+    flexibility: very_low
+  destination_type: construction_site
+  typical_distance_km:
+  - 10
+  - 80
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: medium
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg:
+    - 8000
+    - 18000
+    off_road_capable: true
+    preferred_modes:
+    - truck_diesel
+  plan_context:
+  - Construction sites have limited access
+  - Delays cascade through project timeline
+  - Weather affects site accessibility
+  - Heavy loads require specialized equipment
+  - Range not critical for local deliveries
+  csv_columns:
+    required:
+    - supplier_lat
+    - supplier_lon
+    - site_lat
+    - site_lon
+    optional:
+    - material_type
+    - weight_tonnes
+    - site_access_type
+refrigerated_transport:
+  context: When transporting temperature-sensitive goods
+  goal: I want to maintain cold chain integrity throughout transport
+  outcome: So products arrive in saleable condition and we avoid costly spoilage
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 3
+    - 10
+    stop_duration_min:
+    - 10
+    - 30
+    temperature_monitoring: continuous
+  time_window:
+    start: 04:00
+    end: '18:00'
+    flexibility: low
+  destination_type: multiple_retail_food
+  typical_distance_km:
+  - 50
+  - 300
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: high
+    special_requirements:
+    - refrigeration
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg:
+    - 5000
+    - 15000
+    temperature_controlled: true
+    temperature_range:
+    - -20
+    - 5
+    preferred_modes:
+    - truck_diesel
+    - truck_electric
+  plan_context:
+  - Temperature breaches cause product loss
+  - Door opening time must be minimized
+  - Refrigeration unit consumes significant power
+  - Electric trucks challenged by refrigeration load
+  - Route must minimize delivery time
+  csv_columns:
+    required:
+    - cold_storage_lat
+    - cold_storage_lon
+    - dest_lat
+    - dest_lon
+    optional:
+    - temperature_range
+    - product_type
+    - max_door_open_time
+waste_collection:
+  context: When collecting commercial waste on scheduled routes
+  goal: I want efficient routes that serve all customers reliably
+  outcome: So waste is removed on schedule and we maintain service contracts
+  job_type: service
+  delivery_params:
+    num_stops:
+    - 15
+    - 40
+    stop_duration_min:
+    - 5
+    - 15
+    route_optimization: minimize_distance
+  time_window:
+    start: 05:00
+    end: '14:00'
+    flexibility: medium
+  destination_type: multiple_commercial
+  typical_distance_km:
+  - 40
+  - 100
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: medium_freight
+    recurring: true
+    urgency: low
+  vehicle_constraints:
+    type: medium_freight
+    capacity_kg:
+    - 8000
+    - 15000
+    compactor_body: true
+    preferred_modes:
+    - truck_diesel
+    - truck_electric
+  plan_context:
+  - Fixed routes with regular customers
+  - Early morning starts to avoid traffic
+  - Weight increases throughout route
+  - Noise restrictions in residential areas
+  - Electric trucks reduce emissions and noise
+  csv_columns:
+    required:
+    - depot_lat
+    - depot_lon
+    - route_id
+    optional:
+    - customer_list
+    - estimated_tonnage

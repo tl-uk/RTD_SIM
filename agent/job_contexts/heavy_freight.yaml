@@ -1,0 +1,224 @@
+long_haul_freight:
+  context: When transporting full loads over long distances between cities
+  goal: I want to complete routes efficiently while managing driver hours and costs
+  outcome: So we maximize fleet utilization and maintain delivery schedules
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 1
+    - 3
+    stop_duration_min:
+    - 45
+    - 180
+    driver_hours_regulated: true
+    rest_breaks_required: true
+  time_window:
+    start: 00:00
+    end: '23:59'
+    flexibility: medium
+  destination_type: warehouse_or_port
+  typical_distance_km:
+  - 400
+  - 800
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    cargo_weight_kg: 15000
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: medium
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg:
+    - 20000
+    - 44000
+    max_range_km: 800
+    tachograph_compliant: true
+    preferred_modes:
+    - hgv_diesel
+    - hgv_hydrogen
+  plan_context:
+  - Driver hours limited by regulations
+  - Fuel/hydrogen refueling infrastructure sparse
+  - Route planning must consider weight restrictions
+  - Weather delays on long routes are common
+  - Overnight parking security important
+  - Electric range insufficient for long haul (currently)
+  csv_columns:
+    required:
+    - origin_depot_lat
+    - origin_depot_lon
+    - dest_depot_lat
+    - dest_depot_lon
+    optional:
+    - cargo_type
+    - weight_tonnes
+    - delivery_deadline
+    - driver_id
+port_to_warehouse:
+  context: When moving container freight from port to distribution centers
+  goal: I want rapid turnaround to minimize port demurrage charges
+  outcome: So we reduce costs and maintain supply chain efficiency
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 1
+    - 2
+    stop_duration_min:
+    - 60
+    - 120
+    container_handling: true
+  time_window:
+    start: 00:00
+    end: '23:59'
+    flexibility: low
+    demurrage_deadline: true
+  destination_type: port_to_warehouse
+  typical_distance_km:
+  - 50
+  - 400
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: high
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg:
+    - 25000
+    - 44000
+    max_range_km: 400
+    container_chassis: true
+    preferred_modes:
+    - hgv_electric
+    - hgv_diesel
+    - hgv_hydrogen
+  plan_context:
+  - Port demurrage charges escalate quickly
+  - Container slot booking affects timing
+  - Traffic around ports is unpredictable
+  - Electric trucks viable for port-warehouse routes
+  - Depot charging infrastructure available
+  csv_columns:
+    required:
+    - port_lat
+    - port_lon
+    - warehouse_lat
+    - warehouse_lon
+    optional:
+    - container_id
+    - weight_tonnes
+    - demurrage_deadline
+    - customs_cleared
+supermarket_supply:
+  context: When delivering goods from distribution center to supermarket stores
+  goal: I want reliable delivery during store operating hours
+  outcome: So shelves are stocked and we meet retail partner commitments
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 1
+    - 4
+    stop_duration_min:
+    - 30
+    - 120
+    temperature_controlled: sometimes
+  time_window:
+    start: 6
+    end: 22
+    flexibility: low
+  destination_type: retail
+  typical_distance_km:
+  - 50
+  - 300
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: high
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg:
+    - 15000
+    - 30000
+    max_range_km: 300
+    temperature_control: optional
+    preferred_modes:
+    - hgv_electric
+    - hgv_diesel
+  plan_context:
+  - Delivery windows are strictly enforced
+  - Store loading bays have limited capacity
+  - Fresh food deliveries cannot be delayed
+  - Urban access restrictions apply
+  - Zero-emission zones favor electric trucks
+  csv_columns:
+    required:
+    - dc_lat
+    - dc_lon
+    - store_lat
+    - store_lon
+    optional:
+    - delivery_window
+    - refrigerated
+    - store_capacity
+manufacturing_supply_chain:
+  context: When delivering components for just-in-time manufacturing
+  goal: I want guaranteed on-time delivery to prevent production line stops
+  outcome: So manufacturing schedules are maintained and we avoid costly delays
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 1
+    - 2
+    stop_duration_min:
+    - 30
+    - 90
+    just_in_time: true
+  time_window:
+    start: 00:00
+    end: '23:59'
+    flexibility: very_low
+    production_line_dependent: true
+  destination_type: manufacturing_plant
+  typical_distance_km:
+  - 100
+  - 500
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: critical
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg:
+    - 10000
+    - 25000
+    tracked_gps: true
+    backup_vehicle_available: true
+    preferred_modes:
+    - hgv_diesel
+    - hgv_electric
+  desire_overrides:
+    time: 0.95
+    reliability: 0.9
+    cost: 0.1
+  plan_context:
+  - Production line stops cost thousands per hour
+  - Timing is more critical than cost
+  - Real-time tracking required
+  - Backup plans essential
+  - Weather-related delays must be anticipated
+  csv_columns:
+    required:
+    - supplier_lat
+    - supplier_lon
+    - plant_lat
+    - plant_lon
+    optional:
+    - production_slot
+    - component_type
+    - delivery_tolerance_min
