@@ -316,39 +316,17 @@ class JobStoryParser:
         return story
     
     def _load_stories(self):
-        """Load all stories from YAML file(s)."""
-        self._stories_cache = {}
+        """Load stories from YAML + generated templates."""
+        # Load YAML
+        with open(self.stories_path, 'r') as f:
+            self._stories_cache = yaml.safe_load(f)
         
-        # ✅ NEW: Support both single file AND directory
-        if self.stories_path.is_file():
-            # Single file (backward compatible)
-            with open(self.stories_path, 'r') as f:
-                self._stories_cache = yaml.safe_load(f)
-            logger.info(f"Loaded {len(self._stories_cache)} job stories from {self.stories_path.name}")
+        # Add programmatically generated jobs
+        from agent.job_templates import generate_freight_jobs
+        generated = generate_freight_jobs()
+        self._stories_cache.update(generated)
         
-        elif self.stories_path.is_dir():
-            # ✅ Directory mode: load all .yaml files
-            yaml_files = sorted(self.stories_path.glob('*.yaml'))
-            
-            if not yaml_files:
-                raise FileNotFoundError(
-                    f"No YAML files found in directory: {self.stories_path}"
-                )
-            
-            for yaml_file in yaml_files:
-                with open(yaml_file, 'r') as f:
-                    stories = yaml.safe_load(f)
-                    if stories:
-                        self._stories_cache.update(stories)
-                        logger.info(f"Loaded {len(stories)} stories from {yaml_file.name}")
-            
-            logger.info(f"Loaded {len(self._stories_cache)} total job stories from {len(yaml_files)} files")
-        
-        else:
-            raise FileNotFoundError(
-                f"job_contexts not found at: {self.stories_path}\n"
-                f"Please create either a file or directory with job story definitions."
-            )
+        logger.info(f"Loaded {len(self._stories_cache)} total job stories")
     
     def list_available_stories(self) -> List[str]:
         """Get list of all available job story IDs."""
