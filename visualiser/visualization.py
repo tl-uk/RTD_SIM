@@ -25,11 +25,11 @@ MODE_COLORS_RGB = {
     'ev': [168, 85, 245],       # Purple
     
     # Micro-delivery
-    'cargo_bike': [34, 197, 94],      # Bright green (eco-friendly)
+    'cargo_bike': [34, 197, 94],      # Bright green
     
     # Light freight (vans)
-    'van_electric': [16, 185, 129],   # Teal green (existing)
-    'van_diesel': [107, 114, 128],    # Gray (existing)
+    'van_electric': [16, 185, 129],   # Teal green
+    'van_diesel': [107, 114, 128],    # Gray
     
     # Medium freight (trucks)
     'truck_electric': [74, 222, 128],  # Light green
@@ -38,49 +38,39 @@ MODE_COLORS_RGB = {
     # Heavy freight (HGVs)
     'hgv_electric': [52, 211, 153],    # Aqua green
     'hgv_diesel': [75, 85, 99],        # Dark gray
-    'hgv_hydrogen': [96, 165, 250],    # Light blue (future tech)
-
-    # NEW: Public transport
-    'tram': [255, 193, 7],        # Amber/Yellow
+    'hgv_hydrogen': [96, 165, 250],    # Light blue
+    
+    # Public transport
+    'tram': [255, 193, 7],        # Amber/Yellow (Edinburgh trams)
     'local_train': [33, 150, 243], # Blue
     'intercity_train': [63, 81, 181], # Indigo
     
-    # NEW: Maritime
+    # Maritime
     'ferry_diesel': [0, 150, 136],   # Teal
     'ferry_electric': [0, 188, 212], # Cyan
     
-    # NEW: Aviation
+    # Aviation
     'flight_domestic': [244, 67, 54], # Red
     'flight_electric': [233, 30, 99], # Pink
     
-    # NEW: Micro-mobility
+    # Micro-mobility
     'e_scooter': [139, 195, 74],   # Light green
 }
 
 MODE_COLORS_HEX = {
-    # Personal transport
     'walk': '#22c55e',
     'bike': '#3b82f6',
     'bus': '#f59e0b',
     'car': '#ef4444',
     'ev': '#a855f7',
-    
-    # Micro-delivery
     'cargo_bike': '#22c55e',
-    
-    # Light freight (vans)
     'van_electric': '#10b981',
     'van_diesel': '#6b7280',
-    
-    # Medium freight (trucks)
     'truck_electric': '#4ade80',
     'truck_diesel': '#78716c',
-    
-    # Heavy freight (HGVs)
     'hgv_electric': '#34d399',
     'hgv_diesel': '#4b5563',
     'hgv_hydrogen': '#60a5fa',
-
     'tram': '#ffc107',
     'local_train': '#2196f3',
     'intercity_train': '#3f51b5',
@@ -291,12 +281,16 @@ def render_mode_adoption_chart(
     current_step: int,
     height: int = 400
 ) -> go.Figure:
-    """Render mode adoption over time chart with all freight modes."""
+    """Render mode adoption over time chart with all modes."""
     fig = go.Figure()
     
+    # ALL MODES (updated)
     all_modes = [
-        'walk', 'bike', 'cargo_bike',
+        'walk', 'bike', 'cargo_bike', 'e_scooter',
         'bus', 'car', 'ev',
+        'tram', 'local_train', 'intercity_train',  # NEW
+        'ferry_diesel', 'ferry_electric',  # NEW
+        'flight_domestic', 'flight_electric',  # NEW
         'van_electric', 'van_diesel',
         'truck_electric', 'truck_diesel',
         'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'

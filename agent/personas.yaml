@@ -574,3 +574,135 @@ delivery_driver:
     influence_susceptibility: 0.6
     influence_strength: 0.5
     network_size_range: [10, 30]
+
+  # ============================================================================
+  # PHASE 4.5G: Multi-Modal User Stories
+  # ============================================================================
+
+  long_distance_commuter:
+    persona_type: professional
+    description: "Lives in Edinburgh, works in Glasgow daily (80 km commute)"
+    
+    beliefs:
+      - text: "Train is more productive than driving"
+        confidence: 0.8
+      - text: "Parking in city center is expensive and stressful"
+        confidence: 0.85
+      - text: "I can work on the train"
+        confidence: 0.9
+    
+    desires:
+      time: 0.7
+      cost: 0.5
+      comfort: 0.8
+      eco: 0.6
+      productivity: 0.9
+      reliability: 0.85
+    
+    constraints:
+      - "Must catch 8:15 train to arrive by 9am"
+      - "Need reliable return train after 5pm"
+    
+    desire_variance: 0.10
+
+  island_resident:
+    persona_type: rural
+    description: "Lives on Scottish island, occasional mainland trips"
+    
+    beliefs:
+      - text: "Ferry schedules dictate my life"
+        confidence: 1.0
+      - text: "Weather delays are common and unavoidable"
+        confidence: 0.9
+      - text: "Electric ferries would help the environment"
+        confidence: 0.8
+    
+    desires:
+      time: 0.4
+      cost: 0.8
+      reliability: 0.9
+      eco: 0.7
+      flexibility: 0.3
+    
+    constraints:
+      - "Must book ferry in advance"
+      - "Weather-dependent travel"
+    
+    desire_variance: 0.15
+
+  business_traveler:
+    persona_type: executive
+    description: "Frequent intercity travel for business meetings"
+    
+    beliefs:
+      - text: "Time is money"
+        confidence: 1.0
+      - text: "First class is worth it for productivity"
+        confidence: 0.8
+      - text: "Flight is fastest for Edinburgh-London"
+        confidence: 0.85
+    
+    desires:
+      time: 0.95
+      cost: 0.3
+      comfort: 0.9
+      productivity: 0.9
+      eco: 0.4
+    
+    constraints:
+      - "Meeting times are fixed"
+      - "Prefer same-day returns"
+    
+    desire_variance: 0.08
+
+  accessibility_user:
+    persona_type: disabled
+    description: "Wheelchair user requiring accessible transport"
+    
+    beliefs:
+      - text: "Trams are most accessible public transport"
+        confidence: 0.9
+      - text: "Level boarding is essential for independence"
+        confidence: 1.0
+      - text: "Many transport options exclude me"
+        confidence: 0.8
+    
+    desires:
+      accessibility: 1.0
+      comfort: 0.8
+      reliability: 0.9
+      independence: 0.95
+      time: 0.5
+      cost: 0.6
+    
+    constraints:
+      - "Requires level boarding or ramps"
+      - "Cannot use stairs"
+    
+    desire_variance: 0.05
+
+  tourist_visitor:
+    persona_type: visitor
+    description: "Tourist exploring Scotland sustainably via public transport"
+    
+    beliefs:
+      - text: "Scenic routes are part of the travel experience"
+        confidence: 0.95
+      - text: "Public transport is eco-friendly"
+        confidence: 0.85
+      - text: "I want to minimize my carbon footprint"
+        confidence: 0.8
+    
+    desires:
+      eco: 0.9
+      scenic: 0.95
+      cost: 0.6
+      comfort: 0.6
+      time: 0.3
+      experience: 0.95
+    
+    constraints:
+      - "No car rental"
+      - "Luggage limits active transport"
+    
+    desire_variance: 0.12

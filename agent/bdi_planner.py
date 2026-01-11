@@ -42,9 +42,9 @@ class BDIPlanner:
         'truck_electric': 250.0,
         'hgv_electric': 300.0,
         'hgv_hydrogen': 600.0,
-        'e_scooter': 30.0,           # NEW
-        'ferry_electric': 50.0,      # NEW
-        'flight_electric': 500.0,    # NEW (future tech)
+        'e_scooter': 30.0,
+        'ferry_electric': 50.0,      # (short routes)
+        'flight_electric': 500.0,    # (future tech)
     }
     
     CHARGING_TIME_MIN = {
@@ -58,25 +58,35 @@ class BDIPlanner:
     MODE_MAX_DISTANCE_KM = {
         'walk': 5.0,
         'bike': 20.0,
-        'cargo_bike': 10.0,           # Urban micro-delivery
-        'tram': 25.0,                 # Public transport
-        'local_train': 150.0,
-        'intercity_train': 800.0,
-        'ferry_diesel': 200.0,        # Maritime
-        'ferry_electric': 50.0,       # Short electric ferry
-        'flight_domestic': 1000.0,    # Aviation
-        'flight_electric': 500.0,
-        'e_scooter': 30.0,            # Micromobility
+        'cargo_bike': 10.0,
         'bus': 100.0,
         'car': 500.0,
         'ev': 350.0,
+        
+        # Freight modes (existing)
         'van_electric': 200.0,
         'van_diesel': 500.0,
-        'truck_electric': 250.0,       # Medium freight electric
-        'truck_diesel': 600.0,         # Medium freight diesel
-        'hgv_electric': 300.0,         # Heavy electric
-        'hgv_diesel': 800.0,           # Heavy diesel
-        'hgv_hydrogen': 600.0,         # Heavy hydrogen
+        'truck_electric': 250.0,
+        'truck_diesel': 600.0,
+        'hgv_electric': 300.0,
+        'hgv_diesel': 800.0,
+        'hgv_hydrogen': 600.0,
+        
+        # Public transport
+        'tram': 25.0,
+        'local_train': 150.0,
+        'intercity_train': 800.0,
+        
+        # Maritime
+        'ferry_diesel': 200.0,
+        'ferry_electric': 50.0,
+        
+        # Aviation
+        'flight_domestic': 1000.0,
+        'flight_electric': 500.0,
+        
+        # Micro-mobility
+        'e_scooter': 30.0,
     }
     
     def __init__(self, infrastructure_manager: Optional[Any] = None) -> None:
@@ -218,7 +228,7 @@ class BDIPlanner:
         if trip_distance_km > 0:
             original_modes = modes.copy()
 
-            # Add public transport modes for longer trips
+            # Public transport modes for longer trips
             if trip_distance_km > 30 and not vehicle_required:
                 if trip_distance_km > 80:
                     modes.extend(['intercity_train', 'flight_domestic'])

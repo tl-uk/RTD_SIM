@@ -127,7 +127,7 @@ class StoryDrivenAgent(CognitiveAgent):
         # If not in parameters, try vehicle_constraints (detailed format)
         elif self.job_story.vehicle_constraints:
             vc_type = self.job_story.vehicle_constraints.get('type', 'personal')
-            
+
             # Map constraint types to vehicle_type
             if vc_type in ['micro_mobility']:
                 context['vehicle_type'] = 'micro_mobility'

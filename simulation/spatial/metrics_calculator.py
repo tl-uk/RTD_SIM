@@ -38,59 +38,100 @@ class MetricsCalculator:
         """Initialize with default mode speeds and parameters."""
         # Speed in km per minute
         self.speeds_km_min = {
-            'walk': 0.083,
-            'bike': 0.25,
-            'bus': 0.33,
-            'car': 0.5,
-            'ev': 0.5,
-            'van_electric': 0.45,   # Slightly slower
-            'van_diesel': 0.45,
+            'walk': {'city': 5, 'highway': 5},
+            'bike': {'city': 15, 'highway': 15},
+            'bus': {'city': 20, 'highway': 60},
+            'car': {'city': 30, 'highway': 100},
+            'ev': {'city': 30, 'highway': 100},
+            
+            # Freight (existing)
+            'cargo_bike': {'city': 15, 'highway': 15},
+            'van_electric': {'city': 35, 'highway': 90},
+            'van_diesel': {'city': 35, 'highway': 90},
+            'truck_electric': {'city': 30, 'highway': 80},
+            'truck_diesel': {'city': 30, 'highway': 80},
+            'hgv_electric': {'city': 25, 'highway': 70},
+            'hgv_diesel': {'city': 25, 'highway': 80},
+            'hgv_hydrogen': {'city': 25, 'highway': 80},
+            
+            # Public transport
             'tram': {'city': 25, 'highway': 25},
             'local_train': {'city': 60, 'highway': 60},
             'intercity_train': {'city': 120, 'highway': 120},
+            
+            # Maritime
             'ferry_diesel': {'city': 35, 'highway': 35},
             'ferry_electric': {'city': 30, 'highway': 30},
+            
+            # Aviation
             'flight_domestic': {'city': 450, 'highway': 450},
             'flight_electric': {'city': 350, 'highway': 350},
+            
+            # Micro-mobility
             'e_scooter': {'city': 20, 'highway': 20},
         }
         
         # Base emissions in grams CO2 per km
         self.emissions_grams_per_km = {
-            'walk': 0.0,
-            'bike': 0.0,
-            'bus': 80.0,
-            'car': 180.0,
-            'ev': 60.0,
-            'van_electric': 90.0,    # Heavier vehicle
-            'van_diesel': 250.0,     # Worse than car
-            'tram': 30,              # Electric (grid carbon)
-            'local_train': 35,       # Electric rail
-            'intercity_train': 25,   # High-efficiency electric
-            'ferry_diesel': 120,     # Per passenger
-            'ferry_electric': 40,    # Battery ferry
-            'flight_domestic': 250,  # High emissions
-            'flight_electric': 50,   # Future e-aviation
-            'e_scooter': 0,         # Battery-powered
+            # Zero emission
+            'walk': 0,
+            'bike': 0,
+            'cargo_bike': 0,
+            'e_scooter': 0,
+            'ev': 0,
+            
+            # NEW: Electric public transport (grid carbon)
+            'tram': 30,
+            'local_train': 35,
+            'intercity_train': 25,
+            'ferry_electric': 40,
+            'flight_electric': 50,
+            
+            # Combustion
+            'bus': 80,
+            'car': 180,
+            'van_diesel': 250,
+            'truck_diesel': 400,
+            'hgv_diesel': 800,
+            'hgv_hydrogen': 100,  # Some emissions from hydrogen production
+            
+            # High-emission modes
+            'ferry_diesel': 120,
+            'flight_domestic': 250,
         }
         
         # Monetary cost (base fare + per km)
         self.cost_params = {
-            'walk': {'base': 0.0, 'per_km': 0.0},
-            'bike': {'base': 0.0, 'per_km': 0.0},
-            'bus': {'base': 1.5, 'per_km': 0.0},
-            'car': {'base': 0.0, 'per_km': 0.5},
-            'ev': {'base': 0.0, 'per_km': 0.3},
-            'van_electric': {'base': 0.0, 'per_km': 0.35},  # Changed from 0.4 → 0.35 (cheaper than diesel)
-            'van_diesel': {'base': 0.0, 'per_km': 0.55},    # Changed from 0.6 → 0.55 (similar to car)
-            # Costs (per trip)
+            'walk': {'base': 0, 'per_km': 0},
+            'bike': {'base': 0, 'per_km': 0},
+            'bus': {'base': 2.5, 'per_km': 0.10},
+            'car': {'base': 1.0, 'per_km': 0.40},
+            'ev': {'base': 1.0, 'per_km': 0.15},
+            
+            # Freight (existing)
+            'cargo_bike': {'base': 0.5, 'per_km': 0.05},
+            'van_electric': {'base': 2.0, 'per_km': 0.20},
+            'van_diesel': {'base': 2.0, 'per_km': 0.35},
+            'truck_electric': {'base': 5.0, 'per_km': 0.40},
+            'truck_diesel': {'base': 5.0, 'per_km': 0.60},
+            'hgv_electric': {'base': 10.0, 'per_km': 0.80},
+            'hgv_diesel': {'base': 10.0, 'per_km': 1.20},
+            'hgv_hydrogen': {'base': 10.0, 'per_km': 1.00},
+            
+            # Public transport
             'tram': {'base': 2.0, 'per_km': 0.08},
             'local_train': {'base': 3.0, 'per_km': 0.12},
             'intercity_train': {'base': 10.0, 'per_km': 0.15},
+            
+            # Maritime
             'ferry_diesel': {'base': 15.0, 'per_km': 0.25},
             'ferry_electric': {'base': 12.0, 'per_km': 0.20},
+            
+            # Aviation
             'flight_domestic': {'base': 50.0, 'per_km': 0.20},
             'flight_electric': {'base': 60.0, 'per_km': 0.15},
+            
+            # Micro-mobility
             'e_scooter': {'base': 1.0, 'per_km': 0.25},
         }
         
