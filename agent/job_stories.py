@@ -316,17 +316,39 @@ class JobStoryParser:
         return story
     
     def _load_stories(self):
-        """Load stories from YAML + generated templates."""
-        # Load YAML
-        with open(self.stories_path, 'r') as f:
-            self._stories_cache = yaml.safe_load(f)
+        """Load all stories from YAML + generated templates."""
+        self._stories_cache = {}
         
-        # Add programmatically generated jobs
-        from agent.job_templates import generate_freight_jobs
-        generated = generate_freight_jobs()
-        self._stories_cache.update(generated)
+        # Load YAML files (Strategy 1)
+        if self.stories_path.is_file():
+            with open(self.stories_path, 'r') as f:
+                self._stories_cache = yaml.safe_load(f)
+            logger.info(f"Loaded {len(self._stories_cache)} stories from file")
         
-        logger.info(f"Loaded {len(self._stories_cache)} total job stories")
+        elif self.stories_path.is_dir():
+            yaml_files = sorted(self.stories_path.glob('*.yaml'))
+            
+            for yaml_file in yaml_files:
+                with open(yaml_file, 'r') as f:
+                    stories = yaml.safe_load(f)
+                    if stories:
+                        self._stories_cache.update(stories)
+            
+            logger.info(f"Loaded {len(self._stories_cache)} stories from {len(yaml_files)} YAML files")
+        
+        # ✅ ADD: Load programmatically generated jobs (Strategy 3)
+        try:
+            from agent.job_templates import generate_all_job_templates
+            generated = generate_all_job_templates()
+            
+            # Add generated jobs (with prefix to distinguish)
+            for job_id, job_def in generated.items():
+                if job_id not in self._stories_cache:  # Don't override manual jobs
+                    self._stories_cache[job_id] = job_def
+            
+            logger.info(f"Added {len(generated)} generated job templates")
+        except ImportError:
+            logger.debug("job_templates.py not found, skipping generated jobs")
     
     def list_available_stories(self) -> List[str]:
         """Get list of all available job story IDs."""
