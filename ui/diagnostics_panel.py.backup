@@ -1,7 +1,7 @@
 """
 ui/diagnostics_panel.py
 
-Phase 4.5F+G: Comprehensive freight + multi-modal diagnostics
+UPDATED: Shows all freight modes including new Phase 4.5F modes.
 """
 
 import streamlit as st
@@ -10,7 +10,7 @@ import pandas as pd
 
 def render_diagnostics_panel(results):
     """
-    Render diagnostics panel in sidebar with ALL modes (4.5F+G).
+    Render diagnostics panel in sidebar with ALL modes.
     
     Args:
         results: SimulationResults object
@@ -19,12 +19,12 @@ def render_diagnostics_panel(results):
         return
     
     with st.expander("🔍 Infrastructure Diagnostics", expanded=False):
-        # Mode distribution - includes Phase 4.5G multi-modal
+        # Mode distribution - UPDATED to include all freight modes
         _render_mode_distribution(results)
         
         st.markdown("---")
         
-        # Freight analysis (Phase 4.5F)
+        # Freight analysis
         _render_freight_analysis(results)
         
         st.markdown("---")
@@ -40,7 +40,7 @@ def render_diagnostics_panel(results):
 
 
 def _render_mode_distribution(results):
-    """Render mode distribution table with ALL modes (4.5F+G)."""
+    """Render mode distribution table with ALL modes."""
     st.markdown("### 📊 Mode Distribution Analysis")
     
     mode_counts = {}
@@ -48,13 +48,10 @@ def _render_mode_distribution(results):
         mode = agent.state.mode
         mode_counts[mode] = mode_counts.get(mode, 0) + 1
     
-    # ALL MODES including Phase 4.5G multi-modal
+    # ALL MODES including new freight modes
     all_modes = [
-        'walk', 'bike', 'cargo_bike', 'e_scooter',
+        'walk', 'bike', 'cargo_bike',
         'bus', 'car', 'ev',
-        'tram', 'local_train', 'intercity_train',
-        'ferry_diesel', 'ferry_electric',
-        'flight_domestic', 'flight_electric',
         'van_electric', 'van_diesel',
         'truck_electric', 'truck_diesel',
         'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'
@@ -65,7 +62,7 @@ def _render_mode_distribution(results):
         count = mode_counts.get(mode, 0)
         pct = (count / len(results.agents) * 100) if results.agents else 0
         
-        # Show all non-zero modes + core modes
+        # Only show modes that exist
         if count > 0 or mode in ['walk', 'bike', 'bus', 'car', 'ev']:
             mode_data.append({
                 'Mode': mode.replace('_', ' ').title(),
@@ -76,12 +73,14 @@ def _render_mode_distribution(results):
     df = pd.DataFrame(mode_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
     
-    # Freight highlight (Phase 4.5F)
+    # Freight highlight
     freight_modes = ['van_electric', 'van_diesel', 'truck_electric', 'truck_diesel', 
                     'hgv_electric', 'hgv_diesel', 'hgv_hydrogen', 'cargo_bike']
     freight_count = sum(mode_counts.get(m, 0) for m in freight_modes)
     
-    if freight_count > 0:
+    if freight_count == 0:
+        st.error(f"❌ NO FREIGHT MODES ({freight_count}/{len(results.agents)})")
+    else:
         freight_pct = freight_count / len(results.agents) * 100
         st.success(f"✅ Freight active: {freight_count}/{len(results.agents)} ({freight_pct:.1f}%)")
         
@@ -92,19 +91,10 @@ def _render_mode_distribution(results):
                 if count > 0:
                     pct = count / freight_count * 100
                     st.write(f"**{mode.replace('_', ' ').title()}**: {count} ({pct:.1f}% of freight)")
-    
-    # Multi-modal highlight (Phase 4.5G)
-    multimodal_modes = ['tram', 'local_train', 'intercity_train', 'ferry_diesel', 
-                        'ferry_electric', 'flight_domestic', 'e_scooter']
-    multimodal_count = sum(mode_counts.get(m, 0) for m in multimodal_modes)
-    
-    if multimodal_count > 0:
-        multimodal_pct = multimodal_count / len(results.agents) * 100
-        st.info(f"🚆 Multi-modal active: {multimodal_count}/{len(results.agents)} ({multimodal_pct:.1f}%)")
 
 
 def _render_freight_analysis(results):
-    """Render freight agent analysis (Phase 4.5F)."""
+    """Render freight agent analysis."""
     st.markdown("### 🚚 Freight Analysis")
     
     # Count vehicle_required agents
@@ -117,7 +107,7 @@ def _render_freight_analysis(results):
     st.write(f"**Agents with vehicle_required:** {vehicle_required_count}/{len(results.agents)}")
     
     if vehicle_required_count == 0:
-        st.warning("⚠️ No freight agents found - check job_contexts.yaml")
+        st.error("❌ No freight agents found - check job_contexts.yaml")
         return
     
     # Vehicle type distribution
@@ -133,7 +123,7 @@ def _render_freight_analysis(results):
             pct = count / vehicle_required_count * 100
             st.write(f"- {vtype}: {count} ({pct:.1f}%)")
     
-    # Job distribution (top 10)
+    # Job distribution (top 5)
     job_types = {}
     for agent in results.agents:
         job_id = getattr(agent, 'job_story_id', 'unknown')
@@ -166,6 +156,19 @@ def _render_grid_analysis(results):
     total_ports = sum(s.num_ports for s in results.infrastructure.charging_stations.values())
     port_pct = (occupied / total_ports * 100) if total_ports > 0 else 0
     st.write(f"**Ports:** {occupied}/{total_ports} ({port_pct:.1f}%)")
+    
+    # Time-of-day pricing metrics (if enabled)
+    if hasattr(results.infrastructure, 'enable_tod_pricing') and results.infrastructure.enable_tod_pricing:
+        st.markdown("**⏰ Time-of-Day Pricing:**")
+        tod_metrics = results.infrastructure.get_tod_pricing_metrics()
+        st.write(f"- Current Hour: {tod_metrics['current_hour']:02d}:00")
+        st.write(f"- Current Tier: {tod_metrics['current_tier']}")
+        st.write(f"- Current Price: £{tod_metrics['current_price']:.3f}/kWh")
+        
+        if tod_metrics['smart_charging']['total_sessions'] > 0:
+            savings = tod_metrics['smart_charging']['savings']
+            savings_pct = tod_metrics['smart_charging']['savings_percentage']
+            st.write(f"- Smart Charging Savings: £{savings:.2f} ({savings_pct:.1f}%)")
 
 
 def _render_sample_agents(results):
@@ -183,7 +186,7 @@ def _render_sample_agents(results):
                 st.json(context)
 
     # Freight agent debug
-    st.markdown("### 🔎 Freight Agent Debug")
+    st.markdown("### 🔍 Freight Agent Debug")
     freight_agents = [
         a for a in results.agents 
         if hasattr(a, 'agent_context') and a.agent_context.get('vehicle_required')
@@ -198,6 +201,7 @@ Mode: {fa.state.mode}
 Distance: {fa.state.distance_km:.1f} km
 agent_context: {fa.agent_context}
 vehicle_type: {fa.agent_context.get('vehicle_type')}
+task_context.parameters: {fa.task_context.parameters if hasattr(fa, 'task_context') else 'N/A'}
         """)
     else:
         st.write("No freight agents found")

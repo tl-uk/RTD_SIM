@@ -214,15 +214,14 @@ class JobStoryParser:
         Initialize parser.
         
         Args:
-            stories_path: Path to job_contexts.yaml file
-                         (default: agent/job_contexts.yaml)
+            stories_path: Path to job_contexts.yaml OR directory containing YAML files
         """
         if not YAML_AVAILABLE:
             raise ImportError("PyYAML required: pip install pyyaml")
         
         if stories_path is None:
             module_dir = Path(__file__).parent
-            stories_path = module_dir / "job_contexts.yaml"
+            stories_path = module_dir / "job_contexts"  # ✅ Changed to directory
         
         self.stories_path = Path(stories_path)
         self._stories_cache: Optional[Dict[str, Any]] = None
@@ -266,17 +265,29 @@ class JobStoryParser:
         stages = []
         if 'stages' in story_data:
             for stage_data in story_data['stages']:
-                tw_data = stage_data.get('time_window', {})
-                stage_tw = TimeWindow(
-                    start=tw_data.get('start', '00:00'),
-                    end=tw_data.get('end', '23:59'),
-                    flexibility=tw_data.get('flexibility', 'medium'),
-                    preferred_arrival=tw_data.get('preferred_arrival')
-                )
+                # ✅ FIX: Make destination_type optional with default
+                destination_type = stage_data.get('destination_type', 'general')
+                
+                # ✅ FIX: Make time_window optional
+                if 'time_window' in stage_data:
+                    tw_data = stage_data['time_window']
+                    stage_tw = TimeWindow(
+                        start=tw_data.get('start', '00:00'),
+                        end=tw_data.get('end', '23:59'),
+                        flexibility=tw_data.get('flexibility', 'medium'),
+                        preferred_arrival=tw_data.get('preferred_arrival')
+                    )
+                else:
+                    # Default time window if not specified
+                    stage_tw = TimeWindow(
+                        start='00:00',
+                        end='23:59',
+                        flexibility='medium'
+                    )
                 
                 stage = StageDefinition(
                     stage_id=stage_data['stage_id'],
-                    destination_type=stage_data['destination_type'],
+                    destination_type=destination_type,
                     time_window=stage_tw,
                     constraints=stage_data.get('constraints', []),
                     typical_distance_km=stage_data.get('typical_distance_km')
@@ -305,17 +316,39 @@ class JobStoryParser:
         return story
     
     def _load_stories(self):
-        """Load all stories from YAML file."""
-        if not self.stories_path.exists():
+        """Load all stories from YAML file(s)."""
+        self._stories_cache = {}
+        
+        # ✅ NEW: Support both single file AND directory
+        if self.stories_path.is_file():
+            # Single file (backward compatible)
+            with open(self.stories_path, 'r') as f:
+                self._stories_cache = yaml.safe_load(f)
+            logger.info(f"Loaded {len(self._stories_cache)} job stories from {self.stories_path.name}")
+        
+        elif self.stories_path.is_dir():
+            # ✅ Directory mode: load all .yaml files
+            yaml_files = sorted(self.stories_path.glob('*.yaml'))
+            
+            if not yaml_files:
+                raise FileNotFoundError(
+                    f"No YAML files found in directory: {self.stories_path}"
+                )
+            
+            for yaml_file in yaml_files:
+                with open(yaml_file, 'r') as f:
+                    stories = yaml.safe_load(f)
+                    if stories:
+                        self._stories_cache.update(stories)
+                        logger.info(f"Loaded {len(stories)} stories from {yaml_file.name}")
+            
+            logger.info(f"Loaded {len(self._stories_cache)} total job stories from {len(yaml_files)} files")
+        
+        else:
             raise FileNotFoundError(
-                f"job_contexts.yaml not found at: {self.stories_path}\n"
-                f"Please create this file with job story definitions."
+                f"job_contexts not found at: {self.stories_path}\n"
+                f"Please create either a file or directory with job story definitions."
             )
-        
-        with open(self.stories_path, 'r') as f:
-            self._stories_cache = yaml.safe_load(f)
-        
-        logger.info(f"Loaded {len(self._stories_cache)} job stories")
     
     def list_available_stories(self) -> List[str]:
         """Get list of all available job story IDs."""

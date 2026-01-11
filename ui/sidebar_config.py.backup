@@ -1,18 +1,20 @@
 """
 ui/sidebar_config.py
 
-Sidebar configuration with Phase 4.5G test mode (NON-DISRUPTIVE).
+Sidebar configuration panel with Phase 4.5B scenario selection.
+Handles all simulation parameters.
 """
 
 import streamlit as st
 from pathlib import Path
 import sys
 
+# Add parent directory to path for imports
 parent_dir = Path(__file__).resolve().parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from simulation.config.simulation_config import SimulationConfig
+from simulation.simulation_runner import SimulationConfig, list_available_scenarios, get_scenario_info
 
 # Phase 4 availability check
 try:
@@ -32,21 +34,6 @@ def render_sidebar_config():
     """
     st.header("⚙️ Simulation Configuration")
     
-    # ✅ NEW: Test Mode Toggle (at the top, outside form)
-    test_mode = st.checkbox(
-        "🧪 Enable Test Mode (Phase 4.5G)",
-        value=False,
-        help="Single-agent testing for multi-modal validation"
-    )
-    
-    if test_mode:
-        return _render_test_mode()
-    else:
-        return _render_standard_mode()
-
-
-def _render_standard_mode():
-    """Render standard simulation configuration (your existing code)."""
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
@@ -72,7 +59,7 @@ def _render_standard_mode():
         
         st.markdown("---")
         
-        # Scenario selection
+        # 🆕 Phase 4.5B: Scenario selection
         scenario_config = _render_scenario_selection()
         
         st.markdown("---")
@@ -108,95 +95,6 @@ def _render_standard_mode():
     
     return config, run_btn
 
-
-def _render_test_mode():
-    """✅ NEW: Render Phase 4.5G test mode configuration."""
-    st.subheader("🎯 Phase 4.5G Test Configuration")
-    
-    # Test case selection
-    test_case = st.selectbox(
-        "Select Test Case",
-        [
-            "Edinburgh-Glasgow Rail (80km)",
-            "Island Ferry Route (50km)",
-            "Last Mile Scooter (3km)",
-            "Accessible Tram (10km)",
-            "Gig Economy Delivery (15km)",  # ✅ ADDED for testing fix
-        ]
-    )
-    
-    # Get pre-configured test
-    origin_name, dest_name, user_story, job_story, expected_modes = _get_test_case_config(test_case)
-    
-    st.info(f"📍 **Route**: {origin_name} → {dest_name}")
-    st.info(f"👤 **Persona**: {user_story}")
-    st.info(f"📋 **Job**: {job_story}")
-    st.success(f"✅ **Expected Modes**: {', '.join(expected_modes)}")
-    
-    # Create single-agent test config
-    config = SimulationConfig(
-        steps=50,  # Short test
-        num_agents=1,  # Single agent
-        place="Edinburgh, UK",
-        extended_bbox=None,
-        use_osm=True,
-        user_stories=[user_story],
-        job_stories=[job_story],
-        enable_infrastructure=True,
-        enable_social=False,
-        num_chargers=50,
-        num_depots=5,
-        grid_capacity_mw=1000
-    )
-    
-    run_btn = st.button("🧪 Run Test", type="primary", key="test_run")
-    
-    # Store expected modes for validation (in session state)
-    if run_btn:
-        st.session_state.test_expected_modes = expected_modes
-    
-    return config, run_btn
-
-
-def _get_test_case_config(test_case: str) -> tuple:
-    """Get origin, destination, user, job, and expected modes for test case."""
-    configs = {
-        "Edinburgh-Glasgow Rail (80km)": (
-            "Edinburgh", "Glasgow",
-            "long_distance_commuter", "intercity_train_commute",
-            ["local_train", "intercity_train"]
-        ),
-        "Island Ferry Route (50km)": (
-            "Isle of Arran", "Glasgow",
-            "island_resident", "island_ferry_trip",
-            ["ferry_diesel", "ferry_electric"]
-        ),
-        "Last Mile Scooter (3km)": (
-            "Edinburgh Waverley", "Edinburgh Castle",
-            "long_distance_commuter", "last_mile_scooter",
-            ["e_scooter", "bike", "walk"]
-        ),
-        "Accessible Tram (10km)": (
-            "Edinburgh City Centre", "Edinburgh Airport",
-            "disabled_commuter", "accessible_tram_journey",
-            ["tram", "bus"]
-        ),
-        "Gig Economy Delivery (15km)": (  # ✅ NEW TEST CASE
-            "Edinburgh", "Leith",
-            "delivery_driver", "gig_economy_delivery",
-            ["cargo_bike", "van_electric"]  # Should NOT get truck!
-        ),
-    }
-    return configs.get(test_case, (
-        "Edinburgh", "Glasgow", 
-        "eco_warrior", "morning_commute",
-        ["walk", "bike", "bus"]
-    ))
-
-
-# ============================================================================
-# EXISTING HELPER FUNCTIONS (unchanged)
-# ============================================================================
 
 def _render_location_settings():
     """Render location configuration section."""
@@ -263,7 +161,7 @@ def _render_story_selection():
         except Exception as e:
             st.warning(f"Stories not found: {e}")
             user_stories = ['eco_warrior', 'budget_student', 'business_commuter']
-            job_stories = ['morning_commute', 'shopping_trip']
+            job_stories = ['morning_commute', 'flexible_leisure']
     
     return user_stories, job_stories
 
@@ -323,14 +221,47 @@ def _render_advanced_features():
 
 
 def _render_scenario_selection():
-    """Render scenario selection section."""
-    st.markdown("### 📋 Policy Scenarios")
+    """
+    🆕 Phase 4.5B: Render scenario selection section.
+    
+    Returns:
+        dict: Scenario configuration
+    """
+    st.markdown("### 📋 Policy Scenarios (Phase 4.5B)")
     
     # Check if scenarios available
     scenarios_dir = Path(__file__).resolve().parent.parent / 'scenarios' / 'configs'
+    available_scenarios = list_available_scenarios(scenarios_dir)
     
-    # Simplified: just show None for now
+    if not available_scenarios:
+        st.warning("⚠️ No scenarios found. Run `setup_scenarios.py` to create examples.")
+        return {'scenario_name': None, 'scenarios_dir': scenarios_dir}
+    
+    # Add "None (Baseline)" option
+    scenario_options = ['None (Baseline)'] + available_scenarios
+    
+    selected = st.selectbox(
+        "Select Policy Scenario",
+        options=scenario_options,
+        index=0,
+        help="Choose a policy scenario to apply, or None for baseline"
+    )
+    
+    scenario_name = None if selected == 'None (Baseline)' else selected
+    
+    # Show scenario details if selected
+    if scenario_name:
+        scenario_info = get_scenario_info(scenario_name, scenarios_dir)
+        if scenario_info:
+            with st.expander("📝 Scenario Details", expanded=True):
+                st.write(f"**Description:** {scenario_info['description']}")
+                st.write(f"**Policies:** {scenario_info['num_policies']}")
+                
+                st.markdown("**Expected Outcomes:**")
+                for outcome, value in scenario_info['expected_outcomes'].items():
+                    st.write(f"- {outcome}: {value:+.1%}")
+    
     return {
-        'scenario_name': None,
+        'scenario_name': scenario_name,
         'scenarios_dir': scenarios_dir
     }
