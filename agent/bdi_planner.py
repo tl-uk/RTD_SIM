@@ -1,6 +1,9 @@
 """
 agent/bdi_planner.py - Phase 4.5F: Expanded Freight Modes
 
+CRITICAL FIX: Mode filtering was broken - it was checking vehicle_type FIRST,
+but then OVERRIDING with default modes if no distance filtering applied.
+
 Adds comprehensive freight vehicle types:
 - cargo_bike: Urban micro-delivery
 - truck_electric/diesel: Medium freight (7.5-18 tonnes)
@@ -43,27 +46,27 @@ class BDIPlanner:
         'hgv_electric': 300.0,
         'hgv_hydrogen': 600.0,
         'e_scooter': 30.0,
-        'ferry_electric': 50.0,      # (short routes)
-        'flight_electric': 500.0,    # (future tech)
+        'ferry_electric': 50.0,
+        'flight_electric': 500.0,
     }
     
     CHARGING_TIME_MIN = {
         'level2': 240.0,
         'dcfast': 30.0,
         'depot': 480.0,
-        'hgv_depot': 720.0,  # 12 hours for HGV
+        'hgv_depot': 720.0,
     }
     
     # Distance-based mode constraints - EXPANDED
     MODE_MAX_DISTANCE_KM = {
         'walk': 5.0,
         'bike': 20.0,
-        'cargo_bike': 10.0,
+        'cargo_bike': 50.0,  # ✅ FIXED: Increased from 10km
         'bus': 100.0,
         'car': 500.0,
         'ev': 350.0,
         
-        # Freight modes (existing)
+        # Freight modes
         'van_electric': 200.0,
         'van_diesel': 500.0,
         'truck_electric': 250.0,
@@ -127,16 +130,16 @@ class BDIPlanner:
         from simulation.spatial.coordinate_utils import haversine_km
         straight_line_distance = haversine_km(origin, dest)
         
-        # Get candidate modes
+        # Get candidate modes - ✅ THIS IS THE CRITICAL FUNCTION
         available_modes = self._filter_modes_by_context(context, straight_line_distance)
 
-        # DEBUG LOGGING for freight agents
-        if context.get('vehicle_required'):
-            logger.info(f"FREIGHT AGENT: context={context}, distance={straight_line_distance:.1f}km, modes={available_modes}")
+        # DEBUG LOGGING for ALL agents
+        logger.info(f"🔍 AGENT: context={context}, distance={straight_line_distance:.1f}km, modes_offered={available_modes}")
         
         for mode in available_modes:
             # Infrastructure feasibility check
             if not self._is_mode_feasible(mode, origin, dest, state, context):
+                logger.debug(f"❌ {mode} not feasible (infrastructure)")
                 continue
             
             # Compute actual route
@@ -147,16 +150,26 @@ class BDIPlanner:
                 mode=mode
             )
             
+            # Check if route was successfully computed
+            if not route or len(route) < 2:
+                logger.warning(f"❌ {mode} failed to compute route")
+                continue
+            
             # Check actual route distance
-            if route:
-                from simulation.spatial.coordinate_utils import route_distance_km
-                actual_route_distance = route_distance_km(route)
-                
-                # Apply strict distance constraint
-                max_distance = self.MODE_MAX_DISTANCE_KM.get(mode, float('inf'))
-                if actual_route_distance >= max_distance:
-                    logger.debug(f"Rejected {mode}: route {actual_route_distance:.1f}km >= max {max_distance}km")
-                    continue
+            from simulation.spatial.coordinate_utils import route_distance_km
+            actual_route_distance = route_distance_km(route)
+            
+            if actual_route_distance == 0.0:
+                logger.warning(f"❌ {mode} returned 0km route")
+                continue
+            
+            # Apply strict distance constraint
+            max_distance = self.MODE_MAX_DISTANCE_KM.get(mode, float('inf'))
+            if actual_route_distance >= max_distance:
+                logger.debug(f"❌ {mode} rejected: route {actual_route_distance:.1f}km >= max {max_distance}km")
+                continue
+            
+            logger.info(f"✅ {mode} viable: {actual_route_distance:.1f}km route")
             
             params = {}
             
@@ -166,6 +179,9 @@ class BDIPlanner:
             
             actions.append(Action(mode=mode, route=route, params=params))
         
+        if not actions:
+            logger.error(f"⚠️ NO ACTIONS GENERATED! Modes offered: {available_modes}")
+        
         return actions
     
     def _filter_modes_by_context(
@@ -174,100 +190,114 @@ class BDIPlanner:
         trip_distance_km: float = 0.0
     ) -> List[str]:
         """
-        Filter modes based on agent context and freight requirements.
+        ✅ CRITICAL FIX: Filter modes based on agent context and freight requirements.
         
-        NEW: Hierarchical freight vehicle selection based on:
-        - vehicle_type: micro_mobility, light_freight, medium_freight, heavy_freight
-        - cargo_capacity requirements
-        - trip distance
+        FIXED: Previously, the function would select freight modes but then
+        apply distance filtering that might leave modes empty, causing fallback
+        to default_modes which includes 'walk'.
+        
+        NEW LOGIC:
+        1. Select modes based on vehicle_type (freight hierarchy)
+        2. Apply distance filtering
+        3. If empty, use intelligent fallback based on vehicle_type
+        4. NEVER return empty list
         """
         vehicle_required = context.get('vehicle_required', False)
         cargo_capacity = context.get('cargo_capacity', False)
         vehicle_type = context.get('vehicle_type', 'personal')
         priority = context.get('priority', 'normal')
         
-        # === FREIGHT MODE SELECTION ===
-        # CRITICAL: Check vehicle_type FIRST before falling back to generic flags
+        modes = []  # Start empty
+        
+        # === STEP 1: INITIAL MODE SELECTION BY VEHICLE TYPE ===
         if vehicle_type == 'micro_mobility':
-            # Urban micro-delivery: cargo bikes ONLY (not vans!)
             modes = ['cargo_bike', 'bike']
-            logger.debug(f"Micro-mobility context: offering {modes}")
+            logger.debug(f"Micro-mobility context: initial modes {modes}")
 
         elif vehicle_type == 'heavy_freight':
             # Long-haul heavy goods
-            if trip_distance_km > 400:
-                modes = ['hgv_diesel', 'hgv_electric', 'hgv_hydrogen']
-            else:
-                modes = ['truck_diesel', 'truck_electric', 'van_diesel', 'van_electric']
-            logger.debug(f"Heavy freight context ({trip_distance_km:.1f}km): offering {modes}")
+            modes = ['hgv_diesel', 'hgv_electric', 'hgv_hydrogen', 'truck_diesel', 'truck_electric']
+            logger.debug(f"Heavy freight context: initial modes {modes}")
 
         elif vehicle_type == 'medium_freight':
-            # Medium freight: trucks ONLY (not vans)
-            modes = ['truck_electric', 'truck_diesel']
-            logger.debug(f"Medium freight context: offering {modes}")
+            # Medium freight: trucks
+            modes = ['truck_electric', 'truck_diesel', 'van_diesel', 'van_electric']
+            logger.debug(f"Medium freight context: initial modes {modes}")
 
         elif vehicle_type == 'commercial':
-            # ✅ REFINED: Light commercial - distance-aware van selection
-            # Short trips (<30km): Prefer cargo bike, allow vans
-            # Medium trips (30-100km): Vans only
-            # Long trips (>100km): Vans and trucks
-            
-            if trip_distance_km < 30:
-                modes = ['cargo_bike', 'van_electric', 'van_diesel']
-                logger.debug(f"Short commercial delivery ({trip_distance_km:.1f}km): cargo bike + vans")
-            elif trip_distance_km < 100:
-                modes = ['van_electric', 'van_diesel']
-                logger.debug(f"Medium commercial delivery ({trip_distance_km:.1f}km): vans only")
-            else:
-                modes = ['van_diesel', 'truck_diesel', 'truck_electric']
-                logger.debug(f"Long commercial delivery ({trip_distance_km:.1f}km): vans + trucks")
+            # Light commercial - vans and cargo bikes
+            modes = ['van_electric', 'van_diesel', 'cargo_bike']
+            logger.debug(f"Commercial context: initial modes {modes}")
         
         # === NON-FREIGHT MODES ===
         elif priority == 'emergency':
-            modes = ['car', 'ev']
-        elif context.get('luggage_present') or context.get('wheelchair_accessible'):
             modes = ['car', 'ev', 'bus']
+        elif context.get('luggage_present') or context.get('wheelchair_accessible'):
+            modes = ['car', 'ev', 'bus', 'tram']
         else:
             modes = self.default_modes.copy()
         
-        # === DISTANCE FILTERING WITH SAFETY MARGIN ===
-        if trip_distance_km > 0:
-            original_modes = modes.copy()
-
-            # Public transport modes for longer trips
-            if trip_distance_km > 30 and not vehicle_required:
-                if trip_distance_km > 80:
-                    modes.extend(['intercity_train', 'flight_domestic'])
+        # Store original for logging
+        original_modes = modes.copy()
+        
+        # === STEP 2: ADD MULTI-MODAL OPTIONS ===
+        if trip_distance_km > 0 and not vehicle_required:
+            # Public transport for longer trips
+            if trip_distance_km > 80:
+                modes.extend(['intercity_train', 'flight_domestic'])
+            elif trip_distance_km > 30:
                 modes.extend(['local_train', 'tram'])
             
-            # Add ferry for coastal/island routes (would need geography check)
+            # Ferry for coastal/island routes
             if context.get('coastal_route') or context.get('island_destination'):
                 modes.extend(['ferry_diesel', 'ferry_electric'])
             
             # E-scooter for short urban trips
             if trip_distance_km < 15 and not cargo_capacity:
                 modes.append('e_scooter')
-            
+        
+        # === STEP 3: DISTANCE FILTERING WITH SAFETY MARGIN ===
+        if trip_distance_km > 0:
             # Apply 0.65x safety margin (route typically 1.3-1.5x straight-line)
-            modes = [
+            filtered_modes = [
                 m for m in modes 
                 if trip_distance_km < (self.MODE_MAX_DISTANCE_KM.get(m, float('inf')) * 0.65)
             ]
             
-            filtered = set(original_modes) - set(modes)
-            if filtered:
-                logger.debug(f"Distance filter ({trip_distance_km:.1f}km): removed {filtered}")
+            removed = set(modes) - set(filtered_modes)
+            if removed:
+                logger.debug(f"Distance filter ({trip_distance_km:.1f}km): removed {removed}")
             
-            # Fallback: Keep at least one mode
-            if not modes:
-                if trip_distance_km > 400:
-                    modes = ['hgv_diesel', 'truck_diesel'] if vehicle_type in ['heavy_freight', 'medium_freight'] else ['car']
-                elif trip_distance_km > 50:
-                    modes = ['van_diesel', 'car']
-                else:
-                    modes = ['car', 'van_diesel']
-                logger.warning(f"No modes left! Using fallback: {modes}")
+            modes = filtered_modes
         
+        # === STEP 4: INTELLIGENT FALLBACK (NEVER RETURN EMPTY!) ===
+        if not modes:
+            logger.warning(f"⚠️ No modes left after filtering! Original: {original_modes}, distance: {trip_distance_km:.1f}km")
+            
+            # Fallback based on vehicle type and distance
+            if vehicle_type == 'heavy_freight':
+                modes = ['hgv_diesel']  # Always allow diesel HGV as fallback
+                logger.warning(f"Fallback: Using {modes} for heavy freight")
+            elif vehicle_type == 'medium_freight':
+                modes = ['truck_diesel']  # Always allow diesel truck
+                logger.warning(f"Fallback: Using {modes} for medium freight")
+            elif vehicle_type == 'commercial':
+                modes = ['van_diesel']  # Always allow diesel van
+                logger.warning(f"Fallback: Using {modes} for commercial")
+            elif vehicle_type == 'micro_mobility':
+                modes = ['cargo_bike']  # Always allow cargo bike
+                logger.warning(f"Fallback: Using {modes} for micro mobility")
+            else:
+                # Generic fallback by distance
+                if trip_distance_km > 200:
+                    modes = ['car', 'bus', 'intercity_train']
+                elif trip_distance_km > 50:
+                    modes = ['car', 'bus', 'local_train']
+                else:
+                    modes = ['car', 'bike', 'walk']
+                logger.warning(f"Fallback: Using {modes} for {trip_distance_km:.1f}km trip")
+        
+        logger.info(f"📋 Final modes for vehicle_type={vehicle_type}, distance={trip_distance_km:.1f}km: {modes}")
         return modes
     
     def _is_mode_feasible(
@@ -373,7 +403,6 @@ class BDIPlanner:
         infrastructure_penalty = 0.0
         
         if mode in self.EV_RANGE_KM and self.has_infrastructure:
-            # Range anxiety
             trip_distance = params.get('trip_distance_km', 0)
             max_range = self.EV_RANGE_KM.get(mode, 350.0)
             range_ratio = trip_distance / max_range
@@ -385,7 +414,6 @@ class BDIPlanner:
                 range_anxiety = desires.get('range_anxiety', 0.5)
                 infrastructure_penalty += range_anxiety * 0.5
             
-            # Charging availability
             if 'nearest_charger' in params:
                 if not params.get('charger_available', False):
                     wait_time = params.get('charger_wait_min', 30)
@@ -394,19 +422,16 @@ class BDIPlanner:
                     if w_time > 0.7:
                         infrastructure_penalty += 0.3
                 
-                # Charging cost
                 charging_cost_kwh = params.get('charging_cost_kwh', 0.15)
                 charging_cost = (trip_distance * 0.2) * charging_cost_kwh
                 cost_norm += (charging_cost / 5.0) * w_cost
                 
-                # Detour penalty
                 detour_km = params.get('charger_distance_km', 0)
                 if detour_km > 0.5:
                     time_norm += (detour_km / 30.0)
             else:
                 infrastructure_penalty += 1.0
             
-            # Grid stress
             if self.infrastructure:
                 grid_stress = self.infrastructure.get_grid_stress_factor()
                 if grid_stress > 1.0:
@@ -421,9 +446,9 @@ class BDIPlanner:
             w_time = 1.0
             w_cost = 0.0
             w_risk = 0.0
-        elif priority == 'commercial' or vehicle_type in ['commercial', 'light_freight', 'medium_freight', 'heavy_freight', 'micro_mobility']:
+        elif priority == 'commercial' or vehicle_type in ['commercial', 'medium_freight', 'heavy_freight', 'micro_mobility']:
             w_time = 0.7
-            w_cost = 0.2  # Commercial agents less sensitive to cost
+            w_cost = 0.2
 
         # Calculate total cost
         total_cost = (
@@ -443,14 +468,13 @@ class BDIPlanner:
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'
         ]
         
-        if (priority == 'commercial' or vehicle_type in ['commercial', 'light_freight', 'medium_freight', 'heavy_freight', 'micro_mobility']) and mode in freight_modes:
-            # Tiered bonus based on freight type
+        if (priority == 'commercial' or vehicle_type in ['commercial', 'medium_freight', 'heavy_freight', 'micro_mobility']) and mode in freight_modes:
             if vehicle_type == 'micro_mobility' and mode == 'cargo_bike':
-                total_cost *= 0.6  # 40% discount for cargo bikes in micro-delivery
+                total_cost *= 0.6
             elif vehicle_type in ['heavy_freight', 'medium_freight']:
-                total_cost *= 0.65  # 35% discount for trucks/HGVs
+                total_cost *= 0.65
             else:
-                total_cost *= 0.7  # 30% discount for vans
+                total_cost *= 0.7
 
         # Add stochastic noise (±15%)
         total_cost += random.uniform(-0.15, 0.15)
@@ -509,9 +533,11 @@ class BDIPlanner:
     def choose_action(self, scores: List[ActionScore]) -> Action:
         """Choose best action (lowest cost)."""
         if not scores:
+            logger.error("❌ NO SCORES TO CHOOSE FROM - RETURNING WALK FALLBACK")
             return Action(mode='walk', route=[], params={})
         
         best = min(scores, key=lambda s: s.cost)
+        logger.info(f"✅ Chose {best.action.mode} with cost {best.cost:.2f}")
         return best.action
     
     def explain_choice(
@@ -527,7 +553,6 @@ class BDIPlanner:
         if not chosen_score:
             return f"Chose {mode} (no explanation available)"
         
-        # Top desires
         top_desires = sorted(desires.items(), key=lambda x: x[1], reverse=True)[:3]
         desire_str = ', '.join(f'{k}={v:.1f}' for k, v in top_desires)
         
@@ -537,13 +562,11 @@ class BDIPlanner:
             f"  Total cost: {chosen_score.cost:.2f}\n"
         )
         
-        # Infrastructure notes
         if mode in self.EV_RANGE_KM and 'charger_wait_min' in chosen.params:
             wait = chosen.params['charger_wait_min']
             if wait > 0:
                 explanation += f"  (Charging wait: {wait:.0f} min)\n"
         
-        # Cost breakdown
         if chosen_score.breakdown:
             breakdown = chosen_score.breakdown
             top_costs = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:3]
