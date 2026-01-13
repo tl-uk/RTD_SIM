@@ -1,12 +1,13 @@
 """
 ui/sidebar_config.py
 
-Sidebar configuration with Phase 4.5G test mode (NON-DISRUPTIVE).
+Sidebar configuration with Phase 4.5G test mode and FIXED policy scenario dropdown.
 """
 
 import streamlit as st
 from pathlib import Path
 import sys
+import yaml
 
 parent_dir = Path(__file__).resolve().parent.parent
 if str(parent_dir) not in sys.path:
@@ -46,7 +47,7 @@ def render_sidebar_config():
 
 
 def _render_standard_mode():
-    """Render standard simulation configuration (your existing code)."""
+    """Render standard simulation configuration."""
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
@@ -72,7 +73,7 @@ def _render_standard_mode():
         
         st.markdown("---")
         
-        # Scenario selection
+        # Scenario selection - ✅ FIXED
         scenario_config = _render_scenario_selection()
         
         st.markdown("---")
@@ -121,14 +122,17 @@ def _render_test_mode():
             "Island Ferry Route (50km)",
             "Last Mile Scooter (3km)",
             "Accessible Tram (10km)",
-            "Gig Economy Delivery (15km)",  # ✅ ADDED for testing fix
+            "Gig Economy Delivery (15km)",
+            "HGV Construction Delivery (67km)",  # ✅ ADDED for freight testing
+            "Van Service Call (25km)",
+            "Truck Regional Distribution (120km)",
         ]
     )
     
     # Get pre-configured test
     origin_name, dest_name, user_story, job_story, expected_modes = _get_test_case_config(test_case)
     
-    st.info(f"📍 **Route**: {origin_name} → {dest_name}")
+    st.info(f"🗺️ **Route**: {origin_name} → {dest_name}")
     st.info(f"👤 **Persona**: {user_story}")
     st.info(f"📋 **Job**: {job_story}")
     st.success(f"✅ **Expected Modes**: {', '.join(expected_modes)}")
@@ -181,10 +185,25 @@ def _get_test_case_config(test_case: str) -> tuple:
             "disabled_commuter", "accessible_tram_journey",
             ["tram", "bus"]
         ),
-        "Gig Economy Delivery (15km)": (  # ✅ NEW TEST CASE
+        "Gig Economy Delivery (15km)": (
             "Edinburgh", "Leith",
             "delivery_driver", "gig_economy_delivery",
-            ["cargo_bike", "van_electric"]  # Should NOT get truck!
+            ["cargo_bike", "van_electric"]
+        ),
+        "HGV Construction Delivery (67km)": (  # ✅ NEW
+            "Edinburgh", "Glasgow",
+            "freight_driver", "hgv_construction_delivery_generated",
+            ["hgv_diesel", "hgv_electric", "truck_diesel"]
+        ),
+        "Van Service Call (25km)": (  # ✅ NEW
+            "Edinburgh", "Livingston",
+            "service_engineer", "service_engineer_call",
+            ["van_electric", "van_diesel"]
+        ),
+        "Truck Regional Distribution (120km)": (  # ✅ NEW
+            "Edinburgh", "Stirling",
+            "freight_driver", "truck_regional_distribution_generated",
+            ["truck_diesel", "truck_electric"]
         ),
     }
     return configs.get(test_case, (
@@ -195,7 +214,7 @@ def _get_test_case_config(test_case: str) -> tuple:
 
 
 # ============================================================================
-# EXISTING HELPER FUNCTIONS (unchanged)
+# HELPER FUNCTIONS
 # ============================================================================
 
 def _render_location_settings():
@@ -323,14 +342,105 @@ def _render_advanced_features():
 
 
 def _render_scenario_selection():
-    """Render scenario selection section."""
-    st.markdown("### 📋 Policy Scenarios")
+    """
+    ✅ FIXED: Phase 4.5B: Render scenario selection section.
+    
+    Returns:
+        dict: Scenario configuration
+    """
+    st.markdown("### 📋 Policy Scenarios (Phase 4.5B)")
     
     # Check if scenarios available
     scenarios_dir = Path(__file__).resolve().parent.parent / 'scenarios' / 'configs'
+    available_scenarios = list_available_scenarios(scenarios_dir)
     
-    # Simplified: just show None for now
+    if not available_scenarios:
+        st.warning("⚠️ No scenarios found in scenarios/configs/")
+        st.info("💡 Create YAML files in scenarios/configs/ to define policy scenarios")
+        return {'scenario_name': None, 'scenarios_dir': scenarios_dir}
+    
+    # Add "None (Baseline)" option
+    scenario_options = ['None (Baseline)'] + available_scenarios
+    
+    selected = st.selectbox(
+        "Select Policy Scenario",
+        options=scenario_options,
+        index=0,
+        help="Choose a policy scenario to apply, or None for baseline"
+    )
+    
+    scenario_name = None if selected == 'None (Baseline)' else selected
+    
+    # Show scenario details if selected
+    if scenario_name:
+        scenario_info = get_scenario_info(scenario_name, scenarios_dir)
+        if scenario_info:
+            with st.expander("📝 Scenario Details", expanded=True):
+                st.write(f"**Description:** {scenario_info['description']}")
+                st.write(f"**Policies:** {scenario_info['num_policies']}")
+                
+                if scenario_info.get('expected_outcomes'):
+                    st.markdown("**Expected Outcomes:**")
+                    for outcome, value in scenario_info['expected_outcomes'].items():
+                        st.write(f"- {outcome}: {value:+.1%}")
+    
     return {
-        'scenario_name': None,
+        'scenario_name': scenario_name,
         'scenarios_dir': scenarios_dir
     }
+
+
+def list_available_scenarios(scenarios_dir: Path) -> list:
+    """
+    ✅ FIXED: List all available scenario YAML files.
+    
+    Args:
+        scenarios_dir: Path to scenarios/configs directory
+    
+    Returns:
+        List of scenario names (without .yaml extension)
+    """
+    if not scenarios_dir.exists():
+        return []
+    
+    yaml_files = list(scenarios_dir.glob('*.yaml'))
+    
+    # Return filenames without extension
+    scenario_names = [f.stem for f in yaml_files]
+    
+    return sorted(scenario_names)
+
+
+def get_scenario_info(scenario_name: str, scenarios_dir: Path) -> dict:
+    """
+    ✅ FIXED: Load scenario metadata from YAML file.
+    
+    Args:
+        scenario_name: Scenario filename (without .yaml)
+        scenarios_dir: Path to scenarios/configs directory
+    
+    Returns:
+        Dict with scenario metadata
+    """
+    scenario_path = scenarios_dir / f"{scenario_name}.yaml"
+    
+    if not scenario_path.exists():
+        return {}
+    
+    try:
+        with open(scenario_path, 'r') as f:
+            scenario_data = yaml.safe_load(f)
+        
+        # Extract metadata
+        metadata = scenario_data.get('metadata', {})
+        policies = scenario_data.get('policies', [])
+        
+        return {
+            'description': metadata.get('description', 'No description'),
+            'num_policies': len(policies),
+            'expected_outcomes': metadata.get('expected_outcomes', {}),
+        }
+    
+    except Exception as e:
+        st.error(f"Error loading scenario {scenario_name}: {e}")
+        return {}
