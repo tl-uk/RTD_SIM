@@ -5,6 +5,8 @@ Handles:
 - Basic routing (shortest path)
 - Route alternatives (fastest, safest, greenest, scenic)
 - Weight functions for different routing objectives
+
+FIXED: Complete mode_network_types mapping for all 21 transport modes
 """
 
 from __future__ import annotations
@@ -48,26 +50,84 @@ class Router:
         self.graph_manager = graph_manager
         self.congestion_manager = congestion_manager
         
-        # Mode to network type mapping
+        # ✅ FIXED: Complete mode to network type mapping for ALL modes
         self.mode_network_types = {
+            # Active mobility
             'walk': 'walk',
             'bike': 'bike',
+            'cargo_bike': 'bike',
+            'e_scooter': 'bike',  # Use bike network for e-scooters
+            
+            # Passenger vehicles
             'bus': 'drive',
             'car': 'drive',
             'ev': 'drive',
-            'van_electric': 'drive',  # NEW: Use drive network
-            'van_diesel': 'drive',    # NEW: Use drive network
+            
+            # Light commercial (Phase 4.5F)
+            'van_electric': 'drive',
+            'van_diesel': 'drive',
+            
+            # Medium freight (Phase 4.5F)
+            'truck_electric': 'drive',
+            'truck_diesel': 'drive',
+            
+            # Heavy freight (Phase 4.5F)
+            'hgv_electric': 'drive',
+            'hgv_diesel': 'drive',
+            'hgv_hydrogen': 'drive',
+            
+            # Public transport (Phase 4.5G)
+            'tram': 'drive',  # Trams use dedicated tracks but fallback to drive network
+            'local_train': 'drive',  # Trains use rail network (not in OSM), use drive as proxy
+            'intercity_train': 'drive',
+            
+            # Maritime (Phase 4.5G)
+            'ferry_diesel': 'drive',  # Ferry routes not in OSM, use drive network to port
+            'ferry_electric': 'drive',
+            
+            # Aviation (Phase 4.5G)
+            'flight_domestic': 'drive',  # Flight routes not in OSM, use drive to airport
+            'flight_electric': 'drive',
         }
         
-        # Speed in km per minute for time-based routing
+        # ✅ FIXED: Complete speed mapping for ALL modes
         self.speeds_km_min = {
-            'walk': 0.083,
-            'bike': 0.25,
-            'bus': 0.33,
-            'car': 0.5,
+            # Active mobility
+            'walk': 0.083,  # 5 km/h
+            'bike': 0.25,   # 15 km/h
+            'cargo_bike': 0.20,  # 12 km/h (heavier)
+            'e_scooter': 0.33,   # 20 km/h
+            
+            # Passenger vehicles
+            'bus': 0.33,    # 20 km/h city average
+            'car': 0.5,     # 30 km/h city average
             'ev': 0.5,
-            'van_electric': 0.45,  # NEW
-            'van_diesel': 0.45,    # NEW
+            
+            # Light commercial (Phase 4.5F)
+            'van_electric': 0.45,  # 27 km/h
+            'van_diesel': 0.45,
+            
+            # Medium freight (Phase 4.5F)
+            'truck_electric': 0.40,  # 24 km/h
+            'truck_diesel': 0.40,
+            
+            # Heavy freight (Phase 4.5F)
+            'hgv_electric': 0.35,  # 21 km/h
+            'hgv_diesel': 0.42,    # 25 km/h
+            'hgv_hydrogen': 0.42,
+            
+            # Public transport (Phase 4.5G)
+            'tram': 0.42,           # 25 km/h
+            'local_train': 1.0,     # 60 km/h
+            'intercity_train': 2.0, # 120 km/h
+            
+            # Maritime (Phase 4.5G)
+            'ferry_diesel': 0.58,   # 35 km/h
+            'ferry_electric': 0.50, # 30 km/h
+            
+            # Aviation (Phase 4.5G)
+            'flight_domestic': 7.5,    # 450 km/h
+            'flight_electric': 5.83,   # 350 km/h
         }
     
     def compute_route(
@@ -93,11 +153,12 @@ class Router:
             logger.warning(f"Invalid coords: {origin} → {dest}")
             return [origin, dest]
         
-        network_type = self.mode_network_types.get(mode, 'all')
+        # ✅ FIXED: Now all modes have network mapping
+        network_type = self.mode_network_types.get(mode, 'drive')  # Default to 'drive' instead of 'all'
         graph = self.graph_manager.get_graph(network_type)
         
         if graph is None:
-            logger.warning(f"No graph available for {mode}")
+            logger.warning(f"No graph available for {mode} (network: {network_type})")
             return [origin, dest]
         
         try:
@@ -105,7 +166,7 @@ class Router:
             dest_node = self.graph_manager.get_nearest_node(dest, network_type)
             
             if orig_node is None or dest_node is None:
-                logger.warning(f"Could not find nodes for {agent_id}")
+                logger.warning(f"Could not find nodes for {agent_id} ({mode})")
                 return [origin, dest]
             
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
@@ -114,6 +175,7 @@ class Router:
                 for n in route_nodes
             ]
             
+            logger.debug(f"✅ Route computed for {agent_id}: {mode}, {len(coords)} waypoints")
             return coords
         
         except nx.NetworkXNoPath:
@@ -182,7 +244,7 @@ class Router:
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
             return None
         
-        network_type = self.mode_network_types.get(mode, 'all')
+        network_type = self.mode_network_types.get(mode, 'drive')
         graph = self.graph_manager.get_graph(network_type)
         
         if graph is None:
@@ -269,7 +331,7 @@ class Router:
                 highway_type = highway_type[0] if highway_type else 'residential'
             
             # Risk factors for vulnerable modes
-            if mode in ['walk', 'bike']:
+            if mode in ['walk', 'bike', 'cargo_bike', 'e_scooter']:
                 if highway_type in ['motorway', 'motorway_link', 'trunk', 'trunk_link']:
                     risk_factor = 100.0  # Strongly avoid
                 elif highway_type in ['primary', 'primary_link']:

@@ -1,0 +1,287 @@
+# scenarios/configs/ - Phase 4.5F: Comprehensive Freight Scenarios
+
+# ============================================================================
+# complete_supply_chain_electrification.yaml
+# ============================================================================
+name: Complete Supply Chain Electrification
+description: Aggressive electrification across all freight segments (first to last mile)
+policies:
+  # Micro-delivery incentives
+  - parameter: cost_reduction
+    value: 50.0
+    target: mode
+    mode: cargo_bike
+  
+  # Light freight (vans)
+  - parameter: cost_reduction
+    value: 40.0
+    target: mode
+    mode: van_electric
+  
+  # Medium freight (trucks)
+  - parameter: cost_reduction
+    value: 35.0
+    target: mode
+    mode: truck_electric
+  
+  # Heavy freight (HGVs)
+  - parameter: cost_reduction
+    value: 30.0
+    target: mode
+    mode: hgv_electric
+  
+  # Add charging infrastructure
+  - parameter: add_chargers
+    value: 30
+    target: infrastructure
+  
+  # Increase grid capacity
+  - parameter: increase_capacity
+    value: 1.5
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  cargo_bike_adoption: 0.7
+  van_electric_adoption: 0.6
+  truck_electric_adoption: 0.4
+  hgv_electric_adoption: 0.25
+  total_freight_emissions_reduction: 0.5
+metadata:
+  policy_type: comprehensive_electrification
+  target_sector: all_freight
+  investment_level: high
+
+# ============================================================================
+# urban_freight_consolidation.yaml
+# ============================================================================
+---
+name: Urban Freight Consolidation
+description: Promote micro-mobility for last-mile delivery in city centers
+policies:
+  # Heavy subsidy for cargo bikes
+  - parameter: cost_reduction
+    value: 60.0
+    target: mode
+    mode: cargo_bike
+  
+  # Moderate van electric subsidy
+  - parameter: cost_reduction
+    value: 30.0
+    target: mode
+    mode: van_electric
+  
+  # Diesel van congestion charge
+  - parameter: cost_multiplier
+    value: 3.0
+    target: mode
+    mode: van_diesel
+  
+  # Diesel truck ban in city center (proxy via high cost)
+  - parameter: cost_multiplier
+    value: 5.0
+    target: mode
+    mode: truck_diesel
+
+duration: 100
+expected_outcomes:
+  cargo_bike_adoption: 0.8
+  van_electric_adoption: 0.5
+  van_diesel_reduction: 0.6
+  urban_emissions_reduction: 0.4
+metadata:
+  policy_type: urban_consolidation
+  zone: city_center
+  target_sector: last_mile_delivery
+
+# ============================================================================
+# hydrogen_hgv_pilot.yaml
+# ============================================================================
+---
+name: Hydrogen HGV Pilot Program
+description: Test hydrogen fuel cell HGVs for long-haul freight
+policies:
+  # Hydrogen HGV subsidy (early adopter program)
+  - parameter: cost_reduction
+    value: 45.0
+    target: mode
+    mode: hgv_hydrogen
+  
+  # E-HGV subsidy (comparison group)
+  - parameter: cost_reduction
+    value: 30.0
+    target: mode
+    mode: hgv_electric
+  
+  # Diesel HGV carbon tax
+  - parameter: cost_multiplier
+    value: 1.3
+    target: mode
+    mode: hgv_diesel
+  
+  # Add heavy vehicle charging/refueling stations
+  - parameter: add_chargers
+    value: 15
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  hgv_hydrogen_adoption: 0.15
+  hgv_electric_adoption: 0.20
+  hgv_diesel_reduction: 0.35
+  long_haul_emissions_reduction: 0.30
+metadata:
+  policy_type: technology_pilot
+  target_sector: heavy_freight
+  technology_focus: hydrogen
+
+# ============================================================================
+# tiered_freight_transition.yaml
+# ============================================================================
+---
+name: Tiered Freight Transition
+description: Phased approach - start with light freight, scale to heavy
+policies:
+  # Phase 1: Vans (highest subsidy)
+  - parameter: cost_reduction
+    value: 45.0
+    target: mode
+    mode: van_electric
+  
+  # Phase 2: Trucks (moderate subsidy)
+  - parameter: cost_reduction
+    value: 30.0
+    target: mode
+    mode: truck_electric
+  
+  # Phase 3: HGVs (lower subsidy, newer tech)
+  - parameter: cost_reduction
+    value: 20.0
+    target: mode
+    mode: hgv_electric
+  
+  # Gradual diesel phase-out
+  - parameter: cost_multiplier
+    value: 1.2
+    target: mode
+    mode: van_diesel
+  
+  - parameter: cost_multiplier
+    value: 1.15
+    target: mode
+    mode: truck_diesel
+  
+  - parameter: cost_multiplier
+    value: 1.1
+    target: mode
+    mode: hgv_diesel
+
+duration: 100
+expected_outcomes:
+  van_electric_adoption: 0.65
+  truck_electric_adoption: 0.35
+  hgv_electric_adoption: 0.15
+  total_freight_emissions_reduction: 0.40
+metadata:
+  policy_type: phased_transition
+  target_sector: all_freight
+  approach: tiered_by_vehicle_class
+
+# ============================================================================
+# depot_based_electrification.yaml
+# ============================================================================
+---
+name: Depot-Based Electrification
+description: Focus on depot charging for return-to-base fleets
+policies:
+  # Subsidy for electric modes (all freight)
+  - parameter: cost_reduction
+    value: 35.0
+    target: mode
+    mode: van_electric
+  
+  - parameter: cost_reduction
+    value: 30.0
+    target: mode
+    mode: truck_electric
+  
+  - parameter: cost_reduction
+    value: 25.0
+    target: mode
+    mode: hgv_electric
+  
+  # Depot infrastructure investment (grid capacity)
+  - parameter: increase_capacity
+    value: 2.0
+    target: infrastructure
+  
+  # Add depot chargers
+  - parameter: add_chargers
+    value: 25
+    target: infrastructure
+  
+  # Reduce charging costs (depot overnight rates)
+  - parameter: charging_cost_multiplier
+    value: 0.7
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  van_electric_adoption: 0.55
+  truck_electric_adoption: 0.40
+  hgv_electric_adoption: 0.20
+  charging_utilization_improvement: 0.30
+metadata:
+  policy_type: infrastructure_focused
+  target_sector: return_to_base_fleets
+  infrastructure: depot_charging
+
+# ============================================================================
+# zero_emission_delivery_zones.yaml
+# ============================================================================
+---
+name: Zero Emission Delivery Zones
+description: Mandate zero-emission vehicles for urban delivery
+policies:
+  # Ban diesel vans and trucks in city (via extreme cost)
+  - parameter: cost_multiplier
+    value: 10.0
+    target: mode
+    mode: van_diesel
+  
+  - parameter: cost_multiplier
+    value: 10.0
+    target: mode
+    mode: truck_diesel
+  
+  # Heavily subsidize zero-emission alternatives
+  - parameter: cost_reduction
+    value: 50.0
+    target: mode
+    mode: cargo_bike
+  
+  - parameter: cost_reduction
+    value: 40.0
+    target: mode
+    mode: van_electric
+  
+  - parameter: cost_reduction
+    value: 35.0
+    target: mode
+    mode: truck_electric
+  
+  # Dense urban charging network
+  - parameter: add_chargers
+    value: 40
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  cargo_bike_adoption: 0.75
+  van_electric_adoption: 0.90
+  truck_electric_adoption: 0.85
+  urban_air_quality_improvement: 0.60
+metadata:
+  policy_type: zero_emission_zone
+  zone: city_center
+  enforcement: strict
