@@ -413,7 +413,7 @@ def list_available_scenarios(scenarios_dir: Path) -> list:
 
 def get_scenario_info(scenario_name: str, scenarios_dir: Path) -> dict:
     """
-    ✅ FIXED: Load scenario metadata from YAML file.
+    ✅ FIXED: Load scenario metadata from YAML file (supports multi-document).
     
     Args:
         scenario_name: Scenario filename (without .yaml)
@@ -429,15 +429,27 @@ def get_scenario_info(scenario_name: str, scenarios_dir: Path) -> dict:
     
     try:
         with open(scenario_path, 'r') as f:
-            scenario_data = yaml.safe_load(f)
+            # ✅ FIXED: Use safe_load_all for multi-document YAML
+            documents = list(yaml.safe_load_all(f))
         
-        # Extract metadata
-        metadata = scenario_data.get('metadata', {})
-        policies = scenario_data.get('policies', [])
+        # First document should have metadata
+        if not documents:
+            return {'description': 'Empty scenario file', 'num_policies': 0, 'expected_outcomes': {}}
+        
+        first_doc = documents[0]
+        
+        # Extract metadata from first document
+        metadata = first_doc.get('metadata', {})
+        
+        # Count policies across all documents
+        total_policies = 0
+        for doc in documents:
+            if doc and 'policies' in doc:
+                total_policies += len(doc.get('policies', []))
         
         return {
             'description': metadata.get('description', 'No description'),
-            'num_policies': len(policies),
+            'num_policies': total_policies,
             'expected_outcomes': metadata.get('expected_outcomes', {}),
         }
     
