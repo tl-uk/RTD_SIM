@@ -239,8 +239,11 @@ def _render_location_settings():
             st.info("🏙️ City scale: ~30km radius, good for walk/bike/car/EV")
         elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
             place = None
-            extended_bbox = (-4.50, 55.70, -2.90, 56.10)
-            st.success("📦 Regional scale: ~100km, enables freight between cities")
+            # OSMnx (min_lat, min_lon, max_lat, max_lon)
+            # extended_bbox = (-4.50, 55.70, -2.90, 56.10)
+            # st.success("📦 Regional scale: ~100km, enables freight between cities")
+            extended_bbox = (-4.30, 55.80, -3.10, 56.00)  # Smaller, working size
+            st.success("📦 Regional corridor: ~80km, good for freight routes")
         else:
             place = st.text_input("City/Place Name", "Edinburgh, UK")
             extended_bbox = None
