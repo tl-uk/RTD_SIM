@@ -21,7 +21,7 @@ if str(parent_dir) not in sys.path:
 
 from simulation.spatial_environment import SpatialEnvironment
 from agent.bdi_planner import BDIPlanner
-from simulation.infrastructure_manager import InfrastructureManager
+from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 
 
 def test_single_freight_agent():
