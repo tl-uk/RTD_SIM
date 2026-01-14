@@ -56,7 +56,7 @@ def check_graph_in_simulation():
     print("-" * 80)
     
     env2 = SpatialEnvironment()
-    bbox = (-4.50, 55.70, -2.90, 56.10)
+    bbox = (-4.30, 55.80, -3.10, 56.00)  # Smaller, working size
     
     print(f"Loading bbox: {bbox}")
     print("This may take a while if not cached...")
