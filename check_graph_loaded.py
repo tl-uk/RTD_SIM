@@ -97,7 +97,7 @@ def check_graph_in_simulation():
         steps=100,
         num_agents=50,
         place=None,  # You're using bbox, not place
-        extended_bbox=(-4.50, 55.70, -2.90, 56.10),
+        extended_bbox=(-4.30, 55.80, -3.10, 56.00),
         use_osm=True,
         user_stories=['eco_warrior', 'budget_student'],
         job_stories=['long_haul_freight', 'port_to_warehouse'],
