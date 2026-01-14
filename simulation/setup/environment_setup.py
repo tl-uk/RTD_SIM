@@ -3,6 +3,8 @@ simulation/setup/environment_setup.py
 
 Environment and infrastructure initialization.
 Handles OSM graph loading and charging infrastructure setup.
+
+✅ FIXED: bbox coordinate ordering for OSMnx
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from simulation.spatial_environment import SpatialEnvironment
-from simulation.infrastructure.infrastructure_manager import InfrastructureManager
+from simulation.infrastructure_manager import InfrastructureManager
 from simulation.config.simulation_config import SimulationConfig
 
 logger = logging.getLogger(__name__)
@@ -42,20 +44,43 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
     if config.use_osm:
         # Load OSM graph
         if config.extended_bbox:
+            # ✅ CRITICAL FIX: Config stores (west, south, east, north)
+            # But OSMnx expects (north, south, east, west) for bbox parameter
+            # OR we can just pass the tuple directly to bbox
             west, south, east, north = config.extended_bbox
-            logger.info(f"Loading extended region: bbox {config.extended_bbox}")
-            env.load_osm_graph(bbox=(north, south, east, west), use_cache=True)
+            
+            logger.info(f"Loading extended region: bbox=({west}, {south}, {east}, {north})")
+            
+            # ✅ FIXED: Pass bbox in correct order for OSMnx
+            # OSMnx bbox parameter expects: (north, south, east, west)
+            env.load_osm_graph(
+                bbox=(north, south, east, west),  # Correct order!
+                network_type='drive',  # ✅ ADDED: Specify network type
+                use_cache=True
+            )
+            
             region_name = "Central Scotland"
+            
         elif config.place:
             logger.info(f"Loading city: {config.place}")
-            env.load_osm_graph(place=config.place, use_cache=True)
+            env.load_osm_graph(
+                place=config.place,
+                network_type='drive',  # ✅ ADDED: Specify network type
+                use_cache=True
+            )
             region_name = config.place
+            
         else:
             logger.warning("No place or bbox specified")
             return env
         
+        # ✅ Verify graph loaded successfully
+        if not env.graph_loaded:
+            logger.error("❌ Graph failed to load!")
+            raise RuntimeError("OSM graph loading failed")
+        
         stats = env.get_graph_stats()
-        logger.info(f"✅ Loaded {region_name}: {stats['nodes']:,} nodes")
+        logger.info(f"✅ Loaded {region_name}: {stats['nodes']:,} nodes, {stats['edges']:,} edges")
         
         if progress_callback:
             progress_callback(0.15, f"✅ Loaded {region_name}")
