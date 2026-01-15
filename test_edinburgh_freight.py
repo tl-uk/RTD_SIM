@@ -17,7 +17,7 @@ if str(parent_dir) not in sys.path:
 
 from simulation.spatial_environment import SpatialEnvironment
 from agent.bdi_planner import BDIPlanner
-from simulation.infrastructure.infrastructure_manager import InfrastructureManager
+from simulation.infrastructure_manager import InfrastructureManager
 from agent.story_driven_agent import StoryDrivenAgent
 
 print("\n" + "="*80)
@@ -70,8 +70,15 @@ try:
     
     print(f"✅ Agent created: {agent.state.agent_id}")
     print(f"   Context: {agent.agent_context}")
-    print(f"   Mode: {agent.state.mode}")
-    print(f"   Route points: {len(agent.state.route)}")
+    print(f"   Mode BEFORE planning: {agent.state.mode}")
+    print(f"   Route points BEFORE: {len(agent.state.route)}\n")
+    
+    # ✅ TEST THE FIX: Call _maybe_plan() to compute initial route
+    print("🔧 Calling agent._maybe_plan(env) to compute route...")
+    agent._maybe_plan(env)
+    
+    print(f"   Mode AFTER planning: {agent.state.mode}")
+    print(f"   Route points AFTER: {len(agent.state.route)}")
     print(f"   Distance: {agent.state.distance_km:.1f} km\n")
     
     # Check if routing worked
