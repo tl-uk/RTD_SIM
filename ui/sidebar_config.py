@@ -240,10 +240,8 @@ def _render_location_settings():
         elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
             place = None
             # OSMnx (min_lat, min_lon, max_lat, max_lon)
-            # extended_bbox = (-4.50, 55.70, -2.90, 56.10)
-            # st.success("📦 Regional scale: ~100km, enables freight between cities")
-            extended_bbox = (-4.30, 55.80, -3.10, 56.00)  # Smaller, working size
-            st.success("📦 Regional corridor: ~80km, good for freight routes")
+            extended_bbox = (-4.50, 55.70, -2.90, 56.10)
+            st.success("📦 Regional scale: ~100km, enables freight between cities")
         else:
             place = st.text_input("City/Place Name", "Edinburgh, UK")
             extended_bbox = None

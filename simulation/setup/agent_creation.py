@@ -13,7 +13,7 @@ from typing import List, Dict, Tuple, Any, Optional
 
 from agent.bdi_planner import BDIPlanner
 from simulation.config.simulation_config import SimulationConfig
-from simulation.infrastructure_manager import InfrastructureManager
+from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 from simulation.spatial_environment import SpatialEnvironment
 
 logger = logging.getLogger(__name__)
