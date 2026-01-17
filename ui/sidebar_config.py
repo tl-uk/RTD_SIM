@@ -237,10 +237,10 @@ def _render_location_settings():
             place = "Edinburgh, UK"
             extended_bbox = None
             st.info("🏙️ City scale: ~30km radius, good for walk/bike/car/EV")
-        elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
+        elif region_choice == 'Central Scotland (Aberdeen-Edinburgh-Glasgow)':
             place = None
             # OSMnx (min_lat, min_lon, max_lat, max_lon)
-            extended_bbox = (-4.30, 55.80, -3.10, 56.00)
+            extended_bbox = (57.25, 55.80, -1.95, -4.50) #(-4.30, 55.80, -3.10, 56.00)
             st.success("📦 Regional scale: ~100km, enables freight between cities")
         else:  # Custom Place
             # Session state handling
