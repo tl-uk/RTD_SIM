@@ -1,3 +1,6 @@
+# job_contexts/passenger.yaml
+# Passenger job contexts for various personal travel scenarios
+
 morning_commute:
   context: When commuting to work during rush hour
   goal: I want to arrive on time without stress

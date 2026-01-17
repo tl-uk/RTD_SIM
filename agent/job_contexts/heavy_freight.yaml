@@ -1,3 +1,6 @@
+# job_contexts/heavy_freight.yaml
+# Heavy freight job contexts for long-haul and large cargo transport scenarios
+
 long_haul_freight:
   context: When transporting full loads over long distances between cities
   goal: I want to complete routes efficiently while managing driver hours and costs

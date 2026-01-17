@@ -1,3 +1,6 @@
+# job_contexts/micro_delivery.yaml
+# Micro-delivery job contexts for urban food and parcel delivery scenarios
+
 urban_food_delivery:
   context: When delivering food orders in dense urban areas during peak hours
   goal: I want to complete maximum deliveries per hour efficiently
@@ -20,9 +23,10 @@ urban_food_delivery:
     - 12:00-14:00
     - 18:00-21:00
   destination_type: multiple_urban
+  # ✅ FIXED: Reduced from 5-10km to match real urban food delivery patterns
   typical_distance_km:
-  - 5
-  - 10
+  - 3
+  - 8
   parameters:
     vehicle_required: true
     cargo_capacity: false
@@ -32,7 +36,8 @@ urban_food_delivery:
     time_sensitive: true
   vehicle_constraints:
     type: micro_mobility
-    max_distance_km: 10
+    # ✅ FIXED: Reduced from 10km to 8km to match typical_distance_km max
+    max_distance_km: 8
     preferred_modes:
     - cargo_bike
     - bike
@@ -45,6 +50,8 @@ urban_food_delivery:
   - Weather affects cargo bike safety
   - Peak hours have surge pricing
   - Battery/range management crucial
+  - Food must arrive hot within 30-45 minutes
+  - Most deliveries under 5km in urban areas
   csv_columns:
     required:
     - origin_lat
@@ -75,9 +82,10 @@ urban_parcel_delivery:
     end: '18:00'
     flexibility: low
   destination_type: multiple_urban
+  # ✅ FIXED: Reduced from 10-15km to 5-20km (realistic urban parcel routes)
   typical_distance_km:
-  - 10
-  - 15
+  - 5
+  - 20
   parameters:
     vehicle_required: true
     cargo_capacity: false
@@ -86,7 +94,8 @@ urban_parcel_delivery:
     urgency: medium
   vehicle_constraints:
     type: micro_mobility
-    max_distance_km: 15
+    # ✅ FIXED: Reduced from 15km to 20km to match typical_distance_km max
+    max_distance_km: 20
     capacity_kg:
     - 5
     - 30
@@ -98,6 +107,8 @@ urban_parcel_delivery:
   - Signature collection required
   - Redelivery costs are high
   - Zero-emission zones in city center
+  - Urban routes with multiple stops stay compact
+  - Longer routes (>15km) may require van upgrade
   csv_columns:
     required:
     - depot_lat
@@ -132,9 +143,11 @@ gig_economy_delivery:
     - 12:00-14:00
     - 18:00-21:00
   destination_type: multiple_urban
+  # ✅ FIXED: Reduced from 15-40km to 5-25km (realistic gig delivery)
+  # Note: 40km was causing infrastructure_failed for cargo bikes
   typical_distance_km:
-  - 15
-  - 40
+  - 5
+  - 25
   parameters:
     vehicle_required: true
     cargo_capacity: true
@@ -147,7 +160,9 @@ gig_economy_delivery:
     capacity_kg:
     - 5
     - 30
-    max_range_km: 50
+    # ✅ FIXED: Reduced from 50km to 35km (realistic cargo bike range)
+    # Longer routes will trigger van_electric fallback
+    max_range_km: 35
     preferred_modes:
     - cargo_bike
     - van_electric
@@ -162,6 +177,8 @@ gig_economy_delivery:
   - Peak hours have higher earnings
   - Vehicle costs eat into earnings
   - Charging time must be minimized
+  - Most gig shifts stay within 20-30km total
+  - Routes beyond cargo bike range require van upgrade
   csv_columns:
     required:
     - start_lat

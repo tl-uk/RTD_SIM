@@ -1,3 +1,6 @@
+# job_contexts/light_commercial.yaml
+# Light commercial job contexts for service and delivery scenarios
+
 service_engineer_call:
   context: When responding to service calls with tools and replacement parts
   goal: I want reliable transport to reach customers quickly with all equipment

@@ -1,3 +1,6 @@
+# job_contexts/medium_freight.yaml
+# Medium freight job contexts for regional distribution and delivery scenarios
+
 regional_distribution:
   context: When delivering goods from regional distribution center to retail stores
   goal: I want efficient multi-stop routes that minimize time and fuel

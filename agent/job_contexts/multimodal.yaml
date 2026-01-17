@@ -1,3 +1,6 @@
+# job_contexts/multimodal.yaml
+# Multimodal job contexts for various travel scenarios involving multiple transport modes
+
 intercity_train_commute:
   context: When commuting between cities daily by train
   goal: I want reliable train service that allows productive travel time
