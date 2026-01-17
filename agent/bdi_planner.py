@@ -226,7 +226,7 @@ class BDIPlanner:
         
         return actions
     
-    # CRITICAL FIX: Revised mode filtering logic
+    # Revised mode filtering logic
     def _filter_modes_by_context(self, context: Dict, trip_distance_km: float = 0.0) -> List[str]:
         """Fixed version with better cargo_bike handling."""
         
@@ -239,8 +239,17 @@ class BDIPlanner:
         
         # STEP 1: Initial mode selection
         if vehicle_type == 'micro_mobility':
-            modes = ['cargo_bike', 'bike']
-            logger.debug(f"Micro-mobility context: initial modes {modes}")
+            if trip_distance_km > 25:
+                # Long "urban" delivery → actually regional, use van
+                modes = ['van_electric', 'van_diesel', 'cargo_bike']
+                logger.warning(
+                    f"Micro-mobility trip {trip_distance_km:.1f}km > 25km → "
+                    f"offering van upgrade (regional bbox effect)"
+                )
+            else:
+                # Normal urban delivery
+                modes = ['cargo_bike', 'bike']
+                logger.debug(f"Micro-mobility context: initial modes {modes}")
         
         elif vehicle_type == 'heavy_freight':
             modes = ['hgv_diesel', 'hgv_electric', 'hgv_hydrogen', 'truck_diesel', 'truck_electric']
@@ -283,7 +292,7 @@ class BDIPlanner:
             for m in modes:
                 max_distance = self.MODE_MAX_DISTANCE_KM.get(m, float('inf'))
                 
-                # âœ… SPECIAL CASE: Cargo bike gets 0.9x margin instead of 0.65x
+                # SPECIAL CASE: Cargo bike gets 0.9x margin instead of 0.65x
                 # This allows up to 45km trips (50km * 0.9) instead of 32.5km (50km * 0.65)
                 if m == 'cargo_bike':
                     safety_factor = 0.9  # More generous for cargo bikes
@@ -313,10 +322,9 @@ class BDIPlanner:
                 modes = ['van_diesel']
                 logger.warning(f"Fallback: Using {modes} for commercial")
             elif vehicle_type == 'micro_mobility':
-                # âœ… CRITICAL FIX: Even for long distances, try cargo_bike
-                # If it fails routing, that's better than immediate walk fallback
-                modes = ['cargo_bike']
-                logger.warning(f"Fallback: Using {modes} for micro mobility (may exceed range)")
+                # ✅ FIX 2: Upgrade to van if we're in fallback (means too long)
+                modes = ['van_diesel', 'van_electric']
+                logger.warning(f"Fallback: Upgrading micro-mobility to VAN (trip too long for cargo bike)")
             else:
                 if trip_distance_km > 200:
                     modes = ['car', 'bus', 'intercity_train']
@@ -342,7 +350,7 @@ class BDIPlanner:
         
         Cargo bikes and e-scooters don't need charging stations
         """
-        # CRITICAL FIX: Only check infrastructure for VEHICLE EVs
+        # Only check infrastructure for VEHICLE EVs
         # Cargo bikes and e-scooters don't use charging infrastructure
         non_infrastructure_evs = ['cargo_bike', 'e_scooter', 'bike']
         
