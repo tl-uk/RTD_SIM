@@ -147,7 +147,7 @@ def log_walk_agent_diagnostics(agents: List[Any], env: Any):
         if getattr(a, 'agent_context', {}).get('vehicle_required', False)
     ]
     
-    logger.info(f"ðŸ" WALK AGENT DIAGNOSTICS")
+    logger.info(f"   WALK AGENT DIAGNOSTICS")
     logger.info(f"   Total agents: {len(agents)}")
     logger.info(f"   Walking: {len(walk_agents)} ({len(walk_agents)/len(agents)*100:.1f}%)")
     logger.info(f"   PROBLEM (vehicle_required=True): {len(problem_agents)}")
