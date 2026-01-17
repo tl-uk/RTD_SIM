@@ -228,7 +228,7 @@ def _render_location_settings():
     if use_osm:
         region_choice = st.selectbox(
             "Region",
-            options=['Edinburgh City', 'Central Scotland (Edinburgh-Glasgow)', 'Custom Place'],
+            options=['Edinburgh City', 'Central Scotland (Aberdeen-Edinburgh-Glasgow)', 'Custom Place'],
             index=0,
             help="Select spatial extent for simulation"
         )
