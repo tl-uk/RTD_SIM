@@ -337,8 +337,20 @@ class BDIPlanner:
         state,
         context: Dict
     ) -> bool:
-        """Check if mode is feasible (infrastructure check for EVs)."""
-        # Only check infrastructure for electric modes
+        """
+        Check if mode is feasible (infrastructure check for EVs).
+        
+        Cargo bikes and e-scooters don't need charging stations
+        """
+        # CRITICAL FIX: Only check infrastructure for VEHICLE EVs
+        # Cargo bikes and e-scooters don't use charging infrastructure
+        non_infrastructure_evs = ['cargo_bike', 'e_scooter', 'bike']
+        
+        if mode in non_infrastructure_evs:
+            # These modes don't need charging stations
+            return True
+        
+        # Only check infrastructure for vehicle electric modes
         if not self.has_infrastructure or mode not in self.EV_RANGE_KM:
             return True
         
@@ -354,7 +366,7 @@ class BDIPlanner:
             logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
         
-        # Check charger availability for long trips
+        # Check charger availability for long trips (ONLY for vehicles)
         if trip_distance > max_range * 0.5:
             nearest = self.infrastructure.find_nearest_charger(
                 dest, max_distance_km=5.0
