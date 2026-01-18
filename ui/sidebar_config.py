@@ -228,7 +228,8 @@ def _render_location_settings():
     if use_osm:
         region_choice = st.selectbox(
             "Region",
-            options=['Edinburgh City', 'Central Scotland (Aberdeen-Edinburgh-Glasgow)', 'Custom Place'],
+            options=['Edinburgh City', 'Central Scotland (Aberdeen-Edinburgh-Glasgow)', 
+                     'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)', 'Custom Place'],
             index=0,
             help="Select spatial extent for simulation"
         )
@@ -240,8 +241,12 @@ def _render_location_settings():
         elif region_choice == 'Central Scotland (Aberdeen-Edinburgh-Glasgow)':
             place = None
             # OSMnx (min_lat, min_lon, max_lat, max_lon)
-            extended_bbox = (57.25, 55.80, -1.95, -4.50) #(-4.30, 55.80, -3.10, 56.00)
+            extended_bbox = (-4.30, 55.80, -3.10, 56.00)
             st.success("📦 Regional scale: ~100km, enables freight between cities")
+        elif region_choice == 'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)':
+            place = None
+            extended_bbox = (-4.30, 55.85, -2.05, 57.20)
+            st.success("🚛 3-City: Aberdeen-Edinburgh-Glasgow (~150km corridor, 120k nodes)")
         else:  # Custom Place
             # Session state handling
             if 'custom_place' not in st.session_state:
