@@ -4,14 +4,14 @@ simulation/setup/environment_setup.py
 Environment and infrastructure initialization.
 Handles OSM graph loading and charging infrastructure setup.
 
-✅ FIXED: bbox coordinate ordering for OSMnx
+FIXED: bbox coordinate ordering for OSMnx
 """
 
 from __future__ import annotations
 import random
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.infrastructure.infrastructure_manager import InfrastructureManager
