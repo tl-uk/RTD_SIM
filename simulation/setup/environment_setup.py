@@ -24,12 +24,7 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
     """
     Initialize spatial environment with OSM graph.
     
-    Args:
-        config: SimulationConfig instance
-        progress_callback: Optional callback(progress: float, message: str)
-    
-    Returns:
-        Configured SpatialEnvironment
+    ✅ NOW HANDLES: Multi-city inputs like "Edinburgh, Newcastle"
     """
     if progress_callback:
         progress_callback(0.1, "🗺️ Loading environment...")
@@ -44,37 +39,53 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
     if config.use_osm:
         # Load OSM graph
         if config.extended_bbox:
-            # ✅ CRITICAL FIX: Config stores (west, south, east, north)
-            # But OSMnx expects (north, south, east, west) for bbox parameter
-            # OR we can just pass the tuple directly to bbox
+            # Use pre-defined bbox
             west, south, east, north = config.extended_bbox
             
             logger.info(f"Loading extended region: bbox=({west}, {south}, {east}, {north})")
             
-            # ✅ FIXED: Pass bbox in correct order for OSMnx
-            # OSMnx bbox parameter expects: (north, south, east, west)
             env.load_osm_graph(
-                bbox=(north, south, east, west),  # Correct order!
-                network_type='drive',  # ✅ ADDED: Specify network type
+                bbox=(north, south, east, west),
+                network_type='drive',
                 use_cache=True
             )
             
-            region_name = "Central Scotland"
+            region_name = config.region_name or "Custom Region"
             
         elif config.place:
-            logger.info(f"Loading city: {config.place}")
-            env.load_osm_graph(
-                place=config.place,
-                network_type='drive',  # ✅ ADDED: Specify network type
-                use_cache=True
-            )
-            region_name = config.place
+            # ✅ NEW: Check if multi-city input
+            is_multi, bbox = detect_multi_city_input(config.place)
+            
+            if is_multi and bbox:
+                # Multi-city: Use generated bbox
+                north, south, east, west = bbox[3], bbox[1], bbox[2], bbox[0]
+                
+                logger.info(f"Multi-city corridor: {config.place}")
+                logger.info(f"Generated bbox: ({west}, {south}, {east}, {north})")
+                
+                env.load_osm_graph(
+                    bbox=(north, south, east, west),
+                    network_type='drive',
+                    use_cache=True
+                )
+                
+                region_name = config.region_name or config.place
+            
+            else:
+                # Single city: Use place name
+                logger.info(f"Loading city: {config.place}")
+                env.load_osm_graph(
+                    place=config.place,
+                    network_type='drive',
+                    use_cache=True
+                )
+                region_name = config.place
             
         else:
             logger.warning("No place or bbox specified")
             return env
         
-        # ✅ Verify graph loaded successfully
+        # Verify graph loaded
         if not env.graph_loaded:
             logger.error("❌ Graph failed to load!")
             raise RuntimeError("OSM graph loading failed")
@@ -102,6 +113,7 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
         progress_callback(0.2, "✅ Environment loaded")
     
     return env
+
 
 
 def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Optional[InfrastructureManager]:
@@ -172,3 +184,148 @@ def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Op
         progress_callback(0.3, "✅ Infrastructure ready")
     
     return infrastructure
+
+# ------------------------------------------------------------
+# Multi-City Input Detection Utility
+# ------------------------------------------------------------
+def detect_multi_city_input(place: str) -> Tuple[bool, Optional[tuple]]:
+    """
+    Detect if place string is multi-city and convert to bbox.
+    
+    Args:
+        place: User input string
+    
+    Returns:
+        (is_multi_city, bbox or None)
+    
+    Examples:
+        "Edinburgh, Newcastle" → (True, bbox)
+        "Edinburgh, UK" → (False, None)
+        "Dover → Edinburgh" → (True, bbox)
+    """
+    # Check for multi-city patterns
+    # Pattern 1: Multiple cities with comma (but not country)
+    # Pattern 2: Arrow notation "A → B"
+    
+    # Known city database (expand as needed)
+    KNOWN_CITIES = {
+        'edinburgh', 'glasgow', 'aberdeen', 'newcastle', 'manchester',
+        'london', 'birmingham', 'leeds', 'liverpool', 'bristol',
+        'dover', 'southampton', 'cardiff', 'belfast', 'inverness'
+    }
+    
+    # Check for arrow notation
+    if '→' in place or '->' in place:
+        return True, _parse_corridor_input(place)
+    
+    # Split by comma
+    parts = [p.strip().lower() for p in place.split(',')]
+    
+    # If more than 2 parts and multiple are cities, it's multi-city
+    if len(parts) >= 2:
+        city_count = sum(1 for p in parts if p in KNOWN_CITIES)
+        
+        if city_count >= 2:
+            # Multi-city detected
+            logger.info(f"Detected multi-city input: {place}")
+            bbox = _create_multi_city_bbox(parts)
+            return True, bbox
+    
+    # Single city
+    return False, None
+
+
+def _parse_corridor_input(place: str) -> tuple:
+    """Parse 'Origin → Destination' format."""
+    # Split by arrow
+    if '→' in place:
+        parts = place.split('→')
+    else:
+        parts = place.split('->')
+    
+    if len(parts) != 2:
+        return None
+    
+    origin = parts[0].strip()
+    dest = parts[1].strip()
+    
+    # Hardcoded city coordinates (expand as needed)
+    CITY_COORDS = {
+        'edinburgh': (55.9533, -3.1883),
+        'glasgow': (55.8642, -4.2518),
+        'aberdeen': (57.1497, -2.0943),
+        'newcastle': (54.9783, -1.6178),
+        'manchester': (53.4808, -2.2426),
+        'london': (51.5074, -0.1278),
+        'dover': (51.1279, 1.3134),
+        'birmingham': (52.4862, -1.8904),
+    }
+    
+    origin_lower = origin.split(',')[0].strip().lower()
+    dest_lower = dest.split(',')[0].strip().lower()
+    
+    if origin_lower in CITY_COORDS and dest_lower in CITY_COORDS:
+        origin_coords = CITY_COORDS[origin_lower]
+        dest_coords = CITY_COORDS[dest_lower]
+        
+        # Create bbox covering both cities with 30km margin
+        lats = [origin_coords[0], dest_coords[0]]
+        lons = [origin_coords[1], dest_coords[1]]
+        
+        # Add 0.3 degree margin (~30km)
+        bbox = (
+            min(lons) - 0.3,  # west
+            min(lats) - 0.3,  # south
+            max(lons) + 0.3,  # east
+            max(lats) + 0.3   # north
+        )
+        
+        logger.info(f"Created corridor bbox: {origin} → {dest}")
+        return bbox
+    
+    return None
+
+
+def _create_multi_city_bbox(cities: list) -> tuple:
+    """Create bbox covering multiple cities."""
+    
+    # Hardcoded coordinates for common UK cities
+    CITY_COORDS = {
+        'edinburgh': (55.9533, -3.1883),
+        'glasgow': (55.8642, -4.2518),
+        'aberdeen': (57.1497, -2.0943),
+        'newcastle': (54.9783, -1.6178),
+        'manchester': (53.4808, -2.2426),
+        'london': (51.5074, -0.1278),
+        'dover': (51.1279, 1.3134),
+        'birmingham': (52.4862, -1.8904),
+        'leeds': (53.8008, -1.5491),
+        'liverpool': (53.4084, -2.9916),
+    }
+    
+    # Get coordinates for recognized cities
+    coords = []
+    for city in cities:
+        city_clean = city.split(',')[0].strip().lower()
+        if city_clean in CITY_COORDS:
+            coords.append(CITY_COORDS[city_clean])
+    
+    if len(coords) < 2:
+        logger.warning(f"Could not find coordinates for cities: {cities}")
+        return None
+    
+    # Calculate bounding box
+    lats = [c[0] for c in coords]
+    lons = [c[1] for c in coords]
+    
+    # Add 0.2 degree margin (~20km)
+    bbox = (
+        min(lons) - 0.2,  # west
+        min(lats) - 0.2,  # south
+        max(lons) + 0.2,  # east
+        max(lats) + 0.2   # north
+    )
+    
+    logger.info(f"Created multi-city bbox covering: {', '.join([c for c in cities if c.split(',')[0].strip().lower() in CITY_COORDS])}")
+    
+    return bbox
