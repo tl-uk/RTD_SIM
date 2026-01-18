@@ -22,6 +22,7 @@ class SimulationConfig:
     place: str = "Edinburgh, UK"
     extended_bbox: Optional[Tuple[float, float, float, float]] = None
     use_osm: bool = True
+    region_name: Optional[str] = None  # Enable custom region names
     
     # Story settings
     user_stories: List[str] = field(default_factory=list)

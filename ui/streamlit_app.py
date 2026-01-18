@@ -90,9 +90,11 @@ if run_btn:
             total_steps=config.steps, fps=5
         )
         
-        # Store region name
-        if config.extended_bbox:
-            st.session_state.current_region = "Central Scotland (Edinburgh-Glasgow)"
+        # Store region name from config
+        if hasattr(config, 'region_name') and config.region_name:
+            st.session_state.current_region = config.region_name
+        elif config.extended_bbox:
+            st.session_state.current_region = "Custom Region (BBox)"
         elif config.place:
             st.session_state.current_region = config.place
         else:

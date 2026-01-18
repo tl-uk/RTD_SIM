@@ -15,13 +15,13 @@ if str(parent_dir) not in sys.path:
 
 from simulation.config.simulation_config import SimulationConfig
 
-# Phase 4 availability check
+# Check if story modules are available
 try:
     from agent.user_stories import UserStoryParser
     from agent.job_stories import JobStoryParser
-    PHASE_4_AVAILABLE = True
+    STORIES_AVAILABLE = True
 except ImportError:
-    PHASE_4_AVAILABLE = False
+    STORIES_AVAILABLE = False
 
 
 def render_sidebar_config():
@@ -60,6 +60,7 @@ def _render_standard_mode():
         region_info = _render_location_settings()
         place, extended_bbox = region_info['place'], region_info['bbox']
         use_osm = region_info['use_osm']
+        region_name = region_info['region_name'] # Store region name
         
         st.markdown("---")
         
@@ -92,6 +93,7 @@ def _render_standard_mode():
         place=place,
         extended_bbox=extended_bbox,
         use_osm=use_osm,
+        region_name=region_name, # Store region name
         user_stories=user_stories,
         job_stories=job_stories,
         use_congestion=advanced_config['use_congestion'],
@@ -230,8 +232,8 @@ def _render_location_settings():
             "Region",
             options=[
                 'Edinburgh City',
-                'Central Scotland (Edinburgh-Glasgow)',      # ✅ 2-city
-                'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',  # ✅ 3-city
+                'Central Scotland (Edinburgh-Glasgow)',      # 2-city
+                'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',  # 3-city
                 'Custom Place'
             ],
             index=0,
@@ -241,18 +243,21 @@ def _render_location_settings():
         if region_choice == 'Edinburgh City':
             place = "Edinburgh, UK"
             extended_bbox = None
+            region_name = "Edinburgh City" 
             st.info("🏙️ City scale: ~30km radius, good for walk/bike/car/EV")
         
-        # ✅ FIXED: This is Edinburgh-Glasgow (2-city)
+        # Edinburgh-Glasgow (2-city)
         elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
             place = None
             extended_bbox = (-4.30, 55.80, -3.10, 56.00)
+            region_name = "Central Scotland (Edinburgh-Glasgow)" 
             st.success("📦 2-City: Edinburgh-Glasgow corridor (~80km, 60k nodes)")
         
-        # ✅ FIXED: This is Aberdeen-Edinburgh-Glasgow (3-city)
+        # Aberdeen-Edinburgh-Glasgow (3-city)
         elif region_choice == 'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)':
             place = None
             extended_bbox = (-4.30, 55.85, -2.05, 57.20)
+            region_name = "Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)"
             st.success("🚛 3-City: Aberdeen-Edinburgh-Glasgow (~240km, 120-150k nodes)")
         
         else:  # Custom Place
@@ -271,12 +276,14 @@ def _render_location_settings():
             
             place = st.session_state.custom_place
             extended_bbox = None
+            region_name = place  # Use place name as region name
             st.info(f"🗺️ Will load: {place}")
     
     return {
         'use_osm': use_osm,
         'place': place,
-        'bbox': extended_bbox
+        'bbox': extended_bbox,
+        'region_name': region_name  # Return region name
     }
 
 
@@ -287,7 +294,7 @@ def _render_story_selection():
     user_stories = []
     job_stories = []
     
-    if PHASE_4_AVAILABLE:
+    if STORIES_AVAILABLE:
         try:
             user_parser = UserStoryParser()
             job_parser = JobStoryParser()
@@ -345,7 +352,7 @@ def _render_advanced_features():
     decay_rate = 0.0
     habit_weight = 0.0
     
-    if PHASE_4_AVAILABLE:
+    if STORIES_AVAILABLE:
         enable_social = st.checkbox("Enable Social Networks", value=True)
         
         if enable_social:
