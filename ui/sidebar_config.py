@@ -228,8 +228,12 @@ def _render_location_settings():
     if use_osm:
         region_choice = st.selectbox(
             "Region",
-            options=['Edinburgh City', 'Central Scotland (Aberdeen-Edinburgh-Glasgow)', 
-                     'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)', 'Custom Place'],
+            options=[
+                'Edinburgh City',
+                'Central Scotland (Edinburgh-Glasgow)',      # ✅ 2-city
+                'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',  # ✅ 3-city
+                'Custom Place'
+            ],
             index=0,
             help="Select spatial extent for simulation"
         )
@@ -238,17 +242,20 @@ def _render_location_settings():
             place = "Edinburgh, UK"
             extended_bbox = None
             st.info("🏙️ City scale: ~30km radius, good for walk/bike/car/EV")
-        elif region_choice == 'Central Scotland (Aberdeen-Edinburgh-Glasgow)':
+        
+        # ✅ FIXED: This is Edinburgh-Glasgow (2-city)
+        elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
             place = None
-            # OSMnx (min_lat, min_lon, max_lat, max_lon)
             extended_bbox = (-4.30, 55.80, -3.10, 56.00)
-            st.success("📦 Regional scale: ~100km, enables freight between cities")
+            st.success("📦 2-City: Edinburgh-Glasgow corridor (~80km, 60k nodes)")
+        
+        # ✅ FIXED: This is Aberdeen-Edinburgh-Glasgow (3-city)
         elif region_choice == 'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)':
             place = None
             extended_bbox = (-4.30, 55.85, -2.05, 57.20)
-            st.success("🚛 3-City: Aberdeen-Edinburgh-Glasgow (~150km corridor, 120k nodes)")
+            st.success("🚛 3-City: Aberdeen-Edinburgh-Glasgow (~240km, 120-150k nodes)")
+        
         else:  # Custom Place
-            # Session state handling
             if 'custom_place' not in st.session_state:
                 st.session_state.custom_place = "Edinburgh, UK"
             
@@ -264,7 +271,7 @@ def _render_location_settings():
             
             place = st.session_state.custom_place
             extended_bbox = None
-            st.info(f"Will load: {place}")
+            st.info(f"🗺️ Will load: {place}")
     
     return {
         'use_osm': use_osm,
