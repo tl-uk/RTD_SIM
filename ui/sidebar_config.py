@@ -429,113 +429,36 @@ def _render_scenario_selection():
     }
 
 def _render_combined_scenario_selection():
-    """
-    NEW Phase 5.1: Render combined scenario selection.
-    
-    Returns:
-        dict: Combined scenario configuration
-    """
+    """Phase 5.1: Combined scenario selector."""
     st.markdown("### 🔗 Advanced: Combined Scenarios")
     
-    use_combined = st.checkbox(
-        "Use Combined Scenario",
-        value=False,
-        help="Combine multiple policies with dynamic interaction rules"
-    )
+    use_combined = st.checkbox("Use Combined Scenario", value=False)
     
     if not use_combined:
-        return {
-            'use_combined': False,
-            'combined_scenario_data': None
-        }
+        return {'use_combined': False, 'combined_scenario_data': None}
     
-    # Load available combined scenarios
-    combined_dir = Path(__file__).resolve().parent.parent / 'scenarios' / 'combined_configs'
+    combined_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
     
     if not combined_dir.exists():
-        st.warning("⚠️ No combined scenarios directory found")
-        st.info("💡 Create folder: scenarios/combined_configs/")
-        
-        if st.button("📁 Create Directory"):
-            combined_dir.mkdir(parents=True, exist_ok=True)
-            st.success("✅ Created combined_configs directory")
-        
-        return {
-            'use_combined': False,
-            'combined_scenario_data': None
-        }
+        st.warning("⚠️ Create folder: scenarios/combined_configs/")
+        return {'use_combined': False, 'combined_scenario_data': None}
     
-    # Load scenarios
-    yaml_files = list(combined_dir.glob('*.yaml'))
-    
-    if not yaml_files:
-        st.info("💡 Add combined scenario YAML files to scenarios/combined_configs/")
-        st.markdown("""
-        **Example scenarios to create:**
-        - realistic_ev_transition.yaml
-        - aggressive_electrification.yaml
-        - budget_constrained_realistic.yaml
-        """)
-        return {
-            'use_combined': False,
-            'combined_scenario_data': None
-        }
-    
-    # Parse all scenarios from YAML files
     scenarios = {}
-    for yaml_file in yaml_files:
-        try:
-            with open(yaml_file, 'r') as f:
-                # Handle multi-document YAML
-                docs = list(yaml.safe_load_all(f))
-                for doc in docs:
-                    if doc and 'name' in doc:
-                        scenarios[doc['name']] = doc
-        except Exception as e:
-            st.error(f"Error loading {yaml_file.name}: {e}")
+    for yaml_file in combined_dir.glob('*.yaml'):
+        with open(yaml_file, 'r') as f:
+            for doc in yaml.safe_load_all(f):
+                if doc and 'name' in doc:
+                    scenarios[doc['name']] = doc
     
     if not scenarios:
-        st.warning("No valid scenarios found in YAML files")
-        return {
-            'use_combined': False,
-            'combined_scenario_data': None
-        }
+        st.info("💡 Add YAML files to scenarios/combined_configs/")
+        return {'use_combined': False, 'combined_scenario_data': None}
     
-    # Scenario selector
-    selected_name = st.selectbox(
-        "Select Combined Scenario",
-        options=list(scenarios.keys()),
-        help="Choose a predefined combined policy scenario"
-    )
-    
-    if selected_name:
-        scenario = scenarios[selected_name]
-        
-        # Show preview
-        with st.expander("📄 Scenario Preview", expanded=False):
-            st.markdown(f"**{scenario.get('description', 'No description')}**")
-            
-            st.caption(f"Base scenarios: {', '.join(scenario.get('base_scenarios', []))}")
-            st.caption(f"Interaction rules: {len(scenario.get('interaction_rules', []))}")
-            st.caption(f"Constraints: {len(scenario.get('constraints', []))}")
-            
-            # Show expected outcomes
-            if 'expected_outcomes' in scenario:
-                st.markdown("**Expected Outcomes:**")
-                for outcome, value in scenario['expected_outcomes'].items():
-                    if isinstance(value, float) and 0 < value < 1:
-                        st.write(f"• {outcome}: {value:.1%}")
-                    else:
-                        st.write(f"• {outcome}: {value}")
-        
-        return {
-            'use_combined': True,
-            'combined_scenario_data': scenario
-        }
+    selected_name = st.selectbox("Select Combined Scenario", list(scenarios.keys()))
     
     return {
-        'use_combined': False,
-        'combined_scenario_data': None
+        'use_combined': True,
+        'combined_scenario_data': scenarios[selected_name]
     }
 
 
