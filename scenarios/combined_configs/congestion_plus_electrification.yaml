@@ -1,0 +1,60 @@
+# =============================================================================
+# scenarios/combined_configs/congestion_plus_electrification.yaml
+# =============================================================================
+# Combine congestion charging with EV incentives
+
+name: Congestion Charging + EV Push
+description: |
+  Diesel vehicles face congestion charges in city center, while EVs get
+  subsidies and preferential treatment. Models mode shift dynamics.
+
+base_scenarios:
+  - congestion_charge
+  - ev_subsidy_30
+  - urban_freight_consolidation
+
+interaction_rules:
+  # Increase congestion charge if traffic still high
+  - condition: "step > 40 and ev_adoption < 0.3"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 1.5  # Further penalize diesel
+    priority: 90
+
+  # Add chargers in congestion zone
+  - condition: "ev_adoption > 0.4"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 15
+      strategy: demand_heatmap
+    priority: 80
+
+constraints:
+  - type: budget
+    limit: 40000000  # £40M
+    warning_threshold: 0.8
+
+  - type: grid_capacity
+    limit: 1200
+    warning_threshold: 0.85
+
+feedback_loops:
+  - name: congestion_drives_ev_adoption
+    description: Congestion charges make diesel expensive, driving EV adoption
+    variables: [diesel_cost, ev_adoption, congestion_level]
+    loop_type: positive
+    strength: 1.2
+
+  - name: more_evs_reduce_congestion
+    description: More EVs with smart routing reduce overall congestion
+    variables: [ev_adoption, congestion_level, travel_time]
+    loop_type: negative
+    strength: 0.9
+
+expected_outcomes:
+  ev_adoption: 0.60
+  diesel_reduction: 0.55
+  congestion_reduction: 0.30
+  emissions_reduction: 0.45
+
+---

@@ -1,0 +1,87 @@
+# =============================================================================
+# scenarios/realistic_ev_transition.yaml
+# =============================================================================
+# Realistic EV transition with grid constraints and cost recovery
+
+name: Realistic EV Transition with Grid Constraints
+description: |
+  Combines freight electrification with dynamic grid management and infrastructure 
+  cost recovery. Models realistic adoption curves with budget constraints.
+
+base_scenarios:
+  - freight_electrification
+  - dynamic_electricity_pricing
+
+interaction_rules:
+  # Rule 1: Grid stress triggers surge pricing
+  - condition: "grid_utilization > 0.8"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 2.0
+      duration_steps: 20
+    priority: 100
+
+  # Rule 2: Low charger utilization requires cost recovery
+  - condition: "charger_utilization < 0.3 and step > 20"
+    action: increase_charging_cost
+    parameters:
+      reason: infrastructure_cost_recovery
+    priority: 80
+
+  # Rule 3: High demand triggers emergency infrastructure
+  - condition: "charger_utilization > 0.9 and step % 50 == 0"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 10
+      strategy: demand_heatmap
+    priority: 90
+
+  # Rule 4: Enable smart charging when grid stressed
+  - condition: "grid_utilization > 0.7"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 70
+
+constraints:
+  - type: budget
+    limit: 50000000  # £50M total budget
+    warning_threshold: 0.8
+    allocation:
+      ev_subsidy: 0.6      # 60% to vehicle subsidies
+      infrastructure: 0.35  # 35% to infrastructure
+      admin: 0.05          # 5% admin/overhead
+
+  - type: grid_capacity
+    limit: 1000  # MW
+    warning_threshold: 0.85
+
+  - type: deployment_rate
+    limit: 5000  # chargers per year
+    warning_threshold: 0.9
+
+feedback_loops:
+  - name: ev_adoption_infrastructure
+    description: More EVs drive infrastructure investment which enables more adoption
+    variables: [ev_adoption, charger_count, grid_capacity]
+    loop_type: positive
+    strength: 1.0
+
+  - name: grid_stress_pricing
+    description: Grid stress increases prices which reduces demand
+    variables: [grid_utilization, charging_cost, charging_demand]
+    loop_type: negative
+    strength: 1.2
+
+  - name: infrastructure_cost_recovery
+    description: Underutilized infrastructure raises costs which slows adoption
+    variables: [charger_utilization, charging_cost, ev_adoption]
+    loop_type: negative
+    strength: 0.8
+
+expected_outcomes:
+  van_electric_adoption: 0.55
+  truck_electric_adoption: 0.35
+  total_emissions_reduction: 0.40
+  grid_stress_events: 3
+  cost_recovery_years: 8

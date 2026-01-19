@@ -1,0 +1,55 @@
+# =============================================================================
+# scenarios/combined_configs/aggressive_electrification.yaml
+# =============================================================================
+# Aggressive push for electrification with minimal constraints
+
+name: Aggressive Electrification Push
+description: |
+  Maximum subsidies, rapid infrastructure deployment, minimal constraints.
+  Tests system limits and identifies bottlenecks.
+
+base_scenarios:
+  - complete_supply_chain_electrification
+  - depot_based_electrification
+  - economy_7_style_tariff
+
+interaction_rules:
+  # Immediately add capacity when utilization hits 60%
+  - condition: "charger_utilization > 0.6"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 20
+      strategy: coverage_gaps
+    priority: 100
+
+  # Always use cheapest possible pricing
+  - condition: "time_of_day >= 22 or time_of_day <= 6"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 0.4  # 60% discount at night
+    priority: 90
+
+constraints:
+  - type: budget
+    limit: 200000000  # £200M
+    warning_threshold: 0.9
+
+  - type: grid_capacity
+    limit: 2500  # 2.5 GW
+    warning_threshold: 0.85
+
+feedback_loops:
+  - name: accelerated_adoption
+    description: Subsidies accelerate adoption which justifies more infrastructure
+    variables: [ev_adoption, subsidy_amount, infrastructure_investment]
+    loop_type: positive
+    strength: 1.5
+
+expected_outcomes:
+  van_electric_adoption: 0.85
+  truck_electric_adoption: 0.70
+  hgv_electric_adoption: 0.45
+  total_emissions_reduction: 0.65
+  budget_exhaustion_step: 80
+
+---

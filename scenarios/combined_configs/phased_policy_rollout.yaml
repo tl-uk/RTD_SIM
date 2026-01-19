@@ -1,0 +1,67 @@
+# =============================================================================
+# scenarios/combined_configs/phased_policy_rollout.yaml
+# =============================================================================
+# Policies activate at different simulation steps (phased rollout)
+
+name: Phased Policy Rollout (5-Year Plan)
+description: |
+  Realistic government policy rollout over 5 simulated years.
+  Year 1: Subsidies
+  Year 2: Infrastructure
+  Year 3: Congestion charges
+  Year 4: Subsidy phase-out
+  Year 5: Full cost recovery
+
+base_scenarios:
+  - ev_subsidy_30
+  - depot_based_electrification
+
+interaction_rules:
+  # Year 1 (steps 0-20): Just subsidies
+  # (base scenarios handle this)
+
+  # Year 2 (steps 20-40): Infrastructure push
+  - condition: "step >= 20 and step < 40 and step % 10 == 0"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 15
+      strategy: demand_heatmap
+    priority: 100
+
+  # Year 3 (steps 40-60): Congestion charges
+  - condition: "step >= 40 and step < 60"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 1.8  # Penalize diesel in city
+    priority: 90
+
+  # Year 4 (steps 60-80): Begin subsidy phase-out
+  - condition: "step >= 60 and step < 80 and step % 15 == 0"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 15
+    priority: 80
+
+  # Year 5 (steps 80-100): Full cost recovery mode
+  - condition: "step >= 80"
+    action: increase_charging_cost
+    parameters:
+      reason: infrastructure_cost_recovery
+    priority: 70
+
+constraints:
+  - type: budget
+    limit: 60000000  # £60M over 5 years
+    warning_threshold: 0.75
+
+  - type: grid_capacity
+    limit: 1500
+    warning_threshold: 0.85
+
+expected_outcomes:
+  year_1_ev_adoption: 0.20
+  year_2_ev_adoption: 0.35
+  year_3_ev_adoption: 0.50
+  year_4_ev_adoption: 0.55
+  year_5_ev_adoption: 0.60
+  final_emissions_reduction: 0.50
