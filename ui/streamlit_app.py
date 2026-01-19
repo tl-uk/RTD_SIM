@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-RTD_SIM Unified Visualization - Phase 4.5B Ready
-Main entry point with modular UI components
+RTD_SIM Unified Visualization - Phase 5.1 Refactored
+Main entry point with modular tab components
 
-This should be placed in: RTD_SIM/ui/streamlit_app.py
+CHANGES:
+- Import individual tab modules from ui/tabs/
+- Initialize policy engine before simulation
+- Pass policy_engine to simulation loop
+- Render combined scenarios tab if policy active
 """
 
 from __future__ import annotations
@@ -11,25 +15,38 @@ import sys
 from pathlib import Path
 import time
 
-# Project root setup - adjust based on location of this file
+# Project root setup
 THIS_FILE = Path(__file__).resolve()
-PROJECT_ROOT = THIS_FILE.parent.parent  # Go up from ui/ to RTD_SIM/
+PROJECT_ROOT = THIS_FILE.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
 
-# Import UI modules (from same directory)
+# Import UI modules
 from ui.sidebar_config import render_sidebar_config
 from ui.diagnostics_panel import render_diagnostics_panel
 from ui.animation_controls import render_animation_controls
-from ui.main_tabs import render_main_tabs
 from ui.welcome_screen import render_welcome_screen
 from ui.status_footer import render_status_footer
+
+# Import individual tab modules
+from ui.tabs import (
+    render_map_tab,
+    render_mode_adoption_tab,
+    render_impact_tab,
+    render_network_tab,
+    render_infrastructure_tab,
+    render_scenario_report_tab,
+    render_combined_scenarios_tab,
+)
 
 # Import simulation core
 from simulation.simulation_runner import run_simulation
 from visualiser.animation_controller import AnimationController
+
+# NEW: Import policy engine initialization
+from simulation.execution.dynamic_policies import initialize_policy_engine
 
 # Initialize Streamlit
 st.set_page_config(
@@ -48,6 +65,9 @@ def init_session_state():
         'show_routes': False,
         'show_infrastructure': True,
         'current_region': None,
+        # NEW: Policy engine state
+        'policy_engine': None,
+        'combined_scenario_active': False,
     }
     
     for key, value in defaults.items():
@@ -58,15 +78,22 @@ init_session_state()
 
 # Header
 st.title("🚦 RTD_SIM - Real-Time Transport Decarbonization Simulator")
-st.markdown("**Phase 4.5B: Policy Scenario Framework**")
+st.markdown("**Phase 5.1: Dynamic Policy Engine with Scenario Combinations**")
 
 # Show active region
 if st.session_state.simulation_run and st.session_state.current_region:
     results = st.session_state.results
     if results.env and results.env.graph_loaded:
         stats = results.env.get_graph_stats()
-        st.info(f"🗺️ **Active Region**: {st.session_state.current_region} | "
-               f"{stats['nodes']:,} nodes, {stats['edges']:,} edges")
+        
+        # Show region info with policy status
+        info_text = f"🗺️ **Active Region**: {st.session_state.current_region} | {stats['nodes']:,} nodes, {stats['edges']:,} edges"
+        
+        # Add policy status if active
+        if st.session_state.combined_scenario_active:
+            info_text += " | 🔗 **Combined Scenario Active**"
+        
+        st.info(info_text)
 
 # Sidebar configuration
 with st.sidebar:
@@ -81,6 +108,7 @@ if run_btn:
         progress_bar.progress(progress, message)
         status_text.info(message)
     
+    # Run simulation (will handle policy engine internally via config)
     results = run_simulation(config, progress_callback=update_progress)
     
     if results.success:
@@ -99,6 +127,12 @@ if run_btn:
             st.session_state.current_region = config.place
         else:
             st.session_state.current_region = "Unknown Region"
+        
+        # NEW: Check if combined scenario was active
+        if hasattr(results, 'policy_status') and results.policy_status:
+            st.session_state.combined_scenario_active = True
+        else:
+            st.session_state.combined_scenario_active = False
         
         status_text.success("✅ Simulation complete!")
         progress_bar.empty()
@@ -136,7 +170,36 @@ if not current_data:
     st.error("No data available")
     st.stop()
 
-render_main_tabs(results, anim, current_data)
+# ============================================================================
+# NEW: Build dynamic tab list based on what's available
+# ============================================================================
+tab_configs = [
+    ("🗺️ Map", render_map_tab),
+    ("📈 Mode Adoption", render_mode_adoption_tab),
+    ("🎯 Impact", render_impact_tab),
+    ("🌐 Network", render_network_tab),
+]
+
+# Add infrastructure tab if available
+if results.infrastructure:
+    tab_configs.append(("🔌 Infrastructure", render_infrastructure_tab))
+
+# Add scenario report tab if simple scenario active
+if results.scenario_report:
+    tab_configs.append(("📋 Scenario Report", render_scenario_report_tab))
+
+# NEW: Add combined scenarios tab if combined scenario was active
+if st.session_state.combined_scenario_active:
+    tab_configs.append(("🔗 Combined Policies", render_combined_scenarios_tab))
+
+# Create tabs
+tab_names = [name for name, _ in tab_configs]
+tabs = st.tabs(tab_names)
+
+# Render each tab
+for i, (_, render_func) in enumerate(tab_configs):
+    with tabs[i]:
+        render_func(results, anim, current_data)
 
 # Status footer
 render_status_footer(results)
@@ -151,4 +214,4 @@ if anim.is_playing:
         anim.pause()
         st.rerun()
 
-st.caption("**RTD_SIM** - Phase 4.5B: Policy Scenario Framework | Policy Testing Ready")
+st.caption("**RTD_SIM** - Phase 5.1: Dynamic Policy Engine | Combined Scenario Framework Active")

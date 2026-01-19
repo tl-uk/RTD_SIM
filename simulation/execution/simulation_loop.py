@@ -16,6 +16,13 @@ from simulation.config.simulation_config import SimulationConfig
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.execution.timeseries import TimeSeries
 
+from simulation.execution.dynamic_policies import (
+    initialize_policy_engine,
+    apply_dynamic_policies,
+    record_charging_revenue,
+    get_final_policy_report
+)
+
 logger = logging.getLogger(__name__)
 
 # Story-driven agents and social influence dynamics
@@ -199,14 +206,15 @@ def apply_scenario_policies(
 
 
 def run_simulation_loop(
-    config: SimulationConfig,
-    agents: List[Any],
-    env: SpatialEnvironment,
-    infrastructure: Optional[Any],
-    network: Optional[Any],
-    influence_system: Optional[Any],
-    progress_callback=None
-) -> Dict:
+        config, 
+        agents, 
+        env, 
+        infrastructure, 
+        network, 
+        influence_system, 
+        policy_engine=None,  # NEW
+        progress_callback=None
+    ):
     """
     Execute main simulation loop and return results.
     
@@ -226,6 +234,11 @@ def run_simulation_loop(
     time_series = TimeSeries()
     adoption_history = defaultdict(list)
     cascade_events = []
+
+    # Policy tracking
+    policy_actions_taken = []
+    constraint_violations = []
+    cost_recovery_history = []
     
     # Track mode adoption over time
     def record_adoption():
@@ -261,6 +274,31 @@ def run_simulation_loop(
             infrastructure.update_grid_load(step)
             infrastructure.update_time(step)  # Update time for time-of-day pricing
         
+        # Apply dynamic policies
+        if policy_engine:
+            policy_result = apply_dynamic_policies(
+                policy_engine=policy_engine,
+                step=step,
+                agents=agents,
+                env=env,
+                infrastructure=infrastructure
+            )
+            
+            # Track policy actions
+            if policy_result.get('actions_taken'):
+                policy_actions_taken.extend(policy_result['actions_taken'])
+                logger.info(f"Step {step}: Applied {len(policy_result['actions_taken'])} policy adjustments")
+            
+            # Track violations
+            if policy_result.get('violations'):
+                constraint_violations.extend(policy_result['violations'])
+            
+            # Record cost recovery snapshot every 10 steps
+            if step % 10 == 0:
+                cost_recovery = policy_engine.calculate_cost_recovery()
+                cost_recovery['step'] = step
+                cost_recovery_history.append(cost_recovery)
+
         # Agent steps
         agent_states = []
         for agent in agents:
@@ -340,6 +378,15 @@ def run_simulation_loop(
                                     infrastructure.agent_charging_state[agent_id]['status'] = 'charging'
                                     infrastructure.agent_charging_state[agent_id]['start_time'] = step
                                     logger.debug(f"Step {step}: Agent {agent_id} started charging at {station_id} ({charge_duration:.0f} min)")
+
+                                    # Record charging revenue
+                                    if policy_engine:
+                                        station = infrastructure.charging_stations.get(station_id)
+                                        if station:
+                                            # Estimate energy needed (rough calculation)
+                                            kwh_needed = (trip_distance / 5) * 20  # ~20 kWh per 5km
+                                            charging_cost = kwh_needed * station.cost_per_kwh
+                                            record_charging_revenue(policy_engine, charging_cost)
                 
                 else:
                     # Agent is already charging - check if done
@@ -390,8 +437,27 @@ def run_simulation_loop(
     if progress_callback:
         progress_callback(0.95, "✅ Simulation complete")
     
-    return {
+    results = {
         'time_series': time_series,
         'adoption_history': dict(adoption_history),
-        'cascade_events': cascade_events
+        'cascade_events': cascade_events,
     }
+    
+    # Add dynamic policy results if available
+    if policy_engine:
+        # Get final policy report
+        final_report = get_final_policy_report(policy_engine)
+        
+        if final_report:
+            results['policy_actions'] = policy_actions_taken
+            results['constraint_violations'] = constraint_violations
+            results['cost_recovery_history'] = cost_recovery_history
+            results['final_cost_recovery'] = final_report['cost_recovery']
+            results['policy_status'] = final_report['policy_status']
+        
+        logger.info(f"✅ Policy tracking: {len(policy_actions_taken)} actions, "
+                   f"{len(constraint_violations)} violations")
+    
+    return results
+
+
