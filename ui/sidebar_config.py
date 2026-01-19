@@ -96,7 +96,7 @@ def _render_standard_mode():
         place=place,
         extended_bbox=extended_bbox,
         use_osm=use_osm,
-        region_name=region_name, # Store region name
+        region_name=region_name,
         user_stories=user_stories,
         job_stories=job_stories,
         use_congestion=advanced_config['use_congestion'],
@@ -108,7 +108,7 @@ def _render_standard_mode():
         num_chargers=advanced_config['num_chargers'],
         num_depots=advanced_config['num_depots'],
         grid_capacity_mw=advanced_config['grid_capacity_mw'],
-        scenario_name=scenario_config['scenario_name'],
+        scenario_name=scenario_config['scenario_name'] if not combined_config['use_combined'] else None,
         scenarios_dir=scenario_config['scenarios_dir'],
         combined_scenario_data=combined_config['combined_scenario_data'] if combined_config['use_combined'] else None,
     )
