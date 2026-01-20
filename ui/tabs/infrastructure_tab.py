@@ -1,3 +1,7 @@
+# ============================================================================
+# ui/tabs/infrastructure_tab.py
+# ============================================================================
+
 """
 ui/tabs/infrastructure_tab.py
 
@@ -15,12 +19,14 @@ if str(parent_dir) not in sys.path:
 
 from visualiser.visualization import render_infrastructure_metrics
 
-def render_infrastructure_tab(results):
+def render_infrastructure_tab(results, anim, current_data):  # FIXED: Added anim, current_data
     """
-    Render infrastructure visualization tab.
+    Render infrastructure metrics tab.
     
     Args:
         results: SimulationResults object
+        anim: AnimationController (not used but kept for consistency)
+        current_data: Current timestep data (not used but kept for consistency)
     """
     st.subheader("🔌 Infrastructure Metrics")
     
@@ -56,17 +62,17 @@ def render_infrastructure_tab(results):
     
     st.markdown("---")
     
-    # Grid utilization over time (NEW!)
+    # Grid utilization over time
     if infra_data['grid_figure']:
         st.markdown("### ⚡ Grid Utilization Over Time")
-        st.plotly_chart(infra_data['grid_figure'], width='stretch')
+        st.plotly_chart(infra_data['grid_figure'], use_container_width=True)
         
         # Add capacity info
         st.info(f"📊 **Grid Capacity**: {metrics['grid_capacity_mw']:.0f} MW | "
                 f"**Peak Load**: {max(results.infrastructure.historical_utilization) * 100:.1f}% | "
                 f"**Average Load**: {sum(results.infrastructure.historical_utilization) / len(results.infrastructure.historical_utilization) * 100:.1f}%")
     
-    # Charging station map (future enhancement)
+    # Charging station map
     st.markdown("---")
     st.markdown("### 🗺️ Charging Station Coverage")
     st.info("💡 Charger locations shown on main map when 'Show Infrastructure' is enabled")

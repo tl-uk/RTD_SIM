@@ -1,9 +1,14 @@
+# ============================================================================
+# ui/tabs/network_tab.py
+# ============================================================================
+
 """
 ui/tabs/network_tab.py
 
 Network visualization tab - extracted from main_tabs.py
 
 """
+
 import streamlit as st
 import sys
 from pathlib import Path
@@ -14,27 +19,15 @@ if str(parent_dir) not in sys.path:
 
 from visualiser.visualization import render_cascade_chart
 
-def render_network_tab(results, anim, agent_states):
+def render_network_tab(results, anim, current_data):  # FIXED: Changed agent_states to current_data
     """
-    Render network visualization tab.
+    Render social network analysis tab.
     
     Args:
         results: SimulationResults object
-        anim: AnimationController
-        agent_states: Current agent states
+        anim: AnimationController (not used but kept for consistency)
+        current_data: Current timestep data (not used but kept for consistency)
     """
-    # st.subheader("🌐 Network Overview")
-    
-    # # Render network graph
-    # graph = render_network_graph(
-    #     agent_states=agent_states,
-    #     infrastructure_manager=results.infrastructure,
-    #     current_step=anim.current_step,
-    #     total_steps=anim.total_steps,
-    # )
-    
-    # st.altair_chart(graph, use_container_width=True)
-
     st.subheader("🌐 Social Network Analysis")
     
     if results.network:
@@ -49,6 +42,6 @@ def render_network_tab(results, anim, agent_states):
             st.markdown("### 🌊 Cascade Events")
             fig = render_cascade_chart(results.cascade_events)
             if fig:
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Social network not enabled")

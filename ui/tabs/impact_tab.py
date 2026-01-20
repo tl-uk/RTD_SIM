@@ -1,3 +1,7 @@
+# ============================================================================
+# ui/tabs/impact_tab.py
+# ============================================================================
+
 """
 ui/tabs/impact_tab.py
 
@@ -13,30 +17,18 @@ parent_dir = Path(__file__).resolve().parent.parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from visualiser.visualization import render_emissions_chart, render_cascade_chart
+from visualiser.visualization import render_emissions_chart
 
-def render_impact_tab(results):
+def render_impact_tab(results, anim, current_data):  # FIXED: Added anim, current_data
     """
-    Render impact visualization tab.
+    Render environmental impact tab.
     
     Args:
         results: SimulationResults object
+        anim: AnimationController (not used but kept for consistency)
+        current_data: Current timestep data (not used but kept for consistency)
     """
-    st.subheader("🎯 Impact Analysis")
+    st.subheader("🎯 Environmental Impact")
     
-    # Emissions Chart
-    st.markdown("**Emissions Over Time**")
-    emissions_chart = render_emissions_chart(results.emissions_history)
-    st.altair_chart(emissions_chart, use_container_width=True)
-    
-    st.markdown("---")
-    
-    # Cascade Chart
-    st.markdown("**Mode Shift Cascade Effects**")
-    cascade_chart = render_cascade_chart(results.cascade_effects)
-    st.altair_chart(cascade_chart, use_container_width=True)
-
-    # st.subheader("🎯 Environmental Impact")
-    
-    # fig = render_emissions_chart(results.time_series)
-    # st.plotly_chart(fig, width='stretch')
+    fig = render_emissions_chart(results.time_series)
+    st.plotly_chart(fig, use_container_width=True)

@@ -1,3 +1,7 @@
+# ============================================================================
+# ui/tabs/scenario_report_tab.py
+# ============================================================================
+
 """
 ui/tabs/scenario_report_tab.py
 
@@ -14,12 +18,15 @@ if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
 
-def render_scenario_report_tab(results):
+def render_scenario_report_tab(results, anim, current_data):  # FIXED: Added anim, current_data
     """
-    Render scenario report visualization tab.
+    Render scenario report tab.
+    Shows what policies were applied and their expected outcomes.
     
     Args:
         results: SimulationResults object
+        anim: AnimationController (not used but kept for consistency)
+        current_data: Current timestep data (not used but kept for consistency)
     """
     st.subheader("📋 Applied Scenario Report")
     
@@ -76,4 +83,4 @@ def _get_policy_description(policy):
         'increase_capacity': f"Increases grid capacity by {value}x",
     }
     
-    return descriptions.get(param, f"Modifies {param} to {value}") 
+    return descriptions.get(param, f"Modifies {param} to {value}")
