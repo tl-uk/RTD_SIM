@@ -50,6 +50,11 @@ class SimulationConfig:
     # Scenario framework (Phase 4.5B)
     scenario_name: Optional[str] = None
     scenarios_dir: Optional[Path] = None
+    
+    # ============================================================================
+    # Phase 5.1: Combined scenario framework
+    # ============================================================================
+    combined_scenario_data: Optional[Dict] = None  # Data for combined scenarios
 
 
 @dataclass
@@ -79,3 +84,12 @@ class SimulationResults:
     
     # Scenario results (Phase 4.5B)
     scenario_report: Optional[Dict] = None
+    
+    # ============================================================================
+    # Phase 5.1: Combined scenario results
+    # ============================================================================
+    policy_actions: List[Dict] = field(default_factory=list)
+    constraint_violations: List[Dict] = field(default_factory=list)
+    cost_recovery_history: List[Dict] = field(default_factory=list)
+    final_cost_recovery: Optional[Dict] = None
+    policy_status: Optional[Dict] = None
