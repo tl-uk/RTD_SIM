@@ -33,7 +33,7 @@ def render_welcome_screen():
     # Phase 4.5B info box
     st.markdown("---")
     st.info("""
-    **🆕 Phase 4.5B Features:**
+    **🆕 Features:**
     - Policy scenario testing (EV subsidies, congestion charges, etc.)
     - Automated outcome comparison
     - YAML-based scenario configuration

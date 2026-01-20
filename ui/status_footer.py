@@ -23,7 +23,7 @@ def render_status_footer(results):
         if results.scenario_report:
             st.success(f"✅ **Scenario Active:** {results.scenario_report['name']}")
         elif results.infrastructure:
-            st.success("✅ **Infrastructure-Aware Mode** - Phase 4.5B Active")
+            st.success("✅ **Infrastructure-Aware Mode** - Active")
         elif results.network:
             if hasattr(results, 'use_realistic_influence') and results.use_realistic_influence:
                 st.success("✅ **Realistic Social Influence Active**")
