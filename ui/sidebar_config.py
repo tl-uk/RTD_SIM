@@ -2,9 +2,10 @@
 ui/sidebar_config.py
 
 Sidebar configuration with Phase 5.1 combined scenarios.
-Provides UI elements for selecting simulation parameters,
-including location, stories, advanced features, and scenarios.
-
+FIXES:
+- Combined scenario selection OUTSIDE form (so dropdown shows immediately)
+- Updated phase labels (removed 4.5B, 4.5, 4.5G)
+- Grid capacity warning
 """
 
 import streamlit as st
@@ -36,11 +37,18 @@ def render_sidebar_config():
     """
     st.header("⚙️ Simulation Configuration")
     
+    # ============================================================================
+    # FIX: Combined scenario selection OUTSIDE form (so it updates immediately)
+    # ============================================================================
+    st.markdown("---")
+    combined_config = _render_combined_scenario_selection()
+    st.markdown("---")
+    
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
         steps = st.number_input("Simulation Steps", 20, 200, 100, 20)
-        num_agents = st.number_input("Number of Agents", 10, 100, 50, 10)
+        num_agents = st.number_input("Number of Agents", 10, 200, 50, 10)
         
         st.markdown("---")
         
@@ -62,11 +70,14 @@ def render_sidebar_config():
         
         st.markdown("---")
         
-        # Scenario selection (Phase 5.1)
-        scenario_config = _render_scenario_selection()
-
-        # Combined scenario selection (Phase 5.1)
-        combined_config = _render_combined_scenario_selection()
+        # Scenario selection (Phase 5.1) - only show if not using combined
+        if not combined_config['use_combined']:
+            scenario_config = _render_scenario_selection()
+        else:
+            # Skip simple scenarios if combined is active
+            scenarios_dir = Path(__file__).resolve().parent.parent / 'scenarios' / 'configs'
+            scenario_config = {'scenario_name': None, 'scenarios_dir': scenarios_dir}
+            st.info("ℹ️ Simple scenarios disabled (using combined scenario)")
         
         st.markdown("---")
         
@@ -321,14 +332,18 @@ def _render_scenario_selection():
 
 
 def _render_combined_scenario_selection():
-    """Phase 5.1: Combined scenario selector with fixed dropdown visibility."""
+    """
+    Phase 5.1: Combined scenario selector.
+    MOVED OUTSIDE FORM so dropdown appears immediately when checkbox is checked.
+    """
     st.markdown("### 🔗 Combined Scenarios (Advanced)")
     
-    # FIX: Move checkbox OUTSIDE the conditional to always render
+    # Checkbox OUTSIDE form
     use_combined = st.checkbox(
         "Use Combined Scenario", 
         value=False,
-        help="Combine multiple policies with interaction rules and constraints"
+        help="Combine multiple policies with interaction rules and constraints",
+        key="use_combined_checkbox"
     )
     
     if not use_combined:
@@ -342,7 +357,7 @@ def _render_combined_scenario_selection():
         st.info("💡 Add YAML files like aggressive_electrification.yaml")
         return {'use_combined': False, 'combined_scenario_data': None}
     
-    # FIX: Always load scenarios dict (even if empty) to prevent state issues
+    # Load scenarios
     scenarios = {}
     yaml_files = list(combined_dir.glob('*.yaml'))
     
@@ -357,28 +372,35 @@ def _render_combined_scenario_selection():
     
     if not scenarios:
         st.info("💡 Add YAML files to scenarios/combined_configs/")
-        st.code("""
-# Example: aggressive_electrification.yaml
+        with st.expander("📝 Example YAML", expanded=False):
+            st.code("""# aggressive_electrification.yaml
 name: Aggressive Electrification Push
 description: Comprehensive EV transition strategy
 
 base_scenarios:
   - complete_supply_chain_electrification
   - depot_based_electrification
+  - economy_7_style_tariff
 
 interaction_rules:
-  - condition: "ev_adoption > 0.3"
+  - condition: "step > 20"
     action: reduce_charging_costs
     parameters:
       multiplier: 0.8
-        """, language="yaml")
+    priority: 100
+
+constraints:
+  - type: budget
+    limit: 50000000
+    warning_threshold: 0.8
+""", language="yaml")
         return {'use_combined': False, 'combined_scenario_data': None}
     
-    # FIX: Use key parameter to ensure dropdown persists across reruns
+    # Selectbox OUTSIDE form (updates immediately)
     selected_name = st.selectbox(
         "Select Combined Scenario", 
         list(scenarios.keys()),
-        key="combined_scenario_selector"  # Stable key
+        key="combined_scenario_selector"
     )
     
     # Show scenario preview
@@ -386,9 +408,25 @@ interaction_rules:
         scenario_data = scenarios[selected_name]
         with st.expander("📝 Scenario Preview", expanded=False):
             st.write(f"**Description:** {scenario_data.get('description', 'No description')}")
-            st.write(f"**Base Scenarios:** {len(scenario_data.get('base_scenarios', []))}")
+            
+            base_scenarios = scenario_data.get('base_scenarios', [])
+            st.write(f"**Base Scenarios ({len(base_scenarios)}):**")
+            for bs in base_scenarios[:5]:  # Show first 5
+                st.write(f"  • {bs}")
+            if len(base_scenarios) > 5:
+                st.write(f"  ... and {len(base_scenarios) - 5} more")
+            
             st.write(f"**Interaction Rules:** {len(scenario_data.get('interaction_rules', []))}")
             st.write(f"**Constraints:** {len(scenario_data.get('constraints', []))}")
+            
+            # Show expected outcomes if available
+            if 'expected_outcomes' in scenario_data:
+                st.markdown("**Expected Outcomes:**")
+                for outcome, value in scenario_data['expected_outcomes'].items():
+                    if isinstance(value, (int, float)):
+                        st.write(f"  • {outcome}: {value:+.1%}")
+                    else:
+                        st.write(f"  • {outcome}: {value}")
     
     return {
         'use_combined': True,
