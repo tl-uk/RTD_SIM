@@ -1,0 +1,50 @@
+name: Debug Test - Always Triggers
+description: Uses conditions that are ALWAYS true to test if policy engine is working
+
+base_scenarios:
+  - complete_supply_chain_electrification
+  - depot_based_electrification
+
+interaction_rules:
+  # Rule 1: Always true (step starts at 0)
+  - condition: "step >= 0"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.5
+    priority: 100
+  
+  # Rule 2: True after step 5
+  - condition: "step > 5"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 5000
+    priority: 90
+  
+  # Rule 3: Grid utilization > 0% (you have 1.1%)
+  - condition: "grid_utilization > 0.005"
+    action: add_chargers
+    parameters:
+      count: 10
+      placement: demand_heatmap
+    priority: 80
+  
+  # Rule 4: ANY EVs exist (you have 24)
+  - condition: "ev_count > 0"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 70
+
+constraints:
+  - type: budget
+    limit: 10000000
+    warning_threshold: 0.8
+  
+  - type: grid_capacity
+    limit: 20
+    warning_threshold: 0.7
+
+expected_outcomes:
+  van_electric_adoption: 0.60
+  truck_electric_adoption: 0.40
+  total_emissions_reduction: 0.45
