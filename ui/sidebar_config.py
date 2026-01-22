@@ -1,7 +1,11 @@
 """
 ui/sidebar_config.py
 
-Sidebar configuration with Phase 4.5G test mode and FIXED policy scenario dropdown.
+Sidebar configuration with Phase 5.1 combined scenarios.
+FIXES:
+- Combined scenario dropdown showing on first render
+- Updated phase labels (removed 4.5B, 4.5, 4.5G)
+- Removed redundant test mode checkbox
 """
 
 import streamlit as st
@@ -33,21 +37,6 @@ def render_sidebar_config():
     """
     st.header("⚙️ Simulation Configuration")
     
-    # ✅ NEW: Test Mode Toggle (at the top, outside form)
-    test_mode = st.checkbox(
-        "🧪 Enable Test Mode (Phase 4.5G)",
-        value=False,
-        help="Single-agent testing for multi-modal validation"
-    )
-    
-    if test_mode:
-        return _render_test_mode()
-    else:
-        return _render_standard_mode()
-
-
-def _render_standard_mode():
-    """Render standard simulation configuration."""
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
@@ -60,7 +49,7 @@ def _render_standard_mode():
         region_info = _render_location_settings()
         place, extended_bbox = region_info['place'], region_info['bbox']
         use_osm = region_info['use_osm']
-        region_name = region_info['region_name'] # Store region name
+        region_name = region_info['region_name']
         
         st.markdown("---")
         
@@ -74,10 +63,10 @@ def _render_standard_mode():
         
         st.markdown("---")
         
-        # Scenario selection
+        # Scenario selection (Phase 5.1)
         scenario_config = _render_scenario_selection()
 
-        # Combined scenario selection
+        # Combined scenario selection (Phase 5.1)
         combined_config = _render_combined_scenario_selection()
         
         st.markdown("---")
@@ -114,59 +103,6 @@ def _render_standard_mode():
     )
     
     return config, run_btn
-
-
-def _render_test_mode():
-    """✅ NEW: Render Phase 4.5G test mode configuration."""
-    st.subheader("🎯 Phase 4.5G Test Configuration")
-    
-    # Test case selection
-    test_case = st.selectbox(
-        "Select Test Case",
-        [
-            "Edinburgh-Glasgow Rail (80km)",
-            "Island Ferry Route (50km)",
-            "Last Mile Scooter (3km)",
-            "Accessible Tram (10km)",
-            "Gig Economy Delivery (15km)",
-            "HGV Construction Delivery (67km)",  # ✅ ADDED for freight testing
-            "Van Service Call (25km)",
-            "Truck Regional Distribution (120km)",
-        ]
-    )
-    
-    # Get pre-configured test
-    origin_name, dest_name, user_story, job_story, expected_modes = _get_test_case_config(test_case)
-    
-    st.info(f"🗺️ **Route**: {origin_name} → {dest_name}")
-    st.info(f"👤 **Persona**: {user_story}")
-    st.info(f"📋 **Job**: {job_story}")
-    st.success(f"✅ **Expected Modes**: {', '.join(expected_modes)}")
-    
-    # Create single-agent test config
-    config = SimulationConfig(
-        steps=50,  # Short test
-        num_agents=1,  # Single agent
-        place="Edinburgh, UK",
-        extended_bbox=None,
-        use_osm=True,
-        user_stories=[user_story],
-        job_stories=[job_story],
-        enable_infrastructure=True,
-        enable_social=False,
-        num_chargers=50,
-        num_depots=5,
-        grid_capacity_mw=1000
-    )
-    
-    run_btn = st.button("🧪 Run Test", type="primary", key="test_run")
-    
-    # Store expected modes for validation (in session state)
-    if run_btn:
-        st.session_state.test_expected_modes = expected_modes
-    
-    return config, run_btn
-
 
 def _get_test_case_config(test_case: str) -> tuple:
     """Get origin, destination, user, job, and expected modes for test case."""
@@ -236,8 +172,8 @@ def _render_location_settings():
             "Region",
             options=[
                 'Edinburgh City',
-                'Central Scotland (Edinburgh-Glasgow)',      # 2-city
-                'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',  # 3-city
+                'Central Scotland (Edinburgh-Glasgow)',
+                'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',
                 'Custom Place'
             ],
             index=0,
@@ -250,14 +186,12 @@ def _render_location_settings():
             region_name = "Edinburgh City" 
             st.info("🏙️ City scale: ~30km radius, good for walk/bike/car/EV")
         
-        # Edinburgh-Glasgow (2-city)
         elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
             place = None
             extended_bbox = (-4.30, 55.80, -3.10, 56.00)
             region_name = "Central Scotland (Edinburgh-Glasgow)" 
             st.success("📦 2-City: Edinburgh-Glasgow corridor (~80km, 60k nodes)")
         
-        # Aberdeen-Edinburgh-Glasgow (3-city)
         elif region_choice == 'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)':
             place = None
             extended_bbox = (-4.30, 55.85, -2.05, 57.20)
@@ -280,16 +214,19 @@ def _render_location_settings():
             
             place = st.session_state.custom_place
             extended_bbox = None
-            region_name = place  # Use place name as region name
+            region_name = place
             st.info(f"🗺️ Will load: {place}")
+    else:
+        place = "Edinburgh, UK"
+        extended_bbox = None
+        region_name = "Synthetic Network"
     
     return {
         'use_osm': use_osm,
         'place': place,
         'bbox': extended_bbox,
-        'region_name': region_name  # Return region name
+        'region_name': region_name
     }
-
 
 def _render_story_selection():
     """Render story selection section."""
@@ -332,8 +269,8 @@ def _render_advanced_features():
     
     use_congestion = st.checkbox("Enable Congestion", value=False)
     
-    # Infrastructure
-    st.markdown("**🔌 Infrastructure (Phase 4.5)**")
+    # Infrastructure (Phase 5.1)
+    st.markdown("**🔌 Infrastructure**")
     enable_infrastructure = st.checkbox(
         "Enable Infrastructure Awareness", 
         value=True,
@@ -342,13 +279,21 @@ def _render_advanced_features():
     
     if enable_infrastructure:
         with st.expander("⚙️ Infrastructure Parameters"):
-            num_chargers = st.slider("Public Chargers", 10, 100, 50, 10)
+            num_chargers = st.slider("Public Chargers", 10, 200, 50, 10)
             num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
-            grid_capacity_mw = st.slider("Grid Capacity (MW)", 100, 2000, 1000, 100)
+            grid_capacity_mw = st.slider(
+                "Grid Capacity (MW)", 
+                10, 2000, 100, 10,
+                help="⚠️ Reduce to 10-20 MW for visible utilization metrics"
+            )
+            
+            # Show warning if grid too large
+            if grid_capacity_mw > 500:
+                st.warning("⚠️ Grid >500 MW may show 0.0% utilization. Try 10-100 MW for better visibility.")
     else:
         num_chargers = 0
         num_depots = 0
-        grid_capacity_mw = 1000
+        grid_capacity_mw = 100
     
     # Social networks
     enable_social = False
@@ -379,42 +324,37 @@ def _render_advanced_features():
         'habit_weight': habit_weight
     }
 
-
 def _render_scenario_selection():
     """
-    Render scenario selection section.
+    Render simple scenario selection section (Phase 5.1).
     
     Returns:
         dict: Scenario configuration
     """
-    st.markdown("### 📋 Policy Scenarios (Phase 4.5B)")
+    st.markdown("### 📋 Simple Policy Scenarios")
     
-    # Check if scenarios available
     scenarios_dir = Path(__file__).resolve().parent.parent / 'scenarios' / 'configs'
     available_scenarios = list_available_scenarios(scenarios_dir)
     
     if not available_scenarios:
         st.warning("⚠️ No scenarios found in scenarios/configs/")
-        st.info("💡 Create YAML files in scenarios/configs/ to define policy scenarios")
         return {'scenario_name': None, 'scenarios_dir': scenarios_dir}
     
-    # Add "None (Baseline)" option
     scenario_options = ['None (Baseline)'] + available_scenarios
     
     selected = st.selectbox(
-        "Select Policy Scenario",
+        "Select Simple Scenario",
         options=scenario_options,
         index=0,
-        help="Choose a policy scenario to apply, or None for baseline"
+        help="Choose a single policy scenario, or None for baseline"
     )
     
     scenario_name = None if selected == 'None (Baseline)' else selected
     
-    # Show scenario details if selected
     if scenario_name:
         scenario_info = get_scenario_info(scenario_name, scenarios_dir)
         if scenario_info:
-            with st.expander("📝 Scenario Details", expanded=True):
+            with st.expander("📝 Scenario Details", expanded=False):
                 st.write(f"**Description:** {scenario_info['description']}")
                 st.write(f"**Policies:** {scenario_info['num_policies']}")
                 
@@ -429,32 +369,74 @@ def _render_scenario_selection():
     }
 
 def _render_combined_scenario_selection():
-    """Phase 5.1: Combined scenario selector."""
-    st.markdown("### 🔗 Advanced: Combined Scenarios")
+    """Phase 5.1: Combined scenario selector with fixed dropdown visibility."""
+    st.markdown("### 🔗 Combined Scenarios (Advanced)")
     
-    use_combined = st.checkbox("Use Combined Scenario", value=False)
+    # FIX: Move checkbox OUTSIDE the conditional to always render
+    use_combined = st.checkbox(
+        "Use Combined Scenario", 
+        value=False,
+        help="Combine multiple policies with interaction rules and constraints"
+    )
     
     if not use_combined:
         return {'use_combined': False, 'combined_scenario_data': None}
     
+    # Load combined scenarios
     combined_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
     
     if not combined_dir.exists():
         st.warning("⚠️ Create folder: scenarios/combined_configs/")
+        st.info("💡 Add YAML files like aggressive_electrification.yaml")
         return {'use_combined': False, 'combined_scenario_data': None}
     
+    # FIX: Always load scenarios dict (even if empty) to prevent state issues
     scenarios = {}
-    for yaml_file in combined_dir.glob('*.yaml'):
-        with open(yaml_file, 'r') as f:
-            for doc in yaml.safe_load_all(f):
-                if doc and 'name' in doc:
-                    scenarios[doc['name']] = doc
+    yaml_files = list(combined_dir.glob('*.yaml'))
+    
+    for yaml_file in yaml_files:
+        try:
+            with open(yaml_file, 'r') as f:
+                for doc in yaml.safe_load_all(f):
+                    if doc and 'name' in doc:
+                        scenarios[doc['name']] = doc
+        except Exception as e:
+            st.error(f"Error loading {yaml_file.name}: {e}")
     
     if not scenarios:
         st.info("💡 Add YAML files to scenarios/combined_configs/")
+        st.code("""
+# Example: aggressive_electrification.yaml
+name: Aggressive Electrification Push
+description: Comprehensive EV transition strategy
+
+base_scenarios:
+  - complete_supply_chain_electrification
+  - depot_based_electrification
+
+interaction_rules:
+  - condition: "ev_adoption > 0.3"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.8
+        """, language="yaml")
         return {'use_combined': False, 'combined_scenario_data': None}
     
-    selected_name = st.selectbox("Select Combined Scenario", list(scenarios.keys()))
+    # FIX: Use key parameter to ensure dropdown persists across reruns
+    selected_name = st.selectbox(
+        "Select Combined Scenario", 
+        list(scenarios.keys()),
+        key="combined_scenario_selector"  # Stable key
+    )
+    
+    # Show scenario preview
+    if selected_name:
+        scenario_data = scenarios[selected_name]
+        with st.expander("📝 Scenario Preview", expanded=False):
+            st.write(f"**Description:** {scenario_data.get('description', 'No description')}")
+            st.write(f"**Base Scenarios:** {len(scenario_data.get('base_scenarios', []))}")
+            st.write(f"**Interaction Rules:** {len(scenario_data.get('interaction_rules', []))}")
+            st.write(f"**Constraints:** {len(scenario_data.get('constraints', []))}")
     
     return {
         'use_combined': True,
@@ -462,69 +444,77 @@ def _render_combined_scenario_selection():
     }
 
 
-def list_available_scenarios(scenarios_dir: Path) -> list:
-    """
-    ✅ FIXED: List all available scenario YAML files.
+def _render_combined_scenario_selection():
+    """Phase 5.1: Combined scenario selector with fixed dropdown visibility."""
+    st.markdown("### 🔗 Combined Scenarios (Advanced)")
     
-    Args:
-        scenarios_dir: Path to scenarios/configs directory
+    # FIX: Move checkbox OUTSIDE the conditional to always render
+    use_combined = st.checkbox(
+        "Use Combined Scenario", 
+        value=False,
+        help="Combine multiple policies with interaction rules and constraints"
+    )
     
-    Returns:
-        List of scenario names (without .yaml extension)
-    """
-    if not scenarios_dir.exists():
-        return []
+    if not use_combined:
+        return {'use_combined': False, 'combined_scenario_data': None}
     
-    yaml_files = list(scenarios_dir.glob('*.yaml'))
+    # Load combined scenarios
+    combined_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
     
-    # Return filenames without extension
-    scenario_names = [f.stem for f in yaml_files]
+    if not combined_dir.exists():
+        st.warning("⚠️ Create folder: scenarios/combined_configs/")
+        st.info("💡 Add YAML files like aggressive_electrification.yaml")
+        return {'use_combined': False, 'combined_scenario_data': None}
     
-    return sorted(scenario_names)
+    # FIX: Always load scenarios dict (even if empty) to prevent state issues
+    scenarios = {}
+    yaml_files = list(combined_dir.glob('*.yaml'))
+    
+    for yaml_file in yaml_files:
+        try:
+            with open(yaml_file, 'r') as f:
+                for doc in yaml.safe_load_all(f):
+                    if doc and 'name' in doc:
+                        scenarios[doc['name']] = doc
+        except Exception as e:
+            st.error(f"Error loading {yaml_file.name}: {e}")
+    
+    if not scenarios:
+        st.info("💡 Add YAML files to scenarios/combined_configs/")
+        st.code("""
+# Example: aggressive_electrification.yaml
+name: Aggressive Electrification Push
+description: Comprehensive EV transition strategy
 
+base_scenarios:
+  - complete_supply_chain_electrification
+  - depot_based_electrification
 
-def get_scenario_info(scenario_name: str, scenarios_dir: Path) -> dict:
-    """
-    ✅ FIXED: Load scenario metadata from YAML file (supports multi-document).
+interaction_rules:
+  - condition: "ev_adoption > 0.3"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.8
+        """, language="yaml")
+        return {'use_combined': False, 'combined_scenario_data': None}
     
-    Args:
-        scenario_name: Scenario filename (without .yaml)
-        scenarios_dir: Path to scenarios/configs directory
+    # FIX: Use key parameter to ensure dropdown persists across reruns
+    selected_name = st.selectbox(
+        "Select Combined Scenario", 
+        list(scenarios.keys()),
+        key="combined_scenario_selector"  # Stable key
+    )
     
-    Returns:
-        Dict with scenario metadata
-    """
-    scenario_path = scenarios_dir / f"{scenario_name}.yaml"
+    # Show scenario preview
+    if selected_name:
+        scenario_data = scenarios[selected_name]
+        with st.expander("📝 Scenario Preview", expanded=False):
+            st.write(f"**Description:** {scenario_data.get('description', 'No description')}")
+            st.write(f"**Base Scenarios:** {len(scenario_data.get('base_scenarios', []))}")
+            st.write(f"**Interaction Rules:** {len(scenario_data.get('interaction_rules', []))}")
+            st.write(f"**Constraints:** {len(scenario_data.get('constraints', []))}")
     
-    if not scenario_path.exists():
-        return {}
-    
-    try:
-        with open(scenario_path, 'r') as f:
-            # ✅ FIXED: Use safe_load_all for multi-document YAML
-            documents = list(yaml.safe_load_all(f))
-        
-        # First document should have metadata
-        if not documents:
-            return {'description': 'Empty scenario file', 'num_policies': 0, 'expected_outcomes': {}}
-        
-        first_doc = documents[0]
-        
-        # Extract metadata from first document
-        metadata = first_doc.get('metadata', {})
-        
-        # Count policies across all documents
-        total_policies = 0
-        for doc in documents:
-            if doc and 'policies' in doc:
-                total_policies += len(doc.get('policies', []))
-        
-        return {
-            'description': metadata.get('description', 'No description'),
-            'num_policies': total_policies,
-            'expected_outcomes': metadata.get('expected_outcomes', {}),
-        }
-    
-    except Exception as e:
-        st.error(f"Error loading scenario {scenario_name}: {e}")
-        return {}
+    return {
+        'use_combined': True,
+        'combined_scenario_data': scenarios[selected_name]
+    }

@@ -3,14 +3,7 @@ simulation/simulation_runner.py
 
 Main simulation orchestrator - delegates to specialized modules.
 
-Refactored from 1194 lines to ~150 lines by extracting:
-- Config → simulation/config/simulation_config.py
-- Routing → simulation/routing/route_diversity.py
-- Environment → simulation/setup/environment_setup.py
-- Agents → simulation/setup/agent_creation.py
-- Network → simulation/setup/network_setup.py
-- Loop → simulation/execution/simulation_loop.py
-- Analysis → simulation/analysis/scenario_comparison.py
+MODIFIED Phase 5.1: Added dynamic policy engine support for combined scenarios
 """
 
 from __future__ import annotations
@@ -20,7 +13,7 @@ import logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(levelname)s:%(name)s:%(message)s',
-    force=True  # Override Streamlit's logging config
+    force=True
 )
 
 from typing import Optional, Callable
@@ -37,6 +30,9 @@ from simulation.analysis.scenario_comparison import (
     compare_scenarios,
     format_comparison_report
 )
+
+# NEW Phase 5.1: Import dynamic policy engine
+from simulation.execution.dynamic_policies import initialize_policy_engine
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +59,11 @@ def run_simulation(
     1. Environment setup (OSM graphs, congestion)
     2. Route diversity strategies
     3. Infrastructure (charging stations, depots)
-    4. Scenario policies (if specified)
+    4. Scenario policies (if specified) - NEW: includes combined scenarios
     5. Agent creation (story-driven or basic)
     6. Social network (influence system)
-    7. Main simulation loop
-    8. Results collection
+    7. Main simulation loop - NEW: with policy engine
+    8. Results collection - NEW: includes policy results
     
     Args:
         config: SimulationConfig with all parameters
@@ -99,14 +95,32 @@ def run_simulation(
         logger.info("🧠 Phase 4: BDI planner creation")
         planner = create_planner(infrastructure)
         
-        # Phase 4.5: Apply scenario policies (if specified)
-        if config.scenario_name:
-            logger.info(f"📋 Phase 4.5: Applying scenario '{config.scenario_name}'")
+        # ====================================================================
+        # Phase 4.5: Apply policies (simple OR combined scenarios)
+        # ====================================================================
+        policy_engine = None
+        
+        # Check if combined scenario is active
+        if config.combined_scenario_data:
+            logger.info("🔗 Phase 4.5: Initializing dynamic policy engine (combined scenario)")
+            policy_engine = initialize_policy_engine(config, infrastructure)
+            
+            if policy_engine:
+                logger.info(f"✅ Policy engine initialized")
+            else:
+                logger.warning("⚠️ Failed to initialize policy engine, continuing without it")
+        
+        # Fallback to simple scenario if no combined scenario
+        elif config.scenario_name:
+            logger.info(f"📋 Phase 4.5: Applying simple scenario '{config.scenario_name}'")
             scenario_report = apply_scenario_policies(config, env, progress_callback)
             results.scenario_report = scenario_report
             
             if scenario_report:
                 logger.info(f"✅ Scenario applied: {scenario_report['name']}")
+        
+        else:
+            logger.info("➖ Phase 4.5: No scenarios active (baseline run)")
         
         # Phase 5: Create agents
         logger.info("🤖 Phase 5: Agent creation")
@@ -125,9 +139,11 @@ def run_simulation(
         else:
             network = None
             influence_system = None
-            logger.info("⏭️ Phase 6: Social network disabled")
+            logger.info("⭕ Phase 6: Social network disabled")
         
-        # Phase 7: Run main simulation loop
+        # ====================================================================
+        # Phase 7: Run main simulation loop (with policy engine if active)
+        # ====================================================================
         logger.info("⚙️ Phase 7: Running simulation loop")
         loop_results = run_simulation_loop(
             config=config,
@@ -136,14 +152,29 @@ def run_simulation(
             infrastructure=infrastructure,
             network=network,
             influence_system=influence_system,
+            policy_engine=policy_engine,  # NEW: Pass policy engine!
             progress_callback=progress_callback
         )
         
-        # Phase 8: Collect results
+        # ====================================================================
+        # Phase 8: Collect results (including policy results)
+        # ====================================================================
         logger.info("📊 Phase 8: Collecting results")
         results.time_series = loop_results['time_series']
         results.adoption_history = loop_results['adoption_history']
         results.cascade_events = loop_results['cascade_events']
+        
+        # NEW: Collect policy results if available
+        if 'policy_actions' in loop_results:
+            results.policy_actions = loop_results['policy_actions']
+            results.constraint_violations = loop_results.get('constraint_violations', [])
+            results.cost_recovery_history = loop_results.get('cost_recovery_history', [])
+            results.final_cost_recovery = loop_results.get('final_cost_recovery')
+            results.policy_status = loop_results.get('policy_status')
+            
+            logger.info(f"✅ Policy tracking: {len(results.policy_actions)} actions, "
+                       f"{len(results.constraint_violations)} violations")
+        
         results.success = True
         
         # Log summary
@@ -168,6 +199,7 @@ def run_simulation(
 def run_baseline_simulation(config: SimulationConfig) -> SimulationResults:
     """Run simulation without any scenario (baseline)."""
     config.scenario_name = None
+    config.combined_scenario_data = None
     return run_simulation(config)
 
 
@@ -177,6 +209,7 @@ def run_scenario_simulation(
 ) -> SimulationResults:
     """Run simulation with specified scenario applied."""
     config.scenario_name = scenario_name
+    config.combined_scenario_data = None
     return run_simulation(config)
 
 
