@@ -2,10 +2,9 @@
 ui/sidebar_config.py
 
 Sidebar configuration with Phase 5.1 combined scenarios.
-FIXES:
-- Combined scenario dropdown showing on first render
-- Updated phase labels (removed 4.5B, 4.5, 4.5G)
-- Removed redundant test mode checkbox
+Provides UI elements for selecting simulation parameters,
+including location, stories, advanced features, and scenarios.
+
 """
 
 import streamlit as st
