@@ -104,56 +104,6 @@ def render_sidebar_config():
     
     return config, run_btn
 
-def _get_test_case_config(test_case: str) -> tuple:
-    """Get origin, destination, user, job, and expected modes for test case."""
-    configs = {
-        "Edinburgh-Glasgow Rail (80km)": (
-            "Edinburgh", "Glasgow",
-            "long_distance_commuter", "intercity_train_commute",
-            ["local_train", "intercity_train"]
-        ),
-        "Island Ferry Route (50km)": (
-            "Isle of Arran", "Glasgow",
-            "island_resident", "island_ferry_trip",
-            ["ferry_diesel", "ferry_electric"]
-        ),
-        "Last Mile Scooter (3km)": (
-            "Edinburgh Waverley", "Edinburgh Castle",
-            "long_distance_commuter", "last_mile_scooter",
-            ["e_scooter", "bike", "walk"]
-        ),
-        "Accessible Tram (10km)": (
-            "Edinburgh City Centre", "Edinburgh Airport",
-            "disabled_commuter", "accessible_tram_journey",
-            ["tram", "bus"]
-        ),
-        "Gig Economy Delivery (15km)": (
-            "Edinburgh", "Leith",
-            "delivery_driver", "gig_economy_delivery",
-            ["cargo_bike", "van_electric"]
-        ),
-        "HGV Construction Delivery (67km)": (  # ✅ NEW
-            "Edinburgh", "Glasgow",
-            "freight_driver", "hgv_construction_delivery_generated",
-            ["hgv_diesel", "hgv_electric", "truck_diesel"]
-        ),
-        "Van Service Call (25km)": (  # ✅ NEW
-            "Edinburgh", "Livingston",
-            "service_engineer", "service_engineer_call",
-            ["van_electric", "van_diesel"]
-        ),
-        "Truck Regional Distribution (120km)": (  # ✅ NEW
-            "Edinburgh", "Stirling",
-            "freight_driver", "truck_regional_distribution_generated",
-            ["truck_diesel", "truck_electric"]
-        ),
-    }
-    return configs.get(test_case, (
-        "Edinburgh", "Glasgow", 
-        "eco_warrior", "morning_commute",
-        ["walk", "bike", "bus"]
-    ))
-
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -227,6 +177,7 @@ def _render_location_settings():
         'bbox': extended_bbox,
         'region_name': region_name
     }
+
 
 def _render_story_selection():
     """Render story selection section."""
@@ -324,6 +275,7 @@ def _render_advanced_features():
         'habit_weight': habit_weight
     }
 
+
 def _render_scenario_selection():
     """
     Render simple scenario selection section (Phase 5.1).
@@ -368,81 +320,6 @@ def _render_scenario_selection():
         'scenarios_dir': scenarios_dir
     }
 
-def _render_combined_scenario_selection():
-    """Phase 5.1: Combined scenario selector with fixed dropdown visibility."""
-    st.markdown("### 🔗 Combined Scenarios (Advanced)")
-    
-    # FIX: Move checkbox OUTSIDE the conditional to always render
-    use_combined = st.checkbox(
-        "Use Combined Scenario", 
-        value=False,
-        help="Combine multiple policies with interaction rules and constraints"
-    )
-    
-    if not use_combined:
-        return {'use_combined': False, 'combined_scenario_data': None}
-    
-    # Load combined scenarios
-    combined_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
-    
-    if not combined_dir.exists():
-        st.warning("⚠️ Create folder: scenarios/combined_configs/")
-        st.info("💡 Add YAML files like aggressive_electrification.yaml")
-        return {'use_combined': False, 'combined_scenario_data': None}
-    
-    # FIX: Always load scenarios dict (even if empty) to prevent state issues
-    scenarios = {}
-    yaml_files = list(combined_dir.glob('*.yaml'))
-    
-    for yaml_file in yaml_files:
-        try:
-            with open(yaml_file, 'r') as f:
-                for doc in yaml.safe_load_all(f):
-                    if doc and 'name' in doc:
-                        scenarios[doc['name']] = doc
-        except Exception as e:
-            st.error(f"Error loading {yaml_file.name}: {e}")
-    
-    if not scenarios:
-        st.info("💡 Add YAML files to scenarios/combined_configs/")
-        st.code("""
-# Example: aggressive_electrification.yaml
-name: Aggressive Electrification Push
-description: Comprehensive EV transition strategy
-
-base_scenarios:
-  - complete_supply_chain_electrification
-  - depot_based_electrification
-
-interaction_rules:
-  - condition: "ev_adoption > 0.3"
-    action: reduce_charging_costs
-    parameters:
-      multiplier: 0.8
-        """, language="yaml")
-        return {'use_combined': False, 'combined_scenario_data': None}
-    
-    # FIX: Use key parameter to ensure dropdown persists across reruns
-    selected_name = st.selectbox(
-        "Select Combined Scenario", 
-        list(scenarios.keys()),
-        key="combined_scenario_selector"  # Stable key
-    )
-    
-    # Show scenario preview
-    if selected_name:
-        scenario_data = scenarios[selected_name]
-        with st.expander("📝 Scenario Preview", expanded=False):
-            st.write(f"**Description:** {scenario_data.get('description', 'No description')}")
-            st.write(f"**Base Scenarios:** {len(scenario_data.get('base_scenarios', []))}")
-            st.write(f"**Interaction Rules:** {len(scenario_data.get('interaction_rules', []))}")
-            st.write(f"**Constraints:** {len(scenario_data.get('constraints', []))}")
-    
-    return {
-        'use_combined': True,
-        'combined_scenario_data': scenarios[selected_name]
-    }
-
 
 def _render_combined_scenario_selection():
     """Phase 5.1: Combined scenario selector with fixed dropdown visibility."""
@@ -518,3 +395,47 @@ interaction_rules:
         'use_combined': True,
         'combined_scenario_data': scenarios[selected_name]
     }
+
+
+def list_available_scenarios(scenarios_dir: Path) -> list:
+    """List all available scenario YAML files."""
+    if not scenarios_dir.exists():
+        return []
+    
+    yaml_files = list(scenarios_dir.glob('*.yaml'))
+    scenario_names = [f.stem for f in yaml_files]
+    
+    return sorted(scenario_names)
+
+
+def get_scenario_info(scenario_name: str, scenarios_dir: Path) -> dict:
+    """Load scenario metadata from YAML file (supports multi-document)."""
+    scenario_path = scenarios_dir / f"{scenario_name}.yaml"
+    
+    if not scenario_path.exists():
+        return {}
+    
+    try:
+        with open(scenario_path, 'r') as f:
+            documents = list(yaml.safe_load_all(f))
+        
+        if not documents:
+            return {'description': 'Empty scenario file', 'num_policies': 0, 'expected_outcomes': {}}
+        
+        first_doc = documents[0]
+        metadata = first_doc.get('metadata', {})
+        
+        total_policies = 0
+        for doc in documents:
+            if doc and 'policies' in doc:
+                total_policies += len(doc.get('policies', []))
+        
+        return {
+            'description': metadata.get('description', 'No description'),
+            'num_policies': total_policies,
+            'expected_outcomes': metadata.get('expected_outcomes', {}),
+        }
+    
+    except Exception as e:
+        st.error(f"Error loading scenario {scenario_name}: {e}")
+        return {}
