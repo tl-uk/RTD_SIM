@@ -42,11 +42,17 @@ class InteractionRule:
         """Safely evaluate condition against simulation state."""
         try:
             # Create safe evaluation context
+            # FIX: Include ALL state variables, not just a subset!
             safe_context = {
                 'grid_load': state.get('grid_load', 0),
+                'grid_capacity': state.get('grid_capacity', 1000),
                 'grid_utilization': state.get('grid_utilization', 0),
                 'charger_utilization': state.get('charger_utilization', 0),
+                'occupied_chargers': state.get('occupied_chargers', 0),
+                'total_chargers': state.get('total_chargers', 1),
                 'ev_adoption': state.get('ev_adoption', 0),
+                'ev_count': state.get('ev_count', 0),  # FIX: Added ev_count!
+                'total_agents': state.get('total_agents', 1),  # FIX: Added total_agents!
                 'avg_charging_cost': state.get('avg_charging_cost', 0),
                 'step': state.get('step', 0),
                 'time_of_day': state.get('time_of_day', 8),
@@ -56,7 +62,6 @@ class InteractionRule:
         except Exception as e:
             logger.error(f"Failed to evaluate condition '{self.condition}': {e}")
             return False
-
 
 @dataclass
 class PolicyConstraint:
