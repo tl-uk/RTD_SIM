@@ -66,7 +66,17 @@ def render_combined_scenarios_tab(results, anim, current_data):
             st.caption(f"• {base}")
     
     with col2:
-        st.metric("Interaction Rules", policy_status['rules_triggered'])
+        # FIX: Show total rules defined, not just triggered
+        total_rules = policy_status.get('total_interaction_rules', 0)
+        rules_triggered = policy_status['rules_triggered']
+        
+        st.metric(
+            "Interaction Rules", 
+            f"{rules_triggered} / {total_rules}",
+            delta=f"{rules_triggered} triggered",
+            help=f"{total_rules} rules defined, {rules_triggered} actually triggered during simulation"
+        )
+        
         st.metric("Feedback Loops", policy_status['active_feedback_loops'])
     
     with col3:

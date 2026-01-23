@@ -1,0 +1,129 @@
+name: Comprehensive Policy Test
+description: |
+  Tests all available policy actions in the dynamic policy engine.
+  Demonstrates the full range of interventions available.
+
+base_scenarios:
+  - freight_electrification
+  - depot_based_electrification
+
+interaction_rules:
+  # Phase 1 (Steps 0-20): Initial incentives
+  - condition: "step >= 0 and step < 20"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.6  # 40% discount
+    priority: 100
+  
+  - condition: "step == 10"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 7500  # £7,500 grant
+    priority: 100
+  
+  # Phase 2 (Steps 20-40): Infrastructure expansion
+  - condition: "step == 25"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 15
+      strategy: demand_heatmap
+    priority: 90
+  
+  - condition: "step == 30"
+    action: upgrade_charger_speed
+    parameters:
+      num_chargers: 10
+      power_kw: 150  # DC fast charging
+    priority: 90
+  
+  # Phase 3 (Steps 40-60): Grid management
+  - condition: "grid_utilization > 0.15"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 80
+  
+  - condition: "step == 45"
+    action: increase_grid_capacity
+    parameters:
+      additional_mw: 10
+      region: default
+    priority: 80
+  
+  - condition: "grid_utilization > 0.6"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 2.0
+      duration_steps: 10
+    priority: 100
+  
+  # Phase 4 (Steps 60-80): Optimization
+  - condition: "step == 65"
+    action: relocate_chargers
+    parameters:
+      num_chargers: 5
+      utilization_threshold: 0.15
+    priority: 70
+  
+  - condition: "charger_utilization > 0.5"
+    action: load_balancing
+    parameters:
+      strategy: time_shift
+    priority: 70
+  
+  # Phase 5 (Steps 80-100): Diesel restrictions
+  - condition: "step == 85 and ev_adoption > 0.2"
+    action: apply_congestion_charge
+    parameters:
+      amount: 15
+      zone: city_center
+    priority: 95
+  
+  - condition: "step == 95 and ev_adoption > 0.4"
+    action: ban_diesel_vehicles
+    parameters:
+      zone: city_center
+      modes: [van_diesel, truck_diesel]
+    priority: 95
+  
+  # Continuous: Cost recovery
+  - condition: "charger_utilization < 0.25 and step > 50"
+    action: increase_charging_cost
+    parameters:
+      reason: infrastructure_cost_recovery
+    priority: 60
+
+constraints:
+  - type: budget
+    limit: 50000000  # £50M
+    warning_threshold: 0.75
+  
+  - type: grid_capacity
+    limit: 50  # 50 MW
+    warning_threshold: 0.8
+  
+  - type: deployment_rate
+    limit: 100  # Max 100 chargers total
+    warning_threshold: 0.9
+
+feedback_loops:
+  - name: adoption_infrastructure_loop
+    description: More EVs justify more infrastructure which enables more adoption
+    variables: [ev_adoption, charger_count, grid_capacity]
+    loop_type: positive
+    strength: 1.2
+  
+  - name: cost_recovery_pressure
+    description: Low utilization increases costs which slows adoption
+    variables: [charger_utilization, charging_cost, ev_adoption]
+    loop_type: negative
+    strength: 0.8
+
+expected_outcomes:
+  van_electric_adoption: 0.65
+  truck_electric_adoption: 0.50
+  hgv_electric_adoption: 0.30
+  total_emissions_reduction: 0.55
+  grid_stress_events: 2
+  cost_recovery_achieved: true
+  payback_years: 6

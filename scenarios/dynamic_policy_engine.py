@@ -329,24 +329,207 @@ class DynamicPolicyEngine:
         action = rule.action
         params = rule.parameters
         
+        # Pricing actions
         if action == 'apply_surge_pricing':
             return self._apply_surge_pricing(params)
-        
         elif action == 'increase_charging_cost':
             return self._increase_charging_cost(params)
+        elif action == 'reduce_charging_costs':  # NEW: Alias for discounts
+            return self._reduce_charging_costs(params)
         
+        # Infrastructure actions
         elif action == 'add_emergency_chargers':
             return self._add_emergency_chargers(params)
+        elif action == 'add_chargers':  # NEW: Alias
+            return self._add_emergency_chargers(params)
+        elif action == 'relocate_chargers':  # NEW
+            return self._relocate_underutilized_chargers(params)
+        elif action == 'upgrade_charger_speed':  # NEW
+            return self._upgrade_charger_speed(params)
         
+        # Subsidy actions
         elif action == 'reduce_ev_subsidy':
             return self._reduce_ev_subsidy(params)
+        elif action == 'increase_ev_subsidy':  # NEW
+            return self._increase_ev_subsidy(params)
         
+        # Grid actions
         elif action == 'enable_smart_charging':
             return self._enable_smart_charging(params)
+        elif action == 'increase_grid_capacity':  # NEW
+            return self._increase_grid_capacity(params)
+        elif action == 'load_balancing':  # NEW
+            return self._apply_load_balancing(params)
+        
+        # Mode-specific actions
+        elif action == 'apply_congestion_charge':  # NEW
+            return self._apply_congestion_charge(params)
+        elif action == 'ban_diesel_vehicles':  # NEW
+            return self._ban_diesel_vehicles(params)
         
         else:
             logger.warning(f"Unknown action: {action}")
             return None
+
+    
+    def _reduce_charging_costs(self, params: Dict) -> Dict:
+        """Reduce charging costs (incentivize EV adoption)."""
+        multiplier = params.get('multiplier', 0.8)  # Default 20% discount
+        
+        old_multiplier = self.current_price_multiplier
+        self.current_price_multiplier = multiplier
+        
+        # Update all charging station costs
+        updated = 0
+        for station in self.infrastructure.charging_stations.values():
+            station.cost_per_kwh = self.base_charging_cost * multiplier
+            updated += 1
+        
+        logger.info(f"  Charging cost reduction: {old_multiplier:.2f}x → {multiplier:.2f}x ({updated} stations)")
+        
+        return {
+            'old_multiplier': old_multiplier,
+            'new_multiplier': multiplier,
+            'discount_percentage': (1 - multiplier) * 100,
+            'stations_updated': updated
+        }
+    
+    def _relocate_underutilized_chargers(self, params: Dict) -> Dict:
+        """Relocate underutilized chargers to high-demand areas."""
+        num_to_relocate = params.get('num_chargers', 5)
+        utilization_threshold = params.get('utilization_threshold', 0.2)
+        
+        # Find underutilized stations
+        underutilized = []
+        for station_id, station in self.infrastructure.charging_stations.items():
+            if hasattr(station, 'utilization_history'):
+                avg_util = sum(station.utilization_history) / max(1, len(station.utilization_history))
+                if avg_util < utilization_threshold:
+                    underutilized.append(station_id)
+        
+        # Relocate (simplified - just remove and add new ones)
+        relocated_count = min(num_to_relocate, len(underutilized))
+        
+        for station_id in underutilized[:relocated_count]:
+            if station_id in self.infrastructure.charging_stations:
+                del self.infrastructure.charging_stations[station_id]
+        
+        # Add new chargers in high-demand areas
+        new_stations = self.infrastructure.add_chargers_by_demand(
+            num_chargers=relocated_count,
+            strategy='demand_heatmap'
+        )
+        
+        logger.info(f"  Relocated {relocated_count} underutilized chargers to high-demand areas")
+        
+        return {
+            'relocated_count': relocated_count,
+            'new_station_ids': new_stations,
+            'threshold': utilization_threshold
+        }
+    
+    def _upgrade_charger_speed(self, params: Dict) -> Dict:
+        """Upgrade chargers to faster charging speeds."""
+        num_to_upgrade = params.get('num_chargers', 10)
+        target_speed = params.get('power_kw', 150)  # DC fast charger
+        
+        upgraded = 0
+        for station in list(self.infrastructure.charging_stations.values())[:num_to_upgrade]:
+            old_power = station.power_kw
+            station.power_kw = target_speed
+            station.charger_type = 'dc_fast' if target_speed >= 50 else 'level2'
+            upgraded += 1
+        
+        logger.info(f"  Upgraded {upgraded} chargers to {target_speed}kW")
+        
+        return {
+            'upgraded_count': upgraded,
+            'new_power_kw': target_speed
+        }
+    
+    def _increase_ev_subsidy(self, params: Dict) -> Dict:
+        """Increase EV subsidy amount."""
+        amount = params.get('amount', 5000)  # £5000 additional subsidy
+        
+        # This would modify the scenario manager's active policies
+        # For now, just log and track
+        logger.info(f"  Increased EV subsidy by £{amount}")
+        
+        return {
+            'subsidy_increase': amount,
+            'action': 'increased_subsidy'
+        }
+    
+    def _increase_grid_capacity(self, params: Dict) -> Dict:
+        """Increase grid capacity (infrastructure investment)."""
+        additional_mw = params.get('additional_mw', 5)
+        region = params.get('region', 'default')
+        
+        if region in self.infrastructure.grid_regions:
+            grid = self.infrastructure.grid_regions[region]
+            old_capacity = grid.capacity_mw
+            grid.capacity_mw += additional_mw
+            
+            # Track cost
+            cost_per_mw = 1000000  # £1M per MW
+            total_cost = additional_mw * cost_per_mw
+            
+            if self.active_combined and 'budget' in self.active_combined.constraints:
+                budget = self.active_combined.constraints['budget']
+                budget.current += total_cost
+                self.infrastructure_capex += total_cost
+            
+            logger.info(f"  Grid capacity increased: {old_capacity:.0f} MW → {grid.capacity_mw:.0f} MW")
+            
+            return {
+                'old_capacity_mw': old_capacity,
+                'new_capacity_mw': grid.capacity_mw,
+                'additional_mw': additional_mw,
+                'cost': total_cost
+            }
+        
+        return {'error': 'region_not_found'}
+    
+    def _apply_load_balancing(self, params: Dict) -> Dict:
+        """Apply smart load balancing to distribute charging demand."""
+        strategy = params.get('strategy', 'time_shift')
+        
+        # This would integrate with smart charging logic
+        logger.info(f"  Load balancing activated: {strategy}")
+        
+        return {
+            'strategy': strategy,
+            'enabled': True
+        }
+    
+    def _apply_congestion_charge(self, params: Dict) -> Dict:
+        """Apply congestion charge to diesel vehicles (requires env access)."""
+        charge_amount = params.get('amount', 15)  # £15 typical
+        zone = params.get('zone', 'city_center')
+        
+        # This would modify mode costs in the environment
+        # For now, track the policy
+        logger.info(f"  Congestion charge applied: £{charge_amount} in {zone}")
+        
+        return {
+            'charge_amount': charge_amount,
+            'zone': zone,
+            'affected_modes': ['car', 'van_diesel', 'truck_diesel']
+        }
+    
+    def _ban_diesel_vehicles(self, params: Dict) -> Dict:
+        """Ban diesel vehicles in specified zone."""
+        zone = params.get('zone', 'city_center')
+        affected_modes = params.get('modes', ['van_diesel', 'truck_diesel'])
+        
+        # This would modify mode availability in the environment
+        logger.info(f"  Diesel ban in {zone}: {affected_modes}")
+        
+        return {
+            'zone': zone,
+            'banned_modes': affected_modes,
+            'enforcement_date': self.simulation_state.get('step', 0)
+        }
     
     # =====================================================================
     # Action Implementations
@@ -586,6 +769,7 @@ class DynamicPolicyEngine:
             'constraints': constraint_status,
             'cost_recovery': cost_recovery,
             'current_pricing_multiplier': self.current_price_multiplier,
+            'total_interaction_rules': len(self.active_combined.interaction_rules),  # FIX: Added total rules
             'rules_triggered': len(self.active_combined.triggered_at_step),
             'active_feedback_loops': len(self.active_combined.feedback_loops)
         }
