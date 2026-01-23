@@ -1,39 +1,47 @@
-name: Debug Test - Always Triggers
-description: Uses conditions that are ALWAYS true to test if policy engine is working
+name: Debug Test - Fixed Action Names
+description: Uses correct action names that match the policy engine implementation
 
 base_scenarios:
   - complete_supply_chain_electrification
   - depot_based_electrification
 
 interaction_rules:
-  # Rule 1: Always true (step starts at 0)
-  - condition: "step >= 0"
-    action: reduce_charging_costs
+  # Rule 1: Always trigger surge pricing (actually reduces cost in this case)
+  - condition: "step >= 0 and step < 20"
+    action: apply_surge_pricing
     parameters:
-      multiplier: 0.5
+      multiplier: 0.5  # 50% discount
+      duration_steps: 20
     priority: 100
   
-  # Rule 2: True after step 5
-  - condition: "step > 5"
-    action: increase_ev_subsidy
+  # Rule 2: Add chargers after step 20 (one-time)
+  - condition: "step == 21"
+    action: add_emergency_chargers
     parameters:
-      amount: 5000
+      num_chargers: 10
+      strategy: demand_heatmap
     priority: 90
   
-  # Rule 3: Grid utilization > 0% (you have 1.1%)
-  - condition: "grid_utilization > 0.005"
-    action: add_chargers
+  # Rule 3: Increase charging cost after step 50
+  - condition: "step == 51"
+    action: increase_charging_cost
     parameters:
-      count: 10
-      placement: demand_heatmap
+      reason: infrastructure_cost_recovery
     priority: 80
   
-  # Rule 4: ANY EVs exist (you have 24)
-  - condition: "ev_count > 0"
+  # Rule 4: Enable smart charging when grid util > 0.5%
+  - condition: "grid_utilization > 0.005"
     action: enable_smart_charging
     parameters:
       urgency_threshold: normal
     priority: 70
+  
+  # Rule 5: Reduce subsidy after step 75
+  - condition: "step == 76"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 10
+    priority: 60
 
 constraints:
   - type: budget
