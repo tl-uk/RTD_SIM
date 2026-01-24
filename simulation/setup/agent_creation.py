@@ -143,21 +143,32 @@ def create_agents(
             
             # ✅ CRITICAL FIX: Compute initial route immediately
             try:
-                logger.warning(f"🔍 Planning initial route for {agent.state.agent_id}")
-                logger.warning(f"   Origin: {agent.state.location}")
-                logger.warning(f"   Dest: {agent.state.destination}")
-                logger.warning(f"   Context: {agent.agent_context}")
-                logger.warning(f"   Planner: {agent.planner}")  # ← ADD THIS
-                logger.warning(f"   Env: {env}")  # ← ADD THIS
-                logger.warning(f"   t={agent.t}, arrived={agent.state.arrived}")  # ← ADD THIS
-
-                agent._maybe_plan(env)
+                # Force initial planning by directly calling the planner
+                # (don't rely on _maybe_plan's replan period logic)
+                scores = agent.planner.evaluate_actions(
+                    env,
+                    agent.state,
+                    agent.desires,
+                    agent.state.location,
+                    agent.state.destination,
+                    agent_context=agent.agent_context
+                )
+                
+                if scores:
+                    best = agent.planner.choose_action(scores)
+                    agent.state.mode = best.mode
+                    agent.state.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
+                    agent.state.route_index = 0
+                    agent.state.route_offset_km = 0.0
+                    agent.state.departed_at_step = 0
+                    
+                    # Store action params
+                    if hasattr(agent.state, 'action_params'):
+                        agent.state.action_params = best.params
                 
                 # Verify route was assigned
                 if agent.state.route and len(agent.state.route) > 1:
                     routes_computed += 1
-
-                    logger.warning(f"   ✅ Route computed: {len(agent.state.route)} waypoints, mode={agent.state.mode}")
                     
                     # Calculate initial metrics
                     from simulation.spatial.coordinate_utils import route_distance_km
@@ -166,8 +177,8 @@ def create_agents(
                 else:
                     routes_failed += 1
                     logger.warning(f"❌ Agent {agent.state.agent_id}: No route computed "
-                                 f"(mode={agent.state.mode}, context={agent.agent_context})")
-            
+                                f"(mode={agent.state.mode}, context={agent.agent_context})")
+
             except Exception as e:
                 routes_failed += 1
                 logger.error(f"❌ Agent {agent.state.agent_id}: Route computation failed: {e}")
