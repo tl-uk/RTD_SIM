@@ -265,7 +265,7 @@ def create_agents(
                 dest=dest
             )
             
-            # ✅ CRITICAL FIX: Compute initial route for basic agents too
+            # Compute initial route for basic agents too
             try:
                 agent._maybe_plan(env)
             except Exception as e:
