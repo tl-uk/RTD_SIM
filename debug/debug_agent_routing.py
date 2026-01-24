@@ -1,4 +1,4 @@
-# debug/debug_agent_routing.py
+# debug_agent_routing.py
 import secrets
 import random
 from simulation.spatial_environment import SpatialEnvironment
@@ -25,7 +25,7 @@ print(f"{'='*60}\n")
 
 agent = StoryDrivenAgent(
     user_story_id='eco_warrior',
-    job_story_id='van_warehouse_transfer_generated_9798',
+    job_story_id='van_warehouse_transfer_generated',  # ← FIXED: No number suffix!
     origin=origin,
     dest=dest,
     planner=planner,
@@ -49,7 +49,7 @@ if agent.state.route:
     print(f"   Last 3 points: {agent.state.route[-3:]}")
     
     # Check if straight line
-    from simulation.spatial.coordinate_utils import haversine_km
+    from simulation.spatial.coordinate_utils import haversine_km, route_distance_km
     straight_dist = haversine_km(origin, dest)
     
     if len(agent.state.route) == 2:
@@ -61,7 +61,6 @@ if agent.state.route:
         else:
             print(f"   ✅ Valid 2-point route")
     else:
-        from simulation.spatial.coordinate_utils import route_distance_km
         route_dist = route_distance_km(agent.state.route)
         print(f"   Straight distance: {straight_dist:.1f}km")
         print(f"   Route distance: {route_dist:.1f}km")
