@@ -1,4 +1,0 @@
-  File "/Users/theolim/AppDev/RTD_SIM/test_phase2_routing.py", line 49
-    print("\nðŸ"„ Loading Edinburgh OSM graph...")
-                ^
-SyntaxError: invalid character '„' (U+201E)
