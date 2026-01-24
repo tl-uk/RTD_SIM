@@ -318,6 +318,17 @@ class BDIPlanner:
                 logger.debug(f"Distance filter ({trip_distance_km:.1f}km): removed {removed}")
             
             modes = filtered_modes
+
+        # STEP 3.5 - Remove non-vehicle modes if vehicle required
+        if vehicle_required:
+            non_vehicle_modes = ['walk', 'bike', 'e_scooter']
+            before = len(modes)
+            modes = [m for m in modes if m not in non_vehicle_modes]
+            removed = before - len(modes)
+            
+            if removed > 0:
+                logger.debug(f"Removed {removed} non-vehicle modes (vehicle_required=True)")
+
         
         # STEP 4: Intelligent fallback (NEVER RETURN EMPTY!)
         if not modes:
