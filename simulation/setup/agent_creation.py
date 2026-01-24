@@ -147,6 +147,9 @@ def create_agents(
                 logger.warning(f"   Origin: {agent.state.location}")
                 logger.warning(f"   Dest: {agent.state.destination}")
                 logger.warning(f"   Context: {agent.agent_context}")
+                logger.warning(f"   Planner: {agent.planner}")  # ← ADD THIS
+                logger.warning(f"   Env: {env}")  # ← ADD THIS
+                logger.warning(f"   t={agent.t}, arrived={agent.state.arrived}")  # ← ADD THIS
 
                 agent._maybe_plan(env)
                 

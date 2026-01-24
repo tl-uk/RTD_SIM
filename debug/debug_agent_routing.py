@@ -33,6 +33,11 @@ agent = StoryDrivenAgent(
     apply_variance=True
 )
 
+# ✅ ADD THIS: Plan initial route
+print(f"\n🔍 Calling _maybe_plan() to compute initial route...")
+agent._maybe_plan(env)
+
+
 print(f"Agent ID: {agent.state.agent_id}")
 print(f"Job: {agent.job_story_id}")
 print(f"Mode: {agent.state.mode}")
