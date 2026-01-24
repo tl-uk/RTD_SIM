@@ -142,34 +142,28 @@ class Router:
         """
         Compute shortest path route.
         
-        Args:
-            agent_id: Agent identifier
-            origin: Starting coordinate (lon, lat)
-            dest: Destination coordinate (lon, lat)
-            mode: Transport mode
-        
-        Returns:
-            List of (lon, lat) coordinates along route
+        ❌ CRITICAL: Returns empty list [] if routing fails
+        ✅ NEVER returns straight line [origin, dest]
         """
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
-            logger.warning(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
-            return [origin, dest]
+            logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
+            return []  # ← Changed from [origin, dest]
         
         # ✅ FIXED: Now all modes have network mapping
         network_type = self.mode_network_types.get(mode, 'drive')
         graph = self.graph_manager.get_graph(network_type)
         
         if graph is None:
-            logger.warning(f"❌ {agent_id}: No graph for {mode} (network: {network_type})")
-            return [origin, dest]
+            logger.error(f"❌ {agent_id}: No graph for {mode} (network: {network_type})")
+            return []  # ← Changed from [origin, dest]
         
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest, network_type)
             
             if orig_node is None or dest_node is None:
-                logger.warning(f"❌ {agent_id}: Could not find nodes for {mode}")
-                return [origin, dest]
+                logger.error(f"❌ {agent_id}: Could not find nodes for {mode}")
+                return []  # ← Changed from [origin, dest]
             
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
             coords = [
@@ -181,11 +175,11 @@ class Router:
             return coords
         
         except nx.NetworkXNoPath:
-            logger.warning(f"❌ {agent_id}: No path found for {mode}")
-            return [origin, dest]
+            logger.error(f"❌ {agent_id}: No path exists in network for {mode}")
+            return []  # ← Changed from [origin, dest]
         except Exception as e:
             logger.error(f"❌ {agent_id}: Routing failed for {mode}: {e}")
-            return [origin, dest]
+            return []  # ← Changed from [origin, dest]
     
     def compute_alternatives(
         self,
@@ -243,25 +237,25 @@ class Router:
     ) -> Optional[List[Tuple[float, float]]]:
         """Compute specific route variant."""
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
-            return None
+            return []  # ← Changed from None
         
         network_type = self.mode_network_types.get(mode, 'drive')
         graph = self.graph_manager.get_graph(network_type)
         
         if graph is None:
-            return None
+            return []  # ← Changed from None
         
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest, network_type)
             
             if orig_node is None or dest_node is None:
-                return None
+                return []  # ← Changed from None
             
             weight_attr = self._get_weight_attribute(graph, mode, variant)
             
             if weight_attr is None:
-                return None
+                return []  # ← Changed from None
             
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight=weight_attr)
             coords = [
@@ -273,10 +267,10 @@ class Router:
         
         except nx.NetworkXNoPath:
             logger.debug(f"No path found for {variant} variant")
-            return None
+            return []  # ← Changed from None
         except Exception as e:
             logger.warning(f"Route variant {variant} failed: {e}")
-            return None
+            return []  # ← Changed from None
     
     def _get_weight_attribute(
         self,

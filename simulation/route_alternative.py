@@ -1,4 +1,6 @@
 """
+simulation/route_alternative.py
+
 RouteAlternative data class for Phase 2.2
 
 Represents a single route option with computed metrics.
