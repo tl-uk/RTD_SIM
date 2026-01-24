@@ -245,6 +245,12 @@ class BDIPlanner:
         cargo_capacity = context.get('cargo_capacity', False)
         vehicle_type = context.get('vehicle_type', 'personal')
         priority = context.get('priority', 'normal')
+
+        # DEBUG: Log initial context
+        logger.warning(f"🔍 _filter_modes_by_context called:")
+        logger.warning(f"   vehicle_type={vehicle_type}")
+        logger.warning(f"   vehicle_required={vehicle_required}")
+        logger.warning(f"   trip_distance_km={trip_distance_km:.1f}")
         
         modes = []
         
@@ -319,6 +325,8 @@ class BDIPlanner:
             
             modes = filtered_modes
 
+            logger.warning(f"🔍 Before STEP 3.5: modes={modes}, vehicle_required={vehicle_required}")
+
         # STEP 3.5 - Remove non-vehicle modes if vehicle required
         if vehicle_required:
             non_vehicle_modes = ['walk', 'bike', 'e_scooter']
@@ -326,10 +334,11 @@ class BDIPlanner:
             modes = [m for m in modes if m not in non_vehicle_modes]
             removed = before - len(modes)
             
+            logger.warning(f"🔍 After STEP 3.5: modes={modes}, removed={removed}")
+            
             if removed > 0:
                 logger.debug(f"Removed {removed} non-vehicle modes (vehicle_required=True)")
-
-        
+       
         # STEP 4: Intelligent fallback (NEVER RETURN EMPTY!)
         if not modes:
             logger.warning(f"âš ï¸ No modes after filtering! Original: {original_modes}, distance: {trip_distance_km:.1f}km")
