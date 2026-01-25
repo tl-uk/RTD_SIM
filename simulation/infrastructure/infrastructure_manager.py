@@ -142,6 +142,30 @@ class InfrastructureManager:
         
         logger.info(f"InfrastructureManager initialized (grid: {grid_capacity_mw} MW)")
     
+        # NEW: EV range tracking
+        self._base_ev_ranges = {
+            'ev': 350.0,
+            'van_electric': 200.0,
+            'truck_electric': 250.0,
+            'hgv_electric': 300.0,
+        }
+        self._adjusted_ev_ranges = self._base_ev_ranges.copy()
+
+    # =======================================================================
+    # EV Range Management
+    # ======================================================================
+    def get_base_ev_range(self, mode: str) -> float:
+        """Get rated range at optimal temperature."""
+        return self._base_ev_ranges.get(mode, 350.0)
+    
+    def set_adjusted_ev_range(self, mode: str, range_km: float):
+        """Set weather-adjusted range."""
+        self._adjusted_ev_ranges[mode] = range_km
+    
+    def get_adjusted_ev_range(self, mode: str) -> float:
+        """Get current adjusted range."""
+        return self._adjusted_ev_ranges.get(mode, self.get_base_ev_range(mode))
+
     # ========================================================================
     # Charging Station Management
     # ========================================================================

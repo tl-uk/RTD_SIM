@@ -68,6 +68,25 @@ class SpatialEnvironment:
         # Backward compatibility properties
         self.mode_network_types = self.router.mode_network_types
         self.speeds_km_min = self.metrics.speeds_km_min
+
+        # NEW: Weather speed multipliers
+        self._weather_speed_multipliers = defaultdict(lambda: 1.0)
+
+    # ============================================================================
+    # Weather Integration (Phase 5.2)
+    # ============================================================================
+    def set_weather_speed_multiplier(self, mode: str, multiplier: float):
+        """Set weather-based speed adjustment for a mode."""
+        self._weather_speed_multipliers[mode] = multiplier
+    
+    def estimate_travel_time(self, route, mode):
+        """Estimate with weather adjustment."""
+        base_time = self._estimate_base_travel_time(route, mode)
+        
+        # Apply weather multiplier
+        weather_mult = self._weather_speed_multipliers.get(mode, 1.0)
+        
+        return base_time / weather_mult  # Slower speed = more time
     
     # ============================================================================
     # Properties (Backward Compatibility)

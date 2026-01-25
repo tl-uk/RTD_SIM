@@ -260,6 +260,15 @@ class DynamicPolicyEngine:
         
         # Charging utilization
         charger_util = grid_metrics.get('utilization', 0)
+
+        # NEW: Weather state
+        if hasattr(self, 'weather_manager') and self.weather_manager:
+            conditions = self.weather_manager.current_conditions
+            self.state['temperature'] = conditions['temperature']
+            self.state['precipitation'] = conditions['precipitation']
+            self.state['snow_depth'] = conditions['snow_depth']
+            self.state['ice_warning'] = conditions['ice_warning']
+            self.state['wind_speed'] = conditions['wind_speed']
         
         # Update state dict
         self.simulation_state = {
@@ -366,6 +375,27 @@ class DynamicPolicyEngine:
             return self._apply_congestion_charge(params)
         elif action == 'ban_diesel_vehicles':  # NEW
             return self._ban_diesel_vehicles(params)
+        
+        # NEW: Weather-responsive actions
+        elif action == 'activate_winter_gritting':
+            # Reduce speed penalties on icy roads
+            self.state['ice_warning'] = False
+            logger.info(f"Step {step}: Activated winter gritting")
+        
+        elif action == 'close_routes':
+            # Mark certain routes as unavailable
+            region = rule.action.get('region', 'all')
+            logger.info(f"Step {step}: Closed routes in {region} due to weather")
+        
+        elif action == 'emergency_transit':
+            # Boost public transport frequency
+            multiplier = rule.action.get('frequency_multiplier', 1.5)
+            logger.info(f"Step {step}: Emergency transit boost ({multiplier}x)")
+        
+        elif action == 'reduce_charging_time':
+            # Temperature-controlled charging
+            reduction = rule.action.get('reduction_factor', 0.8)
+            logger.info(f"Step {step}: Charging time reduced to {reduction*100}%")
         
         else:
             logger.warning(f"Unknown action: {action}")
