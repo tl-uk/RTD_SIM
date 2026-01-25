@@ -39,6 +39,7 @@ from ui.tabs import (
     render_infrastructure_tab,
     render_scenario_report_tab,
     render_combined_scenarios_tab,
+    render_environmental_tab,  # NEW
 )
 
 # Import simulation core
@@ -128,7 +129,7 @@ if run_btn:
         else:
             st.session_state.current_region = "Unknown Region"
         
-        # NEW: Check if combined scenario was active
+        # Check if combined scenario was active
         if hasattr(results, 'policy_status') and results.policy_status:
             st.session_state.combined_scenario_active = True
         else:
@@ -171,7 +172,7 @@ if not current_data:
     st.stop()
 
 # ============================================================================
-# NEW: Build dynamic tab list based on what's available
+# Build dynamic tab list based on what's available
 # ============================================================================
 tab_configs = [
     ("🗺️ Map", render_map_tab),
@@ -188,9 +189,13 @@ if results.infrastructure:
 if results.scenario_report:
     tab_configs.append(("📋 Scenario Report", render_scenario_report_tab))
 
-# NEW: Add combined scenarios tab if combined scenario was active
+# Add combined scenarios tab if combined scenario was active
 if st.session_state.combined_scenario_active:
     tab_configs.append(("🔗 Combined Policies", render_combined_scenarios_tab))
+
+# Add environmental tab if weather or air quality tracking enabled
+if config.weather_enabled or config.track_air_quality:
+    tab_configs.append(("🌍 Environmental", render_environmental_tab))
 
 # Create tabs
 tab_names = [name for name, _ in tab_configs]

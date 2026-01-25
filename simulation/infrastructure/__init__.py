@@ -1,23 +1,28 @@
 """
 simulation/infrastructure/__init__.py
 
-Infrastructure module for RTD_SIM Phase 4.5+
+Re-export main infrastructure classes for backward compatibility.
+
+Usage:
+    from simulation.infrastructure import InfrastructureManager
+    
+    # All subsystems accessible through facade
+    infra = InfrastructureManager()
 """
 
-from simulation.infrastructure.infrastructure_manager import InfrastructureManager
-from simulation.infrastructure.time_of_day_pricing import (
-    TimeOfDayPricingManager,
-    SmartChargingOptimizer,
-    TimeOfDay,
-    PricingTier,
-    SmartChargingSession
-)
+from .infrastructure_manager import InfrastructureManager
+from .charging.station_registry import ChargingStation, ChargingStationRegistry
+from .grid.grid_capacity import GridCapacity, GridCapacityManager
+from .depots.depot_manager import Depot, DepotManager
 
 __all__ = [
     'InfrastructureManager',
-    'TimeOfDayPricingManager',
-    'SmartChargingOptimizer',
-    'TimeOfDay',
-    'PricingTier',
-    'SmartChargingSession'
+    'ChargingStation',
+    'ChargingStationRegistry',
+    'GridCapacity',
+    'GridCapacityManager',
+    'Depot',
+    'DepotManager',
 ]
+
+__version__ = '5.2.0'

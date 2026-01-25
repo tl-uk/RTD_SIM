@@ -350,9 +350,13 @@ def run_simulation_loop(
                 cost_recovery['step'] = step
                 cost_recovery_history.append(cost_recovery)
 
-        # Agent steps
+        # Agent steps with lifecycle emissions
         agent_states = []
         for agent in agents:
+            # Track previous distance BEFORE agent step
+            prev_distance = agent.state.distance_km
+            prev_location = agent.state.location
+            
             # Execute agent step
             try:
                 agent.step(env)
@@ -389,43 +393,29 @@ def run_simulation_loop(
                         satisfaction
                     )
             
-            prev_location = agent.state.location
-            
-            agent.step(env)
-            
             # Calculate lifecycle emissions if agent moved
-            if emissions_calc and prev_location != agent.state.location:
+            if emissions_calc and agent.state.location != prev_location:
                 mode = agent.state.mode
-                distance = agent.state.distance_km - prev_distance  # Need to track prev
+                distance_traveled = agent.state.distance_km - prev_distance
                 
-                emissions = emissions_calc.calculate_trip_emissions(
-                    mode=mode,
-                    distance_km=distance
-                )
-                
-                # Accumulate
-                lifecycle_emissions_by_mode[mode]['co2e_kg'] += emissions['co2e_kg']
-                lifecycle_emissions_by_mode[mode]['pm25_g'] += emissions['pm25_g']
-                lifecycle_emissions_by_mode[mode]['nox_g'] += emissions['nox_g']
-                
-                # Add to air quality tracker
-                if air_quality and agent.state.location:
-                    air_quality.add_emissions(
-                        location=agent.state.location,
-                        emissions=emissions
+                # Only calculate if positive distance (agent actually moved)
+                if distance_traveled > 0:
+                    emissions = emissions_calc.calculate_trip_emissions(
+                        mode=mode,
+                        distance_km=distance_traveled
                     )
-        
-            # Air quality step (atmospheric dispersion)
-            if air_quality:
-                wind_speed = weather_conditions.get('wind_speed', 10.0) if weather_manager else 10.0
-                air_quality.step(wind_speed_kmh=wind_speed)
-                
-                # Check for exceedances every hour
-                if step % 60 == 0:
-                    exceedances = air_quality.check_exceedances('hourly')
-                    if exceedances:
-                        logger.warning(f"Step {step}: {len(exceedances)} air quality exceedances")
-            
+                    
+                    # Accumulate
+                    lifecycle_emissions_by_mode[mode]['co2e_kg'] += emissions['co2e_kg']
+                    lifecycle_emissions_by_mode[mode]['pm25_g'] += emissions['pm25_g']
+                    lifecycle_emissions_by_mode[mode]['nox_g'] += emissions['nox_g']
+                    
+                    # Add to air quality tracker
+                    if air_quality and agent.state.location:
+                        air_quality.add_emissions(
+                            location=agent.state.location,
+                            emissions=emissions
+                        )
             
             # Infrastructure interaction
             if infrastructure and agent.state.mode in ['ev', 'van_electric', 'truck_electric', 'hgv_electric']:
@@ -500,6 +490,18 @@ def run_simulation_loop(
                 'emissions_g': agent.state.emissions_g,
             })
         
+        # Air quality step (atmospheric dispersion) - MUST BE OUTSIDE AGENT LOOP
+        # TO AVOID DOUBLE COUNTING EMISSIONS
+        if air_quality:
+            wind_speed = weather_conditions.get('wind_speed', 10.0) if weather_manager else 10.0
+            air_quality.step(wind_speed_kmh=wind_speed)
+            
+            # Check for exceedances every hour
+            if step % 60 == 0:
+                exceedances = air_quality.check_exceedances('hourly')
+                if exceedances:
+                    logger.warning(f"Step {step}: {len(exceedances)} air quality exceedances")
+                    
         # Record this timestep (use 'agent_states' to match UI expectations)
         time_series.append({
             'step': step,

@@ -14,6 +14,7 @@ BACKWARD COMPATIBLE: All existing API methods still work!
 from __future__ import annotations
 from typing import List, Tuple, Optional, Any
 from pathlib import Path
+from collections import defaultdict
 import random
 import logging
 
@@ -39,14 +40,7 @@ class SpatialEnvironment:
     """
     
     def __init__(self, step_minutes: float = 1.0, cache_dir: Optional[Path] = None, use_congestion: bool = False) -> None:
-        """
-        Initialize spatial environment.
-        
-        Args:
-            step_minutes: Simulation time step in minutes
-            cache_dir: Cache directory for graphs (default: ~/.rtd_sim_cache/osm_graphs)
-            use_congestion: Enable dynamic traffic congestion (Phase 2.2b)
-        """
+        """Initialize spatial environment."""
         self.step_minutes = step_minutes
         
         # Initialize subsystems
@@ -69,7 +63,7 @@ class SpatialEnvironment:
         self.mode_network_types = self.router.mode_network_types
         self.speeds_km_min = self.metrics.speeds_km_min
 
-        # NEW: Weather speed multipliers
+        # Weather speed multipliers (FIX: defaultdict now imported!)
         self._weather_speed_multipliers = defaultdict(lambda: 1.0)
 
     # ============================================================================
