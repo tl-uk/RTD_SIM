@@ -52,10 +52,25 @@ class SimulationConfig:
     scenarios_dir: Optional[Path] = None
     
     # ============================================================================
-    # Phase 5.1: Combined scenario framework
+    # Combined scenario framework
     # ============================================================================
     combined_scenario_data: Optional[Dict] = None  # Data for combined scenarios
 
+    # Phase 5.2: Environmental & Weather
+    weather_enabled: bool = False
+    use_historical_weather: bool = False
+    weather_start_date: Optional[str] = None  # "2024-01-15"
+    latitude: float = 55.9533   # Edinburgh default
+    longitude: float = -3.1883
+    
+    track_air_quality: bool = False
+    air_quality_grid_km: float = 1.0
+    
+    use_lifecycle_emissions: bool = True  # Replace simple emissions
+    grid_carbon_intensity: float = 0.233  # UK 2024
+    
+    season_month: Optional[int] = None  # Force specific month for testing
+    season_day_of_year: Optional[int] = None
 
 @dataclass
 class SimulationResults:
@@ -86,10 +101,15 @@ class SimulationResults:
     scenario_report: Optional[Dict] = None
     
     # ============================================================================
-    # Phase 5.1: Combined scenario results
+    # Combined scenario results
     # ============================================================================
     policy_actions: List[Dict] = field(default_factory=list)
     constraint_violations: List[Dict] = field(default_factory=list)
     cost_recovery_history: List[Dict] = field(default_factory=list)
     final_cost_recovery: Optional[Dict] = None
     policy_status: Optional[Dict] = None
+
+    # Phase 5.2: Environmental results
+    weather_manager: Optional[Any] = None
+    air_quality_tracker: Optional[Any] = None
+    lifecycle_emissions_total: Dict[str, float] = field(default_factory=dict)

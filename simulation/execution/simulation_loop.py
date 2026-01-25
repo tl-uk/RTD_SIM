@@ -47,6 +47,14 @@ except ImportError:
     SCENARIOS_AVAILABLE = False
     logger.warning("Scenario framework not available")
 
+# Environmental modules (Phase 5.2)
+from environmental.weather_api import create_weather_manager
+from environmental.seasonal_patterns import (
+    get_combined_multipliers,
+    apply_seasonal_ev_range_penalty
+)
+from environmental.emissions_calculator import LifecycleEmissions
+from environmental.air_quality import create_air_quality_tracker
 
 def apply_scenario_policies(
     config: SimulationConfig,
@@ -260,8 +268,51 @@ def run_simulation_loop(
         for mode in all_modes:
             adoption_history[mode].append(mode_counts.get(mode, 0))
     
+    # NEW: Initialize environmental systems
+    weather_manager = create_weather_manager(config) if config.weather_enabled else None
+    air_quality = create_air_quality_tracker(config) if config.track_air_quality else None
+    emissions_calc = LifecycleEmissions(config.grid_carbon_intensity) if config.use_lifecycle_emissions else None
+    
+    # Track lifecycle emissions
+    lifecycle_emissions_by_mode = defaultdict(lambda: {'co2e_kg': 0, 'pm25_g': 0, 'nox_g': 0})
+ 
     # Main simulation loop
     for step in range(config.steps):
+        # Calculate current time
+        time_of_day = (step % 1440) / 60.0  # hours (assuming 1 step = 1 min)
+        hour = int(time_of_day)
+        
+        # Calculate date (if seasonal patterns enabled)
+        month = config.season_month or 6  # Default to summer
+        day_of_year = config.season_day_of_year or 180
+        day_of_week = (step // 1440) % 7  # Assuming day 0 is Monday
+        
+        # UPDATE WEATHER
+        if weather_manager:
+            weather_conditions = weather_manager.update_weather(step, time_of_day)
+            
+            # Apply weather to environment speeds
+            for mode in env.get_available_modes():
+                speed_mult = weather_manager.get_mode_speed_multiplier(mode)
+                env.set_weather_speed_multiplier(mode, speed_mult)
+            
+            # Adjust EV ranges based on temperature
+            if infrastructure:
+                temp = weather_conditions['temperature']
+                for mode in ['ev', 'van_electric', 'truck_electric', 'hgv_electric']:
+                    base_range = infrastructure.get_base_ev_range(mode)
+                    adjusted_range = apply_seasonal_ev_range_penalty(base_range, temp)
+                    infrastructure.set_adjusted_ev_range(mode, adjusted_range)
+        
+        # GET SEASONAL MULTIPLIERS
+        seasonal_mults = get_combined_multipliers(month, day_of_year, day_of_week, hour)
+        
+        # Apply to infrastructure grid load
+        if infrastructure:
+            base_load = infrastructure.get_base_grid_load()
+            adjusted_load = base_load * seasonal_mults.get('grid_load', 1.0)
+            infrastructure.set_grid_load(adjusted_load)
+
         if progress_callback and step % 10 == 0:
             progress = 0.5 + (step / config.steps) * 0.45
             progress_callback(progress, f"⚙️ Step {step}/{config.steps}")
@@ -338,7 +389,45 @@ def run_simulation_loop(
                         satisfaction
                     )
             
-            # Infrastructure interaction (Phase 4.5)
+            prev_location = agent.state.location
+            
+            agent.step(env)
+            
+            # Calculate lifecycle emissions if agent moved
+            if emissions_calc and prev_location != agent.state.location:
+                mode = agent.state.mode
+                distance = agent.state.distance_km - prev_distance  # Need to track prev
+                
+                emissions = emissions_calc.calculate_trip_emissions(
+                    mode=mode,
+                    distance_km=distance
+                )
+                
+                # Accumulate
+                lifecycle_emissions_by_mode[mode]['co2e_kg'] += emissions['co2e_kg']
+                lifecycle_emissions_by_mode[mode]['pm25_g'] += emissions['pm25_g']
+                lifecycle_emissions_by_mode[mode]['nox_g'] += emissions['nox_g']
+                
+                # Add to air quality tracker
+                if air_quality and agent.state.location:
+                    air_quality.add_emissions(
+                        location=agent.state.location,
+                        emissions=emissions
+                    )
+        
+            # Air quality step (atmospheric dispersion)
+            if air_quality:
+                wind_speed = weather_conditions.get('wind_speed', 10.0) if weather_manager else 10.0
+                air_quality.step(wind_speed_kmh=wind_speed)
+                
+                # Check for exceedances every hour
+                if step % 60 == 0:
+                    exceedances = air_quality.check_exceedances('hourly')
+                    if exceedances:
+                        logger.warning(f"Step {step}: {len(exceedances)} air quality exceedances")
+            
+            
+            # Infrastructure interaction
             if infrastructure and agent.state.mode in ['ev', 'van_electric', 'truck_electric', 'hgv_electric']:
                 agent_id = agent.state.agent_id
                 
@@ -441,6 +530,9 @@ def run_simulation_loop(
         'time_series': time_series,
         'adoption_history': dict(adoption_history),
         'cascade_events': cascade_events,
+        'lifecycle_emissions': dict(lifecycle_emissions_by_mode),
+        'weather_manager': weather_manager,
+        'air_quality_tracker': air_quality,
     }
     
     # Add dynamic policy results if available
