@@ -3,8 +3,10 @@ simulation/infrastructure/infrastructure_manager.py
 
 REFACTORED: Thin facade orchestrating infrastructure subsystems.
 
-This file is now ~200 lines instead of 700+.
+This file is now ~250 lines instead of 700+.
 All complex logic delegated to specialized subsystems.
+
+COMPLETE VERSION: Includes load balancing support
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from .charging.station_registry import ChargingStationRegistry
 from .charging.availability_tracker import AvailabilityTracker
 from .charging.charging_session_manager import ChargingSessionManager
 from .grid.grid_capacity import GridCapacityManager
+from .grid.load_balancer import LoadBalancer, create_default_zones  # ADDED
 from .pricing.dynamic_pricing_engine import DynamicPricingEngine
 from .expansion.placement_optimizer import ChargingPlacementOptimizer
 from .expansion.cost_recovery_tracker import CostRecoveryTracker
@@ -31,6 +34,7 @@ class InfrastructureManager:
     Delegates to specialized managers for:
     - Charging stations (registry, availability, sessions)
     - Grid capacity
+    - Load balancing (optional)
     - Pricing (time-of-day, surge)
     - Expansion (placement, cost recovery)
     - Depots
@@ -42,7 +46,8 @@ class InfrastructureManager:
     def __init__(
         self,
         grid_capacity_mw: float = 1000.0,
-        enable_time_of_day_pricing: bool = False
+        enable_time_of_day_pricing: bool = False,
+        enable_load_balancing: bool = False  # ADDED
     ):
         """
         Initialize infrastructure subsystems.
@@ -50,6 +55,7 @@ class InfrastructureManager:
         Args:
             grid_capacity_mw: Total grid capacity
             enable_time_of_day_pricing: Enable ToD pricing
+            enable_load_balancing: Enable smart load balancing across zones
         """
         # Initialize subsystems
         self.stations = ChargingStationRegistry()
@@ -61,6 +67,13 @@ class InfrastructureManager:
         self.cost_recovery = CostRecoveryTracker()
         self.depots = DepotManager()
         self.ev_range = EVRangeAdjuster()
+        
+        # ADDED: Load balancer (optional)
+        self.load_balancer = None
+        if enable_load_balancing:
+            self.load_balancer = LoadBalancer(self.grid)
+            create_default_zones(self.load_balancer, grid_capacity_mw, num_zones=4)
+            logger.info("Load balancing enabled with 4 zones")
         
         # Current simulation hour (for pricing)
         self.current_hour = 8
@@ -171,6 +184,82 @@ class InfrastructureManager:
         self.grid.update_load(load_mw)
     
     # ========================================================================
+    # Load Balancing API (Delegate to LoadBalancer) - ADDED
+    # ========================================================================
+    
+    def request_balanced_charging(
+        self,
+        agent_id: str,
+        station_id: str,
+        power_kw: float,
+        duration_min: float,
+        priority: int = 0,
+        flexible: bool = True
+    ) -> Optional[str]:
+        """
+        Request charging with load balancing.
+        
+        Args:
+            agent_id: Agent identifier
+            station_id: Desired charging station
+            power_kw: Power requirement
+            duration_min: Expected duration
+            priority: 0=normal, 1=high, 2=critical
+            flexible: Can be delayed/rescheduled?
+        
+        Returns:
+            Approved zone_id or None if queued
+        """
+        if not self.load_balancer:
+            # Fall back to direct charging if load balancing disabled
+            return 'default'
+        
+        return self.load_balancer.request_charging(
+            agent_id, station_id, power_kw, duration_min, priority, flexible
+        )
+    
+    def complete_balanced_charging(self, agent_id: str) -> None:
+        """Complete load-balanced charging session and free capacity."""
+        if self.load_balancer:
+            self.load_balancer.complete_charging(agent_id)
+    
+    def process_pending_charging_requests(self) -> List[Tuple[str, str]]:
+        """
+        Process pending flexible charging requests.
+        
+        Returns:
+            List of (agent_id, zone_id) for newly approved requests
+        """
+        if self.load_balancer:
+            return self.load_balancer.process_pending_requests()
+        return []
+    
+    def rebalance_grid_load(self) -> int:
+        """
+        Actively rebalance load across zones.
+        
+        Moves flexible sessions from overloaded to underloaded zones.
+        
+        Returns:
+            Number of sessions rebalanced
+        """
+        if self.load_balancer:
+            return self.load_balancer.rebalance_load()
+        return 0
+    
+    def get_load_balancing_metrics(self) -> Dict:
+        """Get load balancing metrics."""
+        if self.load_balancer:
+            return self.load_balancer.get_balancing_metrics()
+        return {'load_balancing_enabled': False}
+    
+    def get_zone_status(self) -> List[Dict]:
+        """Get status of all load balancing zones."""
+        if self.load_balancer:
+            return self.load_balancer.get_zone_status()
+        return []
+    
+    # ========================================================================
     # Pricing API (Delegate to DynamicPricingEngine)
     # ========================================================================
     
@@ -273,6 +362,15 @@ class InfrastructureManager:
         
         # Session metrics
         metrics.update(self.sessions.get_metrics())
+        
+        # Load balancing metrics (if enabled)
+        if self.load_balancer:
+            lb_metrics = self.load_balancer.get_balancing_metrics()
+            metrics['load_balancing_enabled'] = True
+            metrics['grid_well_balanced'] = lb_metrics.get('well_balanced', False)
+            metrics['pending_charging_requests'] = lb_metrics.get('pending_requests', 0)
+        else:
+            metrics['load_balancing_enabled'] = False
         
         # Cost recovery
         cost_metrics = self.cost_recovery.get_metrics()
