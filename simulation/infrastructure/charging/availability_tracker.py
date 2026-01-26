@@ -1,16 +1,4 @@
 """
-simulation.infrastructure.charging.availability_tracker
-
-Charging station availability tracking. 
-
-Real-time availability of charging stations
-is monitored and updated to reflect usage patterns, maintenance schedules, and
-unexpected outages. This module provides interfaces to query current availability
-and historical usage statistics.
-
-"""
-
-"""
 simulation/infrastructure/charging/availability_tracker.py
 
 Real-time tracking of charging port availability.
