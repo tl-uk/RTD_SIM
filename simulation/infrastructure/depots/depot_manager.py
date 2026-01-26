@@ -8,18 +8,14 @@ fleet operations.
 
 """
 
-"""
-Freight and commercial depot management.
-"""
-
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import logging
 import random
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class Depot:
