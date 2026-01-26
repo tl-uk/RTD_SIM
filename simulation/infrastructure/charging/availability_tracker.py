@@ -3,9 +3,11 @@ simulation/infrastructure/charging/availability_tracker.py
 
 Real-time tracking of charging port availability.
 Manages port occupation and queue dynamics.
+
 """
 
-from __future__ import annotations
+from __future__ import annotations  # Must be first import!
+
 from typing import Dict, List, Optional
 import logging
 
