@@ -4,5 +4,12 @@
 """Grid subsystem exports."""
 
 from .grid_capacity import GridCapacity, GridCapacityManager
+from .load_balancer import LoadBalancer, LoadBalancingZone, create_default_zones
 
-__all__ = ['GridCapacity', 'GridCapacityManager']
+__all__ = [
+    'GridCapacity',
+    'GridCapacityManager',
+    'LoadBalancer',
+    'LoadBalancingZone',
+    'create_default_zones',
+]

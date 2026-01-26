@@ -1,7 +1,7 @@
 """
 simulation/infrastructure/time_of_day_pricing.py
 
-Phase 4.5C: Dynamic electricity pricing and smart charging optimization.
+Dynamic electricity pricing and smart charging optimization.
 
 Features:
 - Peak/off-peak electricity rates
