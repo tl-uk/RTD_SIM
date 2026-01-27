@@ -48,7 +48,7 @@ from visualiser.animation_controller import AnimationController
 
 # NEW: Import policy engine initialization
 from simulation.execution.dynamic_policies import initialize_policy_engine
-from simulation.infrastructure import infrastructure
+from simulation.infrastructure import InfrastructureManager
 
 # Initialize Streamlit
 st.set_page_config(
@@ -149,7 +149,7 @@ if run_btn:
                     'active_feedback_loops': 0,
                     'simulation_state': {
                         'ev_adoption': 0.0,
-                        'grid_utilization': infrastructure.grid.get_utilization() if infrastructure else 0.0,
+                        'grid_utilization': InfrastructureManager.grid.get_utilization() if InfrastructureManager else 0.0,
                         'charger_utilization': 0.0,
                     },
                     'constraints': {},
