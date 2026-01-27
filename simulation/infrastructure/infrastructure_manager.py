@@ -83,6 +83,11 @@ class InfrastructureManager:
         self.agent_charging_state = self.sessions.agent_states
         self.grid_regions = self.grid.regions
         
+        # Historical tracking for visualization
+        self.historical_utilization = []
+        self.historical_load = []
+        self.historical_occupancy = []
+        
         # Time-of-day pricing flag
         self.enable_tod_pricing = enable_time_of_day_pricing
         
@@ -166,9 +171,19 @@ class InfrastructureManager:
         
         self.grid.update_load(total_load_kw / 1000.0)  # Convert to MW
         
+        # Track historical data for visualization
+        utilization = self.grid.get_utilization()
+        self.historical_utilization.append(utilization)
+        self.historical_load.append(self.grid.get_load())
+        
+        # Calculate occupancy rate
+        total_ports = sum(s.num_ports for s in self.stations.stations.values())
+        occupied = sum(s.currently_occupied for s in self.stations.stations.values())
+        occupancy = occupied / max(1, total_ports)
+        self.historical_occupancy.append(occupancy)
+        
         # Log periodically
         if step % 20 == 0 and total_load_kw > 0:
-            utilization = self.grid.get_utilization()
             logger.info(f"Step {step}: Grid {self.grid.get_load():.2f} MW ({utilization:.1%})")
     
     def get_grid_stress_factor(self) -> float:
@@ -401,3 +416,4 @@ class InfrastructureManager:
         self.depots.populate_edinburgh(num_depot)
         
         logger.info(f"Populated Edinburgh: {num_public} chargers, {num_depot} depots")
+        
