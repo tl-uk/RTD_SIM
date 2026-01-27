@@ -48,6 +48,7 @@ from visualiser.animation_controller import AnimationController
 
 # NEW: Import policy engine initialization
 from simulation.execution.dynamic_policies import initialize_policy_engine
+from simulation.infrastructure import infrastructure
 
 # Initialize Streamlit
 st.set_page_config(
@@ -110,6 +111,9 @@ if run_btn:
         status_text.info(message)
     
     # Run simulation (will handle policy engine internally via config)
+    # Store config in session state for debugging
+    st.session_state.last_config = config
+    
     results = run_simulation(config, progress_callback=update_progress)
     
     if results.success:
@@ -129,9 +133,28 @@ if run_btn:
         else:
             st.session_state.current_region = "Unknown Region"
         
-        # Check if combined scenario was active
-        if hasattr(results, 'policy_status') and results.policy_status:
+        # Check if combined scenario was active (PATCHED for Phase 5.1)
+        # Force tab to appear if combined scenario was selected in config
+        if config.combined_scenario_data is not None:
             st.session_state.combined_scenario_active = True
+            st.session_state.combined_scenario_name = config.combined_scenario_data.get('name', 'Unknown')
+            
+            # If policy_status missing, create minimal version for tab display
+            if not hasattr(results, 'policy_status') or not results.policy_status:
+                results.policy_status = {
+                    'scenario_name': config.combined_scenario_data.get('name', 'Unknown'),
+                    'base_scenarios': config.combined_scenario_data.get('base_scenarios', []),
+                    'rules_triggered': 0,
+                    'total_interaction_rules': len(config.combined_scenario_data.get('interaction_rules', [])),
+                    'active_feedback_loops': 0,
+                    'simulation_state': {
+                        'ev_adoption': 0.0,
+                        'grid_utilization': infrastructure.grid.get_utilization() if infrastructure else 0.0,
+                        'charger_utilization': 0.0,
+                    },
+                    'constraints': {},
+                }
+                st.warning("⚠️ Policy engine data incomplete - showing minimal status")
         else:
             st.session_state.combined_scenario_active = False
         

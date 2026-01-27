@@ -35,8 +35,43 @@ def render_combined_scenarios_tab(results, anim, current_data):
     
     st.subheader("🔗 Combined Policy Scenarios Analysis")
     
-    # Check if combined scenario was used
+    # Check if combined scenario was used (ENHANCED for Phase 5.1)
     if not hasattr(results, 'policy_status') or results.policy_status is None:
+        # Check if we have combined scenario name from session state
+        if hasattr(st.session_state, 'combined_scenario_name'):
+            st.info(f"ℹ️ Combined scenario '{st.session_state.combined_scenario_name}' was active")
+            
+            st.warning("⚠️ Policy engine initialized but no status data recorded.")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Possible Reasons:**")
+                st.markdown("""
+                - Policy engine initialized but no actions triggered yet
+                - Simulation too short for policies to activate (try 100+ steps)
+                - Interaction rule conditions not met
+                - Policy engine error (check console logs)
+                """)
+            
+            with col2:
+                st.markdown("**Debug Steps:**")
+                st.markdown("""
+                1. Check console logs for policy engine initialization
+                2. Verify interaction rules in YAML file
+                3. Run longer simulation (200+ steps)
+                4. Enable debug logging in sidebar
+                """)
+            
+            # Show what we know from config
+            if hasattr(st.session_state, 'last_config') and st.session_state.last_config.combined_scenario_data:
+                with st.expander("📋 Scenario Configuration (from config)", expanded=True):
+                    scenario_data = st.session_state.last_config.combined_scenario_data
+                    st.json(scenario_data)
+            
+            return
+        
+        # No combined scenario at all
         st.info("💡 No combined scenario was active for this simulation.")
         st.markdown("""
         **To use combined scenarios:**
