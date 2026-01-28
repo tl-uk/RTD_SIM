@@ -48,11 +48,31 @@ except ImportError:
     logger.warning("Scenario framework not available")
 
 # Environmental modules (Phase 5.2)
-from environmental.weather_api import create_weather_manager
-from environmental.seasonal_patterns import (
-    get_combined_multipliers,
-    apply_seasonal_ev_range_penalty
-)
+try:
+    from environmental.weather_api import create_weather_manager
+    from environmental.seasonal_patterns import (
+        get_combined_multipliers,
+        apply_seasonal_ev_range_penalty
+    )
+    WEATHER_AVAILABLE = True
+except ImportError:
+    # Weather system not yet implemented - provide fallbacks
+    WEATHER_AVAILABLE = False
+    logger.warning("⚠️ Weather system modules not found - weather features disabled")
+    
+    def create_weather_manager(config):
+        """Fallback: return None if weather not available."""
+        return None
+    
+    def get_combined_multipliers(month, day_of_year, day_of_week, hour):
+        """Fallback: return neutral multipliers."""
+        modes = ['walk', 'bike', 'car', 'ev', 'bus', 'tram', 
+                 'van_diesel', 'van_electric', 'truck_diesel', 'truck_electric']
+        return {mode: 1.0 for mode in modes}
+    
+    def apply_seasonal_ev_range_penalty(base_range, temperature):
+        """Fallback: return unchanged range."""
+        return base_range
 from environmental.emissions_calculator import LifecycleEmissions
 from environmental.air_quality import create_air_quality_tracker
 
@@ -292,9 +312,20 @@ def run_simulation_loop(
             weather_conditions = weather_manager.update_weather(step, time_of_day)
             
             # Apply weather to environment speeds
-            for mode in env.get_available_modes():
+            # Define available transport modes (since env doesn't have get_available_modes)
+            transport_modes = [
+                'walk', 'bike', 'car', 'ev', 'bus', 'tram', 
+                'van_diesel', 'van_electric', 
+                'truck_diesel', 'truck_electric',
+                'hgv_diesel', 'hgv_electric',
+                'cargo_bike'
+            ]
+            
+            for mode in transport_modes:
                 speed_mult = weather_manager.get_mode_speed_multiplier(mode)
-                env.set_weather_speed_multiplier(mode, speed_mult)
+                # Only set if environment has this method
+                if hasattr(env, 'set_weather_speed_multiplier'):
+                    env.set_weather_speed_multiplier(mode, speed_mult)
             
             # Adjust EV ranges based on temperature
             if infrastructure:
