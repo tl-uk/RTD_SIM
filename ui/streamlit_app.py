@@ -48,7 +48,6 @@ from visualiser.animation_controller import AnimationController
 
 # NEW: Import policy engine initialization
 from simulation.execution.dynamic_policies import initialize_policy_engine
-from simulation.infrastructure import InfrastructureManager
 
 # Initialize Streamlit
 st.set_page_config(
@@ -141,6 +140,22 @@ if run_btn:
             
             # If policy_status missing, create minimal version for tab display
             if not hasattr(results, 'policy_status') or not results.policy_status:
+                # Get infrastructure instance from results
+                infrastructure = results.infrastructure
+                
+                # Safely calculate metrics
+                grid_util = 0.0
+                charger_util = 0.0
+                
+                if infrastructure:
+                    try:
+                        grid_util = infrastructure.grid.get_utilization()
+                        metrics = infrastructure.get_infrastructure_metrics()
+                        charger_util = metrics.get('charger_utilization', 0.0)
+                    except Exception as e:
+                        import logging
+                        logging.warning(f"Could not get infrastructure metrics: {e}")
+                
                 results.policy_status = {
                     'scenario_name': config.combined_scenario_data.get('name', 'Unknown'),
                     'base_scenarios': config.combined_scenario_data.get('base_scenarios', []),
@@ -149,8 +164,8 @@ if run_btn:
                     'active_feedback_loops': 0,
                     'simulation_state': {
                         'ev_adoption': 0.0,
-                        'grid_utilization': InfrastructureManager.grid.get_utilization() if InfrastructureManager else 0.0,
-                        'charger_utilization': 0.0,
+                        'grid_utilization': grid_util,
+                        'charger_utilization': charger_util,
                     },
                     'constraints': {},
                 }
