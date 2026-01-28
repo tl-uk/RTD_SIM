@@ -4,7 +4,6 @@ ui/sidebar_config.py
 Sidebar configuration with Phase 5.1 combined scenarios.
 FIXES:
 - Combined scenario selection OUTSIDE form (so dropdown shows immediately)
-- Updated phase labels (removed 4.5B, 4.5, 4.5G)
 - Grid capacity warning
 """
 
@@ -110,6 +109,12 @@ def render_sidebar_config():
         scenario_name=scenario_config['scenario_name'] if not combined_config['use_combined'] else None,
         scenarios_dir=scenario_config['scenarios_dir'],
         combined_scenario_data=combined_config['combined_scenario_data'] if combined_config['use_combined'] else None,
+        # Weather parameters (Phase 5.2)
+        weather_enabled=advanced_config['enable_weather'],
+        weather_source=advanced_config['weather_source'],
+        weather_temp_adjustment=advanced_config['weather_temp_adjustment'],
+        weather_precip_multiplier=advanced_config['weather_precip_multiplier'],
+        weather_wind_multiplier=advanced_config['weather_wind_multiplier'],
     )
     
     return config, run_btn
@@ -244,17 +249,75 @@ def _render_advanced_features():
             num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
             grid_capacity_mw = st.slider(
                 "Grid Capacity (MW)", 
-                10, 2000, 100, 10,
-                help="⚠️ Reduce to 10-20 MW for visible utilization metrics"
+                1, 2000, 100, 1,
+                help="💡 Stress test: 1-10 MW | Normal: 50-200 MW | Large scale: 500+ MW"
             )
             
-            # Show warning if grid too large
-            if grid_capacity_mw > 500:
-                st.warning("⚠️ Grid >500 MW may show 0.0% utilization. Try 10-100 MW for better visibility.")
+            # Show contextual guidance
+            if grid_capacity_mw < 10:
+                st.success("🔥 Stress test mode: High utilization expected!")
+            elif grid_capacity_mw > 500:
+                st.warning("⚠️ Grid >500 MW may show 0.0% utilization. Try 1-100 MW for better visibility.")
     else:
         num_chargers = 0
         num_depots = 0
         grid_capacity_mw = 100
+    
+    # Weather System (Phase 5.2)
+    st.markdown("**🌤️ Weather System**")
+    enable_weather = st.checkbox(
+        "Enable Weather System",
+        value=False,
+        help="Temperature, precipitation, wind affect EV range and mode choice"
+    )
+    
+    weather_source = 'live'
+    weather_temp_adjustment = 0.0
+    weather_precip_multiplier = 1.0
+    weather_wind_multiplier = 1.0
+    
+    if enable_weather:
+        with st.expander("⚙️ Weather Parameters"):
+            weather_source = st.selectbox(
+                "Weather Source",
+                options=['live', 'historical', 'synthetic'],
+                index=0,
+                help="Live: Current forecast | Historical: Jan 2024 | Synthetic: Patterns"
+            )
+            
+            st.markdown("**🌡️ Weather Perturbations (Optional)**")
+            st.caption("Modify weather conditions for scenario testing")
+            
+            weather_temp_adjustment = st.slider(
+                "Temperature Adjustment (°C)",
+                min_value=-10.0,
+                max_value=+10.0,
+                value=0.0,
+                step=0.5,
+                help="Add/subtract from actual temperature. Negative = colder (winter stress test)"
+            )
+            
+            weather_precip_multiplier = st.slider(
+                "Precipitation Multiplier",
+                min_value=0.0,
+                max_value=3.0,
+                value=1.0,
+                step=0.1,
+                help="1.0 = normal, 2.0 = double rainfall, 0.0 = no rain"
+            )
+            
+            weather_wind_multiplier = st.slider(
+                "Wind Speed Multiplier",
+                min_value=0.5,
+                max_value=2.0,
+                value=1.0,
+                step=0.1,
+                help="1.5 = 50% stronger winds"
+            )
+            
+            # Show impact preview
+            if weather_temp_adjustment != 0 or weather_precip_multiplier != 1.0 or weather_wind_multiplier != 1.0:
+                st.info("📊 Weather perturbations active - simulating extreme conditions")
     
     # Social networks
     enable_social = False
@@ -282,7 +345,13 @@ def _render_advanced_features():
         'enable_social': enable_social,
         'use_realistic': use_realistic,
         'decay_rate': decay_rate,
-        'habit_weight': habit_weight
+        'habit_weight': habit_weight,
+        # Weather parameters
+        'enable_weather': enable_weather,
+        'weather_source': weather_source,
+        'weather_temp_adjustment': weather_temp_adjustment,
+        'weather_precip_multiplier': weather_precip_multiplier,
+        'weather_wind_multiplier': weather_wind_multiplier,
     }
 
 
