@@ -2,9 +2,7 @@
 ui/sidebar_config.py
 
 Sidebar configuration with Phase 5.1 combined scenarios.
-FIXES:
-- Combined scenario selection OUTSIDE form (so dropdown shows immediately)
-- Grid capacity warning
+
 """
 
 import streamlit as st
@@ -271,21 +269,23 @@ def _render_advanced_features():
         help="Temperature, precipitation, wind affect EV range and mode choice"
     )
     
+    # Initialize defaults
     weather_source = 'live'
     weather_temp_adjustment = 0.0
     weather_precip_multiplier = 1.0
     weather_wind_multiplier = 1.0
     
     if enable_weather:
-        with st.expander("⚙️ Weather Parameters"):
-            weather_source = st.selectbox(
-                "Weather Source",
-                options=['live', 'historical', 'synthetic'],
-                index=0,
-                help="Live: Current forecast | Historical: Jan 2024 | Synthetic: Patterns"
-            )
-            
-            st.markdown("**🌡️ Weather Perturbations (Optional)**")
+        # Weather source OUTSIDE expander so it shows immediately
+        weather_source = st.selectbox(
+            "Weather Source",
+            options=['live', 'historical', 'synthetic'],
+            index=2,  # Default to synthetic for testing
+            help="Live: Current forecast | Historical: Jan 2024 | Synthetic: Patterns"
+        )
+        
+        # Perturbations inside expander
+        with st.expander("⚙️ Weather Perturbations (Optional)"):
             st.caption("Modify weather conditions for scenario testing")
             
             weather_temp_adjustment = st.slider(
@@ -314,10 +314,10 @@ def _render_advanced_features():
                 step=0.1,
                 help="1.5 = 50% stronger winds"
             )
-            
-            # Show impact preview
-            if weather_temp_adjustment != 0 or weather_precip_multiplier != 1.0 or weather_wind_multiplier != 1.0:
-                st.info("📊 Weather perturbations active - simulating extreme conditions")
+        
+        # Show impact preview (outside expander for visibility)
+        if weather_temp_adjustment != 0 or weather_precip_multiplier != 1.0 or weather_wind_multiplier != 1.0:
+            st.info("📊 Weather perturbations active - simulating extreme conditions")
     
     # Social networks
     enable_social = False
