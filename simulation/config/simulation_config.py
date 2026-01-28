@@ -58,6 +58,11 @@ class SimulationConfig:
 
     # Phase 5.2: Environmental & Weather
     weather_enabled: bool = False
+    weather_source: str = 'live'
+    weather_temp_adjustment: float = 0.0
+    weather_precip_multiplier: float = 1.0
+    weather_wind_multiplier: float = 1.0
+    track_air_quality: bool = False
     use_historical_weather: bool = False
     weather_start_date: Optional[str] = None  # "2024-01-15"
     latitude: float = 55.9533   # Edinburgh default
@@ -111,5 +116,7 @@ class SimulationResults:
 
     # Phase 5.2: Environmental results
     weather_manager: Optional[Any] = None
+    weather_history: List = field(default_factory=list)
+    air_quality_metrics: Optional[Dict] = None
     air_quality_tracker: Optional[Any] = None
     lifecycle_emissions_total: Dict[str, float] = field(default_factory=dict)
