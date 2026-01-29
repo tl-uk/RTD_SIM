@@ -290,6 +290,13 @@ def run_simulation_loop(
     
     # NEW: Initialize environmental systems
     weather_manager = create_weather_manager(config) if config.weather_enabled else None
+    weather_history = []  # Track weather data for visualization
+    
+    if weather_manager:
+        logger.info("✅ Weather system initialized")
+        logger.info(f"   Source: {config.weather_source}")
+        logger.info(f"   Location: ({config.latitude:.2f}, {config.longitude:.2f})")
+    
     air_quality = create_air_quality_tracker(config) if config.track_air_quality else None
     emissions_calc = LifecycleEmissions(config.grid_carbon_intensity) if config.use_lifecycle_emissions else None
     
@@ -310,6 +317,28 @@ def run_simulation_loop(
         # UPDATE WEATHER
         if weather_manager:
             weather_conditions = weather_manager.update_weather(step, time_of_day)
+            
+            # Track weather history for visualization
+            weather_history.append({
+                'step': step,
+                'temperature': weather_conditions.get('temperature', 10.0),
+                'precipitation': weather_conditions.get('precipitation', 0.0),
+                'wind_speed': weather_conditions.get('wind_speed', 10.0),
+                'ice_warning': weather_conditions.get('ice_warning', False),
+                'snow_depth': weather_conditions.get('snow_depth', 0.0),
+                'cloud_cover': weather_conditions.get('cloud_cover', 50),
+                'visibility': weather_conditions.get('visibility', 10000),
+                'time_of_day': time_of_day,
+                'hour': hour,
+            })
+            
+            # Log weather periodically
+            if step % 20 == 0:
+                ice_indicator = " ❄️" if weather_conditions.get('ice_warning') else ""
+                logger.info(f"Weather (step {step}): "
+                           f"{weather_conditions['temperature']:.1f}°C, "
+                           f"{weather_conditions['precipitation']:.1f}mm/h, "
+                           f"{weather_conditions['wind_speed']:.1f}km/h{ice_indicator}")
             
             # Apply weather to environment speeds
             # Define available transport modes (since env doesn't have get_available_modes)
@@ -559,12 +588,19 @@ def run_simulation_loop(
     if progress_callback:
         progress_callback(0.95, "✅ Simulation complete")
     
+    # Final logging
+    logger.info("✅ Simulation complete")
+    logger.info(f"   Cascades detected: {len(cascade_events)}")
+    if weather_manager:
+        logger.info(f"   Weather timesteps tracked: {len(weather_history)}")
+    
     results = {
         'time_series': time_series,
         'adoption_history': dict(adoption_history),
         'cascade_events': cascade_events,
         'lifecycle_emissions': dict(lifecycle_emissions_by_mode),
         'weather_manager': weather_manager,
+        'weather_history': weather_history,  # NEW: Add weather history
         'air_quality_tracker': air_quality,
     }
     
@@ -584,5 +620,3 @@ def run_simulation_loop(
                    f"{len(constraint_violations)} violations")
     
     return results
-
-
