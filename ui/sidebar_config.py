@@ -41,6 +41,12 @@ def render_sidebar_config():
     combined_config = _render_combined_scenario_selection()
     st.markdown("---")
     
+    # ========================================================================
+    # Weather configuration OUTSIDE form (so it updates immediately)
+    # ========================================================================
+    weather_config = _render_weather_configuration()
+    st.markdown("---")
+    
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
@@ -107,12 +113,12 @@ def render_sidebar_config():
         scenario_name=scenario_config['scenario_name'] if not combined_config['use_combined'] else None,
         scenarios_dir=scenario_config['scenarios_dir'],
         combined_scenario_data=combined_config['combined_scenario_data'] if combined_config['use_combined'] else None,
-        # Weather parameters (Phase 5.2)
-        weather_enabled=advanced_config['enable_weather'],
-        weather_source=advanced_config['weather_source'],
-        weather_temp_adjustment=advanced_config['weather_temp_adjustment'],
-        weather_precip_multiplier=advanced_config['weather_precip_multiplier'],
-        weather_wind_multiplier=advanced_config['weather_wind_multiplier'],
+        # Weather parameters (Phase 5.2) - from weather_config dict
+        weather_enabled=weather_config['enable_weather'],
+        weather_source=weather_config['weather_source'],
+        weather_temp_adjustment=weather_config['weather_temp_adjustment'],
+        weather_precip_multiplier=weather_config['weather_precip_multiplier'],
+        weather_wind_multiplier=weather_config['weather_wind_multiplier'],
     )
     
     return config, run_btn
@@ -227,6 +233,85 @@ def _render_story_selection():
     return user_stories, job_stories
 
 
+
+
+def _render_weather_configuration():
+    """
+    Render weather configuration section OUTSIDE form.
+    This ensures the weather dropdown shows immediately when checkbox is clicked.
+    """
+    st.markdown("### 🌤️ Weather System")
+    
+    enable_weather = st.checkbox(
+        "Enable Weather System",
+        value=False,
+        key="weather_enabled_checkbox",
+        help="Temperature, precipitation, wind affect EV range and mode choice"
+    )
+    
+    # Initialize defaults
+    weather_source = 'synthetic'
+    weather_temp_adjustment = 0.0
+    weather_precip_multiplier = 1.0
+    weather_wind_multiplier = 1.0
+    
+    if enable_weather:
+        # Weather source - OUTSIDE expander with key for persistence
+        weather_source = st.selectbox(
+            "Weather Source",
+            options=['live', 'historical', 'synthetic'],
+            index=2,  # Default to synthetic
+            key="weather_source_select",
+            help="Live: Current forecast | Historical: Jan 2024 | Synthetic: Patterns"
+        )
+        
+        # Perturbations inside expander
+        with st.expander("⚙️ Weather Perturbations (Optional)"):
+            st.caption("Modify weather conditions for scenario testing")
+            
+            weather_temp_adjustment = st.slider(
+                "Temperature Adjustment (°C)",
+                min_value=-10.0,
+                max_value=+10.0,
+                value=0.0,
+                step=0.5,
+                key="weather_temp_adjust",
+                help="Add/subtract from actual temperature. Negative = colder (winter stress test)"
+            )
+            
+            weather_precip_multiplier = st.slider(
+                "Precipitation Multiplier",
+                min_value=0.0,
+                max_value=3.0,
+                value=1.0,
+                step=0.1,
+                key="weather_precip_mult",
+                help="1.0 = normal, 2.0 = double rainfall, 0.0 = no rain"
+            )
+            
+            weather_wind_multiplier = st.slider(
+                "Wind Speed Multiplier",
+                min_value=0.5,
+                max_value=2.0,
+                value=1.0,
+                step=0.1,
+                key="weather_wind_mult",
+                help="1.5 = 50% stronger winds"
+            )
+        
+        # Show impact preview (outside expander for visibility)
+        if weather_temp_adjustment != 0 or weather_precip_multiplier != 1.0 or weather_wind_multiplier != 1.0:
+            st.info("📊 Weather perturbations active - simulating extreme conditions")
+    
+    return {
+        'enable_weather': enable_weather,
+        'weather_source': weather_source,
+        'weather_temp_adjustment': weather_temp_adjustment,
+        'weather_precip_multiplier': weather_precip_multiplier,
+        'weather_wind_multiplier': weather_wind_multiplier,
+    }
+
+
 def _render_advanced_features():
     """Render advanced features section."""
     st.markdown("### 🔬 Advanced Features")
@@ -261,64 +346,6 @@ def _render_advanced_features():
         num_depots = 0
         grid_capacity_mw = 100
     
-    # Weather System (Phase 5.2)
-    st.markdown("**🌤️ Weather System**")
-    enable_weather = st.checkbox(
-        "Enable Weather System",
-        value=False,
-        help="Temperature, precipitation, wind affect EV range and mode choice"
-    )
-    
-    # Initialize defaults
-    weather_source = 'live'
-    weather_temp_adjustment = 0.0
-    weather_precip_multiplier = 1.0
-    weather_wind_multiplier = 1.0
-    
-    if enable_weather:
-        # Weather source OUTSIDE expander so it shows immediately
-        weather_source = st.selectbox(
-            "Weather Source",
-            options=['live', 'historical', 'synthetic'],
-            index=2,  # Default to synthetic for testing
-            help="Live: Current forecast | Historical: Jan 2024 | Synthetic: Patterns"
-        )
-        
-        # Perturbations inside expander
-        with st.expander("⚙️ Weather Perturbations (Optional)"):
-            st.caption("Modify weather conditions for scenario testing")
-            
-            weather_temp_adjustment = st.slider(
-                "Temperature Adjustment (°C)",
-                min_value=-10.0,
-                max_value=+10.0,
-                value=0.0,
-                step=0.5,
-                help="Add/subtract from actual temperature. Negative = colder (winter stress test)"
-            )
-            
-            weather_precip_multiplier = st.slider(
-                "Precipitation Multiplier",
-                min_value=0.0,
-                max_value=3.0,
-                value=1.0,
-                step=0.1,
-                help="1.0 = normal, 2.0 = double rainfall, 0.0 = no rain"
-            )
-            
-            weather_wind_multiplier = st.slider(
-                "Wind Speed Multiplier",
-                min_value=0.5,
-                max_value=2.0,
-                value=1.0,
-                step=0.1,
-                help="1.5 = 50% stronger winds"
-            )
-        
-        # Show impact preview (outside expander for visibility)
-        if weather_temp_adjustment != 0 or weather_precip_multiplier != 1.0 or weather_wind_multiplier != 1.0:
-            st.info("📊 Weather perturbations active - simulating extreme conditions")
-    
     # Social networks
     enable_social = False
     use_realistic = False
@@ -346,12 +373,6 @@ def _render_advanced_features():
         'use_realistic': use_realistic,
         'decay_rate': decay_rate,
         'habit_weight': habit_weight,
-        # Weather parameters
-        'enable_weather': enable_weather,
-        'weather_source': weather_source,
-        'weather_temp_adjustment': weather_temp_adjustment,
-        'weather_precip_multiplier': weather_precip_multiplier,
-        'weather_wind_multiplier': weather_wind_multiplier,
     }
 
 
