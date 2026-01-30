@@ -175,6 +175,14 @@ def run_simulation(
             logger.info(f"✅ Policy tracking: {len(results.policy_actions)} actions, "
                        f"{len(results.constraint_violations)} violations")
         
+        # NEW: Collect weather results if available
+        if 'weather_manager' in loop_results:
+            results.weather_manager = loop_results['weather_manager']
+            results.weather_history = loop_results.get('weather_history', [])
+            
+            if results.weather_history:
+                logger.info(f"✅ Weather tracking: {len(results.weather_history)} timesteps")
+        
         results.success = True
         
         # Log summary
