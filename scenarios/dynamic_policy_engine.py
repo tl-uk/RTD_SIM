@@ -1,14 +1,10 @@
 """
 scenarios/dynamic_policy_engine.py
 
-Phase 5.1: Dynamic Policy Interaction Engine
-
-Enables:
-- Combining multiple scenarios with interaction rules
-- Real-time policy adjustments based on simulation state
-- Feedback loops (grid stress → pricing → behavior)
-- Infrastructure cost recovery modeling
-- Constraint enforcement (budget, grid capacity, deployment rates)
+This module implements a dynamic policy engine that allows for the combination
+of multiple transport decarbonization scenarios with complex interaction rules,
+constraints, and feedback loops. It enables adaptive policy adjustments based on
+real-time simulation state, including weather-responsive policies.
 """
 
 from __future__ import annotations
