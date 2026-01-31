@@ -401,7 +401,6 @@ class DynamicPolicyEngine:
             # Winter emergency protocols
             success = self._enable_winter_protocols(parameters, step)
 
-        
         else:
             logger.warning(f"Unknown action: {action}")
             return None
