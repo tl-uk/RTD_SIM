@@ -24,14 +24,14 @@ interaction_rules:
       multiplier: 2.0
     priority: 90
   
-  # Rule 3: Moderate charger load (WILL WORK)
+  # Rule 3: Moderate charger load
   - condition: "charger_utilization > 0.50"  # Lower from 0.90
     action: add_emergency_chargers
     parameters:
       num_chargers: 5
     priority: 80
   
-  # Rule 4: Cold weather protocols (WILL WORK)
+  # Rule 4: Cold weather protocols
   - condition: "step > 30"  # Remove ice_warning dependency
     action: enable_winter_protocols
     parameters:
