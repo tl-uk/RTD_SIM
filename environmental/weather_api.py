@@ -14,7 +14,9 @@ class WeatherManager:
     """
     
     def __init__(self, latitude: float = 54.5973, longitude: float = -5.9301, 
-                 use_historical: bool = False, start_date: Optional[str] = None):
+                 use_historical: bool = False, start_date: Optional[str] = None,
+                 temp_adjustment: float = 0.0, precip_multiplier: float = 1.0, 
+                 wind_multiplier: float = 1.0):
         """
         Initialize weather manager for Belfast, Northern Ireland by default.
         
@@ -23,11 +25,19 @@ class WeatherManager:
             longitude: Location longitude (default: Belfast)
             use_historical: If True, use historical data instead of forecast
             start_date: Starting date for historical data (format: "2024-01-15")
+            temp_adjustment: Temperature adjustment in °C (e.g., -10 for winter stress test)
+            precip_multiplier: Precipitation multiplier (e.g., 3.0 for triple rainfall)
+            wind_multiplier: Wind speed multiplier (e.g., 2.0 for double wind)
         """
         self.latitude = latitude
         self.longitude = longitude
         self.use_historical = use_historical
         self.start_date = start_date or datetime.now().strftime("%Y-%m-%d")
+        
+        # Store adjustment parameters
+        self.temp_adjustment = temp_adjustment
+        self.precip_multiplier = precip_multiplier
+        self.wind_multiplier = wind_multiplier
         
         self.base_url_forecast = "https://api.open-meteo.com/v1/forecast"
         self.base_url_historical = "https://archive-api.open-meteo.com/v1/archive"
@@ -47,6 +57,9 @@ class WeatherManager:
         self._cache_start_step = 0
         
         logger.info(f"🌤️ WeatherManager initialized for ({latitude}, {longitude})")
+        if temp_adjustment != 0 or precip_multiplier != 1.0 or wind_multiplier != 1.0:
+            logger.info(f"   Adjustments: Temp {temp_adjustment:+.1f}°C, "
+                       f"Precip {precip_multiplier:.1f}x, Wind {wind_multiplier:.1f}x")
     
     def update_weather(self, step: int, time_of_day: float) -> Dict:
         """
@@ -174,22 +187,35 @@ class WeatherManager:
             })
     
     def _update_conditions_from_data(self, hourly_data: Dict):
-        """Update current conditions from cached hourly data."""
+        """Update current conditions from cached hourly data with adjustments applied."""
+        # Get base values from data
+        base_temp = hourly_data.get('temperature', 10.0)
+        base_precip = hourly_data.get('precipitation', 0.0)
+        base_wind = hourly_data.get('wind_speed', 5.0)
+        
+        # Apply adjustments
+        adjusted_temp = base_temp + self.temp_adjustment
+        adjusted_precip = base_precip * self.precip_multiplier
+        adjusted_wind = base_wind * self.wind_multiplier
+        
         self.current_conditions = {
-            'temperature': hourly_data.get('temperature', 10.0),
-            'precipitation': hourly_data.get('precipitation', 0.0),
+            'temperature': adjusted_temp,
+            'precipitation': adjusted_precip,
             'snow_depth': hourly_data.get('snow_depth', 0.0),
-            'ice_warning': self._check_ice_conditions(hourly_data),
-            'wind_speed': hourly_data.get('wind_speed', 5.0),
+            'ice_warning': self._check_ice_conditions_adjusted(adjusted_temp, adjusted_precip),
+            'wind_speed': adjusted_wind,
             'cloud_cover': hourly_data.get('cloud_cover', 50),
             'visibility': hourly_data.get('visibility', 10000),
         }
     
     def _check_ice_conditions(self, data: Dict) -> bool:
-        """Determine if icy conditions exist."""
+        """Determine if icy conditions exist (legacy, kept for compatibility)."""
         temp = data.get('temperature', 10.0)
         precip = data.get('precipitation', 0.0)
-        
+        return self._check_ice_conditions_adjusted(temp, precip)
+    
+    def _check_ice_conditions_adjusted(self, temp: float, precip: float) -> bool:
+        """Determine if icy conditions exist based on adjusted values."""
         # Ice warning if temperature near freezing and recent precipitation
         return temp <= 2.0 and precip > 0.1
     
@@ -316,5 +342,8 @@ def create_weather_manager(config) -> Optional[WeatherManager]:
         latitude=config.latitude,
         longitude=config.longitude,
         use_historical=config.use_historical_weather,
-        start_date=config.weather_start_date
+        start_date=config.weather_start_date,
+        temp_adjustment=config.weather_temp_adjustment,
+        precip_multiplier=config.weather_precip_multiplier,
+        wind_multiplier=config.weather_wind_multiplier
     )
