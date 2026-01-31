@@ -396,12 +396,19 @@ class DynamicPolicyEngine:
             # Temperature-controlled charging
             reduction = rule.action.get('reduction_factor', 0.8)
             logger.info(f"Step {step}: Charging time reduced to {reduction*100}%")
+
+        elif action == 'enable_winter_protocols':
+            # Winter emergency protocols
+            success = self._enable_winter_protocols(parameters, step)
+
         
         else:
             logger.warning(f"Unknown action: {action}")
             return None
 
-    
+    # ====================================================================
+    # Action Implementations
+    # ===================================================================
     def _reduce_charging_costs(self, params: Dict) -> Dict:
         """Reduce charging costs (incentivize EV adoption)."""
         multiplier = params.get('multiplier', 0.8)  # Default 20% discount
@@ -678,6 +685,50 @@ class DynamicPolicyEngine:
         logger.info("  Smart charging enabled")
         
         return {'enabled': True}
+    
+    def _enable_winter_protocols(self, params: Dict, step: int) -> bool:
+        """
+        Enable winter emergency protocols.
+        
+        Triggers during severe winter conditions to:
+        - Increase charging subsidies
+        - Deploy emergency infrastructure
+        - Alert operators
+        """
+        try:
+            # Get weather conditions
+            temp = self.state.get('temperature', 10.0)
+            ice_warning = self.state.get('ice_warning', False)
+            snow_depth = self.state.get('snow_depth', 0.0)
+            
+            # Check if protocols needed
+            severe_winter = (temp < 0) or ice_warning or (snow_depth > 5)
+            
+            if not severe_winter:
+                logger.info("  Winter protocols not needed (conditions mild)")
+                return False
+            
+            # Activate protocols
+            subsidy_boost = params.get('subsidy_boost', 10000)  # £10k extra
+            charging_discount = params.get('charging_discount', 0.5)  # 50% off
+            
+            # Update state
+            self.state['winter_protocols_active'] = True
+            self.state['winter_subsidy_boost'] = subsidy_boost
+            self.state['winter_charging_discount'] = charging_discount
+            
+            logger.info(f"  ❄️ Winter protocols ENABLED:")
+            logger.info(f"     Temperature: {temp:.1f}°C")
+            logger.info(f"     Ice warning: {ice_warning}")
+            logger.info(f"     Snow depth: {snow_depth}cm")
+            logger.info(f"     Extra subsidy: £{subsidy_boost}")
+            logger.info(f"     Charging discount: {charging_discount*100}%")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to enable winter protocols: {e}")
+            return False
     
     # =====================================================================
     # Feedback Loops

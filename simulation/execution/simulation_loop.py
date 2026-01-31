@@ -288,7 +288,7 @@ def run_simulation_loop(
         for mode in all_modes:
             adoption_history[mode].append(mode_counts.get(mode, 0))
     
-    # NEW: Initialize environmental systems
+    # Initialize environmental systems
     weather_manager = create_weather_manager(config) if config.weather_enabled else None
     weather_history = []  # Track weather data for visualization
     
@@ -600,7 +600,7 @@ def run_simulation_loop(
         'cascade_events': cascade_events,
         'lifecycle_emissions': dict(lifecycle_emissions_by_mode),
         'weather_manager': weather_manager,
-        'weather_history': weather_history,  # NEW: Add weather history
+        'weather_history': weather_history,  # Add weather history
         'air_quality_tracker': air_quality,
     }
     
