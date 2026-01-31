@@ -296,6 +296,11 @@ def run_simulation_loop(
         logger.info("✅ Weather system initialized")
         logger.info(f"   Source: {config.weather_source}")
         logger.info(f"   Location: ({config.latitude:.2f}, {config.longitude:.2f})")
+        
+        # NEW: Connect weather to policy engine for weather-responsive policies
+        if policy_engine:
+            policy_engine.weather_manager = weather_manager
+            logger.info("✅ Policy engine connected to weather system")
     
     air_quality = create_air_quality_tracker(config) if config.track_air_quality else None
     emissions_calc = LifecycleEmissions(config.grid_carbon_intensity) if config.use_lifecycle_emissions else None

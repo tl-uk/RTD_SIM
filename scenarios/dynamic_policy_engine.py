@@ -260,17 +260,8 @@ class DynamicPolicyEngine:
         
         # Charging utilization
         charger_util = grid_metrics.get('utilization', 0)
-
-        # NEW: Weather state
-        if hasattr(self, 'weather_manager') and self.weather_manager:
-            conditions = self.weather_manager.current_conditions
-            self.state['temperature'] = conditions['temperature']
-            self.state['precipitation'] = conditions['precipitation']
-            self.state['snow_depth'] = conditions['snow_depth']
-            self.state['ice_warning'] = conditions['ice_warning']
-            self.state['wind_speed'] = conditions['wind_speed']
         
-        # Update state dict
+        # Update state dict (including weather if available)
         self.simulation_state = {
             'step': step,
             'time_of_day': infrastructure.current_hour if hasattr(infrastructure, 'current_hour') else 8,
@@ -285,6 +276,15 @@ class DynamicPolicyEngine:
             'total_chargers': grid_metrics.get('total_ports', 1),
             'avg_charging_cost': self.base_charging_cost * self.current_price_multiplier,
         }
+        
+        # Add weather data to state if weather manager is available
+        if hasattr(self, 'weather_manager') and self.weather_manager:
+            conditions = self.weather_manager.current_conditions
+            self.simulation_state['temperature'] = conditions.get('temperature', 10.0)
+            self.simulation_state['precipitation'] = conditions.get('precipitation', 0.0)
+            self.simulation_state['snow_depth'] = conditions.get('snow_depth', 0.0)
+            self.simulation_state['ice_warning'] = conditions.get('ice_warning', False)
+            self.simulation_state['wind_speed'] = conditions.get('wind_speed', 10.0)
         
         # Update constraints
         if self.active_combined:
@@ -399,7 +399,7 @@ class DynamicPolicyEngine:
 
         elif action == 'enable_winter_protocols':
             # Winter emergency protocols
-            success = self._enable_winter_protocols(parameters, step)
+            success = self._enable_winter_protocols(params, step)
 
         else:
             logger.warning(f"Unknown action: {action}")
@@ -695,10 +695,10 @@ class DynamicPolicyEngine:
         - Alert operators
         """
         try:
-            # Get weather conditions
-            temp = self.state.get('temperature', 10.0)
-            ice_warning = self.state.get('ice_warning', False)
-            snow_depth = self.state.get('snow_depth', 0.0)
+            # Get weather conditions from simulation_state (not self.state)
+            temp = self.simulation_state.get('temperature', 10.0)
+            ice_warning = self.simulation_state.get('ice_warning', False)
+            snow_depth = self.simulation_state.get('snow_depth', 0.0)
             
             # Check if protocols needed
             severe_winter = (temp < 0) or ice_warning or (snow_depth > 5)
@@ -711,10 +711,10 @@ class DynamicPolicyEngine:
             subsidy_boost = params.get('subsidy_boost', 10000)  # £10k extra
             charging_discount = params.get('charging_discount', 0.5)  # 50% off
             
-            # Update state
-            self.state['winter_protocols_active'] = True
-            self.state['winter_subsidy_boost'] = subsidy_boost
-            self.state['winter_charging_discount'] = charging_discount
+            # Update state (store in simulation_state)
+            self.simulation_state['winter_protocols_active'] = True
+            self.simulation_state['winter_subsidy_boost'] = subsidy_boost
+            self.simulation_state['winter_charging_discount'] = charging_discount
             
             logger.info(f"  ❄️ Winter protocols ENABLED:")
             logger.info(f"     Temperature: {temp:.1f}°C")
