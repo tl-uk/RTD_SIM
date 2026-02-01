@@ -395,7 +395,7 @@ class DynamicPolicyEngine:
 
         elif action == 'enable_winter_protocols':
             # Winter emergency protocols
-            success = self._enable_winter_protocols(params, step)
+            return self._enable_winter_protocols(params, step)  # Return the result
 
         else:
             logger.warning(f"Unknown action: {action}")

@@ -297,7 +297,7 @@ def run_simulation_loop(
         logger.info(f"   Source: {config.weather_source}")
         logger.info(f"   Location: ({config.latitude:.2f}, {config.longitude:.2f})")
         
-        # NEW: Connect weather to policy engine for weather-responsive policies
+        # Connect weather to policy engine
         if policy_engine:
             policy_engine.weather_manager = weather_manager
             logger.info("✅ Policy engine connected to weather system")
