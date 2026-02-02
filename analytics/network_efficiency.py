@@ -97,7 +97,7 @@ class NetworkEfficiencyTracker:
         Record vehicle kilometers traveled.
         
         Args:
-            agent_id: Agent ID
+            agent_id: Agent ID (use agent.agent_id)
             mode: Transport mode
             distance_km: Distance traveled
             vehicle_type: Type of vehicle (personal, freight_light, freight_heavy)

@@ -101,7 +101,7 @@ class ModeShareAnalyzer:
             mode_counts[mode] += 1
             
             # Track individual agent mode history
-            self._agent_mode_history[agent.id].append((step, mode))
+            self._agent_mode_history[agent.agent_id].append((step, mode))
         
         # Calculate adoption percentages
         for mode, count in mode_counts.items():
