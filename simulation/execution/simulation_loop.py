@@ -16,6 +16,13 @@ from simulation.config.simulation_config import SimulationConfig
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.execution.timeseries import TimeSeries
 
+from analytics import (
+    JourneyTracker,
+    ModeShareAnalyzer,
+    PolicyImpactAnalyzer,
+    NetworkEfficiencyTracker
+)
+
 from simulation.execution.dynamic_policies import (
     initialize_policy_engine,
     apply_dynamic_policies,
@@ -308,6 +315,21 @@ def run_simulation_loop(
     # Track lifecycle emissions
     lifecycle_emissions_by_mode = defaultdict(lambda: {'co2e_kg': 0, 'pm25_g': 0, 'nox_g': 0})
  
+    # Phase 5.3: Initialize analytics
+    journey_tracker = JourneyTracker() if config.track_journeys else None
+    mode_share_analyzer = ModeShareAnalyzer() if config.enable_analytics else None
+    policy_impact_analyzer = PolicyImpactAnalyzer(policy_engine) if config.calculate_policy_roi else None
+    network_efficiency = NetworkEfficiencyTracker() if config.track_network_efficiency else None
+    
+    # Capture baseline before any policies
+    if policy_impact_analyzer and policy_engine:
+        policy_impact_analyzer.capture_baseline(
+            step=0,
+            agents=agents,
+            emissions_tracker=emissions_calc,
+            infrastructure=infrastructure
+        )
+
     # Main simulation loop
     for step in range(config.steps):
         # Calculate current time
@@ -415,11 +437,20 @@ def run_simulation_loop(
                 cost_recovery['step'] = step
                 cost_recovery_history.append(cost_recovery)
 
+        # RECORD MODE SHARE (for tipping point detection)
+        if mode_share_analyzer:
+            mode_share_analyzer.record_step(step, agents, len(agents))
+        
+        # RECORD INFRASTRUCTURE STATE
+        if network_efficiency:
+            network_efficiency.record_infrastructure_state(step, infrastructure)
+
         # Agent steps with lifecycle emissions
         agent_states = []
         for agent in agents:
             # Track previous distance BEFORE agent step
             prev_distance = agent.state.distance_km
+            prev_mode = agent.state.mode
             prev_location = agent.state.location
             
             # Execute agent step
@@ -427,6 +458,74 @@ def run_simulation_loop(
                 agent.step(env)
             except:
                 agent.step()
+
+            # RECORD JOURNEY
+            if journey_tracker and agent.state.location != prev_location:
+                # Gather context
+                decision_factors = getattr(agent, 'last_decision_factors', {})
+                social_influence = {
+                    'influenced_by': getattr(agent, 'influenced_by_agents', []),
+                    'strength': getattr(agent, 'influence_strength', 0.0)
+                }
+                
+                # Get emissions for this trip
+                trip_distance = agent.state.distance_km - prev_distance
+                trip_emissions = None
+                if emissions_calc and trip_distance > 0:
+                    trip_emissions = emissions_calc.calculate_trip_emissions(
+                        mode=agent.state.mode,
+                        distance_km=trip_distance
+                    )
+                
+                journey_tracker.record_journey(
+                    agent=agent,
+                    step=step,
+                    decision_factors=decision_factors,
+                    weather_conditions=weather_conditions if weather_manager else None,
+                    social_influence=social_influence,
+                    emissions=trip_emissions
+                )
+            
+            # RECORD MODE TRANSITION
+            if mode_share_analyzer and prev_mode != agent.state.mode:
+                mode_share_analyzer.record_transition(
+                    agent_id=agent.id,
+                    step=step,
+                    from_mode=prev_mode,
+                    to_mode=agent.state.mode,
+                    reason=getattr(agent, 'switch_reason', 'unknown'),
+                    influenced_by=getattr(agent, 'influenced_by_agents', [])
+                )
+            
+            # RECORD VKT
+            if network_efficiency:
+                trip_distance = agent.state.distance_km - prev_distance
+                if trip_distance > 0:
+                    vehicle_type = agent.agent_context.get('vehicle_type', 'personal')
+                    network_efficiency.record_vehicle_travel(
+                        agent_id=agent.id,
+                        mode=agent.state.mode,
+                        distance_km=trip_distance,
+                        vehicle_type=vehicle_type,
+                        step=step
+                    )
+        
+        # POLICY IMPACT TRACKING
+        if policy_impact_analyzer and policy_engine:
+            # Capture snapshots periodically
+            if step % 20 == 0:
+                policy_impact_analyzer.capture_step_snapshot(
+                    step=step,
+                    agents=agents,
+                    emissions_tracker=emissions_calc,
+                    infrastructure=infrastructure
+                )
+            
+            # Record policy activations
+            if hasattr(policy_engine, 'active_combined') and policy_engine.active_combined:
+                # Check which policies activated this step
+                # (Would need policy engine to expose this)
+                pass
             
             # Social influence (if enabled)
             if network and SOCIAL_AVAILABLE:
@@ -598,11 +697,49 @@ def run_simulation_loop(
     logger.info(f"   Cascades detected: {len(cascade_events)}")
     if weather_manager:
         logger.info(f"   Weather timesteps tracked: {len(weather_history)}")
+
+    # GENERATE ANALYTICS REPORTS
+    analytics_summary = {}
+    
+    if journey_tracker:
+        analytics_summary['journeys'] = journey_tracker.generate_summary_report()
+        logger.info(f"📊 Recorded {len(journey_tracker.journeys)} journeys")
+    
+    if mode_share_analyzer:
+        analytics_summary['mode_share'] = mode_share_analyzer.generate_summary_report()
+        
+        # Detect tipping points
+        if config.detect_tipping_points:
+            tipping_points = mode_share_analyzer.detect_tipping_points(
+                min_velocity=config.tipping_point_velocity,
+                min_duration=config.tipping_point_duration
+            )
+            logger.info(f"🎯 Detected {len(tipping_points)} tipping points")
+            analytics_summary['tipping_points'] = tipping_points
+    
+    if policy_impact_analyzer:
+        analytics_summary['policy_impact'] = policy_impact_analyzer.generate_summary_report()
+        logger.info(f"💰 Evaluated {len(policy_impact_analyzer.impacts)} policy impacts")
+    
+    if network_efficiency:
+        analytics_summary['network_efficiency'] = network_efficiency.generate_summary_report()
+        
+        # Identify bottlenecks
+        bottlenecks = network_efficiency.identify_bottlenecks(infrastructure)
+        logger.info(f"🚧 Identified {len(bottlenecks)} bottlenecks")
+        analytics_summary['bottlenecks'] = bottlenecks
     
     results = {
         'time_series': time_series,
         'adoption_history': dict(adoption_history),
         'cascade_events': cascade_events,
+        # Phase 5.3: Analytics
+        'journey_tracker': journey_tracker,
+        'mode_share_analyzer': mode_share_analyzer,
+        'policy_impact_analyzer': policy_impact_analyzer,
+        'network_efficiency_tracker': network_efficiency,
+        'analytics_summary': analytics_summary,
+        
         'lifecycle_emissions': dict(lifecycle_emissions_by_mode),
         'weather_manager': weather_manager,
         'weather_history': weather_history,  # Add weather history

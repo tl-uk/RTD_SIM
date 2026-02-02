@@ -40,13 +40,14 @@ from ui.tabs import (
     render_scenario_report_tab,
     render_combined_scenarios_tab,
     render_environmental_tab,  # NEW
+    render_analytics_tab,
 )
 
 # Import simulation core
 from simulation.simulation_runner import run_simulation
 from visualiser.animation_controller import AnimationController
 
-# NEW: Import policy engine initialization
+# Import policy engine initialization
 from simulation.execution.dynamic_policies import initialize_policy_engine
 
 # Initialize Streamlit
@@ -234,6 +235,10 @@ if st.session_state.combined_scenario_active:
 # Add environmental tab if weather or air quality tracking enabled
 if config.weather_enabled or config.track_air_quality:
     tab_configs.append(("🌍 Environmental", render_environmental_tab))
+
+# Add analytics tab if analytics results are present
+if config.enable_analytics:
+    tab_configs.append(("📊 Analytics", render_analytics_tab))
 
 # Create tabs
 tab_names = [name for name, _ in tab_configs]

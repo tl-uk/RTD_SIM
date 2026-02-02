@@ -77,6 +77,17 @@ class SimulationConfig:
     season_month: Optional[int] = None  # Force specific month for testing
     season_day_of_year: Optional[int] = None
 
+    # Phase 5.3: Analytics
+    enable_analytics: bool = True
+    track_journeys: bool = True
+    detect_tipping_points: bool = True
+    calculate_policy_roi: bool = True
+    track_network_efficiency: bool = True
+    
+    # Analytics parameters
+    tipping_point_velocity: float = 0.5  # % points per step
+    tipping_point_duration: int = 5  # Sustain for N steps
+
 @dataclass
 class SimulationResults:
     """Container for simulation results."""
@@ -120,3 +131,13 @@ class SimulationResults:
     air_quality_metrics: Optional[Dict] = None
     air_quality_tracker: Optional[Any] = None
     lifecycle_emissions_total: Dict[str, float] = field(default_factory=dict)
+
+    # Phase 5.3: Analytics results
+    journey_tracker: Optional[Any] = None
+    mode_share_analyzer: Optional[Any] = None
+    policy_impact_analyzer: Optional[Any] = None
+    network_efficiency_tracker: Optional[Any] = None
+    scenario_comparator: Optional[Any] = None
+    
+    # Summary reports
+    analytics_summary: Dict = field(default_factory=dict)
