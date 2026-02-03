@@ -119,7 +119,7 @@ class JourneyTracker:
         
         # Create journey record
         journey = JourneyMetrics(
-            agent_id=agent.agent_id,
+            agent_id=agent.state.agent_id,
             step=step,
             timestamp=step / 60.0,  # Convert to hours
             mode_chosen=state.mode,
@@ -172,7 +172,7 @@ class JourneyTracker:
         
         # Store journey
         self.journeys.append(journey)
-        self._journeys_by_agent[agent.agent_id].append(journey)
+        self._journeys_by_agent[agent.state.agent_id].append(journey)
         self._journeys_by_mode[state.mode].append(journey)
         self._journeys_by_step[step].append(journey)
         self._journey_count += 1

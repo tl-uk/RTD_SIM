@@ -70,7 +70,7 @@ class CognitiveAgent:
         self.t = 0
         self._replan_period = 20  # steps between replans
         
-        # CRITICAL: Store agent context for infrastructure queries
+        # Store agent context for infrastructure queries
         self.agent_context = agent_context or {}
         
         # Store origin/dest for diagnostics
