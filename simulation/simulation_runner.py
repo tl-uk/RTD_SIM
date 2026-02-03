@@ -175,7 +175,7 @@ def run_simulation(
             logger.info(f"✅ Policy tracking: {len(results.policy_actions)} actions, "
                        f"{len(results.constraint_violations)} violations")
         
-        # NEW: Collect weather results if available
+        # Collect weather/environmental results if present
         if 'weather_manager' in loop_results:
             results.weather_manager = loop_results['weather_manager']
             results.weather_history = loop_results.get('weather_history', [])
@@ -183,6 +183,29 @@ def run_simulation(
             if results.weather_history:
                 logger.info(f"✅ Weather tracking: {len(results.weather_history)} timesteps")
         
+        if 'air_quality_tracker' in loop_results:
+            results.air_quality_tracker = loop_results['air_quality_tracker']
+
+        if 'lifecycle_emissions' in loop_results:
+            results.lifecycle_emissions_total = loop_results['lifecycle_emissions']
+
+        # Phase 5.3: Collect analytics results
+        if 'journey_tracker' in loop_results:
+            results.journey_tracker = loop_results['journey_tracker']
+            logger.info(f"📊 Analytics: {len(loop_results['journey_tracker'].journeys)} journeys tracked")
+
+        if 'mode_share_analyzer' in loop_results:
+            results.mode_share_analyzer = loop_results['mode_share_analyzer']
+
+        if 'policy_impact_analyzer' in loop_results:
+            results.policy_impact_analyzer = loop_results['policy_impact_analyzer']
+
+        if 'network_efficiency_tracker' in loop_results:
+            results.network_efficiency_tracker = loop_results['network_efficiency_tracker']
+
+        if 'analytics_summary' in loop_results:
+            results.analytics_summary = loop_results['analytics_summary']
+            logger.info(f"✅ Analytics summary generated")
         results.success = True
         
         # Log summary
