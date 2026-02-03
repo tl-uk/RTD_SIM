@@ -332,6 +332,9 @@ def run_simulation_loop(
 
     # Main simulation loop
     for step in range(config.steps):
+        # Initialize agent states for this step
+        agent_states = []
+        
         # Calculate current time
         time_of_day = (step % 1440) / 60.0  # hours (assuming 1 step = 1 min)
         hour = int(time_of_day)
@@ -444,14 +447,12 @@ def run_simulation_loop(
         # RECORD INFRASTRUCTURE STATE
         if network_efficiency:
             network_efficiency.record_infrastructure_state(step, infrastructure)
-
-        # Agent steps with lifecycle emissions
-        agent_states = []
+        
+        # Agent steps
         for agent in agents:
-            # Track previous distance BEFORE agent step
-            prev_distance = agent.state.distance_km
-            prev_mode = agent.state.mode
             prev_location = agent.state.location
+            prev_mode = agent.state.mode
+            prev_distance = agent.state.distance_km
             
             # Execute agent step
             try:
@@ -489,7 +490,7 @@ def run_simulation_loop(
             # RECORD MODE TRANSITION
             if mode_share_analyzer and prev_mode != agent.state.mode:
                 mode_share_analyzer.record_transition(
-                    agent_id=agent.id,
+                    agent_id=agent.state.agent_id,  # NOTE: Use agent.state.agent_id
                     step=step,
                     from_mode=prev_mode,
                     to_mode=agent.state.mode,
@@ -503,7 +504,7 @@ def run_simulation_loop(
                 if trip_distance > 0:
                     vehicle_type = agent.agent_context.get('vehicle_type', 'personal')
                     network_efficiency.record_vehicle_travel(
-                        agent_id=agent.id,
+                        agent_id=agent.state.agent_id,  # NOTE: Use agent.state.agent_id
                         mode=agent.state.mode,
                         distance_km=trip_distance,
                         vehicle_type=vehicle_type,
@@ -739,7 +740,7 @@ def run_simulation_loop(
         'policy_impact_analyzer': policy_impact_analyzer,
         'network_efficiency_tracker': network_efficiency,
         'analytics_summary': analytics_summary,
-        
+
         'lifecycle_emissions': dict(lifecycle_emissions_by_mode),
         'weather_manager': weather_manager,
         'weather_history': weather_history,  # Add weather history
