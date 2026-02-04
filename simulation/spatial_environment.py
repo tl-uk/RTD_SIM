@@ -17,6 +17,7 @@ from pathlib import Path
 from collections import defaultdict
 import random
 import logging
+import osmnx as ox
 
 from simulation.spatial.graph_manager import GraphManager
 from simulation.spatial.router import Router
@@ -67,7 +68,7 @@ class SpatialEnvironment:
         self._weather_speed_multipliers = defaultdict(lambda: 1.0)
 
     # ============================================================================
-    # Weather Integration (Phase 5.2)
+    # Weather Integration
     # ============================================================================
     def set_weather_speed_multiplier(self, mode: str, multiplier: float):
         """Set weather-based speed adjustment for a mode."""
@@ -170,6 +171,54 @@ class SpatialEnvironment:
         
         return alternatives
     
+    def route(self, origin: Tuple[float, float], dest: Tuple[float, float], mode: str = 'walk'):
+        """
+        Route with improved fallback handling.
+        """
+        # Check if points are too close (< 100m)
+        distance = self._segment_distance_km(origin, dest)
+        if distance < 0.1:  # Less than 100m
+            # Return a simple 2-point route for very short trips
+            return [origin, dest]
+        
+        # Try OSMnx routing
+        try:
+            # Find nearest nodes with larger search radius
+            orig_node = ox.distance.nearest_nodes(
+                self.G, origin[0], origin[1], 
+                return_dist=False
+            )
+            dest_node = ox.distance.nearest_nodes(
+                self.G, dest[0], dest[1], 
+                return_dist=False
+            )
+            
+            # If same node, return short route
+            if orig_node == dest_node:
+                return [origin, dest]
+            
+            # Get route
+            node_route = ox.shortest_path(self.G, orig_node, dest_node, weight='length')
+            
+            if node_route is None:
+                logger.warning(f"No path found from {origin} to {dest}, using straight line")
+                return [origin, dest]
+            
+            # Convert nodes to coordinates
+            coords = [(self.G.nodes[n]['x'], self.G.nodes[n]['y']) for n in node_route]
+            
+            # Add origin/dest to ensure exact endpoints
+            if coords[0] != origin:
+                coords = [origin] + coords
+            if coords[-1] != dest:
+                coords = coords + [dest]
+            
+            return coords
+            
+        except Exception as e:
+            logger.warning(f"Routing failed: {e}, using straight line")
+            return [origin, dest]
+        
     # ============================================================================
     # Metrics (Delegate to MetricsCalculator)
     # ============================================================================
