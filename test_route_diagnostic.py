@@ -1,47 +1,9 @@
-# Route Visualization Diagnostic
+"""
+Route Visualization Diagnostic Script
 
-## Good News!
+Run this to diagnose route visualization issues.
+"""
 
-Your `simulation_loop.py` **line 653** already includes routes:
-
-```python
-agent_states.append({
-    'agent_id': agent.state.agent_id,
-    'location': agent.state.location,
-    'mode': agent.state.mode,
-    'arrived': agent.state.arrived,
-    'route': agent.state.route,  # ← Line 653 - Already there!
-    'distance_km': agent.state.distance_km,
-    'emissions_g': agent.state.emissions_g,
-})
-```
-
-AND your `visualization.py` lines 157-192 already renders routes with PathLayer!
-
-## So Why Straight Lines?
-
-There are three possible reasons:
-
-### Reason 1: Routes Are Empty or None
-
-Agents might have `route=None` or `route=[]` in their state.
-
-### Reason 2: Routes Have Only 2 Points (Origin→Dest)
-
-When OSMnx routing fails, it falls back to `[origin, dest]` which looks like a straight line.
-
-### Reason 3: UI Show Routes Toggle Is Off
-
-The routes exist but aren't being displayed because `show_routes=False`.
-
----
-
-## Diagnostic Test
-
-Run this to see what's actually happening:
-
-```python
-# test_route_diagnostic.py
 from simulation.simulation_runner import run_simulation
 from simulation.config.simulation_config import SimulationConfig
 
@@ -118,6 +80,8 @@ print(f"\n{'='*70}")
 print("RECOMMENDATIONS:")
 print(f"{'='*70}")
 
+total_agents = len(results.agents)
+
 if route_quality['straight_lines'] > route_quality['good_routes']:
     print("⚠️  HIGH: Most routes are straight lines (2 waypoints)")
     print("   → OSMnx routing is failing for most agents")
@@ -130,95 +94,40 @@ if route_quality['no_routes'] > 0:
     print("⚠️  MEDIUM: Some agents have no routes at all")
     print("   → Check agent initialization")
     
-if route_quality['good_routes'] > len(results.agents) * 0.7:
+if route_quality['good_routes'] > total_agents * 0.7:
     print("✅ GOOD: Most routes have proper waypoints")
     print("   → If still seeing straight lines in UI, check:")
     print("     1. Is 'Show Routes' toggle enabled?")
     print("     2. Are routes being filtered out by visualization?")
 
 print(f"{'='*70}\n")
-```
 
----
-
-## Expected Output
-
-### If Routing Works:
-```
-✅ agent_1 (ev): 15 waypoints
-✅ agent_2 (bike): 23 waypoints
-✅ agent_3 (bus): 18 waypoints
-⚠️  agent_4 (walk): 2 waypoints (straight line)
-✅ agent_5 (car): 12 waypoints
-
-SUMMARY:
-  Good routes (5+ points): 8
-  Short routes (3-4 points): 1
-  Straight lines (2 points): 1
-  No routes: 0
-```
-
-### If Routing Fails:
-```
-⚠️  agent_1 (ev): 2 waypoints (straight line)
-⚠️  agent_2 (bike): 2 waypoints (straight line)
-⚠️  agent_3 (bus): 2 waypoints (straight line)
-❌ agent_4 (walk): NO ROUTE
-⚠️  agent_5 (car): 2 waypoints (straight line)
-
-SUMMARY:
-  Good routes (5+ points): 0
-  Short routes (3-4 points): 0
-  Straight lines (2 points): 4
-  No routes: 1
-```
-
----
-
-## Next Steps Based on Results
-
-### If Most Routes Are Good (5+ waypoints):
-→ **UI Issue**: Check if "Show Routes" toggle is enabled in Streamlit
-→ **Verify**: Run your simulation and enable routes in the map settings
-
-### If Most Routes Are Straight Lines (2 waypoints):
-→ **Routing Issue**: OSMnx is failing and falling back to straight lines
-→ **Fix**: Need to improve the routing in `spatial_environment.py`
-
-### If Routes Are None/Empty:
-→ **Agent Issue**: Routes aren't being created during planning
-→ **Fix**: Check BDI planner route assignment
-
----
-
-## Quick UI Check
-
-In your Streamlit app, make sure routes are enabled:
-
-```python
-# In sidebar or settings
-st.session_state.show_routes = True  # Make sure this is True!
-```
-
-Or in your map_tab.py:
-```python
-deck = render_map(
-    agent_states=agent_states,
-    show_agents=st.session_state.show_agents,
-    show_routes=True,  # ← Force enable for testing
-    show_infrastructure=st.session_state.show_infrastructure,
-    infrastructure_manager=results.infrastructure,
-)
-```
-
----
-
-## The Real Question
-
-Run the diagnostic and tell me which scenario you see:
-
-1. ✅ "Good routes" > 70% → It's a UI toggle issue
-2. ⚠️ "Straight lines" > 70% → It's an OSMnx routing issue
-3. ❌ "No routes" > 30% → It's an agent planning issue
-
-Then we'll know exactly what to fix!
+# Print detailed example
+if results.agents:
+    print("DETAILED EXAMPLE (First Agent):")
+    print("="*70)
+    agent = results.agents[0]
+    route = agent.state.route
+    print(f"Agent ID: {agent.state.agent_id}")
+    print(f"Mode: {agent.state.mode}")
+    print(f"Origin: {agent.origin}")
+    print(f"Destination: {agent.dest}")
+    if route:
+        print(f"Route waypoints: {len(route)}")
+        print(f"First 3 waypoints: {route[:3]}")
+        print(f"Last 3 waypoints: {route[-3:]}")
+        
+        # Calculate route distance
+        from simulation.spatial.coordinate_utils import route_distance_km
+        try:
+            route_dist = route_distance_km(route)
+            from simulation.spatial.coordinate_utils import haversine_km
+            straight_dist = haversine_km(agent.origin, agent.dest)
+            print(f"Route distance: {route_dist:.2f} km")
+            print(f"Straight-line distance: {straight_dist:.2f} km")
+            print(f"Detour factor: {route_dist/straight_dist:.2f}x")
+        except:
+            print("Could not calculate distances")
+    else:
+        print("Route: None")
+    print("="*70)
