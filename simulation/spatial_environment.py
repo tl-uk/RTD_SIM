@@ -17,7 +17,6 @@ from pathlib import Path
 from collections import defaultdict
 import random
 import logging
-import osmnx as ox
 
 from simulation.spatial.graph_manager import GraphManager
 from simulation.spatial.router import Router
@@ -173,8 +172,12 @@ class SpatialEnvironment:
     
     def route(self, origin: Tuple[float, float], dest: Tuple[float, float], mode: str = 'walk'):
         """
-        Route with improved fallback handling.
+        Route with detailed road geometry for visualization.
+        
+        Returns route with ALL geometry points, not just intersections.
         """
+        import osmnx as ox
+        
         # Check if points are too close (< 100m)
         distance = self._segment_distance_km(origin, dest)
         if distance < 0.1:  # Less than 100m
@@ -183,7 +186,7 @@ class SpatialEnvironment:
         
         # Try OSMnx routing
         try:
-            # Find nearest nodes with larger search radius
+            # Find nearest nodes
             orig_node = ox.distance.nearest_nodes(
                 self.G, origin[0], origin[1], 
                 return_dist=False
@@ -197,26 +200,61 @@ class SpatialEnvironment:
             if orig_node == dest_node:
                 return [origin, dest]
             
-            # Get route
+            # Get route nodes
             node_route = ox.shortest_path(self.G, orig_node, dest_node, weight='length')
             
             if node_route is None:
-                logger.warning(f"No path found from {origin} to {dest}, using straight line")
+                logger.warning(f"No path found from {origin} to {dest}")
                 return [origin, dest]
             
-            # Convert nodes to coordinates
-            coords = [(self.G.nodes[n]['x'], self.G.nodes[n]['y']) for n in node_route]
+            # Extract detailed geometry from edges
+            detailed_coords = [origin]  # Start with origin
             
-            # Add origin/dest to ensure exact endpoints
-            if coords[0] != origin:
-                coords = [origin] + coords
-            if coords[-1] != dest:
-                coords = coords + [dest]
+            for i in range(len(node_route) - 1):
+                u = node_route[i]
+                v = node_route[i + 1]
+                
+                # Get edge data (may have multiple edges between same nodes)
+                edge_data = self.G.get_edge_data(u, v)
+                
+                if edge_data is None:
+                    # Fallback: straight line between nodes
+                    u_coord = (self.G.nodes[u]['x'], self.G.nodes[u]['y'])
+                    v_coord = (self.G.nodes[v]['x'], self.G.nodes[v]['y'])
+                    detailed_coords.append(v_coord)
+                    continue
+                
+                # Handle multi-edges (take first edge)
+                if isinstance(edge_data, dict) and 0 in edge_data:
+                    edge_data = edge_data[0]
+                
+                # Extract geometry
+                if 'geometry' in edge_data:
+                    # Edge has detailed LineString geometry
+                    geom = edge_data['geometry']
+                    # Extract coordinates from LineString
+                    if hasattr(geom, 'coords'):
+                        edge_coords = list(geom.coords)
+                        # Add all geometry points except the first (already added)
+                        detailed_coords.extend(edge_coords[1:])
+                    else:
+                        # Fallback to node coordinates
+                        v_coord = (self.G.nodes[v]['x'], self.G.nodes[v]['y'])
+                        detailed_coords.append(v_coord)
+                else:
+                    # No geometry: use node coordinates
+                    v_coord = (self.G.nodes[v]['x'], self.G.nodes[v]['y'])
+                    detailed_coords.append(v_coord)
             
-            return coords
+            # Add destination if different from last point
+            if detailed_coords[-1] != dest:
+                detailed_coords.append(dest)
+            
+            logger.debug(f"Route computed: {len(node_route)} nodes → {len(detailed_coords)} geometry points")
+            return detailed_coords
             
         except Exception as e:
-            logger.warning(f"Routing failed: {e}, using straight line")
+            logger.warning(f"Routing failed: {e}")
             return [origin, dest]
         
     # ============================================================================

@@ -140,46 +140,70 @@ class Router:
         mode: str
     ) -> List[Tuple[float, float]]:
         """
-        Compute shortest path route.
-        
-        ❌ CRITICAL: Returns empty list [] if routing fails
-        ✅ NEVER returns straight line [origin, dest]
+        Compute shortest path route with detailed geometry.
         """
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
             logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
-            return []  # ← Changed from [origin, dest]
+            return []
         
-        # ✅ FIXED: Now all modes have network mapping
         network_type = self.mode_network_types.get(mode, 'drive')
         graph = self.graph_manager.get_graph(network_type)
         
         if graph is None:
-            logger.error(f"❌ {agent_id}: No graph for {mode} (network: {network_type})")
-            return []  # ← Changed from [origin, dest]
+            logger.error(f"❌ {agent_id}: No graph for {mode}")
+            return []
         
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest, network_type)
             
             if orig_node is None or dest_node is None:
-                logger.error(f"❌ {agent_id}: Could not find nodes for {mode}")
-                return []  # ← Changed from [origin, dest]
+                logger.error(f"❌ {agent_id}: Could not find nodes")
+                return []
             
+            # Get node route
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
-            coords = [
-                (float(graph.nodes[n]['x']), float(graph.nodes[n]['y'])) 
-                for n in route_nodes
-            ]
             
-            logger.info(f"✅ {agent_id}: Computed {mode} route with {len(coords)} waypoints")
-            return coords
+            # ✅ NEW: Extract detailed geometry
+            detailed_coords = []
+            
+            for i in range(len(route_nodes) - 1):
+                u = route_nodes[i]
+                v = route_nodes[i + 1]
+                
+                # Get edge data
+                edge_data = graph.get_edge_data(u, v)
+                
+                if edge_data and isinstance(edge_data, dict) and 0 in edge_data:
+                    edge_data = edge_data[0]
+                
+                # Add node coordinate if first iteration
+                if i == 0:
+                    detailed_coords.append((float(graph.nodes[u]['x']), float(graph.nodes[u]['y'])))
+                
+                # Extract edge geometry
+                if edge_data and 'geometry' in edge_data:
+                    geom = edge_data['geometry']
+                    if hasattr(geom, 'coords'):
+                        edge_coords = [(float(x), float(y)) for (x, y) in geom.coords]
+                        # Add geometry points (skip first as it's the same as last point added)
+                        detailed_coords.extend(edge_coords[1:])
+                    else:
+                        # No geometry: add destination node
+                        detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
+                else:
+                    # No geometry: add destination node
+                    detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
+            
+            logger.info(f"✅ {agent_id}: {mode} route with {len(detailed_coords)} geometry points (from {len(route_nodes)} nodes)")
+            return detailed_coords
         
         except nx.NetworkXNoPath:
-            logger.error(f"❌ {agent_id}: No path exists in network for {mode}")
-            return []  # ← Changed from [origin, dest]
+            logger.error(f"❌ {agent_id}: No path exists")
+            return []
         except Exception as e:
-            logger.error(f"❌ {agent_id}: Routing failed for {mode}: {e}")
-            return []  # ← Changed from [origin, dest]
+            logger.error(f"❌ {agent_id}: Routing failed: {e}")
+            return []
     
     def compute_alternatives(
         self,
