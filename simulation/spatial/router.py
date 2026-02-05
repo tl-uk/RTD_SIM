@@ -132,6 +132,50 @@ class Router:
             'flight_electric': 5.83,   # 350 km/h
         }
     
+    # ✅ NEW: Interpolation function for smoother routes (optional, can be called in compute_route if needed)
+    def _interpolate_route_geometry(
+        self,
+        coords: List[Tuple[float, float]],
+        max_segment_km: float = 0.05
+    ) -> List[Tuple[float, float]]:
+        """
+        Add intermediate points for smoother visualization.
+        
+        Args:
+            coords: Original route coordinates  
+            max_segment_km: Maximum distance between points (default 50m)
+        
+        Returns:
+            Interpolated route with additional points
+        """
+        if not coords or len(coords) < 2:
+            return coords
+        
+        from simulation.spatial.coordinate_utils import haversine_km
+        
+        interpolated = [coords[0]]
+        
+        for i in range(len(coords) - 1):
+            p1 = coords[i]
+            p2 = coords[i + 1]
+            
+            # Calculate distance
+            dist_km = haversine_km(p1, p2)
+            
+            # If segment is long, add intermediate points
+            if dist_km > max_segment_km:
+                num_segments = int(dist_km / max_segment_km) + 1
+                
+                for j in range(1, num_segments):
+                    t = j / num_segments
+                    interp_lon = p1[0] + t * (p2[0] - p1[0])
+                    interp_lat = p1[1] + t * (p2[1] - p1[1])
+                    interpolated.append((interp_lon, interp_lat))
+            
+            interpolated.append(p2)
+        
+        return interpolated
+
     def compute_route(
         self,
         agent_id: str,
@@ -287,6 +331,11 @@ class Router:
                 for n in route_nodes
             ]
             
+            # ✅ NEW: Interpolate for smoother visualization
+            coords = self._interpolate_route_geometry(coords, max_segment_km=0.05)
+            
+            logger.info(f"✅ {agent_id}: {mode} route with {len(coords)} points (from {len(route_nodes)} nodes)")
+
             return coords
         
         except nx.NetworkXNoPath:

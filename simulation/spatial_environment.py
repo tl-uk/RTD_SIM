@@ -138,6 +138,53 @@ class SpatialEnvironment:
     # Routing (Delegate to Router)
     # ============================================================================
     
+    def _interpolate_route_geometry(
+        self, 
+        coords: List[Tuple[float, float]], 
+        max_segment_km: float = 0.05
+    ) -> List[Tuple[float, float]]:
+        """
+        Add intermediate points between route coordinates for smoother visualization.
+        
+        Args:
+            coords: Original route coordinates
+            max_segment_km: Maximum distance between points (default 50m)
+        
+        Returns:
+            Interpolated route with additional points
+        """
+        if not coords or len(coords) < 2:
+            return coords
+        
+        interpolated = [coords[0]]  # Start with first point
+        
+        for i in range(len(coords) - 1):
+            p1 = coords[i]
+            p2 = coords[i + 1]
+            
+            # Calculate distance between points
+            dist_km = self._segment_distance_km(p1, p2)
+            
+            # If segment is longer than max, add intermediate points
+            if dist_km > max_segment_km:
+                # Number of segments to split into
+                num_segments = int(dist_km / max_segment_km) + 1
+                
+                # Add intermediate points
+                for j in range(1, num_segments):
+                    t = j / num_segments  # Interpolation factor (0 to 1)
+                    
+                    # Linear interpolation
+                    interp_lon = p1[0] + t * (p2[0] - p1[0])
+                    interp_lat = p1[1] + t * (p2[1] - p1[1])
+                    
+                    interpolated.append((interp_lon, interp_lat))
+            
+            # Add the next point
+            interpolated.append(p2)
+        
+        return interpolated
+
     def compute_route(
         self,
         agent_id: str,
