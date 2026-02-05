@@ -284,7 +284,7 @@ class Router:
         alternatives = []
         
         for variant in variants:
-            route = self._compute_route_variant(agent_id, origin, dest, mode, variant)
+            route = self._compute_route_variant(origin, dest, mode, variant)
             if route and len(route) >= 2:
                 alt = RouteAlternative(route, mode, variant)
                 alternatives.append(alt)
@@ -301,11 +301,11 @@ class Router:
     
     def _compute_route_variant(
         self,
-        agent_id: str,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
-        variant: str
+        variant: str,
+        agent_id: str = "unknown"
     ) -> Optional[List[Tuple[float, float]]]:
         """Compute specific route variant."""
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
