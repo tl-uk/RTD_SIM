@@ -1,5 +1,5 @@
 """
-SpatialEnvironment - Refactored as Thin Facade (Phase 2.2 Refactored)
+simulatio/spatial/spatial_environment.py
 
 This is now a lightweight orchestrator that delegates to specialized subsystems:
 - GraphManager: OSM graph loading & caching
@@ -297,7 +297,10 @@ class SpatialEnvironment:
             if detailed_coords[-1] != dest:
                 detailed_coords.append(dest)
             
-            logger.debug(f"Route computed: {len(node_route)} nodes → {len(detailed_coords)} geometry points")
+            # ✅ INTERPOLATION: Add intermediate points since geometry data is missing
+            detailed_coords = self._interpolate_route_geometry(detailed_coords, max_segment_km=0.05)
+            
+            logger.debug(f"Route computed: {len(node_route)} nodes → {len(detailed_coords)} interpolated points")
             return detailed_coords
             
         except Exception as e:

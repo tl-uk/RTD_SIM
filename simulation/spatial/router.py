@@ -239,7 +239,10 @@ class Router:
                     # No geometry: add destination node
                     detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
             
-            logger.info(f"✅ {agent_id}: {mode} route with {len(detailed_coords)} geometry points (from {len(route_nodes)} nodes)")
+            # ✅ INTERPOLATION: Add intermediate points since geometry data is missing
+            detailed_coords = self._interpolate_route_geometry(detailed_coords, max_segment_km=0.05)
+            
+            logger.info(f"✅ {agent_id}: {mode} route with {len(detailed_coords)} points (from {len(route_nodes)} nodes)")
             return detailed_coords
         
         except nx.NetworkXNoPath:
@@ -281,7 +284,7 @@ class Router:
         alternatives = []
         
         for variant in variants:
-            route = self._compute_route_variant(origin, dest, mode, variant)
+            route = self._compute_route_variant(agent_id, origin, dest, mode, variant)
             if route and len(route) >= 2:
                 alt = RouteAlternative(route, mode, variant)
                 alternatives.append(alt)
@@ -298,6 +301,7 @@ class Router:
     
     def _compute_route_variant(
         self,
+        agent_id: str,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
