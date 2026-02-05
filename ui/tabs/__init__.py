@@ -23,4 +23,5 @@ __all__ = [
     'render_scenario_report_tab',
     'render_combined_scenarios_tab',
     'render_environmental_tab',  
+    'render_analytics_tab',
 ]
