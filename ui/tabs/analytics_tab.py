@@ -11,8 +11,14 @@ import pandas as pd
 from typing import Dict, List
 
 
-def render_analytics_tab(results):
-    """Render comprehensive analytics tab."""
+def render_analytics_tab(results, anim=None, current_data=None):
+    """Render comprehensive analytics tab.
+    
+    Args:
+        results: SimulationResults object
+        anim: AnimationController (optional, not used in this tab)
+        current_data: Current timestep data (optional, not used in this tab)
+    """
     st.title("📊 Advanced Analytics")
     
     if not results.journey_tracker:
