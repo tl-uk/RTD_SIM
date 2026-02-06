@@ -247,7 +247,7 @@ tabs = st.tabs(tab_names)
 # Render each tab
 for i, (_, render_func) in enumerate(tab_configs):
     with tabs[i]:
-        render_func(results) #, anim, current_data
+        render_func(results, anim, current_data)
 
 # Status footer
 render_status_footer(results)

@@ -176,8 +176,16 @@ def render_environmental_tab(results, anim, current_data):
         emissions = results.lifecycle_emissions_total
         
         if emissions:
+            # ✅ FIX: Extract totals from dicts if needed
+            mode_totals = {}
+            for mode, value in emissions.items():
+                if isinstance(value, dict):
+                    mode_totals[mode] = sum(value.values())
+                else:
+                    mode_totals[mode] = value
+            
             # Sort by total emissions
-            sorted_modes = sorted(emissions.items(), key=lambda x: x[1], reverse=True)
+            sorted_modes = sorted(mode_totals.items(), key=lambda x: x[1], reverse=True)
             
             modes = [m for m, _ in sorted_modes]
             values = [v for _, v in sorted_modes]
@@ -199,15 +207,22 @@ def render_environmental_tab(results, anim, current_data):
             # Summary table
             st.markdown("**Emissions Summary**")
             
-            total_emissions = sum(values)
+            # ✅ FIX: Handle both dict and number formats
+            total_emissions = sum(
+                sum(v.values()) if isinstance(v, dict) else v 
+                for v in values
+            )
             
             for mode, value in sorted_modes[:10]:  # Top 10
-                percentage = (value / total_emissions) * 100 if total_emissions > 0 else 0
+                # ✅ FIX: Extract total if value is a dict
+                emission_total = sum(value.values()) if isinstance(value, dict) else value
+                
+                percentage = (emission_total / total_emissions) * 100 if total_emissions > 0 else 0
                 col1, col2, col3 = st.columns([3, 2, 2])
                 with col1:
                     st.write(f"**{mode}**")
                 with col2:
-                    st.write(f"{value:,.0f} g CO₂")
+                    st.write(f"{emission_total:,.0f} g CO₂")
                 with col3:
                     st.write(f"{percentage:.1f}%")
         else:
