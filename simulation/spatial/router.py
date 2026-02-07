@@ -190,6 +190,14 @@ class Router:
             logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
             return []
         
+        # ✅ FIX: Handle very short trips (< 100m)
+        from simulation.spatial.coordinate_utils import haversine_km
+        distance_km = haversine_km(origin, dest)
+        
+        if distance_km < 0.1:  # Less than 100m
+            logger.info(f"✅ {agent_id}: Very short trip ({distance_km*1000:.0f}m), returning direct route")
+            return [origin, dest]
+        
         network_type = self.mode_network_types.get(mode, 'drive')
         graph = self.graph_manager.get_graph(network_type)
         
@@ -202,8 +210,28 @@ class Router:
             dest_node = self.graph_manager.get_nearest_node(dest, network_type)
             
             if orig_node is None or dest_node is None:
-                logger.error(f"❌ {agent_id}: Could not find nodes")
-                return []
+                logger.error(f"❌ {agent_id}: Could not find nodes for {mode} (network: {network_type})")
+                logger.error(f"   Origin: {origin}, Dest: {dest}")
+                logger.error(f"   Trying fallback to 'drive' network...")
+                
+                # ✅ FIX: Try fallback to 'drive' network
+                if network_type != 'drive':
+                    graph = self.graph_manager.get_graph('drive')
+                    if graph:
+                        orig_node = self.graph_manager.get_nearest_node(origin, 'drive')
+                        dest_node = self.graph_manager.get_nearest_node(dest, 'drive')
+                        
+                        if orig_node and dest_node:
+                            logger.info(f"   ✅ Fallback successful using 'drive' network")
+                            network_type = 'drive'
+                        else:
+                            logger.error(f"   ❌ Fallback failed")
+                            return []
+                    else:
+                        logger.error(f"   ❌ 'drive' network not available")
+                        return []
+                else:
+                    return []
             
             # Get node route
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
