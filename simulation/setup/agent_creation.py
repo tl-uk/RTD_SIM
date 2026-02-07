@@ -74,21 +74,22 @@ def create_agents(
         """Generate random origin-destination pairs."""
         if config.use_osm and env.graph_loaded:
             pair = env.get_random_origin_dest()
-            return pair if pair else ((-3.19, 55.95), (-3.15, 55.97))
+            if pair:
+                return pair
+            # ✅ FIX: If OSM method fails, fall through to random generation below
+            logger.warning("get_random_origin_dest() returned None, using random bbox coords")
+        
+        # Generate random coordinates within bbox
+        if config.extended_bbox:
+            west, south, east, north = config.extended_bbox
         else:
-            # Use bbox bounds if extended, otherwise Edinburgh default
-            if config.extended_bbox:
-                west, south, east, north = config.extended_bbox
-                return (
-                    (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north)),
-                    (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
-                )
-            else:
-                # Edinburgh bbox
-                return (
-                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00)),
-                    (crypto_rng.uniform(-3.35, -3.05), crypto_rng.uniform(55.85, 56.00))
-                )
+            # Edinburgh bbox
+            west, south, east, north = -3.35, 55.85, -3.05, 56.00
+        
+        origin = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
+        dest = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
+        
+        return (origin, dest)
     
     agents = []
     
