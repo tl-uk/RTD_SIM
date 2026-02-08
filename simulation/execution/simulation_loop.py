@@ -346,21 +346,43 @@ def run_simulation_loop(
         
         # UPDATE WEATHER
         if weather_manager:
+            try:
+                weather_manager.step()  # Advance weather simulation
+                weather_conditions = weather_manager.get_current_conditions()
+                
+                # Store in history
+                if hasattr(weather_history, 'append'):
+                    # Track weather history for visualization
+                    weather_history.append({
+                        'step': step,
+                        'temperature': weather_conditions.get('temperature', 10.0),
+                        'precipitation': weather_conditions.get('precipitation', 0.0),
+                        'wind_speed': weather_conditions.get('wind_speed', 10.0),
+                        'ice_warning': weather_conditions.get('ice_warning', False),
+                        'snow_depth': weather_conditions.get('snow_depth', 0.0),
+                        'cloud_cover': weather_conditions.get('cloud_cover', 50),
+                        'visibility': weather_conditions.get('visibility', 10000),
+                        'time_of_day': time_of_day,
+                        'hour': hour,
+                    })
+            except Exception as e:
+                logger.error(f"Weather update failed: {e}")
+            
             weather_conditions = weather_manager.update_weather(step, time_of_day)
             
-            # Track weather history for visualization
-            weather_history.append({
-                'step': step,
-                'temperature': weather_conditions.get('temperature', 10.0),
-                'precipitation': weather_conditions.get('precipitation', 0.0),
-                'wind_speed': weather_conditions.get('wind_speed', 10.0),
-                'ice_warning': weather_conditions.get('ice_warning', False),
-                'snow_depth': weather_conditions.get('snow_depth', 0.0),
-                'cloud_cover': weather_conditions.get('cloud_cover', 50),
-                'visibility': weather_conditions.get('visibility', 10000),
-                'time_of_day': time_of_day,
-                'hour': hour,
-            })
+            # # Track weather history for visualization
+            # weather_history.append({
+            #     'step': step,
+            #     'temperature': weather_conditions.get('temperature', 10.0),
+            #     'precipitation': weather_conditions.get('precipitation', 0.0),
+            #     'wind_speed': weather_conditions.get('wind_speed', 10.0),
+            #     'ice_warning': weather_conditions.get('ice_warning', False),
+            #     'snow_depth': weather_conditions.get('snow_depth', 0.0),
+            #     'cloud_cover': weather_conditions.get('cloud_cover', 50),
+            #     'visibility': weather_conditions.get('visibility', 10000),
+            #     'time_of_day': time_of_day,
+            #     'hour': hour,
+            # })
             
             # Log weather periodically
             if step % 20 == 0:

@@ -417,15 +417,51 @@ class SpatialEnvironment:
         _, data = random.choice(nodes)
         return (float(data.get('x')), float(data.get('y')))
     
-    def get_random_origin_dest(self) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
-        """Get random origin-destination pair."""
-        origin = self.get_random_node_coords()
-        dest = self.get_random_node_coords()
+    def get_random_origin_dest(self, min_distance_km=0.5, max_attempts=20):
+        """
+        Get random origin-destination pair from graph.
         
-        if origin is None or dest is None:
+        ✅ FIX: Ensures minimum distance and validates connectivity
+        """
+        if not self.graph_loaded:
+            logger.warning("Graph not loaded for random OD generation")
             return None
         
-        return origin, dest
+        graph = self.graph_manager.get_graph('drive')
+        if graph is None or graph.number_of_nodes() < 2:
+            logger.warning("No 'drive' graph available for random OD")
+            return None
+        
+        nodes = list(graph.nodes())
+        
+        from simulation.spatial.coordinate_utils import haversine_km
+        import random
+        import networkx as nx
+        
+        for attempt in range(max_attempts):
+            # Pick 2 random nodes
+            node1, node2 = random.sample(nodes, 2)
+            
+            # Get coordinates
+            origin = (graph.nodes[node1]['x'], graph.nodes[node1]['y'])
+            dest = (graph.nodes[node2]['x'], graph.nodes[node2]['y'])
+            
+            # Check distance
+            distance = haversine_km(origin, dest)
+            
+            if distance < min_distance_km:
+                continue  # Too close
+            
+            # ✅ CRITICAL: Verify path exists
+            try:
+                path = nx.shortest_path(graph, node1, node2, weight='length')
+                if len(path) >= 2:
+                    return (origin, dest)
+            except nx.NetworkXNoPath:
+                continue  # No path, try again
+        
+        logger.error(f"Failed to generate valid OD pair after {max_attempts} attempts!")
+        return None
     
     def get_graph_stats(self) -> dict:
         """Get graph statistics."""
