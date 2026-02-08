@@ -370,20 +370,6 @@ def run_simulation_loop(
             
             weather_conditions = weather_manager.update_weather(step, time_of_day)
             
-            # # Track weather history for visualization
-            # weather_history.append({
-            #     'step': step,
-            #     'temperature': weather_conditions.get('temperature', 10.0),
-            #     'precipitation': weather_conditions.get('precipitation', 0.0),
-            #     'wind_speed': weather_conditions.get('wind_speed', 10.0),
-            #     'ice_warning': weather_conditions.get('ice_warning', False),
-            #     'snow_depth': weather_conditions.get('snow_depth', 0.0),
-            #     'cloud_cover': weather_conditions.get('cloud_cover', 50),
-            #     'visibility': weather_conditions.get('visibility', 10000),
-            #     'time_of_day': time_of_day,
-            #     'hour': hour,
-            # })
-            
             # Log weather periodically
             if step % 20 == 0:
                 ice_indicator = " ❄️" if weather_conditions.get('ice_warning') else ""
@@ -665,19 +651,18 @@ def run_simulation_loop(
                         if elapsed_min >= duration:
                             infrastructure.release_charger(agent_id)
                             logger.debug(f"Step {step}: Agent {agent_id} finished charging ({elapsed_min:.0f} min)")
-        
-        # ✅ FIX: Collect state for ALL agents (moved outside infrastructure block)
-        # This was incorrectly indented inside the "if infrastructure and electric mode" block
-        # causing only electric vehicles to be tracked!
-        agent_states.append({
-            'agent_id': agent.state.agent_id,
-            'location': agent.state.location,
-            'mode': agent.state.mode,
-            'arrived': agent.state.arrived,
-            'route': agent.state.route,
-            'distance_km': agent.state.distance_km,
-            'emissions_g': agent.state.emissions_g,
-        })
+            
+            # ✅ CRITICAL FIX: Collect state INSIDE the agent loop (12 spaces)
+            # Previously at 8 spaces = OUTSIDE loop = only last agent collected!
+            agent_states.append({
+                'agent_id': agent.state.agent_id,
+                'location': agent.state.location,
+                'mode': agent.state.mode,
+                'arrived': agent.state.arrived,
+                'route': agent.state.route,
+                'distance_km': agent.state.distance_km,
+                'emissions_g': agent.state.emissions_g,
+            })
         
         # Air quality step (atmospheric dispersion) - MUST BE OUTSIDE AGENT LOOP
         # TO AVOID DOUBLE COUNTING EMISSIONS
