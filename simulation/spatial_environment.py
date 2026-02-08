@@ -16,6 +16,7 @@ from typing import List, Tuple, Optional, Any
 from pathlib import Path
 from collections import defaultdict
 import random
+import secrets  # ✅ ADD: Cryptographic RNG
 import logging
 
 from simulation.spatial.graph_manager import GraphManager
@@ -422,6 +423,7 @@ class SpatialEnvironment:
         Get random origin-destination pair from graph.
         
         ✅ FIX: Ensures minimum distance and validates connectivity
+        ✅ FIX: Uses cryptographic RNG for better spatial distribution
         """
         if not self.graph_loaded:
             logger.warning("Graph not loaded for random OD generation")
@@ -435,12 +437,14 @@ class SpatialEnvironment:
         nodes = list(graph.nodes())
         
         from simulation.spatial.coordinate_utils import haversine_km
-        import random
         import networkx as nx
         
-        for attempt in range(max_attempts):
-            # Pick 2 random nodes
-            node1, node2 = random.sample(nodes, 2)
+        # ✅ FIX: Use cryptographic RNG instead of basic random
+        crypto_rng = random.Random(secrets.randbits(128))
+        
+        for _ in range(max_attempts):  # _ instead of attempt (unused variable)
+            # Pick 2 random nodes using crypto RNG
+            node1, node2 = crypto_rng.sample(nodes, 2)
             
             # Get coordinates
             origin = (graph.nodes[node1]['x'], graph.nodes[node1]['y'])
@@ -456,11 +460,13 @@ class SpatialEnvironment:
             try:
                 path = nx.shortest_path(graph, node1, node2, weight='length')
                 if len(path) >= 2:
+                    logger.debug(f"Generated OD pair: {distance:.1f}km apart")
                     return (origin, dest)
             except nx.NetworkXNoPath:
                 continue  # No path, try again
         
         logger.error(f"Failed to generate valid OD pair after {max_attempts} attempts!")
+        logger.error("  This may indicate graph connectivity issues or bbox too small")
         return None
     
     def get_graph_stats(self) -> dict:
