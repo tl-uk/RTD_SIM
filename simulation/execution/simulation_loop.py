@@ -665,17 +665,19 @@ def run_simulation_loop(
                         if elapsed_min >= duration:
                             infrastructure.release_charger(agent_id)
                             logger.debug(f"Step {step}: Agent {agent_id} finished charging ({elapsed_min:.0f} min)")
-            
-            # Collect state
-            agent_states.append({
-                'agent_id': agent.state.agent_id,
-                'location': agent.state.location,
-                'mode': agent.state.mode,
-                'arrived': agent.state.arrived,
-                'route': agent.state.route,
-                'distance_km': agent.state.distance_km,
-                'emissions_g': agent.state.emissions_g,
-            })
+        
+        # ✅ FIX: Collect state for ALL agents (moved outside infrastructure block)
+        # This was incorrectly indented inside the "if infrastructure and electric mode" block
+        # causing only electric vehicles to be tracked!
+        agent_states.append({
+            'agent_id': agent.state.agent_id,
+            'location': agent.state.location,
+            'mode': agent.state.mode,
+            'arrived': agent.state.arrived,
+            'route': agent.state.route,
+            'distance_km': agent.state.distance_km,
+            'emissions_g': agent.state.emissions_g,
+        })
         
         # Air quality step (atmospheric dispersion) - MUST BE OUTSIDE AGENT LOOP
         # TO AVOID DOUBLE COUNTING EMISSIONS
