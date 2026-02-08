@@ -192,12 +192,19 @@ def render_map(
             layers.append(route_layer)
     
     # ========================================================================
-    # Infrastructure Layer (NEW)
+    # Infrastructure Layer - SMALLER & MORE TRANSPARENT
     # ========================================================================
     if show_infrastructure and infrastructure_manager:
         station_data = []
         
-        for station_id, station in infrastructure_manager.charging_stations.items():
+        # ✅ FIX: Limit to reasonable number of stations for performance
+        stations_to_show = list(infrastructure_manager.charging_stations.items())
+        if len(stations_to_show) > 200:
+            # Sample 200 stations instead of showing all 3000+
+            import random
+            stations_to_show = random.sample(stations_to_show, 200)
+        
+        for station_id, station in stations_to_show:
             occupancy = station.occupancy_rate()
             
             # Color by occupancy (green=free, red=full)
@@ -225,17 +232,18 @@ def render_map(
                 'ScatterplotLayer',
                 data=station_df,
                 get_position='[lon, lat]',
-                get_fill_color='[r, g, b, 200]',
-                get_radius=15,
-                radius_min_pixels=8,
-                radius_max_pixels=20,
+                get_fill_color='[r, g, b, 150]',  # ✅ FIX: Lower opacity (150 vs 200)
+                get_radius=8,  # ✅ FIX: Smaller (8 vs 15)
+                radius_min_pixels=4,  # ✅ FIX: Smaller (4 vs 8)
+                radius_max_pixels=10,  # ✅ FIX: Smaller (10 vs 20)
                 pickable=True,
-                opacity=0.7,
+                opacity=0.4,  # ✅ FIX: More transparent (0.4 vs 0.7)
                 stroked=True,
                 get_line_color=[50, 50, 50],
-                line_width_min_pixels=2,
+                line_width_min_pixels=1,  # ✅ FIX: Thinner stroke
             )
-            layers.append(station_layer)
+            # ✅ FIX: Add infrastructure layer FIRST so agents render on top
+            layers.insert(0, station_layer)
     
     # ========================================================================
     # View State
@@ -258,11 +266,15 @@ def render_map(
     # ========================================================================
     # Create Deck
     # ========================================================================
+    # Tooltip shows different fields depending on what's available:
+    # - Agents have: agent_id, mode, arrived
+    # - Stations have: station_id, type, occupancy, free_ports, total_ports
     deck = pdk.Deck(
         layers=layers,
         initial_view_state=view_state,
         tooltip={
-            'html': '<b>{agent_id}{station_id}</b><br/>'
+            'html': '<b>Agent:</b> {agent_id}<br/>'
+                   '<b>Station:</b> {station_id}<br/>'
                    'Mode: {mode}<br/>'
                    'Type: {type}<br/>'
                    'Occupancy: {occupancy:.0%}<br/>'
