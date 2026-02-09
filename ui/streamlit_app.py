@@ -205,6 +205,20 @@ if isinstance(results.time_series, list):
     current_data = results.time_series[anim.current_step] if anim.current_step < len(results.time_series) else None
 else:
     current_data = results.time_series.get_timestep(anim.current_step)
+
+# 🔍 DEBUG: Log time_series structure
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f"🔍 time_series type: {type(results.time_series)}, length: {len(results.time_series) if hasattr(results.time_series, '__len__') else 'N/A'}")
+logger.info(f"🔍 current_step: {anim.current_step}")
+if current_data:
+    logger.info(f"🔍 current_data keys: {list(current_data.keys())}")
+    agent_states = current_data.get('agent_states', [])
+    logger.info(f"🔍 agent_states count in current_data: {len(agent_states)}")
+    if agent_states:
+        logger.info(f"🔍 Sample agent: {agent_states[0]}")
+else:
+    logger.warning(f"🔍 current_data is None!")
     
 if not current_data:
     st.error("No data available")
