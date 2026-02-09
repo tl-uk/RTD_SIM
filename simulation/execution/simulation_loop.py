@@ -467,6 +467,18 @@ def run_simulation_loop(
                 agent.step(env)
             except:
                 agent.step()
+            
+            # 🔍 DEBUG: Check route status after step (TEMPORARY - REMOVE AFTER DIAGNOSIS)
+            if step <= 2:  # Only log first 3 steps
+                route_info = "None"
+                if hasattr(agent.state, 'route'):
+                    if agent.state.route:
+                        route_info = f"{len(agent.state.route)} points"
+                    else:
+                        route_info = "empty/None"
+                logger.info(f"      After step: agent={agent.state.agent_id}, route={route_info}, distance={agent.state.distance_km:.1f}km, arrived={agent.state.arrived}")
+
+
 
             # RECORD JOURNEY
             if journey_tracker and agent.state.location != prev_location:

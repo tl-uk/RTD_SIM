@@ -121,20 +121,31 @@ class CognitiveAgent:
                 agent_context=self.agent_context  # ← ADDED THIS LINE!
             )
             best = self.planner.choose_action(scores)
-            s.mode = best.mode
             
-            # Store the cost evaluation for social influence
-            s.mode_costs = {score.action.mode: score.cost for score in scores}
-            
-            # Store infrastructure params
-            s.action_params = best.params
-            
-            # Route assignment...
-            s.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
-            s.route_index = 0
-            s.route_offset_km = 0.0
-            if s.departed_at_step is None:
-                s.departed_at_step = self.t
+            # ✅ FIX: Only update route if we got a valid one
+            if best.route and len(best.route) > 0:
+                s.route = [(float(x), float(y)) for (x, y) in best.route]
+                s.route_index = 0
+                s.route_offset_km = 0.0
+                s.mode = best.mode
+                
+                # Store the cost evaluation for social influence
+                s.mode_costs = {score.action.mode: score.cost for score in scores}
+                
+                # Store infrastructure params
+                s.action_params = best.params
+                
+                if s.departed_at_step is None:
+                    s.departed_at_step = self.t
+            else:
+                # ⚠️ No valid route returned - keep existing route if we have one
+                logger.warning(f"{s.agent_id}: No valid route from planner (got {len(best.route) if best.route else 0} points)")
+                if not s.route or len(s.route) == 0:
+                    # Really stuck - create minimal fallback route
+                    logger.warning(f"{s.agent_id}: Creating fallback direct route")
+                    s.route = [s.location, s.destination]
+                    s.route_index = 0
+                    s.route_offset_km = 0.0
 
     def _dwell_per_segment(self, mode: str) -> float:
         """Dwell time (minutes) applied whenever the agent finishes a segment."""
@@ -201,6 +212,11 @@ class CognitiveAgent:
     def step(self, env=None) -> Dict[str, Any]:
         s = self.state
         self.t += 1
+        
+        # 🔍 DEBUG: Log route status at start of step (first 3 steps only)
+        if self.t <= 3:
+            route_info = f"{len(s.route)} points" if s.route else "None"
+            logger.info(f"🔍 {s.agent_id} step {self.t} START: route={route_info}, arrived={s.arrived}")
 
         # Cognitive updates (same as Phase 1)
         stimulus = self.rng.uniform(-0.1, 0.1)
@@ -213,6 +229,11 @@ class CognitiveAgent:
         # Planning & movement
         self._maybe_plan(env)
         self._move(env)
+        
+        # 🔍 DEBUG: Log route status at end of step (first 3 steps only)
+        if self.t <= 3:
+            route_info = f"{len(s.route)} points" if s.route else "None"
+            logger.info(f"🔍 {s.agent_id} step {self.t} END: route={route_info}, distance={s.distance_km:.1f}km, arrived={s.arrived}")
 
         return {
             't': self.t,
