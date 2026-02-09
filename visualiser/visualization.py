@@ -113,6 +113,15 @@ def render_map(
     # ========================================================================
     # Agents Layer
     # ========================================================================
+    # 🔍 DEBUG: Log agent_states to console
+    logger.info(f"🔍 DEBUG render_map: show_agents={show_agents}, agent_states count={len(agent_states) if agent_states else 0}")
+    if agent_states:
+        sample = agent_states[0] if agent_states else {}
+        logger.info(f"🔍 Sample agent_state keys: {list(sample.keys()) if sample else 'empty'}")
+        logger.info(f"🔍 Sample location: {sample.get('location') if sample else None}")
+        routes_count = sum(1 for s in agent_states if s.get('route') and len(s.get('route', [])) > 0)
+        logger.info(f"🔍 Agents with routes: {routes_count}/{len(agent_states)}")
+    
     if show_agents and agent_states:
         agent_data = []
         for state in agent_states:
