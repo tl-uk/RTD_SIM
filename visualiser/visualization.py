@@ -11,6 +11,10 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Any
 from collections import Counter
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import pydeck as pdk
 import pandas as pd
 import plotly.graph_objects as go
