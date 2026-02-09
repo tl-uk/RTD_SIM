@@ -530,6 +530,19 @@ def run_simulation_loop(
                         vehicle_type=vehicle_type,
                         step=step
                     )
+            
+            # ✅ CRITICAL FIX: Collect agent state at END of agent loop iteration
+            # This MUST be at 12 spaces (inside `for agent in agents`)
+            # and MUST be AFTER all agent processing for this step
+            agent_states.append({
+                'agent_id': agent.state.agent_id,
+                'location': agent.state.location,
+                'mode': agent.state.mode,
+                'arrived': agent.state.arrived,
+                'route': agent.state.route,
+                'distance_km': agent.state.distance_km,
+                'emissions_g': agent.state.emissions_g,
+            })
         
         # POLICY IMPACT TRACKING
         if policy_impact_analyzer and policy_engine:
@@ -663,18 +676,6 @@ def run_simulation_loop(
                         if elapsed_min >= duration:
                             infrastructure.release_charger(agent_id)
                             logger.debug(f"Step {step}: Agent {agent_id} finished charging ({elapsed_min:.0f} min)")
-            
-            # ✅ CRITICAL FIX: Collect state INSIDE the agent loop (12 spaces)
-            # Previously at 8 spaces = OUTSIDE loop = only last agent collected!
-            agent_states.append({
-                'agent_id': agent.state.agent_id,
-                'location': agent.state.location,
-                'mode': agent.state.mode,
-                'arrived': agent.state.arrived,
-                'route': agent.state.route,
-                'distance_km': agent.state.distance_km,
-                'emissions_g': agent.state.emissions_g,
-            })
         
         # Air quality step (atmospheric dispersion) - MUST BE OUTSIDE AGENT LOOP
         # TO AVOID DOUBLE COUNTING EMISSIONS
