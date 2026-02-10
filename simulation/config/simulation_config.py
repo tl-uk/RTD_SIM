@@ -1,20 +1,21 @@
 """
 simulation/config/simulation_config.py
 
-REFACTORED: Core configuration only.
-Other configs moved to separate modules for maintainability.
+REFACTORED: Core configuration with backward-compatible interface.
+Accepts both old flat parameters and new nested structure.
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple, Dict, Any
 from pathlib import Path
+from collections import defaultdict
 
 # Import sub-configs
 from .infrastructure_config import InfrastructureConfig
-from .agent_config import AgentConfig
+from .agent_config import AgentConfig, AgentBehaviorConfig, SocialNetworkConfig
 from .analytics_config import AnalyticsConfig
-from .environmental_config import EnvironmentalConfig
+from .environmental_config import EnvironmentalConfig, WeatherConfig
 from .policy_config import PolicyConfig
 
 
@@ -23,8 +24,7 @@ class SimulationConfig:
     """
     Core simulation configuration.
     
-    This class now delegates to specialized configs for better maintainability.
-    Use presets.py for common configurations.
+    Supports both old flat parameters (backward compatible) and new nested structure.
     """
     
     # ===== CORE SETTINGS =====
@@ -46,7 +46,7 @@ class SimulationConfig:
     enable_route_diversity: bool = True
     
     # ===== ROUTING =====
-    route_diversity_mode: str = 'ultra_fast'  # 'perturbed', 'k_shortest', 'ultra_fast'
+    route_diversity_mode: str = 'ultra_fast'
     
     # ===== SCENARIO FRAMEWORK =====
     scenario_name: Optional[str] = None
@@ -54,15 +54,27 @@ class SimulationConfig:
     combined_scenario_data: Optional[Dict] = None
     
     # ===== SUB-CONFIGURATIONS =====
-    # These delegate to specialized config classes
     infrastructure: InfrastructureConfig = field(default_factory=InfrastructureConfig)
     agents: AgentConfig = field(default_factory=AgentConfig)
     analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
     environmental: EnvironmentalConfig = field(default_factory=EnvironmentalConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     
-    # ===== BACKWARD COMPATIBILITY =====
-    # These properties map to sub-configs for existing code
+    def __post_init__(self):
+        """Initialize sub-configs if not provided."""
+        if not isinstance(self.infrastructure, InfrastructureConfig):
+            self.infrastructure = InfrastructureConfig()
+        if not isinstance(self.agents, AgentConfig):
+            self.agents = AgentConfig()
+        if not isinstance(self.analytics, AnalyticsConfig):
+            self.analytics = AnalyticsConfig()
+        if not isinstance(self.environmental, EnvironmentalConfig):
+            self.environmental = EnvironmentalConfig()
+        if not isinstance(self.policy, PolicyConfig):
+            self.policy = PolicyConfig()
+    
+    # ===== BACKWARD COMPATIBILITY PROPERTIES =====
+    # Allow old-style access: config.grid_capacity_mw = 50
     
     @property
     def enable_infrastructure(self) -> bool:
@@ -121,6 +133,54 @@ class SimulationConfig:
         self.analytics.enabled = value
     
     @property
+    def track_journeys(self) -> bool:
+        return self.analytics.track_journeys
+    
+    @track_journeys.setter
+    def track_journeys(self, value: bool):
+        self.analytics.track_journeys = value
+    
+    @property
+    def detect_tipping_points(self) -> bool:
+        return self.analytics.detect_tipping_points
+    
+    @detect_tipping_points.setter
+    def detect_tipping_points(self, value: bool):
+        self.analytics.detect_tipping_points = value
+    
+    @property
+    def calculate_policy_roi(self) -> bool:
+        return self.analytics.calculate_policy_roi
+    
+    @calculate_policy_roi.setter
+    def calculate_policy_roi(self, value: bool):
+        self.analytics.calculate_policy_roi = value
+    
+    @property
+    def track_network_efficiency(self) -> bool:
+        return self.analytics.track_network_efficiency
+    
+    @track_network_efficiency.setter
+    def track_network_efficiency(self, value: bool):
+        self.analytics.track_network_efficiency = value
+    
+    @property
+    def tipping_point_velocity(self) -> float:
+        return self.analytics.tipping_point_velocity
+    
+    @tipping_point_velocity.setter
+    def tipping_point_velocity(self, value: float):
+        self.analytics.tipping_point_velocity = value
+    
+    @property
+    def tipping_point_duration(self) -> int:
+        return self.analytics.tipping_point_duration
+    
+    @tipping_point_duration.setter
+    def tipping_point_duration(self, value: int):
+        self.analytics.tipping_point_duration = value
+    
+    @property
     def weather_enabled(self) -> bool:
         return self.environmental.weather.enabled
     
@@ -129,17 +189,121 @@ class SimulationConfig:
         self.environmental.weather.enabled = value
     
     @property
+    def weather_source(self) -> str:
+        return self.environmental.weather.source
+    
+    @weather_source.setter
+    def weather_source(self, value: str):
+        self.environmental.weather.source = value
+    
+    @property
+    def weather_temp_adjustment(self) -> float:
+        return self.environmental.weather.temp_adjustment
+    
+    @weather_temp_adjustment.setter
+    def weather_temp_adjustment(self, value: float):
+        self.environmental.weather.temp_adjustment = value
+    
+    @property
+    def weather_precip_multiplier(self) -> float:
+        return self.environmental.weather.precip_multiplier
+    
+    @weather_precip_multiplier.setter
+    def weather_precip_multiplier(self, value: float):
+        self.environmental.weather.precip_multiplier = value
+    
+    @property
+    def weather_wind_multiplier(self) -> float:
+        return self.environmental.weather.wind_multiplier
+    
+    @weather_wind_multiplier.setter
+    def weather_wind_multiplier(self, value: float):
+        self.environmental.weather.wind_multiplier = value
+    
+    @property
+    def use_historical_weather(self) -> bool:
+        return self.environmental.weather.use_historical
+    
+    @use_historical_weather.setter
+    def use_historical_weather(self, value: bool):
+        self.environmental.weather.use_historical = value
+    
+    @property
+    def weather_start_date(self) -> Optional[str]:
+        return self.environmental.weather.start_date
+    
+    @weather_start_date.setter
+    def weather_start_date(self, value: Optional[str]):
+        self.environmental.weather.start_date = value
+    
+    @property
+    def latitude(self) -> float:
+        return self.environmental.weather.latitude
+    
+    @latitude.setter
+    def latitude(self, value: float):
+        self.environmental.weather.latitude = value
+    
+    @property
+    def longitude(self) -> float:
+        return self.environmental.weather.longitude
+    
+    @longitude.setter
+    def longitude(self, value: float):
+        self.environmental.weather.longitude = value
+    
+    @property
     def track_air_quality(self) -> bool:
         return self.environmental.air_quality.enabled
     
     @track_air_quality.setter
     def track_air_quality(self, value: bool):
         self.environmental.air_quality.enabled = value
+    
+    @property
+    def air_quality_grid_km(self) -> float:
+        return self.environmental.air_quality.grid_resolution_km
+    
+    @air_quality_grid_km.setter
+    def air_quality_grid_km(self, value: float):
+        self.environmental.air_quality.grid_resolution_km = value
+    
+    @property
+    def use_lifecycle_emissions(self) -> bool:
+        return self.environmental.emissions.use_lifecycle
+    
+    @use_lifecycle_emissions.setter
+    def use_lifecycle_emissions(self, value: bool):
+        self.environmental.emissions.use_lifecycle = value
+    
+    @property
+    def grid_carbon_intensity(self) -> float:
+        return self.environmental.emissions.grid_carbon_intensity
+    
+    @grid_carbon_intensity.setter
+    def grid_carbon_intensity(self, value: float):
+        self.environmental.emissions.grid_carbon_intensity = value
+    
+    @property
+    def season_month(self) -> Optional[int]:
+        return self.environmental.weather.force_season_month
+    
+    @season_month.setter
+    def season_month(self, value: Optional[int]):
+        self.environmental.weather.force_season_month = value
+    
+    @property
+    def season_day_of_year(self) -> Optional[int]:
+        return self.environmental.weather.force_season_day
+    
+    @season_day_of_year.setter
+    def season_day_of_year(self, value: Optional[int]):
+        self.environmental.weather.force_season_day = value
 
 
 @dataclass
 class SimulationResults:
-    """Container for simulation results - unchanged."""
+    """Container for simulation results."""
     
     # Core results
     time_series: Optional[Any] = None
@@ -154,7 +318,7 @@ class SimulationResults:
     infrastructure: Optional[Any] = None
     
     # Metrics
-    adoption_history: Dict[str, List[float]] = field(default_factory=dict)
+    adoption_history: Dict[str, List[float]] = field(default_factory=lambda: defaultdict(list))
     cascade_events: List[Dict] = field(default_factory=list)
     desire_std: Dict[str, float] = field(default_factory=dict)
     
