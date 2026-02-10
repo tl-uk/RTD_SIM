@@ -566,3 +566,189 @@ def get_scenario_info(scenario_name: str, scenarios_dir: Path) -> dict:
     except Exception as e:
         st.error(f"Error loading scenario {scenario_name}: {e}")
         return {}
+
+# =======================================================================
+# NEW: Combined scenario parameters renderer (Phase 5.1)
+# ======================================================================= 
+def _render_combined_scenario_parameters(scenario_data):
+    """
+    NEW: Allow users to configure policy parameters before simulation.
+    Shows contextual controls based on selected scenario.
+    """
+    
+    st.markdown("#### ⚙️ Scenario Parameters")
+    
+    params = {}
+    
+    # Grid Configuration
+    with st.expander("🔌 Grid & Infrastructure", expanded=True):
+        params['grid_capacity_mw'] = st.slider(
+            "Grid Capacity (MW)",
+            min_value=10, max_value=200, value=100,
+            help="Electrical grid capacity. Lower = more likely to trigger grid interventions"
+        )
+        
+        params['charger_density'] = st.slider(
+            "Charging Station Density",
+            min_value=0.5, max_value=3.0, value=1.0, step=0.1,
+            help="Multiplier for charging stations. 1.0 = default density"
+        )
+    
+    # Policy Thresholds  
+    with st.expander("📊 Policy Triggers", expanded=True):
+        params['grid_intervention_threshold'] = st.slider(
+            "Grid Intervention Threshold (%)",
+            min_value=50, max_value=95, value=70,
+            help="Grid utilization % that triggers capacity expansion"
+        )
+        
+        params['ev_adoption_target'] = st.slider(
+            "EV Adoption Target (%)",
+            min_value=10, max_value=100, value=50,
+            help="Target EV adoption for policy success metrics"
+        )
+        
+        params['initial_ev_adoption'] = st.slider(
+            "Initial EV Adoption (%)",
+            min_value=0, max_value=30, value=5,
+            help="Starting % of agents using electric vehicles"
+        )
+    
+    # Agent Behavior
+    with st.expander("🧠 Agent Preferences", expanded=False):
+        params['eco_desire_mean'] = st.slider(
+            "Eco Consciousness (mean)",
+            min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+            help="Average environmental concern. Higher = more EV adoption"
+        )
+        
+        params['cost_sensitivity_mean'] = st.slider(
+            "Cost Sensitivity (mean)",
+            min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+            help="How much agents care about costs. Higher = prefer cheaper options"
+        )
+    
+    # Budget Constraints
+    if 'constraints' in scenario_data:
+        with st.expander("💰 Budget Constraints", expanded=False):
+            default_budget = scenario_data.get('constraints', {}).get('budget', 1000000)
+            
+            params['budget_limit'] = st.number_input(
+                "Policy Budget (£)",
+                min_value=100000, max_value=10000000, 
+                value=default_budget, step=100000,
+                help="Total budget for infrastructure investments"
+            )
+    
+    return params
+
+def render_policy_trigger_analysis(results):
+    """
+    NEW: Explain why policies didn't trigger and suggest fixes.
+    Add to combined_scenarios_tab.py
+    """
+    
+    if results.policy_status.get('rules_triggered', 0) == 0:
+        st.warning("⚠️ No Policy Actions Were Triggered")
+        
+        with st.expander("💡 Why didn't policies trigger?", expanded=True):
+            sim_state = results.policy_status.get('simulation_state', {})
+            
+            # Diagnose specific issues
+            issues = []
+            suggestions = []
+            
+            # Check grid utilization
+            grid_util = sim_state.get('grid_utilization', 0)
+            if grid_util < 0.5:
+                issues.append(f"Grid utilization very low ({grid_util*100:.1f}%)")
+                suggestions.append("• Reduce grid capacity to 20-50 MW")
+                suggestions.append("• Increase initial EV adoption to 20%+")
+            
+            # Check EV adoption
+            ev_adoption = sim_state.get('ev_adoption', 0)
+            if ev_adoption < 0.1:
+                issues.append(f"EV adoption low ({ev_adoption*100:.1f}%)")
+                suggestions.append("• Increase agent eco desire to 0.7-0.9")
+                suggestions.append("• Lower EV costs in scenario config")
+            
+            # Check charging usage
+            charger_util = sim_state.get('charger_utilization', 0)
+            if charger_util < 0.1:
+                issues.append(f"Chargers barely used ({charger_util*100:.1f}%)")
+                suggestions.append("• Ensure agents are selecting EV modes")
+                suggestions.append("• Check if charging infrastructure is accessible")
+            
+            # Display diagnosis
+            st.markdown("**Likely Reasons:**")
+            for issue in issues:
+                st.markdown(f"- {issue}")
+            
+            st.markdown("**Suggestions to See Policy Actions:**")
+            for suggestion in suggestions:
+                st.markdown(suggestion)
+            
+            # Quick fix buttons
+            st.markdown("**Quick Configurations:**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("🔥 High EV Demand"):
+                    st.info("Set: Grid=30MW, EV Adoption=25%, Eco Desire=0.8")
+            
+            with col2:
+                if st.button("⚡ Grid Stress"):
+                    st.info("Set: Grid=20MW, Chargers=0.5x, EV Adoption=20%")
+            
+            with col3:
+                if st.button("💰 Budget Constrained"):
+                    st.info("Set: Budget=£500k, Grid=100MW, Aggressive expansion")
+
+def render_scenario_presets():
+    """
+    NEW: Quick parameter configurations that guarantee policy triggers.
+    Add to sidebar before scenario selection.
+    """
+    
+    st.markdown("#### 🎯 Quick Configurations")
+    
+    preset = st.selectbox(
+        "Load Preset",
+        [
+            "Default",
+            "High EV Demand (Guaranteed Triggers)",
+            "Grid Stress Test",
+            "Budget Constrained",
+            "Rapid Adoption Scenario",
+            "Custom"
+        ]
+    )
+    
+    presets = {
+        "High EV Demand (Guaranteed Triggers)": {
+            'grid_capacity_mw': 30,
+            'initial_ev_adoption': 25,
+            'eco_desire_mean': 0.8,
+            'charger_density': 1.5,
+            'grid_intervention_threshold': 60
+        },
+        "Grid Stress Test": {
+            'grid_capacity_mw': 20,
+            'initial_ev_adoption': 20,
+            'charger_density': 0.5,
+            'grid_intervention_threshold': 50
+        },
+        "Budget Constrained": {
+            'grid_capacity_mw': 100,
+            'budget_limit': 500000,
+            'initial_ev_adoption': 15,
+            'charger_density': 0.8
+        },
+        # ... etc
+    }
+    
+    if preset != "Default" and preset != "Custom":
+        st.success(f"✅ Loaded: {preset}")
+        return presets[preset]
+    
+    return None  # Use manual configuration
