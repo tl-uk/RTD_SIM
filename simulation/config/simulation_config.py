@@ -250,8 +250,186 @@ class SimulationConfig:
     def habit_weight(self, value: float):
         self.agents.social_network.habit_weight = value
     
-    # Add all other properties for complete compatibility...
-    # (Keeping the class shorter, but you get the pattern)
+    # Analytics properties
+    @property
+    def enable_analytics(self) -> bool:
+        return self.analytics.enabled
+    
+    @enable_analytics.setter
+    def enable_analytics(self, value: bool):
+        self.analytics.enabled = value
+    
+    @property
+    def track_journeys(self) -> bool:
+        return self.analytics.track_journeys
+    
+    @track_journeys.setter
+    def track_journeys(self, value: bool):
+        self.analytics.track_journeys = value
+    
+    @property
+    def detect_tipping_points(self) -> bool:
+        return self.analytics.detect_tipping_points
+    
+    @detect_tipping_points.setter
+    def detect_tipping_points(self, value: bool):
+        self.analytics.detect_tipping_points = value
+    
+    @property
+    def calculate_policy_roi(self) -> bool:
+        return self.analytics.calculate_policy_roi
+    
+    @calculate_policy_roi.setter
+    def calculate_policy_roi(self, value: bool):
+        self.analytics.calculate_policy_roi = value
+    
+    @property
+    def track_network_efficiency(self) -> bool:
+        return self.analytics.track_network_efficiency
+    
+    @track_network_efficiency.setter
+    def track_network_efficiency(self, value: bool):
+        self.analytics.track_network_efficiency = value
+    
+    @property
+    def tipping_point_velocity(self) -> float:
+        return self.analytics.tipping_point_velocity
+    
+    @tipping_point_velocity.setter
+    def tipping_point_velocity(self, value: float):
+        self.analytics.tipping_point_velocity = value
+    
+    @property
+    def tipping_point_duration(self) -> int:
+        return self.analytics.tipping_point_duration
+    
+    @tipping_point_duration.setter
+    def tipping_point_duration(self, value: int):
+        self.analytics.tipping_point_duration = value
+    
+    # Weather properties
+    @property
+    def weather_enabled(self) -> bool:
+        return self.environmental.weather.enabled
+    
+    @weather_enabled.setter
+    def weather_enabled(self, value: bool):
+        self.environmental.weather.enabled = value
+    
+    @property
+    def weather_source(self) -> str:
+        return self.environmental.weather.source
+    
+    @weather_source.setter
+    def weather_source(self, value: str):
+        self.environmental.weather.source = value
+    
+    @property
+    def weather_temp_adjustment(self) -> float:
+        return self.environmental.weather.temp_adjustment
+    
+    @weather_temp_adjustment.setter
+    def weather_temp_adjustment(self, value: float):
+        self.environmental.weather.temp_adjustment = value
+    
+    @property
+    def weather_precip_multiplier(self) -> float:
+        return self.environmental.weather.precip_multiplier
+    
+    @weather_precip_multiplier.setter
+    def weather_precip_multiplier(self, value: float):
+        self.environmental.weather.precip_multiplier = value
+    
+    @property
+    def weather_wind_multiplier(self) -> float:
+        return self.environmental.weather.wind_multiplier
+    
+    @weather_wind_multiplier.setter
+    def weather_wind_multiplier(self, value: float):
+        self.environmental.weather.wind_multiplier = value
+    
+    @property
+    def use_historical_weather(self) -> bool:
+        return self.environmental.weather.use_historical
+    
+    @use_historical_weather.setter
+    def use_historical_weather(self, value: bool):
+        self.environmental.weather.use_historical = value
+    
+    @property
+    def weather_start_date(self) -> Optional[str]:
+        return self.environmental.weather.start_date
+    
+    @weather_start_date.setter
+    def weather_start_date(self, value: Optional[str]):
+        self.environmental.weather.start_date = value
+    
+    @property
+    def latitude(self) -> float:
+        return self.environmental.weather.latitude
+    
+    @latitude.setter
+    def latitude(self, value: float):
+        self.environmental.weather.latitude = value
+    
+    @property
+    def longitude(self) -> float:
+        return self.environmental.weather.longitude
+    
+    @longitude.setter
+    def longitude(self, value: float):
+        self.environmental.weather.longitude = value
+    
+    # Air quality properties
+    @property
+    def track_air_quality(self) -> bool:
+        return self.environmental.air_quality.enabled
+    
+    @track_air_quality.setter
+    def track_air_quality(self, value: bool):
+        self.environmental.air_quality.enabled = value
+    
+    @property
+    def air_quality_grid_km(self) -> float:
+        return self.environmental.air_quality.grid_resolution_km
+    
+    @air_quality_grid_km.setter
+    def air_quality_grid_km(self, value: float):
+        self.environmental.air_quality.grid_resolution_km = value
+    
+    # Emissions properties
+    @property
+    def use_lifecycle_emissions(self) -> bool:
+        return self.environmental.emissions.use_lifecycle
+    
+    @use_lifecycle_emissions.setter
+    def use_lifecycle_emissions(self, value: bool):
+        self.environmental.emissions.use_lifecycle = value
+    
+    @property
+    def grid_carbon_intensity(self) -> float:
+        return self.environmental.emissions.grid_carbon_intensity
+    
+    @grid_carbon_intensity.setter
+    def grid_carbon_intensity(self, value: float):
+        self.environmental.emissions.grid_carbon_intensity = value
+    
+    # Seasonal properties
+    @property
+    def season_month(self) -> Optional[int]:
+        return self.environmental.weather.force_season_month
+    
+    @season_month.setter
+    def season_month(self, value: Optional[int]):
+        self.environmental.weather.force_season_month = value
+    
+    @property
+    def season_day_of_year(self) -> Optional[int]:
+        return self.environmental.weather.force_season_day
+    
+    @season_day_of_year.setter
+    def season_day_of_year(self, value: Optional[int]):
+        self.environmental.weather.force_season_day = value
 
 
 class SimulationResults:
