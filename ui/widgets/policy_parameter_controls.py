@@ -28,8 +28,7 @@ def render_policy_parameter_controls():
         key="use_advanced_params"
     )
     
-    # Store state for other widgets
-    st.session_state.use_advanced_params = use_advanced
+    # No need to manually set session state - the key parameter does it automatically
     
     if not use_advanced:
         return None
