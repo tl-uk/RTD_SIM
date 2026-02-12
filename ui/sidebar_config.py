@@ -24,6 +24,11 @@ try:
 except ImportError:
     STORIES_AVAILABLE = False
 
+# Import policy parameter controls
+from ui.widgets.policy_parameter_controls import (
+    render_policy_parameter_controls,
+    apply_parameter_overrides
+)
 
 def render_sidebar_config():
     """
@@ -35,12 +40,17 @@ def render_sidebar_config():
     st.header("⚙️ Simulation Configuration")
     
     # ============================================================================
-    # FIX: Combined scenario selection OUTSIDE form (so it updates immediately)
+    # Combined scenario selection OUTSIDE form (so it updates immediately)
     # ============================================================================
     st.markdown("---")
     combined_config = _render_combined_scenario_selection()
     st.markdown("---")
     
+    # Advanced parameter controls
+    with st.expander("🎛️ Advanced Parameter Tuning", expanded=False):
+        param_overrides = render_policy_parameter_controls()
+    
+    st.markdown("---")
     # ========================================================================
     # Weather configuration OUTSIDE form (so it updates immediately)
     # ========================================================================
@@ -120,6 +130,11 @@ def render_sidebar_config():
         weather_precip_multiplier=weather_config['weather_precip_multiplier'],
         weather_wind_multiplier=weather_config['weather_wind_multiplier'],
     )
+    
+    # ADD: Apply parameter overrides if enabled
+    if param_overrides:
+        config = apply_parameter_overrides(config, param_overrides)
+        st.sidebar.success("✅ Advanced parameters applied")
     
     return config, run_btn
 
