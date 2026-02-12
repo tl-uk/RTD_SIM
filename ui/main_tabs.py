@@ -5,7 +5,6 @@ Main visualization tabs: Map, charts, network, infrastructure, scenario report.
 Fixed: use_container_width deprecation warnings
 """
 
-from logging import config
 import streamlit as st
 import sys
 from pathlib import Path
@@ -15,7 +14,6 @@ parent_dir = Path(__file__).resolve().parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from ui.tabs.policy_diagnostics_tab import render_policy_diagnostics_tab
 from visualiser.visualization import (
     render_map,
     render_mode_adoption_chart,
@@ -75,10 +73,6 @@ def render_main_tabs(results, anim, current_data):
         tab_idx = 5 if results.infrastructure else 4
         with tabs[tab_idx]:
             _render_scenario_report_tab(results)
-
-    # Tab 6: Policy Diagnostics (if enabled and results available)
-    with tabs[6]:  # ← NEW
-        render_policy_diagnostics_tab(results, st.session_state.last_config)
 
 
 def _render_map_tab(results, anim, agent_states, metrics):
