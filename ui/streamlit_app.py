@@ -50,6 +50,10 @@ from visualiser.animation_controller import AnimationController
 # Import policy engine initialization
 from simulation.execution.dynamic_policies import initialize_policy_engine
 
+# Note: The policy engine will be initialized within the simulation loop based on the config, so we don't need to call it here directly. The simulation will check for combined_scenario_data in the config and initialize the policy engine accordingly.
+# This allows us to keep the policy engine logic encapsulated within the simulation execution, and the UI just needs to pass the config with combined scenario data when running the simulation.
+from ui.tabs.policy_diagnostics_tab import render_policy_diagnostics_tab
+
 # Initialize Streamlit
 st.set_page_config(
     page_title="RTD_SIM - Transport Decarbonization Simulator",
@@ -232,6 +236,7 @@ tab_configs = [
     ("📈 Mode Adoption", render_mode_adoption_tab),
     ("🎯 Impact", render_impact_tab),
     ("🌐 Network", render_network_tab),
+    ("🔍 Policy Diagnostics"),  # ← NEW
 ]
 
 # Add infrastructure tab if available
@@ -253,6 +258,10 @@ if config.weather_enabled or config.track_air_quality:
 # Add analytics tab if analytics results are present
 if config.enable_analytics:
     tab_configs.append(("📊 Analytics", render_analytics_tab))
+
+# Add policy diagnostics tab if policy engine active
+if st.session_state.combined_scenario_active:
+    tab_configs.append(("🛠️ Policy Diagnostics", render_policy_diagnostics_tab))
 
 # Create tabs
 tab_names = [name for name, _ in tab_configs]
