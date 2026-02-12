@@ -3,6 +3,8 @@ ui/widgets/policy_parameter_controls.py
 
 Enhanced parameter controls for fine-tuning policy configurations.
 Provides advanced sliders for infrastructure, agent behavior, and policy thresholds.
+
+UPDATED: Realistic value ranges for real-world scenarios
 """
 
 import streamlit as st
@@ -22,13 +24,17 @@ def render_policy_parameter_controls():
     use_advanced = st.checkbox(
         "Enable Advanced Parameter Controls",
         value=False,
-        help="Fine-tune infrastructure, agents, and policy thresholds"
+        help="Fine-tune infrastructure, agents, and policy thresholds",
+        key="use_advanced_params"
     )
+    
+    # Store state for other widgets
+    st.session_state.use_advanced_params = use_advanced
     
     if not use_advanced:
         return None
     
-    st.info("💡 These parameters override preset and scenario defaults")
+    st.info("💡 These parameters control all simulation settings")
     
     params = {}
     
@@ -61,12 +67,22 @@ def _render_infrastructure_controls():
     with col1:
         grid_capacity = st.slider(
             "Grid Capacity (MW)",
-            min_value=10.0,
-            max_value=200.0,
-            value=100.0,
-            step=5.0,
-            help="Total electrical grid capacity. Lower = more likely to trigger expansion"
+            min_value=1.0,
+            max_value=500.0,
+            value=50.0,
+            step=1.0,
+            help="Total electrical grid capacity\n1-10 MW: Stress test\n20-100 MW: City district\n200+ MW: Large region"
         )
+        
+        # Show context
+        if grid_capacity < 10:
+            st.caption("🔥 Stress test - High utilization expected")
+        elif grid_capacity < 50:
+            st.caption("🏘️ District scale")
+        elif grid_capacity < 150:
+            st.caption("🏙️ City scale")
+        else:
+            st.caption("🌆 Regional scale")
     
     with col2:
         grid_reserve = st.slider(
@@ -84,8 +100,8 @@ def _render_infrastructure_controls():
     with col1:
         num_chargers = st.slider(
             "Number of Chargers",
-            min_value=10,
-            max_value=200,
+            min_value=5,
+            max_value=300,
             value=50,
             help="Total charging stations deployed"
         )
@@ -93,11 +109,11 @@ def _render_infrastructure_controls():
     with col2:
         charger_density = st.slider(
             "Charger Density Multiplier",
-            min_value=0.5,
-            max_value=3.0,
+            min_value=0.3,
+            max_value=5.0,
             value=1.0,
             step=0.1,
-            help="Multiplier for spatial density. 1.0 = normal, >1.0 = denser"
+            help="Spatial density\n0.3-0.7: Sparse (rural)\n1.0: Normal\n2.0+: Dense (urban)"
         )
     
     st.markdown("**Dynamic Expansion**")
@@ -114,7 +130,7 @@ def _render_infrastructure_controls():
     with col2:
         expansion_trigger = st.slider(
             "Expansion Trigger (%)",
-            min_value=50,
+            min_value=40,
             max_value=95,
             value=70,
             disabled=not allow_expansion,
@@ -123,21 +139,21 @@ def _render_infrastructure_controls():
     
     cost_per_charger = st.number_input(
         "Cost per Charger (£)",
-        min_value=10000,
-        max_value=100000,
+        min_value=5000,
+        max_value=200000,
         value=25000,
         step=5000,
-        help="Investment cost for each new charger"
+        help="Investment cost for each new charger\nTypical: £20k-30k\nFast charger: £40k-100k"
     )
     
     return {
         'grid_capacity_mw': grid_capacity,
         'grid_reserve_margin': grid_reserve / 100.0,
-        'num_chargers': num_chargers,
+        'num_chargers': int(num_chargers),
         'charger_density_multiplier': charger_density,
         'allow_dynamic_expansion': allow_expansion,
         'expansion_trigger_threshold': expansion_trigger / 100.0,
-        'expansion_cost_per_charger': cost_per_charger,
+        'expansion_cost_per_charger': float(cost_per_charger),
     }
 
 
@@ -155,7 +171,7 @@ def _render_agent_controls():
             max_value=1.0,
             value=0.5,
             step=0.05,
-            help="Environmental consciousness. Higher = prefer low-emission modes"
+            help="Environmental consciousness\n0.3: Low\n0.5: Moderate\n0.8: High"
         )
         
         cost_sensitivity = st.slider(
@@ -164,7 +180,7 @@ def _render_agent_controls():
             max_value=1.0,
             value=0.5,
             step=0.05,
-            help="Price sensitivity. Higher = prefer cheaper modes"
+            help="Price sensitivity\n0.3: Low\n0.5: Moderate\n0.8: High"
         )
     
     with col2:
@@ -174,7 +190,7 @@ def _render_agent_controls():
             max_value=1.0,
             value=0.5,
             step=0.05,
-            help="Time consciousness. Higher = prefer faster modes"
+            help="Time consciousness\n0.3: Low\n0.5: Moderate\n0.8: High"
         )
         
         comfort_desire = st.slider(
@@ -183,7 +199,7 @@ def _render_agent_controls():
             max_value=1.0,
             value=0.5,
             step=0.05,
-            help="Comfort preference. Higher = prefer comfortable modes"
+            help="Comfort preference\n0.3: Low\n0.5: Moderate\n0.8: High"
         )
     
     st.markdown("**Initial Adoption**")
@@ -194,27 +210,27 @@ def _render_agent_controls():
         initial_ev = st.slider(
             "Initial EV (%)",
             min_value=0,
-            max_value=50,
+            max_value=60,
             value=5,
-            help="Starting percentage using electric vehicles"
+            help="Starting EV users\nUK 2024: ~5%\nNorway 2024: ~25%\nTarget: 30-50%"
         )
     
     with col2:
         initial_bike = st.slider(
             "Initial Bike (%)",
             min_value=0,
-            max_value=50,
+            max_value=60,
             value=10,
-            help="Starting percentage using bicycles"
+            help="Starting cyclists\nUK: ~10%\nNetherlands: ~27%"
         )
     
     with col3:
         initial_transit = st.slider(
             "Initial Transit (%)",
             min_value=0,
-            max_value=50,
+            max_value=70,
             value=15,
-            help="Starting percentage using public transit"
+            help="Starting transit users\nUK urban: ~15-20%\nLondon: ~40%"
         )
     
     st.markdown("**Social Network**")
@@ -228,17 +244,17 @@ def _render_agent_controls():
             max_value=0.5,
             value=0.15,
             step=0.05,
-            help="How quickly social influence fades. Lower = longer-lasting influence"
+            help="How quickly social influence fades\n0.05: Slow\n0.15: Moderate\n0.30: Fast"
         )
     
     with col2:
         habit_weight = st.slider(
             "Habit Weight",
             min_value=0.0,
-            max_value=0.8,
+            max_value=0.9,
             value=0.4,
             step=0.1,
-            help="Resistance to change. Higher = harder to switch modes"
+            help="Resistance to change\n0.2: Low inertia\n0.4: Moderate\n0.7: High inertia"
         )
     
     return {
@@ -264,10 +280,10 @@ def _render_policy_threshold_controls():
     with col1:
         grid_intervention = st.slider(
             "Grid Intervention (%)",
-            min_value=50,
+            min_value=40,
             max_value=95,
             value=70,
-            help="Grid utilization that triggers expansion policies"
+            help="Grid utilization that triggers expansion\n40-60: Aggressive\n70: Standard\n80+: Conservative"
         )
         
         grid_critical = st.slider(
@@ -275,7 +291,7 @@ def _render_policy_threshold_controls():
             min_value=70,
             max_value=100,
             value=90,
-            help="Critical grid threshold for emergency actions"
+            help="Critical threshold for emergency actions"
         )
     
     with col2:
@@ -284,7 +300,7 @@ def _render_policy_threshold_controls():
             min_value=10,
             max_value=100,
             value=50,
-            help="Target EV adoption for policy success"
+            help="Target EV adoption\nUK 2030: 30%\nUK 2035: 50%\nUK 2050: 100%"
         )
         
         ev_warning = st.slider(
@@ -292,7 +308,7 @@ def _render_policy_threshold_controls():
             min_value=0,
             max_value=30,
             value=10,
-            help="Warn if EV adoption falls below this"
+            help="Warn if adoption falls below this"
         )
     
     st.markdown("**Congestion Thresholds**")
@@ -302,19 +318,19 @@ def _render_policy_threshold_controls():
     with col1:
         congestion_threshold = st.slider(
             "Congestion Threshold (%)",
-            min_value=40,
+            min_value=30,
             max_value=80,
             value=60,
-            help="Road utilization that triggers congestion policies"
+            help="Road utilization triggering policies"
         )
     
     with col2:
         congestion_charge = st.slider(
             "Congestion Charge Trigger (%)",
-            min_value=60,
+            min_value=50,
             max_value=95,
             value=75,
-            help="Threshold for implementing congestion charges"
+            help="Threshold for congestion charges"
         )
     
     return {
@@ -332,11 +348,11 @@ def _render_budget_controls():
     
     budget_limit = st.number_input(
         "Total Budget Limit (£)",
-        min_value=100000,
-        max_value=10000000,
+        min_value=50000,
+        max_value=50000000,
         value=1000000,
         step=100000,
-        help="Total budget for policy interventions and infrastructure"
+        help="Total infrastructure budget\n£500k: Small city\n£1-5M: Medium city\n£10M+: Major city"
     )
     
     budget_warning = st.slider(
@@ -357,15 +373,15 @@ def _render_budget_controls():
         discount_rate = st.slider(
             "ROI Discount Rate (%)",
             min_value=0,
-            max_value=15,
+            max_value=20,
             value=5,
-            help="Annual discount rate for ROI calculations"
+            help="Annual discount rate\n3-5%: Low\n5-8%: Moderate\n10%+: High"
         )
     else:
         discount_rate = 5
     
     return {
-        'default_budget_limit': budget_limit,
+        'default_budget_limit': float(budget_limit),
         'budget_warning_threshold': budget_warning / 100.0,
         'calculate_policy_roi': track_roi,
         'roi_discount_rate': discount_rate / 100.0,

@@ -101,7 +101,7 @@ def render_sidebar_config():
             use_container_width=True
         )
     
-    # Build configuration object
+    # Build config
     config = SimulationConfig(
         steps=steps,
         num_agents=num_agents,
@@ -123,7 +123,7 @@ def render_sidebar_config():
         scenario_name=scenario_config['scenario_name'] if not combined_config['use_combined'] else None,
         scenarios_dir=scenario_config['scenarios_dir'],
         combined_scenario_data=combined_config['combined_scenario_data'] if combined_config['use_combined'] else None,
-        # Weather parameters (Phase 5.2) - from weather_config dict
+        # Weather parameters
         weather_enabled=weather_config['enable_weather'],
         weather_source=weather_config['weather_source'],
         weather_temp_adjustment=weather_config['weather_temp_adjustment'],
@@ -131,10 +131,16 @@ def render_sidebar_config():
         weather_wind_multiplier=weather_config['weather_wind_multiplier'],
     )
     
-    # ADD: Apply parameter overrides if enabled
+    # Apply parameter overrides if enabled
     if param_overrides:
         config = apply_parameter_overrides(config, param_overrides)
         st.sidebar.success("✅ Advanced parameters applied")
+        
+        # DEBUG: Show applied values
+        with st.sidebar.expander("🔍 Applied Values (Debug)", expanded=False):
+            st.write(f"Grid Capacity: {config.grid_capacity_mw:.1f} MW")
+            st.write(f"Num Chargers: {config.num_chargers}")
+            st.write(f"Eco Desire: {config.agents.behavior.eco_desire_mean:.2f}")
     
     return config, run_btn
 
@@ -333,33 +339,16 @@ def _render_advanced_features():
     
     use_congestion = st.checkbox("Enable Congestion", value=False)
     
-    # Infrastructure (Phase 5.1)
-    st.markdown("**🔌 Infrastructure**")
-    enable_infrastructure = st.checkbox(
-        "Enable Infrastructure Awareness", 
-        value=True,
-        help="EV range constraints, charging stations, grid capacity"
-    )
+    # Infrastructure controlled by Advanced Parameters
+    enable_infrastructure = True  # Always enabled
+    num_chargers = 50  # Default - will be overridden by advanced params
+    num_depots = 5
+    grid_capacity_mw = 50.0
     
-    if enable_infrastructure:
-        with st.expander("⚙️ Infrastructure Parameters"):
-            num_chargers = st.slider("Public Chargers", 10, 200, 50, 10)
-            num_depots = st.slider("Commercial Depots", 1, 20, 5, 1)
-            grid_capacity_mw = st.slider(
-                "Grid Capacity (MW)", 
-                1, 2000, 100, 1,
-                help="💡 Stress test: 1-10 MW | Normal: 50-200 MW | Large scale: 500+ MW"
-            )
-            
-            # Show contextual guidance
-            if grid_capacity_mw < 10:
-                st.success("🔥 Stress test mode: High utilization expected!")
-            elif grid_capacity_mw > 500:
-                st.warning("⚠️ Grid >500 MW may show 0.0% utilization. Try 1-100 MW for better visibility.")
-    else:
-        num_chargers = 0
-        num_depots = 0
-        grid_capacity_mw = 100
+    # Check if advanced params are active
+    use_advanced = st.session_state.get('use_advanced_params', False)
+    if not use_advanced:
+        st.info("💡 Enable 'Advanced Parameter Tuning' above to customize infrastructure settings")
     
     # Social networks
     enable_social = False
@@ -380,14 +369,14 @@ def _render_advanced_features():
     
     return {
         'use_congestion': use_congestion,
-        'enable_infrastructure': enable_infrastructure,
-        'num_chargers': num_chargers,
-        'num_depots': num_depots,
-        'grid_capacity_mw': grid_capacity_mw,
         'enable_social': enable_social,
         'use_realistic': use_realistic,
         'decay_rate': decay_rate,
         'habit_weight': habit_weight,
+        'enable_infrastructure': enable_infrastructure,
+        'num_chargers': num_chargers,
+        'num_depots': num_depots,
+        'grid_capacity_mw': grid_capacity_mw,
     }
 
 
