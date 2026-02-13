@@ -98,11 +98,19 @@ def _render_infrastructure_controls():
     
     with col1:
         num_chargers = st.slider(
-            "Number of Chargers",
+            "Public Chargers",
             min_value=5,
             max_value=300,
             value=50,
-            help="Total charging stations deployed"
+            help="Public charging stations for passenger EVs"
+        )
+        
+        num_depots = st.slider(
+            "Commercial Depots",
+            min_value=1,
+            max_value=50,
+            value=5,
+            help="Depot charging for commercial/freight EVs"
         )
     
     with col2:
@@ -113,6 +121,15 @@ def _render_infrastructure_controls():
             value=1.0,
             step=0.1,
             help="Spatial density\n0.3-0.7: Sparse (rural)\n1.0: Normal\n2.0+: Dense (urban)"
+        )
+        
+        depot_power_kw = st.slider(
+            "Depot Charger Power (kW)",
+            min_value=50,
+            max_value=350,
+            value=150,
+            step=25,
+            help="Fast charging at depots\n50kW: Standard\n150kW: Fast\n350kW: Ultra-fast"
         )
     
     st.markdown("**Dynamic Expansion**")
@@ -149,6 +166,8 @@ def _render_infrastructure_controls():
         'grid_capacity_mw': grid_capacity,
         'grid_reserve_margin': grid_reserve / 100.0,
         'num_chargers': int(num_chargers),
+        'num_depots': int(num_depots),
+        'depot_charger_power_kw': float(depot_power_kw),
         'charger_density_multiplier': charger_density,
         'allow_dynamic_expansion': allow_expansion,
         'expansion_trigger_threshold': expansion_trigger / 100.0,
@@ -408,6 +427,8 @@ def apply_parameter_overrides(config: SimulationConfig, params: dict):
         config.infrastructure.grid_capacity_mw = infra['grid_capacity_mw']
         config.infrastructure.grid_reserve_margin = infra['grid_reserve_margin']
         config.infrastructure.num_chargers = infra['num_chargers']
+        config.infrastructure.num_depots = infra['num_depots']
+        config.infrastructure.depot_charger_power_kw = infra['depot_charger_power_kw']
         config.infrastructure.charger_density_multiplier = infra['charger_density_multiplier']
         config.infrastructure.allow_dynamic_expansion = infra['allow_dynamic_expansion']
         config.infrastructure.expansion_trigger_threshold = infra['expansion_trigger_threshold']
