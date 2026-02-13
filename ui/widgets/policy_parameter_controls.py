@@ -66,11 +66,11 @@ def _render_infrastructure_controls():
     with col1:
         grid_capacity = st.slider(
             "Grid Capacity (MW)",
-            min_value=1.0,
+            min_value=0.5,
             max_value=500.0,
             value=50.0,
-            step=1.0,
-            help="Total electrical grid capacity\n1-10 MW: Stress test\n20-100 MW: City district\n200+ MW: Large region"
+            step=0.1,
+            help="Total electrical grid capacity\n0.5-10 MW: Stress test\n20-100 MW: City district\n200+ MW: Large region"
         )
         
         # Show context
