@@ -1,47 +1,36 @@
 """
 ui/tabs/map_tab.py
 
-Map visualization tab - extracted from main_tabs.py
+Map visualization tab with live policy status widget.
 """
 
 import streamlit as st
-import sys
-from pathlib import Path
-
-parent_dir = Path(__file__).resolve().parent.parent.parent
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
-
-from visualiser.visualization import render_map, get_current_stats
-
-#Import policy status widget
-from ui.widgets.policy_status_widget import (
-    render_policy_status_widget,
-    render_compact_policy_status,
-    render_policy_timeline
+from visualiser.visualization import (
+    render_map,
+    get_current_stats,
 )
+from ui.widgets.policy_status_widget import render_policy_status_widget
+
 
 def render_map_tab(results, anim, current_data):
     """
     Render map visualization tab.
     
     Args:
-        results: SimulationResults object
+        results: SimulationResults
         anim: AnimationController
         current_data: Current timestep data
     """
+    
     agent_states = current_data['agent_states']
     metrics = current_data.get('metrics', {})
     
     # Get config from session state
     config = st.session_state.get('last_config')
-
-    st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
-
-    # ADD: Compact policy status banner (optional - single line)
-    if config:
-        render_compact_policy_status(results, anim.current_step)
     
+    st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
+    
+    # Render map
     deck = render_map(
         agent_states=agent_states,
         show_agents=st.session_state.show_agents,
@@ -62,13 +51,9 @@ def render_map_tab(results, anim, current_data):
     col2.metric("Most Popular", stats['most_popular_mode'])
     col3.metric("Emissions", stats['total_emissions'])
     col4.metric("Agents w/ Routes", stats['agents_with_routes'])
-
+    
     st.markdown("---")
     
-    # ADD: Full policy status widget
-    if config:
+    # ADD: Policy Status Widget (if policy active)
+    if config and hasattr(results, 'policy_status') and results.policy_status:
         render_policy_status_widget(results, anim.current_step, config)
-    
-    # OPTIONAL: Add policy timeline
-    # with st.expander("📅 Policy Timeline", expanded=False):
-    #     render_policy_timeline(results, anim.current_step)
