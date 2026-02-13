@@ -169,7 +169,10 @@ class InfrastructureManager:
                 station = self.stations.stations[state['station_id']]
                 total_load_kw += station.power_kw
         
-        self.grid.update_load(total_load_kw / 1000.0)  # Convert to MW
+        depot_load_kw = sum(d.num_chargers * d.charger_power_kw * 0.3 
+                    for d in self.depots.depots.values())
+        total_with_depot = (total_load_kw + depot_load_kw) / 1000.0
+        self.grid.update_load(total_with_depot)
         
         # Track historical data for visualization
         utilization = self.grid.get_utilization()
