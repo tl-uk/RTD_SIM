@@ -531,7 +531,7 @@ def run_simulation_loop(
                         step=step
                     )
             
-            # ✅ CRITICAL FIX: Collect agent state at END of agent loop iteration
+            # Collect agent state at END of agent loop iteration
             # This MUST be at 12 spaces (inside `for agent in agents`)
             # and MUST be AFTER all agent processing for this step
             agent_states.append({

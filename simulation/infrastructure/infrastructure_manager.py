@@ -159,36 +159,65 @@ class InfrastructureManager:
     # ========================================================================
     
     def update_grid_load(self, step: int) -> None:
-        """Update grid load from active charging sessions."""
+        """Update grid load from active charging sessions AND depot charging."""
         active_charging = self.sessions.get_charging_agents()
         
-        total_load_kw = 0.0
+        # 1. Public charger load
+        public_load_kw = 0.0
         for agent_id in active_charging:
             state = self.sessions.agent_states.get(agent_id)
             if state and state['station_id'] in self.stations.stations:
                 station = self.stations.stations[state['station_id']]
-                total_load_kw += station.power_kw
+                public_load_kw += station.power_kw
         
-        depot_load_kw = sum(d.num_chargers * d.charger_power_kw * 0.3 
-                    for d in self.depots.depots.values())
-        total_with_depot = (total_load_kw + depot_load_kw) / 1000.0
-        self.grid.update_load(total_with_depot)
+        # 2. Depot charging load
+        depot_load_kw = self._calculate_depot_load()
         
-        # Track historical data for visualization
+        # 3. Total load
+        total_load_kw = public_load_kw + depot_load_kw
+        
+        self.grid.update_load(total_load_kw / 1000.0)  # Convert to MW
+        
+        # Track history
         utilization = self.grid.get_utilization()
         self.historical_utilization.append(utilization)
         self.historical_load.append(self.grid.get_load())
         
-        # Calculate occupancy rate
+        # Occupancy (public only)
         total_ports = sum(s.num_ports for s in self.stations.stations.values())
         occupied = sum(s.currently_occupied for s in self.stations.stations.values())
         occupancy = occupied / max(1, total_ports)
         self.historical_occupancy.append(occupancy)
         
-        # Log periodically
+        # Log with breakdown
         if step % 20 == 0 and total_load_kw > 0:
-            logger.info(f"Step {step}: Grid {self.grid.get_load():.2f} MW ({utilization:.1%})")
+            logger.info(
+                f"Step {step}: Grid {self.grid.get_load():.2f} MW ({utilization:.1%}) | "
+                f"Public: {public_load_kw/1000:.2f} MW, Depot: {depot_load_kw/1000:.2f} MW"
+            )
     
+    def _calculate_depot_load(self) -> float:
+        """
+        Calculate current depot charging load.
+        
+        Estimates depot load based on depot capacity and utilization.
+        
+        Returns:
+            Total depot load in kW
+        """
+        if not hasattr(self.depots, 'depots') or not self.depots.depots:
+            return 0.0
+        
+        depot_load_kw = 0.0
+        
+        # Estimate 30% of depot chargers actively charging at any time
+        # (This is conservative - peak could be 50-70%)
+        for depot in self.depots.depots.values():
+            estimated_active = depot.num_chargers * 0.3
+            depot_load_kw += estimated_active * depot.charger_power_kw
+        
+        return depot_load_kw
+
     def get_grid_stress_factor(self) -> float:
         """Get grid stress multiplier for cost calculations."""
         return self.grid.get_stress_factor()
