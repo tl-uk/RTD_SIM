@@ -29,58 +29,59 @@ except ImportError:
     SCENARIOS_AVAILABLE = False
     logger.warning("Dynamic policy engine not available")
 
+from simulation.execution.policy_initialization import initialize_policy_engine
 
-def initialize_policy_engine(config, infrastructure) -> Optional[DynamicPolicyEngine]:
-    """
-    Initialize dynamic policy engine if combined scenario is active.
+# def initialize_policy_engine(config, infrastructure) -> Optional[DynamicPolicyEngine]:
+#     """
+#     Initialize dynamic policy engine if combined scenario is active.
     
-    Args:
-        config: SimulationConfig instance
-        infrastructure: InfrastructureManager instance
+#     Args:
+#         config: SimulationConfig instance
+#         infrastructure: InfrastructureManager instance
     
-    Returns:
-        DynamicPolicyEngine instance or None
-    """
-    if not SCENARIOS_AVAILABLE:
-        logger.warning("Dynamic policy engine not available - scenarios module not found")
-        return None
+#     Returns:
+#         DynamicPolicyEngine instance or None
+#     """
+#     if not SCENARIOS_AVAILABLE:
+#         logger.warning("Dynamic policy engine not available - scenarios module not found")
+#         return None
     
-    # Check if combined scenario selected
-    combined_scenario_data = getattr(config, 'combined_scenario_data', None)
+#     # Check if combined scenario selected
+#     combined_scenario_data = getattr(config, 'combined_scenario_data', None)
     
-    if not combined_scenario_data:
-        logger.info("No combined scenario - using simple scenario or baseline")
-        return None
+#     if not combined_scenario_data:
+#         logger.info("No combined scenario - using simple scenario or baseline")
+#         return None
     
-    try:
-        # Initialize scenario manager
-        scenarios_dir = config.scenarios_dir or (Path(__file__).parent.parent.parent / 'scenarios' / 'configs')
-        scenario_manager = ScenarioManager(scenarios_dir)
+#     try:
+#         # Initialize scenario manager
+#         scenarios_dir = config.scenarios_dir or (Path(__file__).parent.parent.parent / 'scenarios' / 'configs')
+#         scenario_manager = ScenarioManager(scenarios_dir)
         
-        # Initialize dynamic policy engine
-        policy_engine = DynamicPolicyEngine(
-            infrastructure_manager=infrastructure,
-            scenario_manager=scenario_manager
-        )
+#         # Initialize dynamic policy engine
+#         policy_engine = DynamicPolicyEngine(
+#             infrastructure_manager=infrastructure,
+#             scenario_manager=scenario_manager
+#         )
         
-        # Parse and load combined scenario
-        combined = _parse_combined_scenario(combined_scenario_data)
+#         # Parse and load combined scenario
+#         combined = _parse_combined_scenario(combined_scenario_data)
         
-        # Activate combined scenario
-        policy_engine.activate_combined_scenario(combined)
+#         # Activate combined scenario
+#         policy_engine.activate_combined_scenario(combined)
         
-        logger.info(f"✅ Dynamic policy engine initialized: {combined.name}")
-        logger.info(f"   Base scenarios: {combined.base_scenarios}")
-        logger.info(f"   Interaction rules: {len(combined.interaction_rules)}")
-        logger.info(f"   Constraints: {len(combined.constraints)}")
+#         logger.info(f"✅ Dynamic policy engine initialized: {combined.name}")
+#         logger.info(f"   Base scenarios: {combined.base_scenarios}")
+#         logger.info(f"   Interaction rules: {len(combined.interaction_rules)}")
+#         logger.info(f"   Constraints: {len(combined.constraints)}")
         
-        return policy_engine
+#         return policy_engine
         
-    except Exception as e:
-        logger.error(f"Failed to initialize dynamic policy engine: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+#     except Exception as e:
+#         logger.error(f"Failed to initialize dynamic policy engine: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         return None
 
 
 def _parse_combined_scenario(data: Dict) -> CombinedScenario:

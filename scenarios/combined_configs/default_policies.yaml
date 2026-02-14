@@ -1,0 +1,59 @@
+# =============================================================================
+# scenarios/combined_configs/default_policies.yaml
+# =============================================================================
+# Default policy set - always active unless explicitly disabled
+# Provides basic infrastructure management for freight decarbonization
+
+name: Default Infrastructure Management
+description: |
+  Basic policy rules for infrastructure management.
+  Automatically manages grid capacity and charging infrastructure
+  based on utilization and adoption metrics.
+  
+  Active by default for all simulations unless disabled.
+
+base_scenarios: []
+
+interaction_rules:
+  # Grid expansion when approaching capacity
+  - condition: "grid_utilization > 0.85"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.3  # 30% expansion
+    priority: 100
+
+  # Add depot chargers for high freight EV adoption
+  - condition: "ev_adoption > 0.5"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 3
+      chargers_per_depot: 10
+      power_kw: 150
+    priority: 90
+  
+  # Add public chargers when heavily utilized
+  - condition: "charger_utilization > 0.80"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 10
+      strategy: coverage_gaps
+    priority: 80
+  
+  # Night-time pricing incentive
+  - condition: "time_of_day >= 22 or time_of_day <= 6"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 0.6  # 40% discount at night
+    priority: 70
+
+constraints:
+  - type: budget
+    limit: 50000000  # £50M default budget
+    warning_threshold: 0.85
+
+feedback_loops: []
+
+expected_outcomes:
+  grid_stability: 0.90
+  infrastructure_adequacy: 0.85
+  cost_efficiency: 0.75

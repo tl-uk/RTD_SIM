@@ -7,6 +7,7 @@ Sidebar configuration with Phase 5.1 combined scenarios.
 
 import streamlit as st
 from pathlib import Path
+from typing import Any, Dict, Optional, List
 import sys
 import yaml
 
@@ -43,7 +44,10 @@ def render_sidebar_config():
     # Combined scenario selection OUTSIDE form (so it updates immediately)
     # ============================================================================
     st.markdown("---")
-    combined_config = _render_combined_scenario_selection()
+    # Combined Scenarios & Policies
+    policy_config = render_combined_scenarios_section(config_state)
+    config_state.update(policy_config)
+
     st.markdown("---")
     
     # Advanced parameter controls
@@ -425,107 +429,157 @@ def _render_scenario_selection():
     }
 
 
-def _render_combined_scenario_selection():
+def render_combined_scenarios_section(config_state: Dict) -> Dict:
     """
-    Phase 5.1: Combined scenario selector.
-    MOVED OUTSIDE FORM so dropdown appears immediately when checkbox is checked.
-    """
-    st.markdown("### 🔗 Combined Scenarios (Advanced)")
+    Render combined scenarios and policy configuration.
     
-    # Checkbox OUTSIDE form
-    use_combined = st.checkbox(
-        "Use Combined Scenario", 
-        value=False,
-        help="Combine multiple policies with interaction rules and constraints",
-        key="use_combined_checkbox"
+    Refactored to separate concerns and reduce bloat.
+    """
+    st.markdown("---")
+    st.markdown("### 🔗 Policy Configuration")
+    
+    # Mode selection: Combined Scenario, Default Policies, or None
+    policy_mode = st.radio(
+        "Policy Mode",
+        options=["Default Policies", "Combined Scenario", "None (Baseline)"],
+        index=0,  # Default policies by default
+        help="Choose how infrastructure policies are managed"
     )
     
-    if not use_combined:
-        return {'use_combined': False, 'combined_scenario_data': None}
+    combined_scenario_data = None
+    use_default_policies = False
     
-    # Load combined scenarios
-    combined_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
-    
-    if not combined_dir.exists():
-        st.warning("⚠️ Create folder: scenarios/combined_configs/")
-        st.info("💡 Add YAML files like aggressive_electrification.yaml")
-        return {'use_combined': False, 'combined_scenario_data': None}
-    
-    # Load scenarios
-    scenarios = {}
-    yaml_files = list(combined_dir.glob('*.yaml'))
-    
-    for yaml_file in yaml_files:
-        try:
-            with open(yaml_file, 'r') as f:
-                for doc in yaml.safe_load_all(f):
-                    if doc and 'name' in doc:
-                        scenarios[doc['name']] = doc
-        except Exception as e:
-            st.error(f"Error loading {yaml_file.name}: {e}")
-    
-    if not scenarios:
-        st.info("💡 Add YAML files to scenarios/combined_configs/")
-        with st.expander("📝 Example YAML", expanded=False):
-            st.code("""# aggressive_electrification.yaml
-name: Aggressive Electrification Push
-description: Comprehensive EV transition strategy
-
-base_scenarios:
-  - complete_supply_chain_electrification
-  - depot_based_electrification
-  - economy_7_style_tariff
-
-interaction_rules:
-  - condition: "step > 20"
-    action: reduce_charging_costs
-    parameters:
-      multiplier: 0.8
-    priority: 100
-
-constraints:
-  - type: budget
-    limit: 50000000
-    warning_threshold: 0.8
-""", language="yaml")
-        return {'use_combined': False, 'combined_scenario_data': None}
-    
-    # Selectbox OUTSIDE form (updates immediately)
-    selected_name = st.selectbox(
-        "Select Combined Scenario", 
-        list(scenarios.keys()),
-        key="combined_scenario_selector"
-    )
-    
-    # Show scenario preview
-    if selected_name:
-        scenario_data = scenarios[selected_name]
-        with st.expander("📝 Scenario Preview", expanded=False):
-            st.write(f"**Description:** {scenario_data.get('description', 'No description')}")
-            
-            base_scenarios = scenario_data.get('base_scenarios', [])
-            st.write(f"**Base Scenarios ({len(base_scenarios)}):**")
-            for bs in base_scenarios[:5]:  # Show first 5
-                st.write(f"  • {bs}")
-            if len(base_scenarios) > 5:
-                st.write(f"  ... and {len(base_scenarios) - 5} more")
-            
-            st.write(f"**Interaction Rules:** {len(scenario_data.get('interaction_rules', []))}")
-            st.write(f"**Constraints:** {len(scenario_data.get('constraints', []))}")
-            
-            # Show expected outcomes if available
-            if 'expected_outcomes' in scenario_data:
-                st.markdown("**Expected Outcomes:**")
-                for outcome, value in scenario_data['expected_outcomes'].items():
-                    if isinstance(value, (int, float)):
-                        st.write(f"  • {outcome}: {value:+.1%}")
-                    else:
-                        st.write(f"  • {outcome}: {value}")
+    if policy_mode == "Combined Scenario":
+        # Advanced combined scenarios
+        combined_scenario_data = _render_combined_scenario_selector(config_state)
+        
+    elif policy_mode == "Default Policies":
+        # Use default policies
+        use_default_policies = True
+        st.info(
+            "💡 **Default Policies Active**\n\n"
+            "Basic infrastructure management:\n"
+            "- Grid expansion at 85% utilization\n"
+            "- Depot chargers at 50% EV adoption\n"
+            "- Public chargers at 80% utilization\n"
+            "- Night-time pricing discounts"
+        )
+        
+        # Option to customize default policy thresholds
+        if st.checkbox("⚙️ Customize Default Policy Thresholds", value=False):
+            with st.expander("Default Policy Settings"):
+                grid_threshold = st.slider(
+                    "Grid Expansion Trigger (%)",
+                    min_value=70,
+                    max_value=95,
+                    value=85,
+                    step=5,
+                    help="Expand grid when utilization exceeds this %"
+                )
+                
+                ev_threshold = st.slider(
+                    "Depot Addition Trigger (% EV Adoption)",
+                    min_value=30,
+                    max_value=70,
+                    value=50,
+                    step=5,
+                    help="Add depot chargers when EV adoption exceeds this %"
+                )
+                
+                charger_threshold = st.slider(
+                    "Public Charger Addition Trigger (%)",
+                    min_value=70,
+                    max_value=95,
+                    value=80,
+                    step=5,
+                    help="Add public chargers when utilization exceeds this %"
+                )
+                
+                # Store custom thresholds
+                config_state['policy_thresholds'] = {
+                    'grid_expansion': grid_threshold / 100,
+                    'depot_addition': ev_threshold / 100,
+                    'charger_addition': charger_threshold / 100
+                }
+    else:
+        # No policies - baseline simulation
+        st.warning(
+            "⚠️ **No Policies Active**\n\n"
+            "Running baseline simulation without dynamic infrastructure management."
+        )
     
     return {
-        'use_combined': True,
-        'combined_scenario_data': scenarios[selected_name]
+        'combined_scenario_data': combined_scenario_data,
+        'use_default_policies': use_default_policies,
+        'policy_mode': policy_mode
     }
+
+
+def _render_combined_scenario_selector(config_state: Dict) -> Optional[Dict]:
+    """
+    Render combined scenario selection dropdown.
+    
+    Separated from main function to reduce complexity.
+    """
+    scenarios_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
+    
+    if not scenarios_dir.exists():
+        st.error(f"Scenarios directory not found: {scenarios_dir}")
+        return None
+    
+    # Find all YAML files
+    scenario_files = list(scenarios_dir.glob('*.yaml'))
+    scenario_files = [f for f in scenario_files if f.name != 'default_policies.yaml']
+    
+    if not scenario_files:
+        st.warning("No combined scenarios found")
+        return None
+    
+    # Create scenario options
+    scenario_names = [f.stem.replace('_', ' ').title() for f in scenario_files]
+    
+    selected_scenario = st.selectbox(
+        "Select Combined Scenario",
+        options=scenario_names,
+        help="Advanced policy scenarios with complex interactions"
+    )
+    
+    if selected_scenario:
+        # Find the corresponding file
+        selected_file = None
+        for f in scenario_files:
+            if f.stem.replace('_', ' ').title() == selected_scenario:
+                selected_file = f
+                break
+        
+        if selected_file:
+            try:
+                import yaml
+                with open(selected_file, 'r') as f:
+                    data = yaml.safe_load(f)
+                
+                # Display scenario preview
+                with st.expander("📝 Scenario Preview", expanded=False):
+                    st.markdown(f"**Name:** {data.get('name', 'Unknown')}")
+                    st.markdown(f"**Description:**")
+                    st.markdown(data.get('description', 'No description'))
+                    
+                    # Show rules count
+                    rules = data.get('interaction_rules', [])
+                    st.markdown(f"**Policy Rules:** {len(rules)}")
+                    
+                    # Show constraints
+                    constraints = data.get('constraints', [])
+                    if constraints:
+                        st.markdown(f"**Constraints:** {len(constraints)}")
+                
+                return data
+                
+            except Exception as e:
+                st.error(f"Failed to load scenario: {e}")
+                return None
+    
+    return None
 
 
 def list_available_scenarios(scenarios_dir: Path) -> list:
