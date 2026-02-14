@@ -289,28 +289,40 @@ class DynamicPolicyEngine:
                 constraint.current = self.simulation_state['grid_load']
     
     def apply_interaction_rules(self, step: int) -> List[Dict]:
-        """
-        Evaluate and apply interaction rules based on current state.
-        
-        Returns:
-            List of actions taken
-        """
-        if not self.active_combined:
+        """Apply interaction rules for current step."""
+        if not self.active_combined or not self.active_combined.interaction_rules:
             return []
         
         actions_taken = []
         
-        # Sort rules by priority (highest first)
+        # Sort by priority
         sorted_rules = sorted(
             self.active_combined.interaction_rules,
             key=lambda r: r.priority,
             reverse=True
         )
         
-        for rule in sorted_rules:
+        # DEBUG: Log current state
+        logger.info(f"========== POLICY DEBUG Step {step} ==========")
+        logger.info(f"Grid utilization: {self.simulation_state.get('grid_utilization', 'N/A')}")
+        logger.info(f"Grid load: {self.simulation_state.get('grid_load', 'N/A')} MW")
+        logger.info(f"Grid capacity: {self.simulation_state.get('grid_capacity', 'N/A')} MW")
+        logger.info(f"Charger utilization: {self.simulation_state.get('charger_utilization', 'N/A')}")
+        logger.info(f"EV adoption: {self.simulation_state.get('ev_adoption', 'N/A')}")
+        logger.info(f"Number of rules to check: {len(sorted_rules)}")
+        
+        for i, rule in enumerate(sorted_rules):
+            logger.info(f"--- Rule {i+1}: {rule.action} ---")
+            logger.info(f"  Condition: {rule.condition}")
+            logger.info(f"  Priority: {rule.priority}")
+            
             # Check if condition met
-            if rule.evaluate_condition(self.simulation_state):
+            condition_result = rule.evaluate_condition(self.simulation_state)
+            logger.info(f"  Condition result: {condition_result}")
+            
+            if condition_result:
                 # Execute action
+                logger.info(f"  ✅ EXECUTING ACTION: {rule.action}")
                 action_result = self._execute_action(rule, step)
                 
                 if action_result:
@@ -325,7 +337,12 @@ class DynamicPolicyEngine:
                     rule_key = f"{rule.action}_{rule.condition}"
                     self.active_combined.triggered_at_step[rule_key] = step
                     
-                    logger.info(f"Step {step}: Triggered rule - {rule.action}")
+                    logger.info(f"  ✅ Action completed: {action_result}")
+            else:
+                logger.info(f"  ❌ Condition not met, skipping")
+        
+        logger.info(f"Total actions taken: {len(actions_taken)}")
+        logger.info(f"==========================================")
         
         return actions_taken
     
