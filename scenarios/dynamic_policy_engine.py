@@ -378,10 +378,16 @@ class DynamicPolicyEngine:
         # Grid actions
         elif action == 'enable_smart_charging':
             return self._enable_smart_charging(params)
-        elif action == 'increase_grid_capacity':  # NEW
+        elif action == 'increase_grid_capacity':  # Existing
             return self._increase_grid_capacity(params)
-        elif action == 'load_balancing':  # NEW
+        elif action == 'expand_grid_capacity':  # Alias for increase_grid_capacity
+            return self._expand_grid_capacity(params)
+        elif action == 'load_balancing':
             return self._apply_load_balancing(params)
+        
+        # Depot actions - NEW
+        elif action == 'add_depot_chargers':
+            return self._add_depot_chargers(params)
         
         # Mode-specific actions
         elif action == 'apply_congestion_charge':  # NEW
@@ -539,6 +545,107 @@ class DynamicPolicyEngine:
         
         return {'error': 'region_not_found'}
     
+    def _expand_grid_capacity(self, params: Dict) -> Dict:
+        """
+        Expand grid capacity (alias for increase_grid_capacity with different params).
+        
+        Uses 'increase_by' multiplier instead of 'additional_mw'.
+        """
+        increase_by = params.get('increase_by', 1.5)  # Default 50% increase
+        region = params.get('region', 'default')
+        
+        if region in self.infrastructure.grid_regions:
+            grid = self.infrastructure.grid_regions[region]
+            old_capacity = grid.capacity_mw
+            additional_mw = old_capacity * (increase_by - 1.0)  # e.g., 1.5x = 50% more
+            grid.capacity_mw = old_capacity * increase_by
+            
+            # Track cost
+            cost_per_mw = 1000000  # £1M per MW
+            total_cost = additional_mw * cost_per_mw
+            
+            if self.active_combined and 'budget' in self.active_combined.constraints:
+                budget = self.active_combined.constraints['budget']
+                budget.current += total_cost
+                self.infrastructure_capex += total_cost
+            
+            logger.info(f"  Grid capacity expanded: {old_capacity:.0f} MW → {grid.capacity_mw:.0f} MW ({increase_by}x)")
+            
+            return {
+                'old_capacity_mw': old_capacity,
+                'new_capacity_mw': grid.capacity_mw,
+                'increase_multiplier': increase_by,
+                'additional_mw': additional_mw,
+                'cost': total_cost
+            }
+        
+        logger.warning(f"  Grid region '{region}' not found")
+        return {'error': 'region_not_found'}
+
+    def _add_depot_chargers(self, params: Dict) -> Dict:
+        """
+        Add depot charging infrastructure for commercial/freight vehicles.
+        
+        Params:
+            num_depots: Number of new depots to add
+            chargers_per_depot: Chargers per depot (default 10)
+            power_kw: Charger power in kW (default 150)
+        """
+        num_depots = params.get('num_depots', 5)
+        chargers_per_depot = params.get('chargers_per_depot', 10)
+        power_kw = params.get('power_kw', 150)
+        
+        # Check if infrastructure has depot manager
+        if not hasattr(self.infrastructure, 'depots'):
+            logger.warning("  Infrastructure does not have depot manager")
+            return {'error': 'no_depot_manager'}
+        
+        # Add depots
+        added_depots = 0
+        total_chargers = 0
+        
+        for i in range(num_depots):
+            depot_id = f"policy_depot_{len(self.infrastructure.depots.depots) + i + 1:03d}"
+            
+            # Random location within Edinburgh bounds (example)
+            # In production, this should use proper placement logic
+            import random
+            lon = random.uniform(-3.35, -3.05)
+            lat = random.uniform(55.85, 56.00)
+            
+            self.infrastructure.depots.add_depot(
+                depot_id=depot_id,
+                location=(lon, lat),
+                depot_type='freight',
+                num_chargers=chargers_per_depot,
+                charger_power_kw=power_kw
+            )
+            
+            added_depots += 1
+            total_chargers += chargers_per_depot
+        
+        # Track cost
+        cost_per_charger = 50000  # £50k per depot charger (more expensive than public)
+        total_cost = total_chargers * cost_per_charger
+        
+        if self.active_combined and 'budget' in self.active_combined.constraints:
+            budget = self.active_combined.constraints['budget']
+            budget.current += total_cost
+            self.infrastructure_capex += total_cost
+        
+        logger.info(
+            f"  Added {added_depots} depot(s) with {total_chargers} chargers "
+            f"({chargers_per_depot} chargers/depot @ {power_kw} kW)"
+        )
+        
+        return {
+            'depots_added': added_depots,
+            'total_chargers': total_chargers,
+            'chargers_per_depot': chargers_per_depot,
+            'power_kw': power_kw,
+            'cost': total_cost
+        }
+
     def _apply_load_balancing(self, params: Dict) -> Dict:
         """Apply smart load balancing to distribute charging demand."""
         strategy = params.get('strategy', 'time_shift')

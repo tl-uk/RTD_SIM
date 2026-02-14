@@ -61,7 +61,7 @@ def render_sidebar_config():
         # Basic settings
         st.markdown("### 📊 Basic Settings")
         steps = st.number_input("Simulation Steps", 20, 200, 100, 20)
-        num_agents = st.number_input("Number of Agents", 10, 200, 50, 10)
+        num_agents = st.number_input("Number of Agents", 10, 500, 50, 10)
         
         st.markdown("---")
         
