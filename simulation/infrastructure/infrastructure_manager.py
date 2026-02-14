@@ -159,10 +159,15 @@ class InfrastructureManager:
     # ========================================================================
     
     def update_grid_load(self, step: int) -> None:
-        """Update grid load from active charging sessions AND depot charging."""
+        """
+        Update grid load from active charging sessions AND depot charging.
+        
+        CRITICAL for freight scenarios: Depots must be counted in grid load
+        for policies to trigger correctly.
+        """
         active_charging = self.sessions.get_charging_agents()
         
-        # 1. Public charger load
+        # 1. Calculate public charger load
         public_load_kw = 0.0
         for agent_id in active_charging:
             state = self.sessions.agent_states.get(agent_id)
@@ -170,20 +175,21 @@ class InfrastructureManager:
                 station = self.stations.stations[state['station_id']]
                 public_load_kw += station.power_kw
         
-        # 2. Depot charging load
+        # 2. Calculate depot charging load (CRITICAL FOR FREIGHT)
         depot_load_kw = self._calculate_depot_load()
         
-        # 3. Total load
+        # 3. Total load = public + depot
         total_load_kw = public_load_kw + depot_load_kw
         
+        # 4. Update grid
         self.grid.update_load(total_load_kw / 1000.0)  # Convert to MW
         
-        # Track history
+        # Track historical data
         utilization = self.grid.get_utilization()
         self.historical_utilization.append(utilization)
         self.historical_load.append(self.grid.get_load())
         
-        # Occupancy (public only)
+        # Calculate occupancy (public chargers)
         total_ports = sum(s.num_ports for s in self.stations.stations.values())
         occupied = sum(s.currently_occupied for s in self.stations.stations.values())
         occupancy = occupied / max(1, total_ports)
@@ -200,7 +206,9 @@ class InfrastructureManager:
         """
         Calculate current depot charging load.
         
-        Estimates depot load based on depot capacity and utilization.
+        Estimates load based on depot capacity and utilization.
+        For freight decarbonization scenarios where depot charging
+        is the primary charging mode.
         
         Returns:
             Total depot load in kW
@@ -210,11 +218,12 @@ class InfrastructureManager:
         
         depot_load_kw = 0.0
         
-        # Estimate 30% of depot chargers actively charging at any time
-        # (This is conservative - peak could be 50-70%)
+        # Estimate depot utilization
+        # Conservative: 30% of depot chargers active during daytime
+        # Peak could be 50-70% during prime delivery hours
         for depot in self.depots.depots.values():
-            estimated_active = depot.num_chargers * 0.3
-            depot_load_kw += estimated_active * depot.charger_power_kw
+            estimated_active_chargers = depot.num_chargers * 0.3
+            depot_load_kw += estimated_active_chargers * depot.charger_power_kw
         
         return depot_load_kw
 

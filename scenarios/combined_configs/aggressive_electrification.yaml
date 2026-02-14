@@ -14,20 +14,34 @@ base_scenarios:
   - economy_7_style_tariff
 
 interaction_rules:
-  # Immediately add capacity when utilization hits 60%
-  - condition: "charger_utilization > 0.6"
-    action: add_emergency_chargers
+  # Grid expansion when critically overloaded
+  - condition: "grid_utilization > 0.8"
+    action: expand_grid_capacity
     parameters:
-      num_chargers: 20
-      strategy: coverage_gaps
+      increase_by: 1.5  # 50% expansion
     priority: 100
 
-  # Always use cheapest possible pricing
+  # Add depot capacity when freight adoption is high
+  - condition: "ev_adoption > 0.3 and grid_utilization > 0.7"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 5
+      chargers_per_depot: 10
+    priority: 90
+
+  # Emergency chargers for public charging
+  - condition: "charger_utilization > 0.85"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 10
+    priority: 80
+
+  # Night charging incentive (already present)
   - condition: "time_of_day >= 22 or time_of_day <= 6"
     action: apply_surge_pricing
     parameters:
-      multiplier: 0.4  # 60% discount at night
-    priority: 90
+      multiplier: 0.4
+    priority: 70
 
 constraints:
   - type: budget
