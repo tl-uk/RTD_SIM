@@ -44,9 +44,48 @@ def render_sidebar_config():
     # Combined scenario selection OUTSIDE form (so it updates immediately)
     # ============================================================================
     st.markdown("---")
-    # Combined Scenarios & Policies
-    policy_config = render_combined_scenarios_section(config_state)
-    config_state.update(policy_config)
+    st.markdown("### 🔗 Policy Configuration")
+
+    # Policy mode selection
+    policy_mode = st.radio(
+        "Policy Mode",
+        options=["Default Policies", "Combined Scenario", "None (Baseline)"],
+        index=0,
+        help="Choose how infrastructure policies are managed",
+        key="policy_mode_selector"
+    )
+
+    combined_scenario_data = None
+    use_default_policies = False
+    use_combined = False
+    policy_thresholds = None
+
+    if policy_mode == "Combined Scenario":
+        combined_scenario_data = _render_combined_scenario_selector()
+        use_combined = True
+        
+    elif policy_mode == "Default Policies":
+        use_default_policies = True
+        
+        st.info(
+            "💡 **Default Policies Active**\n\n"
+            "- Grid expansion at 85% utilization\n"
+            "- Depot chargers at 50% EV adoption\n"
+            "- Public chargers at 80% utilization"
+        )
+        
+        if st.checkbox("⚙️ Customize Thresholds", value=False):
+            grid_threshold = st.slider("Grid Expansion (%)", 70, 95, 85, 5)
+            ev_threshold = st.slider("Depot Addition (% EV)", 30, 70, 50, 5)
+            charger_threshold = st.slider("Charger Addition (%)", 70, 95, 80, 5)
+            
+            policy_thresholds = {
+                'grid_expansion': grid_threshold / 100,
+                'depot_addition': ev_threshold / 100,
+                'charger_addition': charger_threshold / 100
+            }
+    else:
+        st.warning("⚠️ **No Policies Active** - Baseline simulation")
 
     st.markdown("---")
     
@@ -88,7 +127,7 @@ def render_sidebar_config():
         st.markdown("---")
         
         # Scenario selection (Phase 5.1) - only show if not using combined
-        if not combined_config['use_combined']:
+        if not use_combined:
             scenario_config = _render_scenario_selection()
         else:
             # Skip simple scenarios if combined is active
@@ -124,9 +163,14 @@ def render_sidebar_config():
         num_chargers=advanced_config['num_chargers'],
         num_depots=advanced_config['num_depots'],
         grid_capacity_mw=advanced_config['grid_capacity_mw'],
-        scenario_name=scenario_config['scenario_name'] if not combined_config['use_combined'] else None,
+        # Add policy configuration
+        use_default_policies=use_default_policies,
+        policy_thresholds=policy_thresholds,
+        scenario_name=scenario_config['scenario_name'] if not use_combined else None,
         scenarios_dir=scenario_config['scenarios_dir'],
-        combined_scenario_data=combined_config['combined_scenario_data'] if combined_config['use_combined'] else None,
+        combined_scenario_data=combined_scenario_data,
+        use_default_policies=use_default_policies,
+        policy_thresholds=policy_thresholds,  
         # Weather parameters
         weather_enabled=weather_config['enable_weather'],
         weather_source=weather_config['weather_source'],
@@ -429,98 +473,8 @@ def _render_scenario_selection():
     }
 
 
-def render_combined_scenarios_section(config_state: Dict) -> Dict:
-    """
-    Render combined scenarios and policy configuration.
-    
-    Refactored to separate concerns and reduce bloat.
-    """
-    st.markdown("---")
-    st.markdown("### 🔗 Policy Configuration")
-    
-    # Mode selection: Combined Scenario, Default Policies, or None
-    policy_mode = st.radio(
-        "Policy Mode",
-        options=["Default Policies", "Combined Scenario", "None (Baseline)"],
-        index=0,  # Default policies by default
-        help="Choose how infrastructure policies are managed"
-    )
-    
-    combined_scenario_data = None
-    use_default_policies = False
-    
-    if policy_mode == "Combined Scenario":
-        # Advanced combined scenarios
-        combined_scenario_data = _render_combined_scenario_selector(config_state)
-        
-    elif policy_mode == "Default Policies":
-        # Use default policies
-        use_default_policies = True
-        st.info(
-            "💡 **Default Policies Active**\n\n"
-            "Basic infrastructure management:\n"
-            "- Grid expansion at 85% utilization\n"
-            "- Depot chargers at 50% EV adoption\n"
-            "- Public chargers at 80% utilization\n"
-            "- Night-time pricing discounts"
-        )
-        
-        # Option to customize default policy thresholds
-        if st.checkbox("⚙️ Customize Default Policy Thresholds", value=False):
-            with st.expander("Default Policy Settings"):
-                grid_threshold = st.slider(
-                    "Grid Expansion Trigger (%)",
-                    min_value=70,
-                    max_value=95,
-                    value=85,
-                    step=5,
-                    help="Expand grid when utilization exceeds this %"
-                )
-                
-                ev_threshold = st.slider(
-                    "Depot Addition Trigger (% EV Adoption)",
-                    min_value=30,
-                    max_value=70,
-                    value=50,
-                    step=5,
-                    help="Add depot chargers when EV adoption exceeds this %"
-                )
-                
-                charger_threshold = st.slider(
-                    "Public Charger Addition Trigger (%)",
-                    min_value=70,
-                    max_value=95,
-                    value=80,
-                    step=5,
-                    help="Add public chargers when utilization exceeds this %"
-                )
-                
-                # Store custom thresholds
-                config_state['policy_thresholds'] = {
-                    'grid_expansion': grid_threshold / 100,
-                    'depot_addition': ev_threshold / 100,
-                    'charger_addition': charger_threshold / 100
-                }
-    else:
-        # No policies - baseline simulation
-        st.warning(
-            "⚠️ **No Policies Active**\n\n"
-            "Running baseline simulation without dynamic infrastructure management."
-        )
-    
-    return {
-        'combined_scenario_data': combined_scenario_data,
-        'use_default_policies': use_default_policies,
-        'policy_mode': policy_mode
-    }
-
-
-def _render_combined_scenario_selector(config_state: Dict) -> Optional[Dict]:
-    """
-    Render combined scenario selection dropdown.
-    
-    Separated from main function to reduce complexity.
-    """
+def _render_combined_scenario_selector() -> Optional[Dict]:
+    """Render combined scenario selection dropdown."""
     scenarios_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
     
     if not scenarios_dir.exists():
