@@ -576,7 +576,7 @@ delivery_driver:
     network_size_range: [10, 30]
 
   # ============================================================================
-  # PHASE 4.5G: Multi-Modal User Stories
+  # Multi-Modal User Stories
   # ============================================================================
 
   long_distance_commuter:
