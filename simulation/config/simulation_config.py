@@ -52,6 +52,10 @@ class SimulationConfig:
         scenario_name: Optional[str] = None,
         scenarios_dir: Optional[Path] = None,
         combined_scenario_data: Optional[Dict] = None,
+
+        # ===== POLICY FRAMEWORK =====
+        use_default_policies: bool = False,
+        policy_thresholds: Optional[Dict] = None,
         
         # ===== BACKWARD COMPATIBILITY: OLD FLAT PARAMETERS =====
         # Infrastructure (old style)
@@ -131,6 +135,10 @@ class SimulationConfig:
         self.scenario_name = scenario_name
         self.scenarios_dir = scenarios_dir
         self.combined_scenario_data = combined_scenario_data
+
+        # Policy framework (NEW)
+        self.use_default_policies = use_default_policies
+        self.policy_thresholds = policy_thresholds
         
         # Initialize sub-configs
         # Use provided sub-configs OR build from flat parameters
@@ -197,7 +205,11 @@ class SimulationConfig:
         if policy is not None:
             self.policy = policy
         else:
-            self.policy = PolicyConfig()
+            self.policy = PolicyConfig(
+                combined_scenario_data=combined_scenario_data,
+                use_default_policies=use_default_policies,
+                custom_thresholds=policy_thresholds
+            )
     
     # ===== BACKWARD COMPATIBILITY PROPERTIES =====
     # Allow old-style attribute access after initialization
