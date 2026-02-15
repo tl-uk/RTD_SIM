@@ -51,8 +51,7 @@ def render_sidebar_config():
         "Policy Mode",
         options=["Default Policies", "Combined Scenario", "None (Baseline)"],
         index=0,
-        help="Choose how infrastructure policies are managed",
-        key="policy_mode_selector"
+        help="Choose how infrastructure policies are managed"
     )
 
     combined_scenario_data = None
@@ -61,45 +60,81 @@ def render_sidebar_config():
     policy_thresholds = None
 
     if policy_mode == "Combined Scenario":
+        # Advanced combined scenarios
         combined_scenario_data = _render_combined_scenario_selector()
         use_combined = True
         
     elif policy_mode == "Default Policies":
+        # Use default policies
         use_default_policies = True
         
         st.info(
             "💡 **Default Policies Active**\n\n"
+            "Basic infrastructure management:\n"
             "- Grid expansion at 85% utilization\n"
             "- Depot chargers at 50% EV adoption\n"
-            "- Public chargers at 80% utilization"
+            "- Public chargers at 80% utilization\n"
+            "- Night-time pricing discounts"
         )
         
-        if st.checkbox("⚙️ Customize Thresholds", value=False):
-            grid_threshold = st.slider("Grid Expansion (%)", 70, 95, 85, 5)
-            ev_threshold = st.slider("Depot Addition (% EV)", 30, 70, 50, 5)
-            charger_threshold = st.slider("Charger Addition (%)", 70, 95, 80, 5)
-            
-            policy_thresholds = {
-                'grid_expansion': grid_threshold / 100,
-                'depot_addition': ev_threshold / 100,
-                'charger_addition': charger_threshold / 100
-            }
+        # Option to customize default policy thresholds
+        if st.checkbox("⚙️ Customize Default Policy Thresholds", value=False):
+            with st.expander("Default Policy Settings"):
+                grid_threshold = st.slider(
+                    "Grid Expansion Trigger (%)",
+                    min_value=70,
+                    max_value=95,
+                    value=85,
+                    step=5,
+                    help="Expand grid when utilization exceeds this %"
+                )
+                
+                ev_threshold = st.slider(
+                    "Depot Addition Trigger (% EV Adoption)",
+                    min_value=30,
+                    max_value=70,
+                    value=50,
+                    step=5,
+                    help="Add depot chargers when EV adoption exceeds this %"
+                )
+                
+                charger_threshold = st.slider(
+                    "Public Charger Addition Trigger (%)",
+                    min_value=70,
+                    max_value=95,
+                    value=80,
+                    step=5,
+                    help="Add public chargers when utilization exceeds this %"
+                )
+                
+                # Store custom thresholds
+                policy_thresholds = {
+                    'grid_expansion': grid_threshold / 100,
+                    'depot_addition': ev_threshold / 100,
+                    'charger_addition': charger_threshold / 100
+                }
     else:
-        st.warning("⚠️ **No Policies Active** - Baseline simulation")
+        # No policies - baseline simulation
+        st.warning(
+            "⚠️ **No Policies Active**\n\n"
+            "Running baseline simulation without dynamic infrastructure management."
+        )
 
     st.markdown("---")
-    
+
     # Advanced parameter controls
     with st.expander("🎛️ Advanced Parameter Tuning", expanded=False):
         param_overrides = render_policy_parameter_controls()
-    
+
     st.markdown("---")
+
     # ========================================================================
     # Weather configuration OUTSIDE form (so it updates immediately)
     # ========================================================================
     weather_config = _render_weather_configuration()
+
     st.markdown("---")
-    
+
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
@@ -126,7 +161,7 @@ def render_sidebar_config():
         
         st.markdown("---")
         
-        # Scenario selection (Phase 5.1) - only show if not using combined
+        # Scenario selection (Phase 5.1) - only show if not using combined or default policies
         if not use_combined:
             scenario_config = _render_scenario_selection()
         else:
@@ -143,8 +178,10 @@ def render_sidebar_config():
             type="primary", 
             use_container_width=True
         )
-    
+
+    # =======================================================================
     # Build config
+    # =======================================================================
     config = SimulationConfig(
         steps=steps,
         num_agents=num_agents,
@@ -163,14 +200,16 @@ def render_sidebar_config():
         num_chargers=advanced_config['num_chargers'],
         num_depots=advanced_config['num_depots'],
         grid_capacity_mw=advanced_config['grid_capacity_mw'],
-        # Add policy configuration
-        use_default_policies=use_default_policies,
-        policy_thresholds=policy_thresholds,
+        
+        # Scenario configuration - FIXED
         scenario_name=scenario_config['scenario_name'] if not use_combined else None,
         scenarios_dir=scenario_config['scenarios_dir'],
+        
+        # Policy configuration - NEW
         combined_scenario_data=combined_scenario_data,
         use_default_policies=use_default_policies,
-        policy_thresholds=policy_thresholds,  
+        policy_thresholds=policy_thresholds,
+        
         # Weather parameters
         weather_enabled=weather_config['enable_weather'],
         weather_source=weather_config['weather_source'],
