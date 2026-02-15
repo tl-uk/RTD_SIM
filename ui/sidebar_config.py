@@ -549,7 +549,7 @@ def _render_combined_scenario_selector() -> Optional[Dict]:
             try:
                 import yaml
                 with open(selected_file, 'r') as f:
-                    data = yaml.safe_load(f)
+                    documents = list(yaml.safe_load_all(f)) # Support multi-document YAML
                 
                 # Display scenario preview
                 with st.expander("📝 Scenario Preview", expanded=False):
