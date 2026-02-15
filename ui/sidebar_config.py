@@ -513,16 +513,23 @@ def _render_scenario_selection():
 
 
 def _render_combined_scenario_selector() -> Optional[Dict]:
-    """Render combined scenario selection dropdown."""
+    """
+    Render combined scenario selection dropdown.
+    
+    Returns:
+        Combined scenario data dict or None
+    """
     scenarios_dir = Path(__file__).parent.parent / 'scenarios' / 'combined_configs'
     
     if not scenarios_dir.exists():
         st.error(f"Scenarios directory not found: {scenarios_dir}")
         return None
     
-    # Find all YAML files
-    scenario_files = list(scenarios_dir.glob('*.yaml'))
-    scenario_files = [f for f in scenario_files if f.name != 'default_policies.yaml']
+    # Find all YAML files except default_policies.yaml
+    scenario_files = [
+        f for f in scenarios_dir.glob('*.yaml') 
+        if f.name != 'default_policies.yaml'
+    ]
     
     if not scenario_files:
         st.warning("No combined scenarios found")
@@ -549,25 +556,38 @@ def _render_combined_scenario_selector() -> Optional[Dict]:
             try:
                 import yaml
                 with open(selected_file, 'r') as f:
-                    documents = list(yaml.safe_load_all(f)) # Support multi-document YAML
+                    documents = list(yaml.safe_load_all(f))
                 
-                # Display scenario preview
+                # Get first document
+                if not documents:
+                    st.error("Scenario file is empty")
+                    return None
+                
+                data = documents[0]
+                
+                # Validate
+                if not isinstance(data, dict):
+                    st.error("Invalid scenario file format")
+                    return None
+                
+                # Display preview
                 with st.expander("📝 Scenario Preview", expanded=False):
                     st.markdown(f"**Name:** {data.get('name', 'Unknown')}")
                     st.markdown(f"**Description:**")
                     st.markdown(data.get('description', 'No description'))
                     
-                    # Show rules count
                     rules = data.get('interaction_rules', [])
                     st.markdown(f"**Policy Rules:** {len(rules)}")
                     
-                    # Show constraints
                     constraints = data.get('constraints', [])
                     if constraints:
                         st.markdown(f"**Constraints:** {len(constraints)}")
                 
                 return data
                 
+            except yaml.YAMLError as e:
+                st.error(f"YAML parsing error: {e}")
+                return None
             except Exception as e:
                 st.error(f"Failed to load scenario: {e}")
                 return None
