@@ -206,10 +206,15 @@ class SimulationConfig:
             self.policy = policy
         else:
             self.policy = PolicyConfig(
-                combined_scenario_data=combined_scenario_data,
-                use_default_policies=use_default_policies,
-                custom_thresholds=policy_thresholds
+                combined_scenario_data=combined_scenario_data
             )
+
+        # Store policy framework attributes at top level
+        # (policy_initialization.py reads these with getattr)
+        if not hasattr(self, 'use_default_policies'):
+            self.use_default_policies = use_default_policies
+        if not hasattr(self, 'policy_thresholds'):
+            self.policy_thresholds = policy_thresholds
     
     # ===== BACKWARD COMPATIBILITY PROPERTIES =====
     # Allow old-style attribute access after initialization
