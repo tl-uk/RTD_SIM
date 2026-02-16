@@ -21,6 +21,7 @@ interaction_rules:
     parameters:
       increase_by: 1.3  # 30% expansion
     priority: 100
+    cooldown_steps: 20  # Prevents repeated expansions in short time frame
 
   # Add depot chargers for high freight EV adoption
   - condition: "ev_adoption > 0.5"
@@ -30,6 +31,7 @@ interaction_rules:
       chargers_per_depot: 10
       power_kw: 150
     priority: 90
+    cooldown_steps: 50  # Prevents overbuilding in response to temporary adoption spikes
   
   # Add public chargers when heavily utilized
   - condition: "charger_utilization > 0.80"
