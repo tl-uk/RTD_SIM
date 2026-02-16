@@ -4,6 +4,7 @@ simulation/simulation_runner.py
 Main simulation orchestrator - delegates to specialized modules.
 
 MODIFIED Phase 5.1: Added dynamic policy engine support for combined scenarios
+FIXED: Added support for default policies and restored missing Phases 5 & 6
 """
 
 from __future__ import annotations
@@ -126,6 +127,25 @@ def run_simulation(
         else:
             logger.info("➖ Phase 4.5: No scenarios active (baseline run)")
         
+        # Phase 5: Create agents
+        logger.info("🤖 Phase 5: Agent creation")
+        agents, desire_std = create_agents(config, env, planner, progress_callback)
+        results.agents = agents
+        results.desire_std = desire_std
+        
+        # Phase 6: Setup social network
+        if config.enable_social:
+            logger.info("🌐 Phase 6: Social network setup")
+            network, influence_system = setup_social_network(
+                config, agents, progress_callback
+            )
+            results.network = network
+            results.influence_system = influence_system
+        else:
+            network = None
+            influence_system = None
+            logger.info("➖ Phase 6: Social network disabled")
+        
         # ====================================================================
         # Phase 7: Run main simulation loop (with policy engine if active)
         # ====================================================================
@@ -191,6 +211,7 @@ def run_simulation(
         if 'analytics_summary' in loop_results:
             results.analytics_summary = loop_results['analytics_summary']
             logger.info(f"✅ Analytics summary generated")
+        
         results.success = True
         
         # Log summary
