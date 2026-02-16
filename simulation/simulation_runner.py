@@ -96,21 +96,25 @@ def run_simulation(
         planner = create_planner(infrastructure)
         
         # ====================================================================
-        # Phase 4.5: Apply policies (simple OR combined scenarios)
+        # Phase 4.5: Apply policies (simple, combined, or default)
         # ====================================================================
         policy_engine = None
-        
-        # Check if combined scenario is active
-        if config.combined_scenario_data:
-            logger.info("🔗 Phase 4.5: Initializing dynamic policy engine (combined scenario)")
+
+        # Check if combined scenario OR default policies are active
+        if config.combined_scenario_data or getattr(config, 'use_default_policies', False):
+            if config.combined_scenario_data:
+                logger.info("🔗 Phase 4.5: Initializing dynamic policy engine (combined scenario)")
+            else:
+                logger.info("🔗 Phase 4.5: Initializing dynamic policy engine (default policies)")
+            
             policy_engine = initialize_policy_engine(config, infrastructure)
             
             if policy_engine:
                 logger.info(f"✅ Policy engine initialized")
             else:
                 logger.warning("⚠️ Failed to initialize policy engine, continuing without it")
-        
-        # Fallback to simple scenario if no combined scenario
+
+        # Fallback to simple scenario if no combined scenario and no default policies
         elif config.scenario_name:
             logger.info(f"📋 Phase 4.5: Applying simple scenario '{config.scenario_name}'")
             scenario_report = apply_scenario_policies(config, env, progress_callback)
@@ -118,28 +122,9 @@ def run_simulation(
             
             if scenario_report:
                 logger.info(f"✅ Scenario applied: {scenario_report['name']}")
-        
+
         else:
             logger.info("➖ Phase 4.5: No scenarios active (baseline run)")
-        
-        # Phase 5: Create agents
-        logger.info("🤖 Phase 5: Agent creation")
-        agents, desire_std = create_agents(config, env, planner, progress_callback)
-        results.agents = agents
-        results.desire_std = desire_std
-        
-        # Phase 6: Setup social network
-        if config.enable_social:
-            logger.info("🌐 Phase 6: Social network setup")
-            network, influence_system = setup_social_network(
-                config, agents, progress_callback
-            )
-            results.network = network
-            results.influence_system = influence_system
-        else:
-            network = None
-            influence_system = None
-            logger.info("⭕ Phase 6: Social network disabled")
         
         # ====================================================================
         # Phase 7: Run main simulation loop (with policy engine if active)
