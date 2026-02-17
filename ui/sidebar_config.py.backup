@@ -236,226 +236,14 @@ def render_sidebar_config():
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _geocode_place(query: str) -> Optional[dict]:
-    """
-    Geocode a place name using Nominatim (OpenStreetMap).
-
-    Returns dict with keys: lat, lon, display_name, bbox
-    or None if geocoding fails.
-    """
-    try:
-        import requests
-        url = "https://nominatim.openstreetmap.org/search"
-        resp = requests.get(
-            url,
-            params={"q": query.strip(), "format": "json", "limit": 1},
-            headers={"User-Agent": "RTD-SIM/1.0 (freight-decarbonisation-simulator)"},
-            timeout=8,
-        )
-        results = resp.json()
-        if results:
-            r = results[0]
-            return {
-                "lat":          float(r["lat"]),
-                "lon":          float(r["lon"]),
-                "display_name": r["display_name"],
-                "bbox":         r.get("boundingbox"),  # [min_lat, max_lat, min_lon, max_lon]
-            }
-    except Exception:
-        pass
-    return None
-
-
-def _locations_to_bbox(locations: list, padding: float = 0.3) -> tuple:
-    """
-    Convert a list of {lat, lon} dicts into an (west, south, east, north)
-    bounding box with padding to give OSMnx a usable area.
-    """
-    lats = [loc["lat"] for loc in locations]
-    lons = [loc["lon"] for loc in locations]
-    min_lat, max_lat = min(lats), max(lats)
-    min_lon, max_lon = min(lons), max(lons)
-
-    # If all points are the same place, spread the box by padding alone
-    lat_span = max_lat - min_lat
-    lon_span = max_lon - min_lon
-    pad_lat  = max(padding, lat_span * 0.2)
-    pad_lon  = max(padding, lon_span * 0.2)
-
-    return (
-        round(min_lon - pad_lon, 6),  # west
-        round(min_lat - pad_lat, 6),  # south
-        round(max_lon + pad_lon, 6),  # east
-        round(max_lat + pad_lat, 6),  # north
-    )
-
-
-def _render_location_map_picker() -> list:
-    """
-    Render an interactive Leaflet map inside a Streamlit HTML component.
-
-    Users click to place/remove pins. Returns list of {lat, lon} dicts
-    stored in st.session_state['map_pins'].
-    The component communicates pin changes back via a hidden text input
-    that the user manually updates — because st.components.v1.html is
-    one-way (no callback). We store pins in session_state and let the
-    user confirm via the 'Use these pins' button.
-    """
-    import streamlit.components.v1 as components
-
-    # Initialise session state
-    if "map_pins" not in st.session_state:
-        st.session_state.map_pins = []
-
-    # Serialise existing pins for the map to pre-draw
-    import json
-    existing_pins_json = json.dumps(st.session_state.map_pins)
-
-    leaflet_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8"/>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <style>
-        * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ font-family: sans-serif; }}
-        #map {{ height: 380px; width: 100%; }}
-        #info {{
-          background: #1e2130; color: #e0e0e0;
-          padding: 8px 12px; font-size: 13px;
-          border-top: 1px solid #333;
-        }}
-        #pinlist {{ margin-top:4px; }}
-        .pin-entry {{ display:flex; justify-content:space-between; align-items:center;
-                      padding: 2px 0; border-bottom: 1px solid #333; }}
-        .pin-entry span {{ font-size: 12px; flex:1; margin-right:8px; overflow:hidden;
-                           text-overflow:ellipsis; white-space:nowrap; }}
-        .rm-btn {{ background:#c0392b; color:white; border:none; border-radius:3px;
-                   padding:2px 6px; cursor:pointer; font-size:11px; flex-shrink:0; }}
-        #copybox {{ width:100%; margin-top:6px; background:#111; color:#7ec8e3;
-                    border:1px solid #444; padding:4px; font-size:11px;
-                    font-family:monospace; resize:none; height:36px; }}
-        #copybtn {{ margin-top:4px; padding:4px 10px; background:#2a9d8f; color:white;
-                    border:none; border-radius:3px; cursor:pointer; font-size:12px; }}
-        h4 {{ margin-bottom:4px; font-size:13px; color:#7ec8e3; }}
-      </style>
-    </head>
-    <body>
-      <div id="map"></div>
-      <div id="info">
-        <h4>📍 Click map to place pins &nbsp;|&nbsp; Click pin to remove</h4>
-        <div id="pinlist"></div>
-        <textarea id="copybox" readonly placeholder="Pins will appear here as lat,lon pairs..."></textarea>
-        <button id="copybtn" onclick="copyPins()">📋 Copy pin coords</button>
-      </div>
-      <script>
-        var map = L.map('map').setView([54.5, -3.5], 6);
-        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-          attribution: '© OpenStreetMap contributors', maxZoom: 18
-        }}).addTo(map);
-
-        var pins = {existing_pins_json};
-        var markers = [];
-
-        function renderPins() {{
-          // Clear existing markers
-          markers.forEach(function(m) {{ map.removeLayer(m); }});
-          markers = [];
-
-          var pinlist = document.getElementById('pinlist');
-          pinlist.innerHTML = '';
-          var coords = [];
-
-          pins.forEach(function(p, i) {{
-            var m = L.marker([p.lat, p.lon], {{
-              title: p.label || ('Pin ' + (i+1))
-            }}).addTo(map);
-            m.bindPopup('<b>' + (p.label || 'Pin ' + (i+1)) + '</b><br>'
-              + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5)
-              + '<br><button onclick="removePin(' + i + ')" style="margin-top:4px;background:#c0392b;color:white;border:none;border-radius:3px;padding:2px 6px;cursor:pointer">Remove</button>');
-            markers.push(m);
-            coords.push(p.lat.toFixed(5) + ',' + p.lon.toFixed(5));
-
-            var row = document.createElement('div');
-            row.className = 'pin-entry';
-            row.innerHTML = '<span>📍 ' + (p.label || 'Pin ' + (i+1))
-              + ' (' + p.lat.toFixed(3) + ', ' + p.lon.toFixed(3) + ')</span>'
-              + '<button class="rm-btn" onclick="removePin(' + i + ')">✕</button>';
-            pinlist.appendChild(row);
-          }});
-
-          document.getElementById('copybox').value = coords.join('; ');
-        }}
-
-        function removePin(i) {{
-          pins.splice(i, 1);
-          renderPins();
-        }}
-
-        map.on('click', function(e) {{
-          var lat = e.latlng.lat;
-          var lon = e.latlng.lng;
-          pins.push({{ lat: lat, lon: lon, label: 'Pin ' + (pins.length + 1) }});
-          renderPins();
-          // Auto-open popup on last marker
-          markers[markers.length-1].openPopup();
-        }});
-
-        function copyPins() {{
-          var box = document.getElementById('copybox');
-          box.select();
-          document.execCommand('copy');
-        }}
-
-        renderPins();
-      </script>
-    </body>
-    </html>
-    """
-
-    components.html(leaflet_html, height=500, scrolling=False)
-
-    st.caption(
-        "👆 Click the map to place pins. Copy the coords from the box, "
-        "then paste them into the **Coordinates** input below."
-    )
-
-    # Coordinate paste input — user pastes "lat,lon; lat,lon" pairs
-    coord_input = st.text_input(
-        "Paste pin coordinates (lat,lon; lat,lon ...)",
-        value="",
-        key="map_pin_coords",
-        placeholder="e.g. 51.127, 1.3092; 55.9533, -3.1883",
-        help="Copy coords from the map box above and paste here, separated by semicolons",
-    )
-
-    pins = []
-    if coord_input.strip():
-        for part in coord_input.split(";"):
-            part = part.strip()
-            if not part:
-                continue
-            try:
-                lat_s, lon_s = part.split(",", 1)
-                pins.append({"lat": float(lat_s.strip()), "lon": float(lon_s.strip())})
-            except ValueError:
-                st.warning(f"⚠️ Could not parse coordinates: `{part}` — use format `lat, lon`")
-
-    return pins
-
-
 def _render_location_settings():
     """Render location configuration section."""
     st.markdown("### 🗺️ Location")
     use_osm = st.checkbox("Use Real Street Network", value=True)
-
+    
     place = None
     extended_bbox = None
-    region_name = "Synthetic Network"
-
+    
     if use_osm:
         region_choice = st.selectbox(
             "Region",
@@ -463,158 +251,58 @@ def _render_location_settings():
                 'Edinburgh City',
                 'Central Scotland (Edinburgh-Glasgow)',
                 'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',
-                'Custom Place',
+                'Custom Place'
             ],
             index=0,
-            help="Select spatial extent for simulation",
+            help="Select spatial extent for simulation"
         )
-
+        
         if region_choice == 'Edinburgh City':
             place = "Edinburgh, UK"
             extended_bbox = None
-            region_name = "Edinburgh City"
+            region_name = "Edinburgh City" 
             st.info("🏙️ City scale: ~30km radius, good for walk/bike/car/EV")
-
+        
         elif region_choice == 'Central Scotland (Edinburgh-Glasgow)':
             place = None
             extended_bbox = (-4.30, 55.80, -3.10, 56.00)
-            region_name = "Central Scotland (Edinburgh-Glasgow)"
+            region_name = "Central Scotland (Edinburgh-Glasgow)" 
             st.success("📦 2-City: Edinburgh-Glasgow corridor (~80km, 60k nodes)")
-
+        
         elif region_choice == 'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)':
             place = None
             extended_bbox = (-4.30, 55.85, -2.05, 57.20)
             region_name = "Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)"
             st.success("🚛 3-City: Aberdeen-Edinburgh-Glasgow (~240km, 120-150k nodes)")
-
+        
         else:  # Custom Place
-            # ----------------------------------------------------------------
-            # Input method toggle
-            # ----------------------------------------------------------------
-            input_method = st.radio(
-                "Input method",
-                options=["📝 Type locations", "🗺️ Click map"],
-                index=0,
-                horizontal=True,
-                key="custom_location_method",
-                help="Type place names separated by ; or click the map to drop pins",
+            if 'custom_place' not in st.session_state:
+                st.session_state.custom_place = "Edinburgh, UK"
+            
+            custom_input = st.text_input(
+                "City/Place Name",
+                value=st.session_state.custom_place,
+                key="custom_place_input_form",
+                help="Enter any city or place name"
             )
-
-            locations_resolved = []   # list of {lat, lon, display_name}
-            raw_names = []            # list of human-readable names for region_name
-
-            # ----------------------------------------------------------------
-            # Mode A: text input
-            # ----------------------------------------------------------------
-            if input_method == "📝 Type locations":
-                if "custom_text_locations" not in st.session_state:
-                    st.session_state.custom_text_locations = "Edinburgh, UK"
-
-                text_input = st.text_input(
-                    "Place names (separate multiple with `;`)",
-                    value=st.session_state.custom_text_locations,
-                    key="custom_text_input",
-                    placeholder="e.g. Port of Dover; Edinburgh",
-                    help="Type one or more place names. Multiple locations create a bounding box spanning all of them.",
-                )
-
-                if text_input:
-                    st.session_state.custom_text_locations = text_input
-
-                if text_input and st.button("🔍 Geocode locations", key="geocode_btn"):
-                    names = [n.strip() for n in text_input.split(";") if n.strip()]
-                    geocoded = []
-                    failed = []
-                    with st.spinner("Geocoding…"):
-                        for name in names:
-                            result = _geocode_place(name)
-                            if result:
-                                geocoded.append(result)
-                                raw_names.append(result["display_name"].split(",")[0])
-                            else:
-                                failed.append(name)
-
-                    if failed:
-                        st.warning(f"⚠️ Could not geocode: {', '.join(failed)}")
-                    if geocoded:
-                        st.session_state.geocoded_locations = geocoded
-                        st.session_state.geocoded_names = raw_names
-
-                # Display resolved locations from session state
-                if "geocoded_locations" in st.session_state and st.session_state.geocoded_locations:
-                    locations_resolved = st.session_state.geocoded_locations
-                    raw_names = st.session_state.get("geocoded_names", [])
-                    for loc in locations_resolved:
-                        st.success(f"📍 {loc['display_name'].split(',')[0]} → {loc['lat']:.4f}, {loc['lon']:.4f}")
-                elif text_input and "geocoded_locations" not in st.session_state:
-                    # First run — show hint
-                    st.info("💡 Press **Geocode locations** to resolve place names to coordinates.")
-
-            # ----------------------------------------------------------------
-            # Mode B: map picker
-            # ----------------------------------------------------------------
-            else:
-                st.caption("Click anywhere on the map to place pins. Two or more pins define the simulation corridor.")
-                pin_locations = _render_location_map_picker()
-
-                if pin_locations:
-                    locations_resolved = pin_locations
-                    raw_names = [f"Pin {i+1}" for i in range(len(pin_locations))]
-                    for i, loc in enumerate(pin_locations):
-                        st.success(f"📍 Pin {i+1}: {loc['lat']:.4f}, {loc['lon']:.4f}")
-                else:
-                    st.info("👆 Click the map to place at least one pin, then paste the coordinates above.")
-
-            # ----------------------------------------------------------------
-            # Convert resolved locations → place / extended_bbox
-            # ----------------------------------------------------------------
-            if len(locations_resolved) == 0:
-                # Nothing resolved yet — fall back to Edinburgh to avoid crash
-                place = "Edinburgh, UK"
-                extended_bbox = None
-                region_name = "Custom (not yet resolved)"
-                st.warning("⚠️ No locations resolved — defaulting to Edinburgh.")
-
-            elif len(locations_resolved) == 1:
-                # Single location: use as place name if we have a display name,
-                # else fall back to a tight bbox
-                loc = locations_resolved[0]
-                display = loc.get("display_name", "")
-                if display:
-                    # Extract the primary name (first comma-separated token)
-                    place = display.split(",")[0].strip() + ", " + display.split(",")[-1].strip()
-                    extended_bbox = None
-                    region_name = display.split(",")[0].strip()
-                else:
-                    # Coordinate-only pin — build a small bbox around it
-                    extended_bbox = _locations_to_bbox([loc], padding=0.15)
-                    place = None
-                    region_name = f"{loc['lat']:.3f}, {loc['lon']:.3f}"
-                st.info(f"🗺️ Single location: {region_name}")
-
-            else:
-                # Multiple locations: compute spanning bounding box
-                extended_bbox = _locations_to_bbox(locations_resolved, padding=0.15)
-                place = None
-                region_name = " → ".join(raw_names) if raw_names else "Custom multi-location"
-                west, south, east, north = extended_bbox
-                approx_km = int(((east - west) ** 2 + (north - south) ** 2) ** 0.5 * 111)
-                st.success(
-                    f"📦 Bounding box covers {len(locations_resolved)} locations "
-                    f"(~{approx_km} km diagonal)\n\n"
-                    f"`{west:.4f}, {south:.4f} → {east:.4f}, {north:.4f}`"
-                )
-
+            
+            if custom_input and custom_input != st.session_state.custom_place:
+                st.session_state.custom_place = custom_input
+            
+            place = st.session_state.custom_place
+            extended_bbox = None
+            region_name = place
+            st.info(f"🗺️ Will load: {place}")
     else:
         place = "Edinburgh, UK"
         extended_bbox = None
         region_name = "Synthetic Network"
-
+    
     return {
         'use_osm': use_osm,
         'place': place,
         'bbox': extended_bbox,
-        'region_name': region_name,
+        'region_name': region_name
     }
 
 
