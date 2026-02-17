@@ -135,19 +135,21 @@ def render_sidebar_config():
 
     st.markdown("---")
 
+    # ========================================================================
+    # Location configuration OUTSIDE form (so geocoding works)
+    # ========================================================================
+    region_info = _render_location_settings()
+    place, extended_bbox = region_info['place'], region_info['bbox']
+    use_osm = region_info['use_osm']
+    region_name = region_info['region_name']
+
+    st.markdown("---")
+
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
         steps = st.number_input("Simulation Steps", 20, 200, 100, 20)
         num_agents = st.number_input("Number of Agents", 10, 500, 50, 10)
-        
-        st.markdown("---")
-        
-        # Location settings
-        region_info = _render_location_settings()
-        place, extended_bbox = region_info['place'], region_info['bbox']
-        use_osm = region_info['use_osm']
-        region_name = region_info['region_name']
         
         st.markdown("---")
         
