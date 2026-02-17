@@ -34,7 +34,7 @@ class InteractionRule:
     parameters: Dict[str, Any]        # Action parameters
     priority: int = 0                 # Higher = evaluated first
     cooldown_steps: int = 0           # Steps to wait before re-triggering (0 = no cooldown)
-    last_triggered_step: int = -999   # Track when last triggered
+    last_triggered_step: int = -999   # Track when last triggered (default far in past)
     
     def evaluate_condition(self, state: Dict[str, Any]) -> bool:
         """Safely evaluate condition against simulation state."""
@@ -175,7 +175,8 @@ class DynamicPolicyEngine:
                 condition=rule_data['condition'],
                 action=rule_data['action'],
                 parameters=rule_data.get('parameters', {}),
-                priority=rule_data.get('priority', 0)
+                priority=rule_data.get('priority', 0),
+                cooldown_steps=rule_data.get('cooldown_steps', 0)
             )
             rules.append(rule)
         
@@ -322,12 +323,12 @@ class DynamicPolicyEngine:
             condition_result = rule.evaluate_condition(self.simulation_state)
             logger.info(f"  Condition result: {condition_result}")
             
-            # Check cooldown
-            if rule.cooldown_steps > 0:
+            # Check cooldown - suppress action if triggered too recently
+            if condition_result and rule.cooldown_steps > 0:
                 steps_since_trigger = step - rule.last_triggered_step
                 if steps_since_trigger < rule.cooldown_steps:
-                    logger.info(f"  ⏸️  COOLDOWN: {steps_since_trigger}/{rule.cooldown_steps} steps")
-                    condition_result = False  # Suppress action due to cooldown
+                    logger.info(f"  ⏸️  COOLDOWN: {steps_since_trigger}/{rule.cooldown_steps} steps elapsed")
+                    condition_result = False
 
             if condition_result:
                 # Execute action
