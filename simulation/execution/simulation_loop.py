@@ -32,6 +32,24 @@ from simulation.execution.dynamic_policies import (
 
 logger = logging.getLogger(__name__)
 
+# Phase 5.3: System Dynamics
+try:
+    from simulation.execution.system_dynamics_integration import (
+        initialize_system_dynamics,
+        update_system_dynamics,
+        get_system_dynamics_history
+    )
+    SYSTEM_DYNAMICS_AVAILABLE = True
+except ImportError:
+    SYSTEM_DYNAMICS_AVAILABLE = False
+    logger.warning("⚠️ System Dynamics not available")
+    def initialize_system_dynamics(config):
+        return None
+    def update_system_dynamics(sd, step, agents, infra, dt=1.0):
+        return []
+    def get_system_dynamics_history(sd):
+        return []
+
 # Story-driven agents and social influence dynamics
 try:
     from agent.story_driven_agent import StoryDrivenAgent
@@ -329,6 +347,15 @@ def run_simulation_loop(
             emissions_tracker=emissions_calc,
             infrastructure=infrastructure
         )
+    
+    # Phase 5.3: Initialize System Dynamics
+    system_dynamics = None
+    sd_history = []
+    
+    if SYSTEM_DYNAMICS_AVAILABLE:
+        system_dynamics = initialize_system_dynamics(config)
+        if system_dynamics:
+            logger.info("✅ System Dynamics initialized")
 
     # Main simulation loop
     for step in range(config.steps):
@@ -447,6 +474,21 @@ def run_simulation_loop(
                 cost_recovery = policy_engine.calculate_cost_recovery()
                 cost_recovery['step'] = step
                 cost_recovery_history.append(cost_recovery)
+        
+        # UPDATE SYSTEM DYNAMICS
+        if system_dynamics:
+            sd_events = update_system_dynamics(
+                system_dynamics=system_dynamics,
+                step=step,
+                agents=agents,
+                infrastructure=infrastructure,
+                dt=1.0
+            )
+            
+            # Log significant SD events
+            for event in sd_events:
+                if event.severity in ['high', 'critical']:
+                    logger.info(f"🎯 SD Event @ step {step}: {event.event_type}")
 
         # RECORD MODE SHARE (for tipping point detection)
         if mode_share_analyzer:
@@ -767,6 +809,9 @@ def run_simulation_loop(
         'weather_manager': weather_manager,
         'weather_history': weather_history,  # Add weather history
         'air_quality_tracker': air_quality,
+        
+        # Phase 5.3: System Dynamics
+        'system_dynamics_history': get_system_dynamics_history(system_dynamics),
     }
     
     # Add dynamic policy results if available

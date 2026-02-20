@@ -16,6 +16,7 @@ from .agent_config import AgentConfig, AgentBehaviorConfig, SocialNetworkConfig
 from .analytics_config import AnalyticsConfig
 from .environmental_config import EnvironmentalConfig, WeatherConfig
 from .policy_config import PolicyConfig
+from .system_dynamics_config import SystemDynamicsConfig
 
 
 class SimulationConfig:
@@ -106,6 +107,7 @@ class SimulationConfig:
         analytics: Optional[AnalyticsConfig] = None,
         environmental: Optional[EnvironmentalConfig] = None,
         policy: Optional[PolicyConfig] = None,
+        system_dynamics: Optional[SystemDynamicsConfig] = None,  # NEW Phase 5.3
     ):
         """
         Initialize SimulationConfig.
@@ -208,6 +210,12 @@ class SimulationConfig:
             self.policy = PolicyConfig(
                 combined_scenario_data=combined_scenario_data
             )
+        
+        # NEW Phase 5.3: System Dynamics
+        if system_dynamics is not None:
+            self.system_dynamics = system_dynamics
+        else:
+            self.system_dynamics = SystemDynamicsConfig()  # Use defaults
 
         # Store policy framework attributes at top level
         # (policy_initialization.py reads these with getattr)
