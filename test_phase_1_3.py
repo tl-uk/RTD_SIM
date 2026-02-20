@@ -17,8 +17,8 @@ from pathlib import Path
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from system_dynamics import StreamingSystemDynamics, DiscreteEvent
-from system_dynamics_config import SystemDynamicsConfig
+from agent.system_dynamics import StreamingSystemDynamics, DiscreteEvent
+from simulation.config.system_dynamics_config import SystemDynamicsConfig
 
 def test_phase_1_basic_growth():
     """Phase 1: Verify EV adoption grows with logistic equation."""
