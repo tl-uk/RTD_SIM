@@ -350,7 +350,6 @@ def run_simulation_loop(
     
     # Phase 5.3: Initialize System Dynamics
     system_dynamics = None
-    sd_history = []
     
     if SYSTEM_DYNAMICS_AVAILABLE:
         system_dynamics = initialize_system_dynamics(config)

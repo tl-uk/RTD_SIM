@@ -506,3 +506,6 @@ class SimulationResults:
         self.network_efficiency_tracker = None
         self.scenario_comparator = None
         self.analytics_summary = {}
+        
+        # Phase 5.3: System Dynamics results
+        self.system_dynamics_history = []

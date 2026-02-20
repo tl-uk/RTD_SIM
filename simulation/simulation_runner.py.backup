@@ -212,12 +212,6 @@ def run_simulation(
             results.analytics_summary = loop_results['analytics_summary']
             logger.info(f"✅ Analytics summary generated")
         
-        # Phase 5.3: Collect System Dynamics results
-        if 'system_dynamics_history' in loop_results:
-            results.system_dynamics_history = loop_results['system_dynamics_history']
-            if results.system_dynamics_history:
-                logger.info(f"✅ System Dynamics: {len(results.system_dynamics_history)} timesteps tracked")
-        
         results.success = True
         
         # Log summary
