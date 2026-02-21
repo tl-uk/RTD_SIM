@@ -164,6 +164,58 @@ def render_sidebar_config():
         
         st.markdown("---")
         
+        # Phase 5.3: System Dynamics parameters (INSIDE form for input collection)
+        st.markdown("### 🔬 System Dynamics")
+        
+        use_custom_sd = st.checkbox(
+            "Customize SD Parameters",
+            value=False,
+            help="Adjust macro-level dynamics parameters",
+            key="use_custom_sd_params"
+        )
+        
+        sd_params = None
+        if use_custom_sd:
+            col1, col2 = st.columns(2)
+            with col1:
+                sd_growth_rate = st.slider(
+                    "Growth Rate (r)",
+                    min_value=0.01, max_value=0.20, value=0.05, step=0.01,
+                    help="Base adoption rate",
+                    key="sd_r"
+                )
+                sd_infrastructure_feedback = st.slider(
+                    "Infrastructure Feedback",
+                    min_value=0.0, max_value=0.10, value=0.02, step=0.01,
+                    help="Charger availability boost",
+                    key="sd_infra"
+                )
+            with col2:
+                sd_carrying_capacity = st.slider(
+                    "Carrying Capacity (K)",
+                    min_value=0.50, max_value=1.00, value=0.80, step=0.05,
+                    help="Maximum sustainable adoption",
+                    key="sd_K"
+                )
+                sd_social_influence = st.slider(
+                    "Social Influence",
+                    min_value=0.0, max_value=0.10, value=0.03, step=0.01,
+                    help="Peer effects strength",
+                    key="sd_social"
+                )
+            
+            # Store parameters
+            sd_params = {
+                'growth_rate': sd_growth_rate,
+                'carrying_capacity': sd_carrying_capacity,
+                'infrastructure_feedback': sd_infrastructure_feedback,
+                'social_influence': sd_social_influence,
+            }
+            
+            st.caption("💡 These parameters control logistic growth dynamics at the system level")
+        
+        st.markdown("---")
+        
         # Scenario selection (Phase 5.1) - only show if not using combined or default policies
         if not use_combined:
             scenario_config = _render_scenario_selection()
@@ -175,16 +227,6 @@ def render_sidebar_config():
         
         st.markdown("---")
 
-        # Phase 5.3: System Dynamics parameters
-        sd_config = render_sd_parameters_section()
-        if sd_config:
-            config.system_dynamics = sd_config
-        
-        # Info box (optional - place at bottom of sidebar)
-        render_sd_info_box()
-
-        st.markdown("---")
-        
         # Submit button
         run_btn = st.form_submit_button(
             "🚀 Run Simulation", 
@@ -231,6 +273,17 @@ def render_sidebar_config():
         weather_wind_multiplier=weather_config['weather_wind_multiplier'],
     )
     
+    # Phase 5.3: Apply System Dynamics config if customized
+    if sd_params:
+        from simulation.config.system_dynamics_config import SystemDynamicsConfig
+        config.system_dynamics = SystemDynamicsConfig(
+            ev_growth_rate_r=sd_params['growth_rate'],
+            ev_carrying_capacity_K=sd_params['carrying_capacity'],
+            infrastructure_feedback_strength=sd_params['infrastructure_feedback'],
+            social_influence_strength=sd_params['social_influence'],
+        )
+        st.sidebar.success("✅ Custom System Dynamics parameters applied")
+    
     # Apply parameter overrides if enabled
     if param_overrides:
         config = apply_parameter_overrides(config, param_overrides)
@@ -241,6 +294,10 @@ def render_sidebar_config():
             st.write(f"Grid Capacity: {config.grid_capacity_mw:.1f} MW")
             st.write(f"Num Chargers: {config.num_chargers}")
             st.write(f"Eco Desire: {config.agents.behavior.eco_desire_mean:.2f}")
+    
+    # Phase 5.3: System Dynamics info box (OUTSIDE form, at bottom of sidebar)
+    st.markdown("---")
+    render_sd_info_box()
     
     return config, run_btn
 
