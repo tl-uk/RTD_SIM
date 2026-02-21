@@ -47,6 +47,9 @@ from ui.tabs import (
 # Import policy diagnostics
 from ui.tabs.policy_diagnostics_tab import render_policy_diagnostics_tab
 
+# Import System Dynamics tab (Phase 5.3)
+from ui.tabs.system_dynamics_tab import render_system_dynamics_tab
+
 # Import simulation core
 from simulation.simulation_runner import run_simulation
 from visualiser.animation_controller import AnimationController
@@ -219,6 +222,10 @@ if config.weather_enabled or config.track_air_quality:
 if config.enable_analytics:
     tab_configs.append(("📊 Analytics", render_analytics_tab))
 
+# Phase 5.3: System Dynamics tab (show if data available)
+if hasattr(results, 'system_dynamics_history') and results.system_dynamics_history:
+    tab_configs.append(("🔬 System Dynamics", render_system_dynamics_tab))
+
 # ALWAYS show Policy Diagnostics (handles both cases internally)
 tab_configs.append(("🔍 Policy Diagnostics", render_policy_diagnostics_tab))
 
@@ -231,6 +238,9 @@ for i, (tab_name, render_func) in enumerate(tab_configs):
         if tab_name == "🔍 Policy Diagnostics":
             # Diagnostics needs config, not current_data
             render_func(results, config)
+        elif tab_name == "🔬 System Dynamics":
+            # SD tab needs all three args
+            render_func(results, anim, current_data)
         else:
             # Standard tabs
             render_func(results, anim, current_data)
