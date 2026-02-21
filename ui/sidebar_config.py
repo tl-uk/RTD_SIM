@@ -146,36 +146,21 @@ def render_sidebar_config():
 
     st.markdown("---")
 
-    with st.form("config_form"):
-        # Basic settings
-        st.markdown("### 📊 Basic Settings")
-        steps = st.number_input("Simulation Steps", 20, 200, 100, 20)
-        num_agents = st.number_input("Number of Agents", 10, 500, 50, 10)
-        
-        st.markdown("---")
-        
-        # Story selection
-        user_stories, job_stories = _render_story_selection()
-        
-        st.markdown("---")
-        
-        # Advanced features
-        advanced_config = _render_advanced_features()
-        
-        st.markdown("---")
-        
-        # Phase 5.3: System Dynamics parameters (INSIDE form for input collection)
-        st.markdown("### 🔬 System Dynamics")
-        
-        use_custom_sd = st.checkbox(
-            "Customize SD Parameters",
-            value=False,
-            help="Adjust macro-level dynamics parameters",
-            key="use_custom_sd_params"
-        )
-        
-        sd_params = None
-        if use_custom_sd:
+    # ========================================================================
+    # Phase 5.3: System Dynamics Configuration (OUTSIDE form for immediate UI update)
+    # ========================================================================
+    st.markdown("### 🔬 System Dynamics")
+    
+    use_custom_sd = st.checkbox(
+        "Customize SD Parameters",
+        value=False,
+        help="Adjust macro-level dynamics parameters",
+        key="use_custom_sd_params"
+    )
+    
+    sd_params = None
+    if use_custom_sd:
+        with st.expander("⚙️ SD Parameter Controls", expanded=True):
             col1, col2 = st.columns(2)
             with col1:
                 sd_growth_rate = st.slider(
@@ -213,6 +198,24 @@ def render_sidebar_config():
             }
             
             st.caption("💡 These parameters control logistic growth dynamics at the system level")
+    
+    st.markdown("---")
+
+    with st.form("config_form"):
+        # Basic settings
+        st.markdown("### 📊 Basic Settings")
+        steps = st.number_input("Simulation Steps", 20, 200, 100, 20)
+        num_agents = st.number_input("Number of Agents", 10, 500, 50, 10)
+        
+        st.markdown("---")
+        
+        # Story selection
+        user_stories, job_stories = _render_story_selection()
+        
+        st.markdown("---")
+        
+        # Advanced features
+        advanced_config = _render_advanced_features()
         
         st.markdown("---")
         
