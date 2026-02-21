@@ -16,6 +16,7 @@ if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
 from simulation.config.simulation_config import SimulationConfig
+from ui.sidebar_system_dynamics import render_sd_parameters_section, render_sd_info_box
 
 # Check if story modules are available
 try:
@@ -172,6 +173,16 @@ def render_sidebar_config():
             scenario_config = {'scenario_name': None, 'scenarios_dir': scenarios_dir}
             st.info("ℹ️ Simple scenarios disabled (using combined scenario)")
         
+        st.markdown("---")
+
+        # Phase 5.3: System Dynamics parameters
+        sd_config = render_sd_parameters_section()
+        if sd_config:
+            config.system_dynamics = sd_config
+        
+        # Info box (optional - place at bottom of sidebar)
+        render_sd_info_box()
+
         st.markdown("---")
         
         # Submit button
