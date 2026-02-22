@@ -33,6 +33,7 @@ from simulation.execution.dynamic_policies import (
 logger = logging.getLogger(__name__)
 
 # Phase 5.3: System Dynamics
+from agent.system_dynamics import StreamingSystemDynamics
 try:
     from simulation.execution.system_dynamics_integration import (
         initialize_system_dynamics,
@@ -287,6 +288,12 @@ def run_simulation_loop(
     time_series = TimeSeries()
     adoption_history = defaultdict(list)
     cascade_events = []
+
+    # Initialize SD engine (should be here!)
+    sd_engine = None
+    if config.system_dynamics:
+        sd_engine = StreamingSystemDynamics(config.system_dynamics)
+        logger.info("System Dynamics engine initialized")
 
     # Policy tracking
     policy_actions_taken = []
