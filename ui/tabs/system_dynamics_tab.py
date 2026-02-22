@@ -418,6 +418,19 @@ def _render_threshold_events(sd_history, current_step):
         })
     
     st.dataframe(pd.DataFrame(status_data), hide_index=True)
+    
+    # Diagnostic: Check if threshold detection is working
+    if current['ev_adoption'] >= 0.30 and not ever_crossed['adoption_tipping_point']:
+        st.warning(f"""
+        ⚠️ **Threshold Detection Issue**: Adoption is {current['ev_adoption']:.1%} (above 30%) but tipping point not marked as crossed.
+        
+        **Possible causes:**
+        - `thresholds_crossed` field not populated in SD history
+        - Threshold detection not running in system_dynamics.py
+        - History not being saved correctly
+        
+        **Debug:** Check if `system_dynamics.detect_thresholds()` is being called each step.
+        """)
 
 
 def _get_threshold_current_value(current, threshold_key):
