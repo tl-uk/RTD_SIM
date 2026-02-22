@@ -84,7 +84,7 @@ def render_sd_parameters_section():
             
             config.social_influence_strength = st.slider(
                 "Social Influence",
-                min_value=0.0, max_value=0.100, value=0.03, step=0.001,
+                min_value=0.0, max_value=0.200, value=0.03, step=0.001,
                 help="Peer effects and network influence",
                 key="sd_social_influence"
             )
