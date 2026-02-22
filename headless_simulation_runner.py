@@ -257,6 +257,12 @@ def extract_general_metrics(results) -> Dict[str, Any]:
         total_agents = 0
         ev_adoption_pct = 0
     
+    # Get grid metrics safely
+    grid_capacity_mw = 0
+    if results.infrastructure and hasattr(results.infrastructure, 'grid'):
+        grid_metrics = results.infrastructure.grid.get_metrics()
+        grid_capacity_mw = grid_metrics.get('grid_capacity_mw', 0)
+    
     return {
         'success': results.success,
         'total_agents': total_agents,
@@ -269,7 +275,7 @@ def extract_general_metrics(results) -> Dict[str, Any]:
         'ev_adoption_from_agents_pct': ev_adoption_pct,
         
         # Infrastructure
-        'grid_capacity_mw': results.infrastructure.grid.capacity_mw if results.infrastructure else 0,
+        'grid_capacity_mw': grid_capacity_mw,
         'num_chargers': len(results.infrastructure.chargers) if results.infrastructure else 0,
     }
 
