@@ -13,8 +13,12 @@ from pathlib import Path
 import argparse
 import json
 import csv
+import logging
 from datetime import datetime
 from typing import Dict, List, Any
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -257,11 +261,17 @@ def extract_general_metrics(results) -> Dict[str, Any]:
         total_agents = 0
         ev_adoption_pct = 0
     
-    # Get grid metrics safely
+    # Get infrastructure metrics safely
     grid_capacity_mw = 0
-    if results.infrastructure and hasattr(results.infrastructure, 'grid'):
-        grid_metrics = results.infrastructure.grid.get_metrics()
-        grid_capacity_mw = grid_metrics.get('grid_capacity_mw', 0)
+    num_chargers = 0
+    
+    if results.infrastructure:
+        try:
+            infra_metrics = results.infrastructure.get_infrastructure_metrics()
+            grid_capacity_mw = infra_metrics.get('grid_capacity_mw', 0)
+            num_chargers = infra_metrics.get('total_chargers', 0)
+        except Exception as e:
+            logger.warning(f"Could not get infrastructure metrics: {e}")
     
     return {
         'success': results.success,
@@ -276,7 +286,7 @@ def extract_general_metrics(results) -> Dict[str, Any]:
         
         # Infrastructure
         'grid_capacity_mw': grid_capacity_mw,
-        'num_chargers': len(results.infrastructure.chargers) if results.infrastructure else 0,
+        'num_chargers': num_chargers,
     }
 
 
