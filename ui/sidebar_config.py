@@ -171,7 +171,7 @@ def render_sidebar_config():
                 )
                 sd_infrastructure_feedback = st.slider(
                     "Infrastructure Feedback",
-                    min_value=0.0, max_value=0.10, value=0.02, step=0.01,
+                    min_value=0.0, max_value=0.200, value=0.02, step=0.001,
                     help="Charger availability boost",
                     key="sd_infra"
                 )
@@ -184,7 +184,7 @@ def render_sidebar_config():
                 )
                 sd_social_influence = st.slider(
                     "Social Influence",
-                    min_value=0.0, max_value=0.10, value=0.03, step=0.01,
+                    min_value=0.0, max_value=0.200, value=0.03, step=0.001,
                     help="Peer effects strength",
                     key="sd_social"
                 )
