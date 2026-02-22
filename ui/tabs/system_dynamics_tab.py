@@ -108,12 +108,29 @@ def _render_adoption_trajectory(sd_history, current_step):
     # Extract data
     steps = list(range(len(sd_history)))
     actual_adoption = [h['ev_adoption'] * 100 for h in sd_history]
-    flows = [h['ev_adoption_flow'] for h in sd_history]
+    flows = [h['ev_adoption_flow'] for h in sd_history]  # Already in fraction form!
     
-    # Calculate predicted trajectory (integrate flows from initial state)
-    predicted = [sd_history[0]['ev_adoption'] * 100]
-    for i in range(1, len(sd_history)):
-        predicted.append(predicted[-1] + flows[i-1] * 100)
+    # The SD prediction should just use the actual adoption (stock = reality)
+    # The "predicted" line shows what the logistic equation suggests as the trajectory
+    # But since stock tracks reality, we'll show both converging
+    
+    # For display: Show actual (from agents) vs theoretical logistic curve
+    r = sd_history[0].get('ev_growth_rate_r', 0.05)
+    K = sd_history[0].get('ev_carrying_capacity_K', 0.80)
+    EV0 = sd_history[0]['ev_adoption']
+    
+    # Theoretical logistic growth: EV(t) = K / (1 + ((K-EV0)/EV0) * exp(-r*t))
+    theoretical = []
+    for t in steps:
+        if EV0 > 0:
+            numerator = K
+            denominator = 1 + ((K - EV0) / EV0) * np.exp(-r * t)
+            ev_t = numerator / denominator
+        else:
+            ev_t = 0
+        theoretical.append(ev_t * 100)
+    
+    predicted = theoretical  # Use theoretical curve for prediction
     
     # Create figure
     fig = go.Figure()
