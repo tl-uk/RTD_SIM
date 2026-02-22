@@ -1,0 +1,60 @@
+================================================================================
+SIMULATION REPORT: CONSERVATIVE
+================================================================================
+Generated: 2026-02-22 17:10:19
+
+CONFIGURATION
+--------------------------------------------------------------------------------
+Steps:             200
+Agents:            100
+Location:          Edinburgh, UK
+Grid Capacity:     30.0 MW
+Chargers:          30
+
+SYSTEM DYNAMICS PARAMETERS
+--------------------------------------------------------------------------------
+Growth Rate (r):         0.050
+Carrying Capacity (K):   80.0%
+Infrastructure Feedback: 0.00520
+Social Influence:        0.00780
+
+GENERAL RESULTS
+--------------------------------------------------------------------------------
+Success:           ✅ Yes
+Total Agents:      100
+Cascades Detected: 7
+EV Adoption (Agents): 26.0%
+
+SYSTEM DYNAMICS RESULTS
+--------------------------------------------------------------------------------
+Initial Adoption:  21.0%
+Final Adoption:    26.0%
+Peak Adoption:     27.0% (step 121)
+Growth:            +5.0%
+
+Average Flow:      0.01156
+Max Flow:          0.01197
+Final Flow:        0.01175
+
+FLOW DECOMPOSITION (Final Step)
+  Logistic:        0.00878
+  Infrastructure:  0.00520
+  Social:          0.00780
+
+🎯 Tipping Point:  NOT REACHED
+
+Grid Load:         0.0 MW
+Grid Utilization:  0.0%
+
+MODE DISTRIBUTION (Final Step)
+--------------------------------------------------------------------------------
+  bike                   55 ( 55.0%)
+  ev                     22 ( 22.0%)
+  walk                   13 ( 13.0%)
+  cargo_bike              4 (  4.0%)
+  van_electric            3 (  3.0%)
+  e_scooter               1 (  1.0%)
+  car                     1 (  1.0%)
+  truck_electric          1 (  1.0%)
+
+================================================================================

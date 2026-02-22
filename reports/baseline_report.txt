@@ -1,0 +1,59 @@
+================================================================================
+SIMULATION REPORT: BASELINE
+================================================================================
+Generated: 2026-02-22 17:09:04
+
+CONFIGURATION
+--------------------------------------------------------------------------------
+Steps:             200
+Agents:            100
+Location:          Edinburgh, UK
+Grid Capacity:     50.0 MW
+Chargers:          50
+
+SYSTEM DYNAMICS PARAMETERS
+--------------------------------------------------------------------------------
+Growth Rate (r):         0.050
+Carrying Capacity (K):   80.0%
+Infrastructure Feedback: 0.00600
+Social Influence:        0.00900
+
+GENERAL RESULTS
+--------------------------------------------------------------------------------
+Success:           ✅ Yes
+Total Agents:      100
+Cascades Detected: 5
+EV Adoption (Agents): 30.0%
+
+SYSTEM DYNAMICS RESULTS
+--------------------------------------------------------------------------------
+Initial Adoption:  27.0%
+Final Adoption:    30.0%
+Peak Adoption:     31.0% (step 1)
+Growth:            +3.0%
+
+Average Flow:      0.03010
+Max Flow:          0.03079
+Final Flow:        0.03037
+
+FLOW DECOMPOSITION (Final Step)
+  Logistic:        0.00937
+  Infrastructure:  0.00600
+  Social:          0.00900
+
+🎯 Tipping Point:  NOT REACHED
+
+Grid Load:         0.0 MW
+Grid Utilization:  0.0%
+
+MODE DISTRIBUTION (Final Step)
+--------------------------------------------------------------------------------
+  bike                   63 ( 63.0%)
+  ev                     25 ( 25.0%)
+  van_electric            4 (  4.0%)
+  walk                    4 (  4.0%)
+  e_scooter               2 (  2.0%)
+  car                     1 (  1.0%)
+  truck_electric          1 (  1.0%)
+
+================================================================================
