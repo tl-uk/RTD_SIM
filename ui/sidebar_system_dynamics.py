@@ -77,14 +77,14 @@ def render_sd_parameters_section():
             
             config.infrastructure_feedback_strength = st.slider(
                 "Infrastructure Feedback",
-                min_value=0.0, max_value=0.100, value=0.02, step=0.001,
+                min_value=0.000, max_value=0.100, value=0.02, step=0.001,
                 help="Boost from charger availability",
                 key="sd_infra_feedback"
             )
             
             config.social_influence_strength = st.slider(
                 "Social Influence",
-                min_value=0.0, max_value=0.200, value=0.03, step=0.001,
+                min_value=0.000, max_value=0.200, value=0.03, step=0.001,
                 help="Peer effects and network influence",
                 key="sd_social_influence"
             )
