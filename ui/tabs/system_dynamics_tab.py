@@ -393,7 +393,14 @@ def _render_threshold_events(sd_history, current_step):
     st.markdown("#### Current Threshold Status")
     
     current = sd_history[current_step]
-    thresholds = current.get('thresholds_crossed', {})
+    
+    # Check if each threshold was EVER crossed in the history (not just current state)
+    ever_crossed = {}
+    for threshold_key in ['adoption_tipping_point', 'grid_threshold_exceeded', 'emissions_target_exceeded']:
+        ever_crossed[threshold_key] = any(
+            h.get('thresholds_crossed', {}).get(threshold_key, False) 
+            for h in sd_history
+        )
     
     status_data = []
     threshold_names = {
@@ -403,7 +410,7 @@ def _render_threshold_events(sd_history, current_step):
     }
     
     for key, name in threshold_names.items():
-        crossed = thresholds.get(key, False)
+        crossed = ever_crossed[key]
         status_data.append({
             'Threshold': name,
             'Status': '🔴 Crossed' if crossed else '🟢 Not Crossed',
