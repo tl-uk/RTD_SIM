@@ -195,16 +195,104 @@ def _render_adoption_trajectory(sd_history, current_step):
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Prediction accuracy metric
+    # Prediction accuracy metrics - ENHANCED with MAE + RMSE
     if len(actual_adoption) > 10:
-        recent_actual = actual_adoption[-10:]
-        recent_predicted = predicted[-10:]
-        mae = np.mean(np.abs(np.array(recent_actual) - np.array(recent_predicted)))
+        # Import validation module
+        try:
+            from analytics.sd_validation_metrics import compute_validation_metrics, analyze_temporal_drift
+            
+            # Convert to fractions for analysis
+            actual_frac = [a/100 for a in actual_adoption]
+            predicted_frac = [p/100 for p in predicted]
+            
+            # Compute comprehensive metrics
+            metrics = compute_validation_metrics(actual_frac, predicted_frac, "EV Adoption")
+            temporal = analyze_temporal_drift(actual_frac, predicted_frac)
+            
+            # Display metrics in columns
+            st.markdown("#### 📊 Prediction Accuracy Metrics")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            # Quality badge
+            quality_emoji = {'excellent': '🎯', 'good': '✅', 'fair': '⚠️', 'poor': '❌'}
+            col1.metric(
+                "Quality",
+                metrics.prediction_quality.title(),
+                delta=quality_emoji[metrics.prediction_quality],
+                help="Overall prediction quality based on error magnitude"
+            )
+            
+            # MAE
+            col2.metric(
+                "MAE",
+                f"{metrics.mae*100:.2f}%",
+                delta=f"±{metrics.median_error*100:.2f}% median",
+                help="Mean Absolute Error: Average prediction error magnitude"
+            )
+            
+            # RMSE
+            col3.metric(
+                "RMSE",
+                f"{metrics.rmse*100:.2f}%",
+                delta="Outliers" if metrics.has_outliers else "Consistent",
+                delta_color="inverse" if metrics.has_outliers else "normal",
+                help="Root Mean Square Error: Penalizes large errors more heavily"
+            )
+            
+            # R-squared
+            col4.metric(
+                "R²",
+                f"{metrics.r_squared:.3f}",
+                delta=f"{metrics.r_squared*100:.0f}% explained",
+                help="Coefficient of determination: How well model explains variance"
+            )
+            
+            # Diagnostic insights
+            with st.expander("📈 Detailed Analysis", expanded=False):
+                col_a, col_b = st.columns(2)
+                
+                with col_a:
+                    st.markdown("**Error Distribution**")
+                    st.write(f"- Maximum: {metrics.max_error*100:.2f}%")
+                    st.write(f"- 75th %ile: {metrics.q75_error*100:.2f}%")
+                    st.write(f"- Median: {metrics.median_error*100:.2f}%")
+                    st.write(f"- 25th %ile: {metrics.q25_error*100:.2f}%")
+                    
+                    if metrics.has_outliers:
+                        st.warning("⚠️ Outliers detected (RMSE > 2×MAE)")
+                    else:
+                        st.success("✅ Error distribution is consistent")
+                
+                with col_b:
+                    st.markdown("**Temporal Trends**")
+                    st.write(f"- Early MAE: {temporal['early_mae']*100:.2f}%")
+                    st.write(f"- Middle MAE: {temporal['middle_mae']*100:.2f}%")
+                    st.write(f"- Late MAE: {temporal['late_mae']*100:.2f}%")
+                    
+                    if temporal['error_trend'] == 'improving':
+                        st.success("✅ Error improving over time")
+                    else:
+                        st.warning("⚠️ Error increasing over time")
+                
+                # Bias check
+                if metrics.consistent_bias:
+                    direction = "over" if metrics.mean_bias > 0 else "under"
+                    st.warning(f"⚠️ Systematic bias: Model {direction}-predicts by {abs(metrics.mean_bias)*100:.2f}%")
+                else:
+                    st.success(f"✅ No systematic bias (mean error: {metrics.mean_bias*100:.3f}%)")
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Prediction Accuracy (MAE)", f"{mae:.2f}%", help="Mean Absolute Error over last 10 steps")
-        col2.metric("Current Actual", f"{actual_adoption[current_step]:.1f}%")
-        col3.metric("Current Predicted", f"{predicted[current_step]:.1f}%")
+        except ImportError:
+            # Fallback to simple metrics if validation module not available
+            recent_actual = actual_adoption[-10:]
+            recent_predicted = predicted[-10:]
+            mae = np.mean(np.abs(np.array(recent_actual) - np.array(recent_predicted)))
+            rmse = np.sqrt(np.mean((np.array(recent_actual) - np.array(recent_predicted))**2))
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("MAE", f"{mae:.2f}%", help="Mean Absolute Error over last 10 steps")
+            col2.metric("RMSE", f"{rmse:.2f}%", help="Root Mean Square Error over last 10 steps")
+            col3.metric("Current Actual", f"{actual_adoption[current_step]:.1f}%")
 
 
 def _render_system_flows(sd_history, current_step):
