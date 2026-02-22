@@ -4,6 +4,8 @@ Run multiple simulations without UI and generate reports
 
 Usage:
     python headless_simulation_runner.py --scenarios baseline,aggressive,conservative --steps 200
+    python headless_simulation_runner.py --scenarios all --steps 150
+    python headless_simulation_runner.py --scenarios baseline --steps 100
 """
 
 import sys
