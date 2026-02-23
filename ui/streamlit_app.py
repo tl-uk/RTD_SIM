@@ -222,8 +222,8 @@ if config.weather_enabled or config.track_air_quality:
 if config.enable_analytics:
     tab_configs.append(("📊 Analytics", render_analytics_tab))
 
-# Phase 5.3: System Dynamics tab (show if data available)
-if hasattr(results, 'system_dynamics_history') and results.system_dynamics_history:
+# Phase 5.3: System Dynamics tab (show if attribute exists - tab handles empty data internally)
+if hasattr(results, 'system_dynamics_history'):
     tab_configs.append(("🔬 System Dynamics", render_system_dynamics_tab))
 
 # ALWAYS show Policy Diagnostics (handles both cases internally)

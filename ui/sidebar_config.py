@@ -276,9 +276,11 @@ def render_sidebar_config():
         weather_wind_multiplier=weather_config['weather_wind_multiplier'],
     )
     
-    # Phase 5.3: Apply System Dynamics config if customized
+    # Phase 5.3: Apply System Dynamics config (ALWAYS - use defaults if not customized)
+    from simulation.config.system_dynamics_config import SystemDynamicsConfig
+    
     if sd_params:
-        from simulation.config.system_dynamics_config import SystemDynamicsConfig
+        # Use custom parameters
         config.system_dynamics = SystemDynamicsConfig(
             ev_growth_rate_r=sd_params['growth_rate'],
             ev_carrying_capacity_K=sd_params['carrying_capacity'],
@@ -286,6 +288,10 @@ def render_sidebar_config():
             social_influence_strength=sd_params['social_influence'],
         )
         st.sidebar.success("✅ Custom System Dynamics parameters applied")
+    else:
+        # Use default parameters (CRITICAL: Always create this for baseline!)
+        config.system_dynamics = SystemDynamicsConfig()
+        # SD will run with defaults: r=0.05, K=0.80, feedback=0.02, social=0.03
     
     # Apply parameter overrides if enabled
     if param_overrides:
