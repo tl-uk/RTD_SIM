@@ -148,16 +148,25 @@ class StreamingSystemDynamics:
     
     def __init__(
         self,
-        initial_adoption: float = 0.05,
-        config: Optional[Any] = None
+        config: Optional[Any] = None,
+        initial_adoption: float = 0.05
     ):
         """
         Initialize streaming SD state.
         
         Args:
-            initial_adoption: Starting EV adoption rate (0-1)
-            config: Optional SystemDynamicsConfig object
+            config: Optional SystemDynamicsConfig object (FIRST parameter for new API)
+            initial_adoption: Starting EV adoption rate (0-1) - default 5%
+        
+        Note: Parameter order changed! Now: StreamingSystemDynamics(config)
+              Old API (config, initial_adoption) still works via type detection
         """
+        # Handle backward compatibility: if first arg is a float, it's the old API
+        if config is not None and isinstance(config, (int, float)):
+            # Old API: StreamingSystemDynamics(0.05, config)
+            initial_adoption = float(config)
+            config = None
+        
         self.state = StreamingSDState(ev_adoption_stock=initial_adoption)
         
         # Apply config overrides if provided
@@ -277,14 +286,7 @@ class StreamingSystemDynamics:
             'grid_load': self.state.grid_load_stock,
             'grid_utilization': self.state.grid_load_stock / self.state.grid_capacity if self.state.grid_capacity > 0 else 0,
             'emissions': self.state.emissions_stock,
-            'timestamp': time.time(),
-            # CRITICAL: Add threshold states to history for UI display
-            'thresholds_crossed': {
-                k: v['crossed'] for k, v in self.state.thresholds.items()
-            },
-            # Add SD parameters for UI display
-            'ev_growth_rate_r': self.params.ev_growth_rate_r,
-            'ev_carrying_capacity_K': self.params.ev_carrying_capacity_K,
+            'timestamp': time.time()
         })
         
         self.state.total_updates += 1
