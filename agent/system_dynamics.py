@@ -286,7 +286,14 @@ class StreamingSystemDynamics:
             'grid_load': self.state.grid_load_stock,
             'grid_utilization': self.state.grid_load_stock / self.state.grid_capacity if self.state.grid_capacity > 0 else 0,
             'emissions': self.state.emissions_stock,
-            'timestamp': time.time()
+            'timestamp': time.time(),
+            # CRITICAL: Add threshold states to history for UI display
+            'thresholds_crossed': {
+                k: v['crossed'] for k, v in self.state.thresholds.items()
+            },
+            # Add SD parameters for UI display  
+            'ev_growth_rate_r': self.state.ev_growth_rate_r,
+            'ev_carrying_capacity_K': self.state.ev_carrying_capacity_K,
         })
         
         self.state.total_updates += 1
