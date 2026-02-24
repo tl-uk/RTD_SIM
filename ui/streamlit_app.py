@@ -50,6 +50,9 @@ from ui.tabs.policy_diagnostics_tab import render_policy_diagnostics_tab
 # Import System Dynamics tab (Phase 5.3)
 from ui.tabs.system_dynamics_tab import render_system_dynamics_tab
 
+# Import Sensitivity Analysis tab (Phase 5.4)
+from ui.tabs.sensitivity_analysis_tab import render_sensitivity_analysis_tab
+
 # Import simulation core
 from simulation.simulation_runner import run_simulation
 from visualiser.animation_controller import AnimationController
@@ -225,6 +228,14 @@ if config.enable_analytics:
 # Phase 5.3: System Dynamics tab (show if attribute exists - tab handles empty data internally)
 if hasattr(results, 'system_dynamics_history'):
     tab_configs.append(("🔬 System Dynamics", render_system_dynamics_tab))
+
+# Phase 5.4: Sensitivity Analysis tab (show if SD data and derivative module available)
+if hasattr(results, 'system_dynamics_history') and results.system_dynamics_history:
+    try:
+        from analytics.sd_derivative_analysis import compute_sensitivity_metrics
+        tab_configs.append(("🧮 Sensitivity Analysis", render_sensitivity_analysis_tab))
+    except ImportError:
+        pass  # Module not available, skip tab
 
 # ALWAYS show Policy Diagnostics (handles both cases internally)
 tab_configs.append(("🔍 Policy Diagnostics", render_policy_diagnostics_tab))
