@@ -75,10 +75,17 @@ def compute_validation_metrics(
         percentage_errors = percentage_errors[~np.isnan(percentage_errors)]
         mape = np.mean(percentage_errors) if len(percentage_errors) > 0 else 0
     
-    # R-squared
+    # R-squared (handle edge cases)
     ss_res = np.sum(squared_errors)
     ss_tot = np.sum((actual_arr - np.mean(actual_arr)) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+    
+    if ss_tot > 1e-10:
+        r_squared = 1 - (ss_res / ss_tot)
+        # Clamp R² to reasonable range to avoid numerical issues
+        r_squared = max(-1.0, min(1.0, r_squared))
+    else:
+        # If total variance is zero (constant data), R² is undefined
+        r_squared = 0.0
     
     # Error distribution
     max_error = np.max(errors)
