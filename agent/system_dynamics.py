@@ -288,8 +288,11 @@ class StreamingSystemDynamics:
             'emissions': self.state.emissions_stock,
             'timestamp': time.time(),
             # CRITICAL: Add threshold states to history for UI display
+            # Map internal keys to UI-expected keys
             'thresholds_crossed': {
-                k: v['crossed'] for k, v in self.state.thresholds.items()
+                'adoption_tipping_point': self.state.thresholds['adoption_tipping']['crossed'],
+                'grid_threshold_exceeded': self.state.thresholds['grid_stress']['crossed'],
+                'emissions_target_exceeded': self.state.thresholds['emissions_target']['crossed'],
             },
             # Add SD parameters for UI display  
             'ev_growth_rate_r': self.state.ev_growth_rate_r,
