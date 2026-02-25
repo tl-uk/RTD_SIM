@@ -52,6 +52,7 @@ from ui.tabs.system_dynamics_tab import render_system_dynamics_tab
 
 # Import Sensitivity Analysis tab (Phase 5.4)
 from ui.tabs.sensitivity_analysis_tab import render_sensitivity_analysis_tab
+from ui.report_generator import render_report_generator_button
 
 # Import simulation core
 from simulation.simulation_runner import run_simulation
@@ -191,6 +192,10 @@ config = st.session_state.last_config
 with st.sidebar:
     render_diagnostics_panel(results)
     render_animation_controls(anim)
+    
+    # Phase 5.4: Report Generator
+    if config:
+        render_report_generator_button(results, config)
 
 # Get current timestep data
 if isinstance(results.time_series, list):
