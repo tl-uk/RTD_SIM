@@ -74,15 +74,36 @@ def render_animation_controls(anim):
     
     # Display options
     st.markdown("**Display Options**")
-    st.session_state.show_agents = st.checkbox(
+    
+    # FIXED: Read checkbox values, compare with current state, force rerun if changed
+    show_agents_new = st.checkbox(
         "Show Agents", 
-        value=st.session_state.show_agents
+        value=st.session_state.show_agents,
+        key='show_agents_checkbox'
     )
-    st.session_state.show_routes = st.checkbox(
+    
+    show_routes_new = st.checkbox(
         "Show Routes", 
-        value=st.session_state.show_routes
+        value=st.session_state.show_routes,
+        key='show_routes_checkbox'
     )
-    st.session_state.show_infrastructure = st.checkbox(
+    
+    show_infrastructure_new = st.checkbox(
         "Show Infrastructure", 
-        value=st.session_state.show_infrastructure
+        value=st.session_state.show_infrastructure,
+        key='show_infrastructure_checkbox'
     )
+    
+    # Check if any display option changed
+    display_changed = (
+        show_agents_new != st.session_state.show_agents or
+        show_routes_new != st.session_state.show_routes or
+        show_infrastructure_new != st.session_state.show_infrastructure
+    )
+    
+    # Update session state and force rerun if changed
+    if display_changed:
+        st.session_state.show_agents = show_agents_new
+        st.session_state.show_routes = show_routes_new
+        st.session_state.show_infrastructure = show_infrastructure_new
+        st.rerun()  # Force immediate rerun to refresh map
