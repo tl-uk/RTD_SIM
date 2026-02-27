@@ -2,6 +2,7 @@
 ui/animation_controls.py
 
 Animation playback controls, timeline, and display options.
+FIXED: Display options now force immediate rerun, auto-play works correctly
 """
 
 import streamlit as st
@@ -72,38 +73,32 @@ def render_animation_controls(anim):
     
     st.markdown("---")
     
-    # Display options
+    # Display options - FIX: Use on_change callback to force immediate rerun
     st.markdown("**Display Options**")
     
-    # FIXED: Read checkbox values, compare with current state, force rerun if changed
-    show_agents_new = st.checkbox(
+    def update_display():
+        """Force rerun when any display option changes."""
+        st.rerun()
+    
+    # Use key parameter to write directly to session state
+    # on_change callback triggers immediate rerun
+    st.checkbox(
         "Show Agents", 
-        value=st.session_state.show_agents,
-        key='show_agents_checkbox'
+        value=st.session_state.get('show_agents', True),
+        key='show_agents',
+        on_change=update_display
     )
     
-    show_routes_new = st.checkbox(
+    st.checkbox(
         "Show Routes", 
-        value=st.session_state.show_routes,
-        key='show_routes_checkbox'
+        value=st.session_state.get('show_routes', False),
+        key='show_routes',
+        on_change=update_display
     )
     
-    show_infrastructure_new = st.checkbox(
+    st.checkbox(
         "Show Infrastructure", 
-        value=st.session_state.show_infrastructure,
-        key='show_infrastructure_checkbox'
+        value=st.session_state.get('show_infrastructure', True),
+        key='show_infrastructure',
+        on_change=update_display
     )
-    
-    # Check if any display option changed
-    display_changed = (
-        show_agents_new != st.session_state.show_agents or
-        show_routes_new != st.session_state.show_routes or
-        show_infrastructure_new != st.session_state.show_infrastructure
-    )
-    
-    # Update session state and force rerun if changed
-    if display_changed:
-        st.session_state.show_agents = show_agents_new
-        st.session_state.show_routes = show_routes_new
-        st.session_state.show_infrastructure = show_infrastructure_new
-        st.rerun()  # Force immediate rerun to refresh map
