@@ -72,7 +72,7 @@ def init_session_state():
         'results': None,
         'animation_controller': None,
         'show_agents': True,
-        'show_routes': False,
+        'show_routes': True,  # Routes default ON
         'show_infrastructure': True,
         'current_region': None,
         'policy_engine': None,

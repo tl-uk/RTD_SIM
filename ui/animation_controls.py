@@ -2,7 +2,7 @@
 ui/animation_controls.py
 
 Animation playback controls, timeline, and display options.
-FIXED: Display options now force immediate rerun, auto-play works correctly
+FIXED: Display options toggle WITHOUT resetting animation position
 """
 
 import streamlit as st
@@ -73,32 +73,26 @@ def render_animation_controls(anim):
     
     st.markdown("---")
     
-    # Display options - FIX: Use on_change callback to force immediate rerun
+    # Display options - NO on_change callback!
+    # The hidden marker in streamlit_app.py handles the refresh
     st.markdown("**Display Options**")
     
-    def update_display():
-        """Force rerun when any display option changes."""
-        st.rerun()
-    
-    # Use key parameter to write directly to session state
-    # on_change callback triggers immediate rerun
+    # Simple checkboxes that write directly to session state
+    # The hidden marker in streamlit_app.py will detect changes and refresh
     st.checkbox(
         "Show Agents", 
         value=st.session_state.get('show_agents', True),
-        key='show_agents',
-        on_change=update_display
+        key='show_agents'
     )
     
     st.checkbox(
         "Show Routes", 
-        value=st.session_state.get('show_routes', False),
-        key='show_routes',
-        on_change=update_display
+        value=st.session_state.get('show_routes', True),  # DEFAULT ON!
+        key='show_routes'
     )
     
     st.checkbox(
         "Show Infrastructure", 
         value=st.session_state.get('show_infrastructure', True),
-        key='show_infrastructure',
-        on_change=update_display
+        key='show_infrastructure'
     )
