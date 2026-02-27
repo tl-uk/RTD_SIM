@@ -207,9 +207,6 @@ if not current_data:
     st.error("No data available")
     st.stop()
 
-# CRITICAL FIX: Force tab refresh when display options OR animation step changes
-display_key = f"tabs_{st.session_state.show_agents}_{st.session_state.show_routes}_{st.session_state.show_infrastructure}_{anim.current_step}"
-
 # Build tab list
 tab_configs = [
     ("🗺️ Map", render_map_tab),
@@ -250,7 +247,15 @@ tab_configs.append(("🔍 Policy Diagnostics", render_policy_diagnostics_tab))
 
 # Create and render tabs
 tab_names = [name for name, _ in tab_configs]
-tabs = st.tabs(tab_names, key=display_key)
+
+# WORKAROUND: Hidden marker forces tab refresh when display options change
+# This invisible HTML comment triggers Streamlit's change detection
+st.markdown(
+    f"<!-- refresh:{st.session_state.show_agents}:{st.session_state.show_routes}:{st.session_state.show_infrastructure}:{anim.current_step} -->", 
+    unsafe_allow_html=True
+)
+
+tabs = st.tabs(tab_names)
 
 for i, (tab_name, render_func) in enumerate(tab_configs):
     with tabs[i]:
@@ -277,4 +282,4 @@ if anim.is_playing:
         anim.pause()
         st.rerun()
 
-st.caption("**RTD_SIM** - Phase 5.2: Interactive Policy Configuration")
+st.caption("**RTD_SIM** - Interactive Policy Configuration")
