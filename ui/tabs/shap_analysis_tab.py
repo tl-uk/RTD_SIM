@@ -145,7 +145,10 @@ def render_shap_analysis_tab(results, anim, current_data):
         yaxis_title="Feature",
         height=400,
         showlegend=False,
-        margin=dict(r=100)  # Add right margin for text labels
+        margin=dict(r=150),  # Right margin for text labels
+        xaxis=dict(
+            range=[0, max(importance_df['Importance']) * 1.15]  # Extend x-axis by 15%
+        )
     )
     
     st.plotly_chart(fig_importance, use_container_width=True)
