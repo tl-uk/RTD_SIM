@@ -47,12 +47,15 @@ from ui.tabs import (
 # Import policy diagnostics
 from ui.tabs.policy_diagnostics_tab import render_policy_diagnostics_tab
 
-# Import System Dynamics tab (Phase 5.3)
+# Import System Dynamics tab
 from ui.tabs.system_dynamics_tab import render_system_dynamics_tab
 
-# Import Sensitivity Analysis tab (Phase 5.4)
+# Import Sensitivity Analysis tab
 from ui.tabs.sensitivity_analysis_tab import render_sensitivity_analysis_tab
 from ui.report_generator import render_report_generator_button
+
+# Import SHAP Analysis tab (Phase 5.4)
+from ui.tabs.shap_analysis_tab import render_shap_analysis_tab
 
 # Import simulation core
 from simulation.simulation_runner import run_simulation
@@ -116,7 +119,8 @@ if run_btn:
         progress_bar.progress(progress, message)
         status_text.info(message)
     
-    # CRITICAL: Store config BEFORE running simulation
+    # Store config BEFORE running simulation so diagnostics can access 
+    # it even if simulation fails
     st.session_state.last_config = config
     
     results = run_simulation(config, progress_callback=update_progress)
@@ -247,6 +251,14 @@ if hasattr(results, 'system_dynamics_history') and results.system_dynamics_histo
         tab_configs.append(("🧮 Sensitivity Analysis", render_sensitivity_analysis_tab))
     except ImportError:
         pass  # Module not available, skip tab
+
+# SHAP Analysis tab  ← ADD THIS BLOCK
+if hasattr(results, 'system_dynamics_history') and results.system_dynamics_history:
+    try:
+        from analytics.shap_analysis import run_shap_analysis_for_ui
+        tab_configs.append(("🔍 SHAP Analysis", render_shap_analysis_tab))
+    except ImportError:
+        pass # Module not available, skip tab
 
 # ALWAYS show Policy Diagnostics (handles both cases internally)
 tab_configs.append(("🔍 Policy Diagnostics", render_policy_diagnostics_tab))
