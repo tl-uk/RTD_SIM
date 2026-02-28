@@ -2,7 +2,7 @@
 ui/animation_controls.py
 
 Animation playback controls and display options.
-FINAL FIX: Use temporary state variables to prevent checkbox reruns
+PROPER FIX: Simple checkboxes, no apply button needed
 """
 
 import streamlit as st
@@ -69,61 +69,26 @@ def render_animation_controls(anim):
     
     st.markdown("---")
     
-    # Display options - Use DIFFERENT keys to avoid triggering the actual state
+    # Display options - Simple checkboxes, map tab uses @st.fragment
     st.markdown("**Display Options**")
     
-    # Initialize temp state if not exists
-    if 'temp_show_agents' not in st.session_state:
-        st.session_state.temp_show_agents = st.session_state.get('show_agents', True)
-    if 'temp_show_routes' not in st.session_state:
-        st.session_state.temp_show_routes = st.session_state.get('show_routes', True)
-    if 'temp_show_infrastructure' not in st.session_state:
-        st.session_state.temp_show_infrastructure = st.session_state.get('show_infrastructure', True)
-    
-    # Use temp keys so they don't immediately update the real session state
-    temp_agents = st.checkbox(
+    st.checkbox(
         "Show Agents", 
-        value=st.session_state.temp_show_agents,
-        key='temp_agents_checkbox',
-        help="Toggle agent markers on/off"
+        value=st.session_state.get('show_agents', True),
+        key='show_agents',
+        help="Toggle agent markers"
     )
     
-    temp_routes = st.checkbox(
+    st.checkbox(
         "Show Routes", 
-        value=st.session_state.temp_show_routes,
-        key='temp_routes_checkbox',
-        help="Toggle route lines on/off"
+        value=st.session_state.get('show_routes', True),
+        key='show_routes',
+        help="Toggle route lines"
     )
     
-    temp_infrastructure = st.checkbox(
+    st.checkbox(
         "Show Infrastructure", 
-        value=st.session_state.temp_show_infrastructure,
-        key='temp_infra_checkbox',
-        help="Toggle charging stations on/off"
+        value=st.session_state.get('show_infrastructure', True),
+        key='show_infrastructure',
+        help="Toggle charging stations"
     )
-    
-    # Update temp state
-    st.session_state.temp_show_agents = temp_agents
-    st.session_state.temp_show_routes = temp_routes
-    st.session_state.temp_show_infrastructure = temp_infrastructure
-    
-    # Check if anything changed from actual state
-    changes_pending = (
-        st.session_state.temp_show_agents != st.session_state.get('show_agents', True) or
-        st.session_state.temp_show_routes != st.session_state.get('show_routes', True) or
-        st.session_state.temp_show_infrastructure != st.session_state.get('show_infrastructure', True)
-    )
-    
-    # Apply button - only update real state when clicked
-    if changes_pending:
-        if st.button("✅ Apply Changes", use_container_width=True, type="primary", help="Update map with new display settings"):
-            # Copy temp state to real state
-            st.session_state.show_agents = st.session_state.temp_show_agents
-            st.session_state.show_routes = st.session_state.temp_show_routes
-            st.session_state.show_infrastructure = st.session_state.temp_show_infrastructure
-            # Don't need to save animation position - it's already preserved
-            st.rerun()
-        
-        st.caption("⚠️ Click **Apply Changes** to update the map")
-    else:
-        st.caption("💡 Toggle options above to change display")

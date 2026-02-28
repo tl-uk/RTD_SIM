@@ -1,7 +1,8 @@
 """
 ui/tabs/map_tab.py
 
-Map visualization tab with live policy status widget.
+Map visualization tab with fragment-based rendering.
+PROPER FIX: Map updates reactively without full page rerun
 """
 
 import streamlit as st
@@ -30,16 +31,9 @@ def render_map_tab(results, anim, current_data):
     
     st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
     
-    # Render map
-    deck = render_map(
-        agent_states=agent_states,
-        show_agents=st.session_state.show_agents,
-        show_routes=st.session_state.show_routes,
-        show_infrastructure=st.session_state.show_infrastructure,
-        infrastructure_manager=results.infrastructure,
-    )
-    
-    st.pydeck_chart(deck, use_container_width=True)
+    # Use fragment to isolate map rendering
+    # This allows display options to update the map without full page rerun
+    render_map_fragment(agent_states, results.infrastructure)
     
     st.markdown("---")
     
@@ -54,6 +48,26 @@ def render_map_tab(results, anim, current_data):
     
     st.markdown("---")
     
-    # ADD: Policy Status Widget (if policy active)
+    # Policy Status Widget (if policy active)
     if config and hasattr(results, 'policy_status') and results.policy_status:
         render_policy_status_widget(results, anim.current_step, config)
+
+
+@st.fragment
+def render_map_fragment(agent_states, infrastructure_manager):
+    """
+    Render map as a fragment - updates independently when display options change.
+    
+    This prevents full page reruns when checkboxes are toggled.
+    """
+    
+    # Render map with current display settings from session state
+    deck = render_map(
+        agent_states=agent_states,
+        show_agents=st.session_state.get('show_agents', True),
+        show_routes=st.session_state.get('show_routes', True),
+        show_infrastructure=st.session_state.get('show_infrastructure', True),
+        infrastructure_manager=infrastructure_manager,
+    )
+    
+    st.pydeck_chart(deck, use_container_width=True)
