@@ -225,7 +225,7 @@ def render_shap_analysis_tab(results, anim, current_data):
     """)
 
     # ==================================================================
-    # NEW SECTION: SHAP Dependence Plots
+    # SHAP Dependence Plots
     # ==================================================================
 
     st.markdown("---")
