@@ -78,6 +78,7 @@ def init_session_state():
         'policy_engine': None,
         'combined_scenario_active': False,
         'last_config': None,  # CRITICAL: Store config for diagnostics
+        'current_animation_step': 0,  # CRITICAL: Preserve step across reruns
     }
     
     for key, value in defaults.items():
@@ -188,6 +189,11 @@ results = st.session_state.results
 anim = st.session_state.animation_controller
 config = st.session_state.last_config
 
+# CRITICAL: Restore animation position from session state
+# This preserves the step when checkboxes trigger reruns
+if anim and 'current_animation_step' in st.session_state:
+    anim.current_step = st.session_state.current_animation_step
+
 # Sidebar panels
 with st.sidebar:
     render_diagnostics_panel(results)
@@ -277,9 +283,11 @@ if anim.is_playing:
     time.sleep(0.3 / anim.speed_multiplier)
     if anim.current_step < anim.total_steps - 1:
         anim.current_step += 1
+        st.session_state.current_animation_step = anim.current_step
         st.rerun()
     else:
         anim.pause()
+        st.session_state.current_animation_step = anim.current_step
         st.rerun()
 
 st.caption("**RTD_SIM** - Interactive Policy Configuration")

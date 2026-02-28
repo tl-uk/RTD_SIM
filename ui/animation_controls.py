@@ -2,7 +2,7 @@
 ui/animation_controls.py
 
 Animation playback controls, timeline, and display options.
-FIXED: Display options toggle WITHOUT resetting animation position
+FIXED: Display options now force immediate rerun, auto-play works correctly
 """
 
 import streamlit as st
@@ -26,20 +26,24 @@ def render_animation_controls(anim):
     with col1:
         if st.button("⏮️", help="Reset", use_container_width=True, key='reset_btn'):
             anim.stop()
+            st.session_state.current_animation_step = anim.current_step
             st.rerun()
     with col2:
         if st.button("◀️", help="Step Back", use_container_width=True, key='back_btn'):
             if anim.current_step > 0:
                 anim.current_step -= 1
+                st.session_state.current_animation_step = anim.current_step
                 st.rerun()
     with col3:
         if st.button("▶️", help="Step Forward", use_container_width=True, key='fwd_btn'):
             if anim.current_step < anim.total_steps - 1:
                 anim.current_step += 1
+                st.session_state.current_animation_step = anim.current_step
                 st.rerun()
     with col4:
         if st.button("⏭️", help="End", use_container_width=True, key='end_btn'):
             anim.seek(anim.total_steps - 1)
+            st.session_state.current_animation_step = anim.current_step
             st.rerun()
     
     st.markdown("---")
@@ -51,6 +55,7 @@ def render_animation_controls(anim):
             anim.play()
         else:
             anim.pause()
+        st.session_state.current_animation_step = anim.current_step
         st.rerun()
     
     # Timeline slider
@@ -63,6 +68,7 @@ def render_animation_controls(anim):
     
     if current_step != anim.current_step:
         anim.seek(current_step)
+        st.session_state.current_animation_step = anim.current_step
         st.rerun()
     
     # Progress indicator
@@ -73,12 +79,10 @@ def render_animation_controls(anim):
     
     st.markdown("---")
     
-    # Display options - NO on_change callback!
-    # The hidden marker in streamlit_app.py handles the refresh
+    # Display options - NO callbacks needed
+    # Hidden marker in streamlit_app.py handles refresh
     st.markdown("**Display Options**")
     
-    # Simple checkboxes that write directly to session state
-    # The hidden marker in streamlit_app.py will detect changes and refresh
     st.checkbox(
         "Show Agents", 
         value=st.session_state.get('show_agents', True),
@@ -87,7 +91,7 @@ def render_animation_controls(anim):
     
     st.checkbox(
         "Show Routes", 
-        value=st.session_state.get('show_routes', True),  # DEFAULT ON!
+        value=st.session_state.get('show_routes', True),  # DEFAULT ON
         key='show_routes'
     )
     
