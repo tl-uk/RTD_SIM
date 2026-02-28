@@ -120,6 +120,9 @@ def render_shap_analysis_tab(results, anim, current_data):
         'Importance': viz_data['importance']['importance']
     })
     
+    # REVERSE order so most important features appear at TOP
+    importance_df = importance_df.iloc[::-1]
+    
     fig_importance = go.Figure()
     
     fig_importance.add_trace(go.Bar(
