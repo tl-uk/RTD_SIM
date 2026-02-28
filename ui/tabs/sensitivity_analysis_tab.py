@@ -377,52 +377,6 @@ def render_sensitivity_analysis_tab(results, anim, current_data):
     except Exception as e:
         st.warning(f"Could not analyze mode switches: {e}")
     
-    # ==================================================================
-    # SECTION 6: SHAP Readiness
-    # ==================================================================
-    
-    st.markdown("---")
-    st.markdown("### 🤖 SHAP Analysis Readiness")
-    st.caption("Data prepared for explainability analysis")
-    
-    try:
-        X, y, feature_names = prepare_shap_data(sd_history)
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Data Points", len(X))
-        with col2:
-            st.metric("Features", len(feature_names))
-        with col3:
-            st.metric("Target Variable", "dEV/dt (flow)")
-        
-        with st.expander("📋 Feature List", expanded=False):
-            for i, name in enumerate(feature_names):
-                st.write(f"{i+1}. {name}")
-        
-        with st.expander("📊 Sample Data", expanded=False):
-            df_sample = pd.DataFrame(X[:10], columns=feature_names)
-            df_sample['flow (target)'] = y[:10]
-            st.dataframe(df_sample)
-        
-        st.info("""
-        💡 **Next Steps for SHAP Analysis:**
-        
-        1. Install SHAP: `pip install shap`
-        2. Run analysis:
-        ```python
-        import shap
-        explainer = shap.LinearExplainer((X, y))
-        shap_values = explainer.shap_values(X)
-        shap.summary_plot(shap_values, X, feature_names=feature_names)
-        ```
-        
-        This will show **which features** drive adoption at each timestep!
-        """)
-    
-    except Exception as e:
-        st.warning(f"Could not prepare SHAP data: {e}")
 
 
 # Utility function for integration

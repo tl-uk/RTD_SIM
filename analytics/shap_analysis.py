@@ -38,6 +38,7 @@ class ShapResults:
 def prepare_shap_features(sd_history: List[Dict]) -> Tuple[pd.DataFrame, np.ndarray, List[str]]:
     """
     Prepare feature matrix for SHAP analysis from SD history.
+    FIXED: Now extracts actual time-varying features from SD history
     
     Args:
         sd_history: List of SD history dicts
@@ -54,20 +55,39 @@ def prepare_shap_features(sd_history: List[Dict]) -> Tuple[pd.DataFrame, np.ndar
     feature_data = []
     targets = []
     
-    for entry in sd_history:
+    for i, entry in enumerate(sd_history):
+        ev_adoption = entry['ev_adoption']
+        r = entry.get('ev_growth_rate_r', 0.05)
+        K = entry.get('ev_carrying_capacity_K', 0.80)
+        
+        # Extract feedback strengths (may be constant, but extract anyway)
+        infra_feedback = entry.get('infrastructure_feedback_strength', 0.02)
+        social_feedback = entry.get('social_feedback_strength', 0.03)
+        
+        # TIME-VARYING FEATURES - these change across timesteps
         features = {
-            'ev_adoption': entry['ev_adoption'],
-            'growth_rate_r': entry.get('ev_growth_rate_r', 0.05),
-            'carrying_capacity_K': entry.get('ev_carrying_capacity_K', 0.80),
-            'infrastructure_feedback': 0.02,  # Default
-            'social_influence': 0.03,  # Default
-            'infrastructure_capacity': 1.0,  # Normalized
+            # Core state
+            'timestep': i,  # ADD: Captures temporal dynamics
+            'ev_adoption': ev_adoption,
+            'flow_rate': entry.get('ev_adoption_flow', 0),  # ADD: Previous flow
             
-            # Derived features
-            'adoption_squared': entry['ev_adoption'] ** 2,
-            'distance_to_capacity': entry.get('ev_carrying_capacity_K', 0.80) - entry['ev_adoption'],
-            'logistic_term': entry.get('ev_growth_rate_r', 0.05) * entry['ev_adoption'] * 
-                            (1 - entry['ev_adoption'] / entry.get('ev_carrying_capacity_K', 0.80)),
+            # Derived state features (vary over time)
+            'adoption_squared': ev_adoption ** 2,
+            'adoption_cubed': ev_adoption ** 3,
+            'distance_to_capacity': K - ev_adoption,
+            'saturation_ratio': ev_adoption / K if K > 0 else 0,
+            
+            # Logistic growth components
+            'logistic_term': r * ev_adoption * (1 - ev_adoption / K) if K > 0 else 0,
+            'carrying_capacity_factor': (1 - ev_adoption / K) if K > 0 else 0,
+            
+            # Feedback terms (may vary if policies are active)
+            'infrastructure_effect': infra_feedback * ev_adoption * (1 - ev_adoption / K) if K > 0 else 0,
+            'social_effect': social_feedback * ev_adoption ** 2,
+            
+            # Interaction terms
+            'adoption_x_distance': ev_adoption * (K - ev_adoption),
+            'growth_potential': r * (K - ev_adoption),
         }
         
         feature_data.append(features)
@@ -75,6 +95,17 @@ def prepare_shap_features(sd_history: List[Dict]) -> Tuple[pd.DataFrame, np.ndar
     
     X_df = pd.DataFrame(feature_data)
     y = np.array(targets)
+    
+    # Remove constant features (they don't help SHAP)
+    constant_features = []
+    for col in X_df.columns:
+        if X_df[col].nunique() <= 1:
+            constant_features.append(col)
+    
+    if constant_features:
+        logger.info(f"Removing constant features: {constant_features}")
+        X_df = X_df.drop(columns=constant_features)
+    
     feature_names = list(X_df.columns)
     
     return X_df, y, feature_names
