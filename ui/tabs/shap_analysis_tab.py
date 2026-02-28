@@ -223,6 +223,241 @@ def render_shap_analysis_tab(results, anim, current_data):
     - **Final Prediction**: {waterfall_data['prediction']:.5f} (actual flow)
     - **Features** push the prediction up (positive SHAP) or down (negative SHAP)
     """)
+
+    # ==================================================================
+    # NEW SECTION: SHAP Dependence Plots
+    # ==================================================================
+
+    st.markdown("---")
+    st.markdown("### 📊 SHAP Dependence Analysis")
+    st.caption("How individual features affect predictions across their value range")
+
+    # Let user select feature to analyze
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        selected_feature = st.selectbox(
+            "Select Feature to Analyze",
+            options=shap_results.feature_names,
+            index=0,  # Default to most important
+            key='dependence_feature',
+            help="Shows how this feature's value affects its impact on predictions"
+        )
+
+    with col2:
+        # Optional: select interaction feature
+        interaction_options = ['auto'] + shap_results.feature_names
+        selected_interaction = st.selectbox(
+            "Color by Feature (Interaction)",
+            options=interaction_options,
+            index=0,  # Default to auto
+            key='interaction_feature',
+            help="Colors points by another feature to show interactions"
+        )
+
+    # Get indices
+    feature_idx = shap_results.feature_names.index(selected_feature)
+
+    if selected_interaction == 'auto':
+        # Auto-detect best interaction feature (highest correlation with main feature's SHAP)
+        correlations = []
+        for i, fname in enumerate(shap_results.feature_names):
+            if i != feature_idx:
+                corr = np.corrcoef(
+                    shap_results.shap_values[:, feature_idx],
+                    shap_results.X[:, i]
+                )[0, 1]
+                correlations.append((i, fname, abs(corr)))
+        
+        if correlations:
+            interaction_idx = max(correlations, key=lambda x: x[2])[0]
+            interaction_name = shap_results.feature_names[interaction_idx]
+        else:
+            interaction_idx = None
+            interaction_name = None
+    else:
+        interaction_idx = shap_results.feature_names.index(selected_interaction)
+        interaction_name = selected_interaction
+
+    # Create dependence plot
+    fig_dependence = go.Figure()
+
+    if interaction_idx is not None:
+        # Color by interaction feature
+        fig_dependence.add_trace(go.Scatter(
+            x=shap_results.X[:, feature_idx],
+            y=shap_results.shap_values[:, feature_idx],
+            mode='markers',
+            marker=dict(
+                size=8,
+                color=shap_results.X[:, interaction_idx],
+                colorscale='RdYlBu_r',
+                showscale=True,
+                colorbar=dict(title=interaction_name),
+                line=dict(width=0.5, color='white')
+            ),
+            text=[f"SHAP: {sv:.5f}<br>{interaction_name}: {iv:.5f}" 
+                for sv, iv in zip(shap_results.shap_values[:, feature_idx],
+                                shap_results.X[:, interaction_idx])],
+            hovertemplate=f"<b>{selected_feature}: %{{x:.5f}}</b><br>" +
+                        "%{text}<extra></extra>"
+        ))
+    else:
+        # No interaction
+        fig_dependence.add_trace(go.Scatter(
+            x=shap_results.X[:, feature_idx],
+            y=shap_results.shap_values[:, feature_idx],
+            mode='markers',
+            marker=dict(
+                size=8,
+                color='#1f77b4',
+                line=dict(width=0.5, color='white')
+            ),
+            text=[f"SHAP: {sv:.5f}" for sv in shap_results.shap_values[:, feature_idx]],
+            hovertemplate=f"<b>{selected_feature}: %{{x:.5f}}</b><br>" +
+                        "%{text}<extra></extra>"
+        ))
+
+    # Add horizontal line at SHAP=0 (neutral)
+    fig_dependence.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="gray",
+        annotation_text="Neutral (no effect)",
+        annotation_position="right"
+    )
+
+    fig_dependence.update_layout(
+        title=f"SHAP Dependence: {selected_feature}",
+        xaxis_title=f"{selected_feature} Value",
+        yaxis_title=f"SHAP Value (Impact on Prediction)",
+        height=500,
+        showlegend=False
+    )
+
+    st.plotly_chart(fig_dependence, use_container_width=True)
+
+    # Interpretation guide
+    with st.expander("📖 How to Read Dependence Plots", expanded=False):
+        st.markdown(f"""
+        **SHAP Dependence Plot** shows how **{selected_feature}** affects predictions:
+        
+        **X-axis**: Value of {selected_feature}
+        - Left → Low values
+        - Right → High values
+        
+        **Y-axis**: SHAP value (contribution to prediction)
+        - **Positive** (above 0) → Feature **increases** flow prediction
+        - **Negative** (below 0) → Feature **decreases** flow prediction
+        - **Zero line** → Feature has no effect
+        
+        **Color** (if interaction enabled): {interaction_name if interaction_name else "None"}
+        - Shows how another feature modifies the effect
+        - **Red points**: High interaction feature value
+        - **Blue points**: Low interaction feature value
+        
+        **Key Patterns to Look For:**
+        
+        1. **Linear relationship**: Straight line = proportional effect
+        2. **Threshold effect**: Sharp change at specific value = tipping point
+        3. **Saturation**: Flattening curve = diminishing returns
+        4. **Interaction**: Color patterns = combined effects
+        
+        **Example Interpretations:**
+        
+        - **Upward slope**: Higher feature value → stronger positive impact
+        - **Downward slope**: Higher feature value → stronger negative impact
+        - **Horizontal**: Feature value doesn't matter (constant effect)
+        - **U-shape**: Optimal value in middle
+        - **Inverted U**: Extremes better than middle
+        """)
+
+    # Key insights for selected feature
+    st.markdown("#### 💡 Key Insights")
+
+    # Compute statistics
+    feature_vals = shap_results.X[:, feature_idx]
+    shap_vals = shap_results.shap_values[:, feature_idx]
+
+    min_val, max_val = feature_vals.min(), feature_vals.max()
+    avg_shap = shap_vals.mean()
+    shap_range = shap_vals.max() - shap_vals.min()
+
+    # Detect relationship type
+    if shap_range < 0.00001:
+        relationship = "Constant (no variation)"
+    else:
+        # Simple correlation to detect direction
+        corr = np.corrcoef(feature_vals, shap_vals)[0, 1]
+        if abs(corr) > 0.7:
+            relationship = "Strong positive" if corr > 0 else "Strong negative"
+        elif abs(corr) > 0.3:
+            relationship = "Moderate positive" if corr > 0 else "Moderate negative"
+        else:
+            relationship = "Non-linear or weak"
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Relationship Type",
+            relationship,
+            help="How feature value correlates with SHAP value"
+        )
+
+    with col2:
+        st.metric(
+            "Average Impact",
+            f"{avg_shap:.5f}",
+            help="Mean SHAP value across all timesteps"
+        )
+
+    with col3:
+        st.metric(
+            "Impact Range",
+            f"{shap_range:.5f}",
+            help="Difference between max and min SHAP values"
+        )
+
+    # Specific insight based on feature
+    if 'logistic' in selected_feature.lower():
+        if avg_shap < -0.0001:
+            st.warning(f"""
+            ⚠️ **{selected_feature}** has **negative average impact**
+            
+            This indicates the system is **saturated** (EV adoption > carrying capacity).
+            The logistic growth term is acting as a **brake** on further adoption.
+            
+            **Policy implication**: Increase carrying capacity (K) to allow continued growth.
+            """)
+        else:
+            st.info(f"""
+            ℹ️ **{selected_feature}** shows typical logistic growth behavior.
+            Positive impact when EV < K, negative when EV > K.
+            """)
+
+    elif 'adoption' in selected_feature.lower():
+        if corr > 0:
+            st.success(f"""
+            ✅ **{selected_feature}** has **positive impact**
+            
+            Higher adoption levels lead to stronger growth (momentum effect).
+            This suggests positive feedback loops are active.
+            """)
+        else:
+            st.info(f"""
+            ℹ️ **{selected_feature}** relationship is complex.
+            Effect varies depending on other system conditions.
+            """)
+
+    elif 'saturation' in selected_feature.lower():
+        st.info(f"""
+        📊 **{selected_feature}** shows capacity dynamics
+        
+        - Low values (EV << K): Strong positive growth potential
+        - High values (EV ≈ K): Growth slows (approaching limit)
+        - Values > 1: System over capacity
+        """)
     
     st.markdown("---")
     
