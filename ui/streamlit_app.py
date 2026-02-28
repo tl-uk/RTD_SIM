@@ -278,16 +278,4 @@ for i, (tab_name, render_func) in enumerate(tab_configs):
 # Status footer
 render_status_footer(results)
 
-# Auto-play
-if anim.is_playing:
-    time.sleep(0.3 / anim.speed_multiplier)
-    if anim.current_step < anim.total_steps - 1:
-        anim.current_step += 1
-        st.session_state.current_animation_step = anim.current_step
-        st.rerun()
-    else:
-        anim.pause()
-        st.session_state.current_animation_step = anim.current_step
-        st.rerun()
-
 st.caption("**RTD_SIM** - Interactive Policy Configuration")
