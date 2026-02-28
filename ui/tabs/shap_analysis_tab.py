@@ -144,7 +144,8 @@ def render_shap_analysis_tab(results, anim, current_data):
         xaxis_title="Mean |SHAP Value|",
         yaxis_title="Feature",
         height=400,
-        showlegend=False
+        showlegend=False,
+        margin=dict(r=100)  # Add right margin for text labels
     )
     
     st.plotly_chart(fig_importance, use_container_width=True)

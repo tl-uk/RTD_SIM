@@ -346,7 +346,13 @@ def _render_system_flows(sd_history, current_step):
                 color=steps,
                 colorscale='Viridis',
                 showscale=True,
-                colorbar=dict(title="Step", x=1.1)
+                colorbar=dict(
+                    title="Step",
+                    x=0.88,  # Move left from edge
+                    len=0.45,  # Make shorter
+                    yanchor='bottom',
+                    y=0
+                )
             ),
             line=dict(color='gray', width=1)
         ),
