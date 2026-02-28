@@ -2,7 +2,7 @@
 ui/animation_controls.py
 
 Animation playback controls and display options.
-PROPER FIX: Simple checkboxes, no apply button needed
+FINAL FIX: Remove slider key to prevent state conflicts
 """
 
 import streamlit as st
@@ -21,74 +21,86 @@ def render_animation_controls(anim):
     st.markdown("---")
     st.header("🎬 Animation Controls")
     
+    # Initialize if needed
+    if 'current_animation_step' not in st.session_state:
+        st.session_state.current_animation_step = anim.current_step
+    
+    # Sync anim with session state at start of render
+    anim.current_step = st.session_state.current_animation_step
+    
     # Playback buttons
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button("⏮️", help="Reset to Start", use_container_width=True, key='reset_btn'):
-            anim.stop()
-            st.session_state.current_animation_step = anim.current_step
+            st.session_state.current_animation_step = 0
             st.rerun()
     with col2:
         if st.button("◀️", help="Step Back", use_container_width=True, key='back_btn'):
-            if anim.current_step > 0:
-                anim.current_step -= 1
-                st.session_state.current_animation_step = anim.current_step
+            if st.session_state.current_animation_step > 0:
+                st.session_state.current_animation_step -= 1
                 st.rerun()
     with col3:
         if st.button("▶️", help="Step Forward", use_container_width=True, key='fwd_btn'):
-            if anim.current_step < anim.total_steps - 1:
-                anim.current_step += 1
-                st.session_state.current_animation_step = anim.current_step
+            if st.session_state.current_animation_step < anim.total_steps - 1:
+                st.session_state.current_animation_step += 1
                 st.rerun()
     with col4:
         if st.button("⏭️", help="Jump to End", use_container_width=True, key='end_btn'):
-            anim.seek(anim.total_steps - 1)
-            st.session_state.current_animation_step = anim.current_step
+            st.session_state.current_animation_step = anim.total_steps - 1
             st.rerun()
     
     st.markdown("---")
     
-    # Timeline slider
-    current_step = st.slider(
+    # Timeline slider - NO KEY PARAMETER to avoid conflicts
+    current_step_slider = st.slider(
         "Timeline",
-        0, anim.total_steps - 1,
-        anim.current_step,
-        key='time_slider'
+        min_value=0,
+        max_value=anim.total_steps - 1,
+        value=st.session_state.current_animation_step
     )
     
-    if current_step != anim.current_step:
-        anim.seek(current_step)
-        st.session_state.current_animation_step = anim.current_step
+    # Only update if slider actually changed
+    if current_step_slider != st.session_state.current_animation_step:
+        st.session_state.current_animation_step = current_step_slider
         st.rerun()
     
-    # Progress indicator
+    # Progress indicator  
+    progress = st.session_state.current_animation_step / (anim.total_steps - 1) if anim.total_steps > 1 else 0
     st.progress(
-        anim.get_progress(), 
-        text=f"Step {anim.current_step + 1}/{anim.total_steps}"
+        progress,
+        text=f"Step {st.session_state.current_animation_step + 1}/{anim.total_steps}"
     )
     
     st.markdown("---")
     
-    # Display options - Simple checkboxes, map tab uses @st.fragment
+    # Display options - Simple checkboxes, NO KEY PARAMETER
     st.markdown("**Display Options**")
     
-    st.checkbox(
-        "Show Agents", 
-        value=st.session_state.get('show_agents', True),
-        key='show_agents',
-        help="Toggle agent markers"
+    # Read current values
+    show_agents_current = st.session_state.get('show_agents', True)
+    show_routes_current = st.session_state.get('show_routes', True)
+    show_infra_current = st.session_state.get('show_infrastructure', True)
+    
+    # Render checkboxes WITHOUT keys
+    show_agents_new = st.checkbox(
+        "Show Agents",
+        value=show_agents_current
     )
     
-    st.checkbox(
-        "Show Routes", 
-        value=st.session_state.get('show_routes', True),
-        key='show_routes',
-        help="Toggle route lines"
+    show_routes_new = st.checkbox(
+        "Show Routes",
+        value=show_routes_current
     )
     
-    st.checkbox(
-        "Show Infrastructure", 
-        value=st.session_state.get('show_infrastructure', True),
-        key='show_infrastructure',
-        help="Toggle charging stations"
+    show_infra_new = st.checkbox(
+        "Show Infrastructure",
+        value=show_infra_current
     )
+    
+    # Update session state if changed (this happens automatically on next rerun)
+    if show_agents_new != show_agents_current:
+        st.session_state.show_agents = show_agents_new
+    if show_routes_new != show_routes_current:
+        st.session_state.show_routes = show_routes_new
+    if show_infra_new != show_infra_current:
+        st.session_state.show_infrastructure = show_infra_new
