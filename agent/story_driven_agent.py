@@ -89,6 +89,11 @@ class StoryDrivenAgent(CognitiveAgent):
         logger.info(f"Created {agent_id}: job={job_story_id}, "
                    f"vehicle_required={agent_context.get('vehicle_required')}, "
                    f"vehicle_type={agent_context.get('vehicle_type')}")
+        
+        # Phase 6.2b: Event perception (optional - Phase 7)
+        self.perceived_policies = {}  # {parameter: value}
+        self.perceived_failures = []  # List of infrastructure failures
+        self.event_perception_enabled = False
     
     def _extract_agent_context(self) -> Dict:
         """
@@ -225,7 +230,7 @@ class StoryDrivenAgent(CognitiveAgent):
             blended[key] = 0.7 * user_val + 0.3 * job_val
         
         return blended
-    
+ 
     def _apply_variance(
         self, 
         desires: Dict[str, float], 
@@ -282,8 +287,91 @@ class StoryDrivenAgent(CognitiveAgent):
     def __repr__(self) -> str:
         return (f"StoryDrivenAgent(id={self.state.agent_id}, "
                 f"user={self.user_story_id}, job={self.job_story_id})")
+    
+    # ===============================================================================
+    # Phase 7: Event Perception (Optional)
+    # ===============================================================================
+    def subscribe_to_events(self, event_bus):
+        """
+        Subscribe agent to relevant events (OPTIONAL - Phase 7).
+        
+        This method enables dynamic event perception for replanning.
+        Without calling this, agent works normally.
+        
+        Args:
+            event_bus: SafeEventBus instance
+        """
+        if not event_bus or not event_bus.is_available():
+            logger.debug(f"{self.agent_id}: Event bus unavailable")
+            return
+        
+        from events.event_types import EventType
+        
+        # Subscribe to policy changes
+        def handle_policy_change(event):
+            param = event.payload['parameter']
+            new_value = event.payload['new_value']
+            old_value = event.payload['old_value']
+            
+            # Store in beliefs
+            self.perceived_policies[param] = new_value
+            
+            logger.debug(
+                f"{self.agent_id} perceived policy: {param} "
+                f"{old_value} → {new_value}"
+            )
+            
+            # TODO Phase 7: Trigger replanning if needed
+            # if self._policy_affects_plan(param):
+            #     self.trigger_replan()
+        
+        # Subscribe to infrastructure failures
+        def handle_infrastructure_failure(event):
+            infra_type = event.payload['infrastructure_type']
+            infra_id = event.payload['infrastructure_id']
+            
+            failure_info = {
+                'type': infra_type,
+                'id': infra_id,
+                'reason': event.payload['failure_reason'],
+                'timestamp': event.timestamp,
+                'location': (event.spatial.latitude, event.spatial.longitude)
+            }
+            self.perceived_failures.append(failure_info)
+            
+            logger.debug(f"{self.agent_id} perceived failure: {infra_id}")
+            
+            # TODO Phase 7: Trigger replanning if on route
+        
+        try:
+            # Subscribe with spatial filtering
+            event_bus.subscribe_spatial(
+                self.agent_id,
+                EventType.POLICY_CHANGE,
+                handle_policy_change
+            )
+            
+            event_bus.subscribe_spatial(
+                self.agent_id,
+                EventType.INFRASTRUCTURE_FAILURE,
+                handle_infrastructure_failure
+            )
+            
+            self.event_perception_enabled = True
+            logger.debug(f"✅ {self.agent_id}: Event perception enabled")
+            
+        except Exception as e:
+            logger.debug(f"Event subscription failed: {e}")
 
-
+    # Getters for perceived events (for testing and diagnostics)
+    def get_perceived_policies(self):
+        """Get all policies this agent has perceived."""
+        return self.perceived_policies.copy()
+    
+    def get_perceived_failures(self):
+        """Get all failures this agent has perceived."""
+        return self.perceived_failures.copy()
+    
 # ============================================================================
 # Batch Generation Functions
 # ============================================================================
@@ -321,7 +409,12 @@ def generate_agents_from_stories(
     logger.info(f"Generated {len(agents)} agents from stories")
     return agents
 
-
+# =============================================================================
+# Balanced Generation Function
+# 
+# This function generates a balanced population of agents with even distribution across 
+# story combinations, which is useful for controlled experiments and diagnostics.
+# =============================================================================
 def generate_balanced_population(
     num_agents: int,
     user_story_ids: List[str],

@@ -67,6 +67,73 @@ class DynamicPolicyEngine:
 
         logger.info("Dynamic Policy Engine initialized")
 
+        # Phase 6.2b: Event bus for publishing policy changes
+        self.event_bus = None  # Will be set by simulation loop
+
+    # =======================================================================
+    # Event Bus Integration
+    # =======================================================================
+    def set_event_bus(self, event_bus):
+        """
+        Connect event bus for policy event publishing.
+        
+        Called by simulation loop to inject event bus.
+        
+        Args:
+            event_bus: SafeEventBus instance
+        """
+        self.event_bus = event_bus
+        if event_bus and event_bus.is_available():
+            logger.info("✅ Event bus connected to policy engine")
+
+    # ======================================================================
+    # Policy Event Publishing
+    # 
+    def _publish_policy_event(
+        self,
+        parameter: str,
+        old_value: float,
+        new_value: float,
+        lat: float = 56.0,
+        lon: float = -3.5,
+        radius_km: float = 200.0
+    ):
+        """
+        Publish policy change event.
+        
+        Args:
+            parameter: Policy parameter name (e.g., 'carbon_tax')
+            old_value: Previous value
+            new_value: New value
+            lat: Event center latitude (default: Scotland center)
+            lon: Event center longitude
+            radius_km: Event radius (default: 200km = nationwide)
+        """
+        if not self.event_bus or not self.event_bus.is_available():
+            return
+        
+        try:
+            from events.event_types import PolicyChangeEvent
+            
+            event = PolicyChangeEvent(
+                parameter=parameter,
+                old_value=old_value,
+                new_value=new_value,
+                lat=lat,
+                lon=lon,
+                radius_km=radius_km,
+                source='policy_engine'
+            )
+            
+            success = self.event_bus.publish(event)
+            if success:
+                logger.debug(f"📢 Published policy event: {parameter} {old_value}→{new_value}")
+            
+        except Exception as e:
+            logger.debug(f"Policy event publish failed (non-critical): {e}")
+
+
+
     # =========================================================================
     # Scenario Loading & Activation
     # =========================================================================
