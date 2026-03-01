@@ -390,8 +390,11 @@ class SpatialEventBus(EventBus):
                 logger.debug(f"  Event at ({event.spatial.latitude if event.spatial else 'N/A'}, "
                            f"{event.spatial.longitude if event.spatial else 'N/A'}) not within range")
         
-        # Subscribe with wrapped callback
-        self.subscribe(event_type, spatial_callback)
+        # Subscribe to ALL priority channels to ensure delivery
+        # This fixes the channel mismatch where high-priority events weren't received
+        self.subscribe(event_type, spatial_callback)  # Normal priority
+        self.subscribe(event_type, spatial_callback, priority=EventPriority.HIGH)  # High priority  
+        self.subscribe(event_type, spatial_callback, priority=EventPriority.CRITICAL)  # Critical priority
     
     def _is_event_perceivable(self, agent_id: str, event: BaseEvent) -> bool:
         """
