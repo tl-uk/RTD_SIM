@@ -107,7 +107,7 @@ class SimulationConfig:
         analytics: Optional[AnalyticsConfig] = None,
         environmental: Optional[EnvironmentalConfig] = None,
         policy: Optional[PolicyConfig] = None,
-        system_dynamics: Optional[SystemDynamicsConfig] = None,  # NEW Phase 5.3
+        system_dynamics: Optional[SystemDynamicsConfig] = None, # System Dynamics (new structured config)
     ):
         """
         Initialize SimulationConfig.
@@ -211,7 +211,7 @@ class SimulationConfig:
                 combined_scenario_data=combined_scenario_data
             )
         
-        # NEW Phase 5.3: System Dynamics
+        # System Dynamics
         if system_dynamics is not None:
             self.system_dynamics = system_dynamics
         else:
@@ -224,6 +224,34 @@ class SimulationConfig:
         if not hasattr(self, 'policy_thresholds'):
             self.policy_thresholds = policy_thresholds
     
+    # ========================================
+    # Phase 6.2b: Event System
+    # ========================================
+    enable_event_bus: bool = False
+    """Enable real-time event bus (auto-falls back to in-memory if Redis unavailable)"""
+    
+    redis_host: str = 'localhost'
+    """Redis server host for event bus"""
+    
+    redis_port: int = 6379
+    """Redis server port for event bus"""
+    
+    redis_db: int = 0
+    """Redis database number for event bus"""
+    
+    agent_perception_radius_km: float = 10.0
+    """How far agents can perceive events (kilometers)"""
+    
+    enable_agent_event_subscription: bool = False
+    """Subscribe agents to events for perception (Phase 7 - dynamic replanning)"""
+    
+    enable_policy_events: bool = True
+    """Publish policy change events when policies trigger"""
+    
+    enable_infrastructure_events: bool = True
+    """Publish infrastructure failure events (future use)"""
+
+
     # ===== BACKWARD COMPATIBILITY PROPERTIES =====
     # Allow old-style attribute access after initialization
     
