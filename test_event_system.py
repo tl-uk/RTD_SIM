@@ -12,7 +12,8 @@ from events.event_types import (
     PolicyChangeEvent,
     InfrastructureFailureEvent,
     WeatherEvent,
-    EventType
+    EventType,
+    EventPriority
 )
 
 logging.basicConfig(level=logging.INFO)
