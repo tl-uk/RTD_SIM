@@ -1,4 +1,6 @@
 """
+rtd_sim/test_event_system.py
+
 Test script for Phase 6.1 event system.
 Validates pub/sub, spatial filtering, and event types.
 """
