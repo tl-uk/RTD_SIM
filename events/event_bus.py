@@ -267,6 +267,14 @@ class EventBus:
                             except Exception as e:
                                 logger.error(f"Callback failed for {channel}: {e}")
                 
+            except (ValueError, OSError) as e:
+                # Connection closed during shutdown - this is expected
+                if 'closed file' in str(e) or 'I/O operation' in str(e):
+                    logger.debug("Pubsub connection closed gracefully")
+                    break
+                else:
+                    logger.error(f"Error in listener loop: {e}")
+                    time.sleep(0.1)
             except Exception as e:
                 logger.error(f"Error in listener loop: {e}")
                 time.sleep(0.1)  # Brief pause on error
@@ -374,8 +382,13 @@ class SpatialEventBus(EventBus):
         
         # Wrap callback with spatial filter
         def spatial_callback(event: BaseEvent):
-            if self._is_event_perceivable(agent_id, event):
+            perceivable = self._is_event_perceivable(agent_id, event)
+            logger.debug(f"Spatial filter for {agent_id}: perceivable={perceivable}")
+            if perceivable:
                 callback(event)
+            else:
+                logger.debug(f"  Event at ({event.spatial.latitude if event.spatial else 'N/A'}, "
+                           f"{event.spatial.longitude if event.spatial else 'N/A'}) not within range")
         
         # Subscribe with wrapped callback
         self.subscribe(event_type, spatial_callback)

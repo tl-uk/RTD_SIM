@@ -1,8 +1,7 @@
 """
-rtd_sim/test_event_system.py
+rtd_sim/test_event_system_IMPROVED.py
 
-Test script for Phase 6.1 event system.
-Validates pub/sub, spatial filtering, and event types.
+Improved test script with better timing and debugging.
 """
 
 import time
@@ -16,7 +15,8 @@ from events.event_types import (
     EventPriority
 )
 
-logging.basicConfig(level=logging.INFO)
+# Set logging level
+logging.basicConfig(level=logging.INFO)  # Change to DEBUG for more detail
 
 
 def test_basic_pubsub():
@@ -35,6 +35,9 @@ def test_basic_pubsub():
     bus.subscribe(EventType.POLICY_CHANGE, callback)
     bus.start_listening()
     
+    # Give listener time to fully start
+    time.sleep(0.2)
+    
     # Publish multiple events
     events = [
         PolicyChangeEvent('carbon_tax', 50, 100, 55.9533, -3.1883),
@@ -43,8 +46,10 @@ def test_basic_pubsub():
     
     for event in events:
         bus.publish(event)
+        time.sleep(0.1)  # Small delay between publishes
     
-    time.sleep(0.5)
+    # Wait for processing
+    time.sleep(1.0)  # Increased from 0.5
     
     assert len(received_events) == 2, f"Expected 2 events, got {len(received_events)}"
     print(f"✅ Test passed: {len(received_events)} events received")
@@ -61,9 +66,10 @@ def test_spatial_filtering():
     bus = SpatialEventBus()
     
     # Register agents
+    print("Registering agents...")
     bus.register_agent('agent_1', lat=55.9533, lon=-3.1883, perception_radius_km=5.0)
-    bus.register_agent('agent_2', lat=55.9700, lon=-3.2000, perception_radius_km=5.0)  # ~2km away
-    bus.register_agent('agent_3', lat=56.0000, lon=-3.3000, perception_radius_km=5.0)  # ~15km away
+    bus.register_agent('agent_2', lat=55.9700, lon=-3.2000, perception_radius_km=5.0)
+    bus.register_agent('agent_3', lat=56.0000, lon=-3.3000, perception_radius_km=5.0)
     
     perceived_by = {
         'agent_1': [],
@@ -74,36 +80,49 @@ def test_spatial_filtering():
     def make_callback(agent_id):
         def callback(event):
             perceived_by[agent_id].append(event)
-            print(f"📍 {agent_id} perceived event")
+            print(f"📍 {agent_id} perceived event at ({event.spatial.latitude}, {event.spatial.longitude})")
         return callback
     
+    # Subscribe all agents
     for agent_id in ['agent_1', 'agent_2', 'agent_3']:
         bus.subscribe_spatial(agent_id, EventType.INFRASTRUCTURE_FAILURE, make_callback(agent_id))
     
+    # Start listening
     bus.start_listening()
+    time.sleep(0.5)  # Give listener time to start
     
     # Publish event near agent_1
+    print("\nPublishing infrastructure failure event...")
     event = InfrastructureFailureEvent(
         infrastructure_type='charging_station',
         infrastructure_id='CS_1',
         failure_reason='maintenance',
         lat=55.9540,  # ~0.7km from agent_1
         lon=-3.1890,
-        radius_km=3.0  # 3km radius
+        radius_km=3.0
     )
     
-    bus.publish(event)
-    time.sleep(0.5)
+    print(f"Event location: ({event.spatial.latitude}, {event.spatial.longitude})")
+    print(f"Event radius: {event.spatial.radius_km} km")
     
-    # Verify
-    assert len(perceived_by['agent_1']) == 1, "agent_1 should perceive (within 5km)"
-    assert len(perceived_by['agent_2']) == 1, "agent_2 should perceive (within 5km)"
-    assert len(perceived_by['agent_3']) == 0, "agent_3 should NOT perceive (too far)"
+    success = bus.publish(event)
+    print(f"Published: {success}")
     
-    print(f"✅ Spatial filtering works correctly")
+    # Wait longer for processing
+    print("Waiting for event processing...")
+    time.sleep(1.5)  # Increased from 0.5
+    
+    # Verify results
+    print(f"\nResults:")
     print(f"   - agent_1: {len(perceived_by['agent_1'])} events")
     print(f"   - agent_2: {len(perceived_by['agent_2'])} events")
     print(f"   - agent_3: {len(perceived_by['agent_3'])} events")
+    
+    assert len(perceived_by['agent_1']) == 1, f"agent_1 should perceive (within 5km), got {len(perceived_by['agent_1'])}"
+    assert len(perceived_by['agent_2']) == 1, f"agent_2 should perceive (within 5km), got {len(perceived_by['agent_2'])}"
+    assert len(perceived_by['agent_3']) == 0, f"agent_3 should NOT perceive (too far), got {len(perceived_by['agent_3'])}"
+    
+    print(f"✅ Spatial filtering works correctly")
     
     bus.close()
 
@@ -129,15 +148,17 @@ def test_priority_events():
     bus.subscribe(EventType.WEATHER_EVENT, callback, priority=EventPriority.HIGH)
     
     bus.start_listening()
+    time.sleep(0.2)
     
     # Publish events with different priorities
     normal_weather = WeatherEvent('rain', severity=3, lat=55.9533, lon=-3.1883)
     severe_weather = WeatherEvent('storm', severity=9, lat=55.9533, lon=-3.1883)
     
     bus.publish(normal_weather)
+    time.sleep(0.1)
     bus.publish(severe_weather)
     
-    time.sleep(0.5)
+    time.sleep(1.0)  # Increased wait time
     
     print(f"✅ Priority events work correctly")
     print(f"   - Normal: {len(received['normal'])} events")
@@ -159,13 +180,15 @@ def test_statistics():
     
     bus.subscribe(EventType.POLICY_CHANGE, callback)
     bus.start_listening()
+    time.sleep(0.2)
     
     # Publish several events
     for i in range(5):
         event = PolicyChangeEvent(f'param_{i}', 0, 100, 55.9533, -3.1883)
         bus.publish(event)
+        time.sleep(0.05)
     
-    time.sleep(0.5)
+    time.sleep(1.0)  # Increased wait time
     
     stats = bus.get_statistics()
     print(f"📊 Statistics:")
@@ -174,8 +197,8 @@ def test_statistics():
     print(f"   - Subscriptions: {stats['subscriptions']}")
     print(f"   - Listening: {stats['listening']}")
     
-    assert stats['events_published'] == 5
-    assert stats['events_received'] == 5
+    assert stats['events_published'] == 5, f"Expected 5 published, got {stats['events_published']}"
+    assert stats['events_received'] == 5, f"Expected 5 received, got {stats['events_received']}"
     
     print(f"✅ Statistics tracking works correctly")
     
@@ -185,7 +208,7 @@ def test_statistics():
 def run_all_tests():
     """Run all integration tests."""
     print("\n" + "="*70)
-    print("🧪 PHASE 6.1 EVENT SYSTEM INTEGRATION TESTS")
+    print("🧪 PHASE 6.1 EVENT SYSTEM INTEGRATION TESTS (IMPROVED)")
     print("="*70)
     
     try:
@@ -200,6 +223,8 @@ def run_all_tests():
         
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}")
+        import traceback
+        traceback.print_exc()
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
