@@ -147,7 +147,7 @@ def render_sidebar_config():
     st.markdown("---")
 
     # ========================================================================
-    # Phase 5.3: System Dynamics Configuration (OUTSIDE form for immediate UI update)
+    # System Dynamics Configuration (OUTSIDE form for immediate UI update)
     # ========================================================================
     st.markdown("### 🔬 System Dynamics")
     
@@ -199,6 +199,64 @@ def render_sidebar_config():
             
             st.caption("💡 These parameters control logistic growth dynamics at the system level")
     
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎯 Real-Time Events")
+    
+    enable_events = st.sidebar.checkbox(
+        "Enable Event Bus (Experimental)",
+        value=config.enable_event_bus,
+        help="Enable real-time event system. Auto-falls back to in-memory if Redis unavailable."
+    )
+    config.enable_event_bus = enable_events
+    
+    if enable_events:
+        with st.sidebar.expander("⚙️ Event Settings", expanded=False):
+            # Redis configuration
+            col1, col2 = st.columns(2)
+            with col1:
+                config.redis_host = st.text_input(
+                    "Redis Host",
+                    value=config.redis_host,
+                    help="Redis server host"
+                )
+            with col2:
+                config.redis_port = st.number_input(
+                    "Redis Port",
+                    value=config.redis_port,
+                    min_value=1,
+                    max_value=65535
+                )
+            
+            # Agent perception
+            config.agent_perception_radius_km = st.slider(
+                "Agent Perception Radius (km)",
+                min_value=1.0,
+                max_value=50.0,
+                value=config.agent_perception_radius_km,
+                step=1.0,
+                help="How far agents can perceive events"
+            )
+            
+            config.enable_agent_event_subscription = st.checkbox(
+                "Subscribe Agents to Events",
+                value=config.enable_agent_event_subscription,
+                help="Enable agent event perception (for Phase 7 replanning)"
+            )
+            
+            # Status check
+            st.markdown("**Status:**")
+            try:
+                import redis
+                client = redis.Redis(
+                    host=config.redis_host,
+                    port=config.redis_port,
+                    socket_connect_timeout=1
+                )
+                client.ping()
+                st.success("✅ Redis available")
+            except Exception:
+                st.warning("⚠️ Redis unavailable (will use in-memory fallback)")
+
     st.markdown("---")
 
     with st.form("config_form"):
@@ -219,7 +277,7 @@ def render_sidebar_config():
         
         st.markdown("---")
         
-        # Scenario selection (Phase 5.1) - only show if not using combined or default policies
+        # Scenario selection - only show if not using combined or default policies
         if not use_combined:
             scenario_config = _render_scenario_selection()
         else:
@@ -259,11 +317,11 @@ def render_sidebar_config():
         num_depots=advanced_config['num_depots'],
         grid_capacity_mw=advanced_config['grid_capacity_mw'],
         
-        # Scenario configuration - FIXED
+        # Scenario configuration
         scenario_name=scenario_config['scenario_name'] if not use_combined else None,
         scenarios_dir=scenario_config['scenarios_dir'],
         
-        # Policy configuration - NEW
+        # Policy configuration
         combined_scenario_data=combined_scenario_data,
         use_default_policies=use_default_policies,
         policy_thresholds=policy_thresholds,
@@ -276,7 +334,7 @@ def render_sidebar_config():
         weather_wind_multiplier=weather_config['weather_wind_multiplier'],
     )
     
-    # Phase 5.3: Apply System Dynamics config (ALWAYS - use defaults if not customized)
+    # Apply System Dynamics config (ALWAYS - use defaults if not customized)
     from simulation.config.system_dynamics_config import SystemDynamicsConfig
     
     if sd_params:
@@ -289,7 +347,7 @@ def render_sidebar_config():
         )
         st.sidebar.success("✅ Custom System Dynamics parameters applied")
     else:
-        # Use default parameters (CRITICAL: Always create this for baseline!)
+        # Use default parameters (Always create this for baseline!)
         config.system_dynamics = SystemDynamicsConfig()
         # SD will run with defaults: r=0.05, K=0.80, feedback=0.02, social=0.03
     
