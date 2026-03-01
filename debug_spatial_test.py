@@ -31,7 +31,7 @@ def callback(event):
     perceived_events.append(event)
 
 # Subscribe
-print("\n🎧 Subscribing agent_1...")
+print("\n🔃 Subscribing agent_1...")
 bus.subscribe_spatial('agent_1', EventType.INFRASTRUCTURE_FAILURE, callback)
 
 print("\n🎧 Starting listener...")

@@ -28,6 +28,10 @@
 
 # Note: This is a Phase 2 skeleton focusing on core logic without external dependencies.
 
+# ⚠️ DEPRECATED - Use streamlit UI instead
+# This file is no longer used. Run: streamlit run ui/streamlit_app.py
+
+
 from __future__ import annotations
 import argparse
 import logging
@@ -205,3 +209,6 @@ if __name__ == '__main__':
             agents_n=args.agents, place=args.place, bbox=args.bbox,
             osm_seed=args.osm_seed
         )
+
+# ⚠️ DEPRECATED - Use streamlit UI instead
+# This file is no longer used. Run: streamlit run ui/streamlit_app.py
