@@ -42,7 +42,7 @@ PROJECT_ROOT = THIS_FILE.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from simulation.event_bus import EventBus
+from events.event_bus import EventBus
 from simulation.controller import SimulationController, SimulationConfig
 from simulation.data_adapter import DataAdapter
 from simulation.spatial_environment import SpatialEnvironment

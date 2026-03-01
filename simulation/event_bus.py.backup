@@ -2,6 +2,12 @@
 # 
 # Simple event bus for pub/sub communication within the simulation.
 #
+# ⚠️ DEPRECATED - DO NOT USE
+# This file is kept as a backup only.
+# Use events/event_bus.py (Redis-based) instead.
+# 
+# Original simple event bus - replaced by Redis pub/sub
+# Delete after confirming no dependencies remain.
 
 from __future__ import annotations
 from typing import Callable, Dict, List, Any
@@ -37,3 +43,10 @@ class EventBus:
             except Exception:
                 # Properly indented body under except
                 logger.exception("Error in handler for event '%s'", event_name)
+
+# ⚠️ DEPRECATED - DO NOT USE
+# This file is kept as a backup only.
+# Use events/event_bus.py (Redis-based) instead.
+# 
+# Original simple event bus - replaced by Redis pub/sub
+# Delete after confirming no dependencies remain.
