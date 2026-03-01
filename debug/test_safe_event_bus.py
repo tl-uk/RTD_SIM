@@ -5,10 +5,14 @@ test_safe_event_bus.py
 Test all three fallback tiers of SafeEventBus.
 """
 
+import sys
+import os
+# Add parent directory to path so we can import events
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import time
 import logging
 import subprocess
-import sys
 
 logging.basicConfig(level=logging.INFO)
 
