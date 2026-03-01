@@ -29,7 +29,7 @@ from typing import Callable, Dict, List, Optional, Any
 from threading import Thread
 import time
 
-from event_types import BaseEvent, EventType, EventPriority
+from .event_types import BaseEvent, EventType, EventPriority
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +243,10 @@ class EventBus:
         
         while self.listening:
             try:
+                # Check if pubsub is still open
+                if not self.pubsub:
+                    break
+                
                 # Get message (blocking with timeout)
                 message = self.pubsub.get_message(timeout=0.1)
                 
@@ -506,5 +510,4 @@ if __name__ == "__main__":
     
     spatial_bus.close()
     
-    # debugging complete
     print("\n✅ Examples complete!")
