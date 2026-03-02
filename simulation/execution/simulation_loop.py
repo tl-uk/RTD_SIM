@@ -32,6 +32,15 @@ from simulation.execution.dynamic_policies import (
 
 logger = logging.getLogger(__name__)
 
+# Phase 6.2b: Event System
+try:
+    from events.event_bus_safe import SafeEventBus
+    EVENT_BUS_AVAILABLE = True
+except ImportError:
+    EVENT_BUS_AVAILABLE = False
+    logger.warning("⚠️ Event bus not available")
+    SafeEventBus = None
+
 # Phase 5.3: System Dynamics
 from agent.system_dynamics import StreamingSystemDynamics
 try:
@@ -295,6 +304,74 @@ def run_simulation_loop(
         sd_engine = StreamingSystemDynamics(config.system_dynamics)
         logger.info("System Dynamics engine initialized")
 
+    # Phase 6.2b: Initialize event bus (optional)
+    event_bus = None
+    if config.enable_event_bus and EVENT_BUS_AVAILABLE:
+        try:
+            event_bus = SafeEventBus(
+                enable_redis=True,
+                redis_host=config.redis_host,
+                redis_port=config.redis_port,
+                redis_db=config.redis_db
+            )
+            
+            mode = event_bus.get_mode()
+            logger.info(f"✅ Event bus initialized (mode: {mode})")
+            
+            if event_bus.is_available():
+                event_bus.start_listening()
+                logger.info("🎧 Event bus listening started")
+                
+                # Register all agents with spatial locations
+                agents_registered = 0
+                for agent in agents:
+                    try:
+                        event_bus.register_agent(
+                            agent_id=agent.agent_id,
+                            lat=agent.state.latitude,
+                            lon=agent.state.longitude,
+                            perception_radius_km=config.agent_perception_radius_km
+                        )
+                        agents_registered += 1
+                    except Exception as e:
+                        logger.debug(f"Agent registration failed: {e}")
+                
+                logger.info(f"📍 Registered {agents_registered}/{len(agents)} agents with event bus")
+                
+                # Pass event bus to policy engine
+                if policy_engine and config.enable_policy_events:
+                    if hasattr(policy_engine, 'set_event_bus'):
+                        policy_engine.set_event_bus(event_bus)
+                        logger.info("✅ Event bus connected to policy engine")
+                    else:
+                        # Store as attribute if method doesn't exist
+                        policy_engine.event_bus = event_bus
+                        logger.debug("Event bus stored in policy engine")
+                
+                # Subscribe agents to events (if enabled)
+                if config.enable_agent_event_subscription:
+                    subscribed = 0
+                    for agent in agents:
+                        if hasattr(agent, 'subscribe_to_events'):
+                            try:
+                                agent.subscribe_to_events(event_bus)
+                                subscribed += 1
+                            except Exception as e:
+                                logger.debug(f"Agent subscription failed: {e}")
+                    
+                    if subscribed > 0:
+                        logger.info(f"🎧 Subscribed {subscribed} agents to events")
+            else:
+                logger.warning("⚠️ Event bus unavailable (continuing without events)")
+                event_bus = None
+                
+        except Exception as e:
+            logger.warning(f"Event bus initialization failed: {e}")
+            logger.info("Continuing simulation without events")
+            event_bus = None
+    elif config.enable_event_bus and not EVENT_BUS_AVAILABLE:
+        logger.warning("⚠️ Event bus requested but not available (import failed)")
+
     # Policy tracking
     policy_actions_taken = []
     constraint_violations = []
@@ -340,7 +417,7 @@ def run_simulation_loop(
     # Track lifecycle emissions
     lifecycle_emissions_by_mode = defaultdict(lambda: {'co2e_kg': 0, 'pm25_g': 0, 'nox_g': 0})
  
-    # Phase 5.3: Initialize analytics
+    # Initialize analytics
     journey_tracker = JourneyTracker() if config.track_journeys else None
     mode_share_analyzer = ModeShareAnalyzer() if config.enable_analytics else None
     policy_impact_analyzer = PolicyImpactAnalyzer(policy_engine) if config.calculate_policy_roi else None
@@ -355,7 +432,7 @@ def run_simulation_loop(
             infrastructure=infrastructure
         )
     
-    # Phase 5.3: Initialize System Dynamics
+    # Initialize System Dynamics
     system_dynamics = None
     
     if SYSTEM_DYNAMICS_AVAILABLE:
@@ -527,6 +604,19 @@ def run_simulation_loop(
                 logger.info(f"      After step: agent={agent.state.agent_id}, route={route_info}, distance={agent.state.distance_km:.1f}km, arrived={agent.state.arrived}")
 
 
+            # Phase 6.2b: Update agent locations in event bus (if agents moved)
+            if event_bus and event_bus.is_available():
+                for agent in agents:
+                    # Only update if agent has moved (check if attribute exists)
+                    if hasattr(agent, 'has_moved') and agent.has_moved:
+                        try:
+                            event_bus.update_agent_location(
+                                agent_id=agent.agent_id,
+                                lat=agent.state.latitude,
+                                lon=agent.state.longitude
+                            )
+                        except Exception as e:
+                            logger.debug(f"Location update failed: {e}")
 
             # RECORD JOURNEY
             if journey_tracker and agent.state.location != prev_location:
@@ -834,5 +924,22 @@ def run_simulation_loop(
         
         logger.info(f"✅ Policy tracking: {len(policy_actions_taken)} actions, "
                    f"{len(constraint_violations)} violations")
+        
+    # Phase 6.2b: Cleanup event bus
+    if event_bus:
+        try:
+            stats = event_bus.get_statistics()
+            logger.info("📊 Event bus statistics:")
+            logger.info(f"   - Mode: {stats.get('mode', 'unknown')}")
+            logger.info(f"   - Events published: {stats.get('events_published', 0)}")
+            logger.info(f"   - Events received: {stats.get('events_received', 0)}")
+            
+            event_bus.close()
+            logger.info("Event bus closed cleanly")
+        except Exception as e:
+            logger.debug(f"Event bus cleanup failed: {e}")
+    
+    # Add event_bus to results (for UI display)
+    results['event_bus_stats'] = event_bus.get_statistics() if event_bus else None
     
     return results
