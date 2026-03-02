@@ -2,7 +2,7 @@
 """
 debug/test_phase62b.py
 
-Test Phase 6.2b Integration
+Test Phase 6.2b Integration - FINAL VERSION
 
 Verifies that all components work together.
 """
@@ -107,7 +107,7 @@ try:
     
     # Create agent with valid user story ID
     agent = StoryDrivenAgent(
-        user_story_id='business_commuter',  # FIXED: Use available story
+        user_story_id='business_commuter',
         job_story_id='commute_flexible',
         origin=(55.9533, -3.1883),
         dest=(55.9500, -3.1800),
@@ -118,10 +118,12 @@ try:
     assert hasattr(agent, 'subscribe_to_events'), "Missing subscribe_to_events"
     assert hasattr(agent, 'get_perceived_policies'), "Missing get_perceived_policies"
     
-    print(f"✅ Agent created: {agent.agent_id}")
+    # FIXED: Get agent ID from state
+    agent_id = agent.state.agent_id
+    print(f"✅ Agent created: {agent_id}")
     
-    # Register with bus
-    bus.register_agent('test_agent', lat=55.9533, lon=-3.1883, perception_radius_km=10.0)
+    # Register with bus using correct agent_id
+    bus.register_agent(agent_id, lat=55.9533, lon=-3.1883, perception_radius_km=10.0)
     print(f"✅ Agent registered with event bus")
     
     # Subscribe to events
@@ -179,7 +181,7 @@ try:
     
     # Create config and scenario manager
     config = SimulationConfig()
-    scenario_mgr = ScenarioManager()  # FIXED: Create required scenario manager
+    scenario_mgr = ScenarioManager()
     
     # Create policy engine with correct signature
     engine = DynamicPolicyEngine(config, scenario_mgr)
@@ -217,7 +219,7 @@ print("📊 TEST SUMMARY")
 print("="*70)
 print()
 print("✅ TEST 1: Configuration - Event bus fields present")
-print("✅ TEST 2: Event Bus - SafeEventBus working")
+print("✅ TEST 2: Event Bus - SafeEventBus working")  
 print("✅ TEST 3: Agents - Event perception functional")
 print("✅ TEST 4: Policy Engine - Integration ready")
 print()
