@@ -200,65 +200,7 @@ def render_sidebar_config():
             st.caption("💡 These parameters control logistic growth dynamics at the system level")
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🎯 Real-Time Events")
     
-    enable_events = st.sidebar.checkbox(
-        "Enable Event Bus (Experimental)",
-        value=config.enable_event_bus,
-        help="Enable real-time event system. Auto-falls back to in-memory if Redis unavailable."
-    )
-    config.enable_event_bus = enable_events
-    
-    if enable_events:
-        with st.sidebar.expander("⚙️ Event Settings", expanded=False):
-            # Redis configuration
-            col1, col2 = st.columns(2)
-            with col1:
-                config.redis_host = st.text_input(
-                    "Redis Host",
-                    value=config.redis_host,
-                    help="Redis server host"
-                )
-            with col2:
-                config.redis_port = st.number_input(
-                    "Redis Port",
-                    value=config.redis_port,
-                    min_value=1,
-                    max_value=65535
-                )
-            
-            # Agent perception
-            config.agent_perception_radius_km = st.slider(
-                "Agent Perception Radius (km)",
-                min_value=1.0,
-                max_value=50.0,
-                value=config.agent_perception_radius_km,
-                step=1.0,
-                help="How far agents can perceive events"
-            )
-            
-            config.enable_agent_event_subscription = st.checkbox(
-                "Subscribe Agents to Events",
-                value=config.enable_agent_event_subscription,
-                help="Enable agent event perception (for Phase 7 replanning)"
-            )
-            
-            # Status check
-            st.markdown("**Status:**")
-            try:
-                import redis
-                client = redis.Redis(
-                    host=config.redis_host,
-                    port=config.redis_port,
-                    socket_connect_timeout=1
-                )
-                client.ping()
-                st.success("✅ Redis available")
-            except Exception:
-                st.warning("⚠️ Redis unavailable (will use in-memory fallback)")
-
-    st.markdown("---")
-
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
@@ -354,6 +296,66 @@ def render_sidebar_config():
     # Apply parameter overrides if enabled
     if param_overrides:
         config = apply_parameter_overrides(config, param_overrides)
+
+        st.sidebar.subheader("🎯 Real-Time Events")
+    
+        enable_events = st.sidebar.checkbox(
+            "Enable Event Bus (Experimental)",
+            value=config.enable_event_bus,
+            help="Enable real-time event system. Auto-falls back to in-memory if Redis unavailable."
+        )
+        config.enable_event_bus = enable_events
+        
+        if enable_events:
+            with st.sidebar.expander("⚙️ Event Settings", expanded=False):
+                # Redis configuration
+                col1, col2 = st.columns(2)
+                with col1:
+                    config.redis_host = st.text_input(
+                        "Redis Host",
+                        value=config.redis_host,
+                        help="Redis server host"
+                    )
+                with col2:
+                    config.redis_port = st.number_input(
+                        "Redis Port",
+                        value=config.redis_port,
+                        min_value=1,
+                        max_value=65535
+                    )
+                
+                # Agent perception
+                config.agent_perception_radius_km = st.slider(
+                    "Agent Perception Radius (km)",
+                    min_value=1.0,
+                    max_value=50.0,
+                    value=config.agent_perception_radius_km,
+                    step=1.0,
+                    help="How far agents can perceive events"
+                )
+                
+                config.enable_agent_event_subscription = st.checkbox(
+                    "Subscribe Agents to Events",
+                    value=config.enable_agent_event_subscription,
+                    help="Enable agent event perception (for Phase 7 replanning)"
+                )
+                
+                # Status check
+                st.markdown("**Status:**")
+                try:
+                    import redis
+                    client = redis.Redis(
+                        host=config.redis_host,
+                        port=config.redis_port,
+                        socket_connect_timeout=1
+                    )
+                    client.ping()
+                    st.success("✅ Redis available")
+                except Exception:
+                    st.warning("⚠️ Redis unavailable (will use in-memory fallback)")
+
+        st.markdown("---")
+
         st.sidebar.success("✅ Advanced parameters applied")
         
         # DEBUG: Show applied values
