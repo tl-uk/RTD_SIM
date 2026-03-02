@@ -273,9 +273,6 @@ def create_agents(
             logger.info(f"   {mode}: {count} ({pct:.1f}%)")
         
         # DEBUG: Show first 3 agents
-        # âœ… ADD: Walk agent diagnostics
-        from debug.debug_walk_agents import log_walk_agent_diagnostics
-        log_walk_agent_diagnostics(agents, env)
         logger.info(f"🔍 Sample agents:")
         for i, agent in enumerate(agents[:3]):
             context = getattr(agent, 'agent_context', {})
