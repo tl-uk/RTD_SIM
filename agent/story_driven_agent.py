@@ -302,7 +302,7 @@ class StoryDrivenAgent(CognitiveAgent):
             event_bus: SafeEventBus instance
         """
         if not event_bus or not event_bus.is_available():
-            logger.debug(f"{self.agent_id}: Event bus unavailable")
+            logger.debug(f"{self.state.agent_id}: Event bus unavailable")
             return
         
         from events.event_types import EventType
@@ -317,7 +317,7 @@ class StoryDrivenAgent(CognitiveAgent):
             self.perceived_policies[param] = new_value
             
             logger.debug(
-                f"{self.agent_id} perceived policy: {param} "
+                f"{self.state.agent_id} perceived policy: {param} "
                 f"{old_value} → {new_value}"
             )
             
@@ -339,7 +339,7 @@ class StoryDrivenAgent(CognitiveAgent):
             }
             self.perceived_failures.append(failure_info)
             
-            logger.debug(f"{self.agent_id} perceived failure: {infra_id}")
+            logger.debug(f"{self.state.agent_id} perceived failure: {infra_id}")
             
             # TODO Phase 7: Trigger replanning if on route
         
