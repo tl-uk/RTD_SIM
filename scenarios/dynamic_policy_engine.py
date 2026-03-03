@@ -392,7 +392,17 @@ class DynamicPolicyEngine:
         self.current_price_multiplier = multiplier
         for station in self.infrastructure.charging_stations.values():
             station.cost_per_kwh = self.base_charging_cost * multiplier
+
         logger.info(f"  Surge pricing: {old_multiplier:.2f}x → {multiplier:.2f}x")
+        
+        # Phase 6.2b: Publish policy event
+        self._publish_policy_event(
+            parameter='charging_price_multiplier',
+            old_value=old_multiplier,
+            new_value=multiplier,
+            radius_km=200.0
+        )
+        
         return {
             'old_multiplier':    old_multiplier,
             'new_multiplier':    multiplier,
@@ -461,6 +471,15 @@ class DynamicPolicyEngine:
             self.infrastructure_capex += len(new_stations) * 5000
 
         logger.info(f"  Added {len(new_stations)} emergency chargers")
+
+        # Phase 6.2b: Publish policy event
+        self._publish_policy_event(
+            parameter='emergency_chargers',
+            old_value=0,
+            new_value=params.get('count', 10),
+            radius_km=50.0  # Emergency chargers are regional
+        )
+        
         return {'added': len(new_stations), 'station_ids': new_stations, 'strategy': strategy}
 
     def _relocate_underutilized_chargers(self, params: Dict) -> Dict:
@@ -536,6 +555,15 @@ class DynamicPolicyEngine:
             f"  Added {added_depots} depot(s) with {total_chargers} chargers "
             f"({chargers_per_depot} chargers/depot @ {power_kw} kW)"
         )
+        
+        # Phase 6.2b: Publish policy event
+        self._publish_policy_event(
+            parameter='depot_chargers',
+            old_value=0,  # Could track previous count if needed
+            new_value=total_chargers,
+            radius_km=200.0
+        )
+        
         return {
             'depots_added':       added_depots,
             'total_chargers':     total_chargers,
@@ -566,6 +594,15 @@ class DynamicPolicyEngine:
             self.infrastructure_capex += total_cost
 
         logger.info(f"  Grid capacity increased: {old_capacity:.0f} MW → {grid.capacity_mw:.0f} MW")
+        
+        # Phase 6.2b: Publish policy event
+        self._publish_policy_event(
+            parameter='grid_capacity_mw',
+            old_value=old_capacity,
+            new_value=grid.capacity_mw,
+            radius_km=100.0  # Grid region specific
+        )
+        
         return {'old_capacity_mw': old_capacity, 'new_capacity_mw': grid.capacity_mw,
                 'additional_mw': additional_mw, 'cost': total_cost}
 
