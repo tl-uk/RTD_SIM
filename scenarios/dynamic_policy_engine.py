@@ -602,7 +602,7 @@ class DynamicPolicyEngine:
             new_value=grid.capacity_mw,
             radius_km=100.0  # Grid region specific
         )
-        
+
         return {'old_capacity_mw': old_capacity, 'new_capacity_mw': grid.capacity_mw,
                 'additional_mw': additional_mw, 'cost': total_cost}
 
