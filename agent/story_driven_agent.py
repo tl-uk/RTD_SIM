@@ -346,19 +346,19 @@ class StoryDrivenAgent(CognitiveAgent):
         try:
             # Subscribe with spatial filtering
             event_bus.subscribe_spatial(
-                self.agent_id,
+                self.state.agent_id,
                 EventType.POLICY_CHANGE,
                 handle_policy_change
             )
             
             event_bus.subscribe_spatial(
-                self.agent_id,
+                self.state.agent_id,
                 EventType.INFRASTRUCTURE_FAILURE,
                 handle_infrastructure_failure
             )
             
             self.event_perception_enabled = True
-            logger.debug(f"✅ {self.agent_id}: Event perception enabled")
+            logger.debug(f"✅ {self.state.agent_id}: Event perception enabled")
             
         except Exception as e:
             logger.debug(f"Event subscription failed: {e}")
