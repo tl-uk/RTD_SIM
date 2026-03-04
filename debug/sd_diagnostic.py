@@ -1,4 +1,6 @@
 """
+debug/sd_diagnostic.py
+
 SD History Diagnostic Tool
 
 Run this to check what's actually in your SD history and why thresholds aren't detected.

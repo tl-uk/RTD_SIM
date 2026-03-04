@@ -1,5 +1,5 @@
 """
-rtd_sim/test_event_system_IMPROVED.py
+debug/test_event_system_IMPROVED.py
 
 Improved test script with better timing and debugging.
 """

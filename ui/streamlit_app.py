@@ -30,6 +30,8 @@ from ui.diagnostics_panel import render_diagnostics_panel
 from ui.animation_controls import render_animation_controls
 from ui.welcome_screen import render_welcome_screen
 from ui.status_footer import render_status_footer
+# Import log capture (ADD THIS LINE)
+from ui.log_capture import init_log_capture
 
 # Import individual tab modules
 from ui.tabs import (
@@ -70,6 +72,17 @@ st.set_page_config(
 
 def init_session_state():
     """Initialize session state variables."""
+
+    # DEBUG: Initialize log capture FIRST
+    if 'log_capture' not in st.session_state:
+        st.session_state.log_capture = init_log_capture()
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("="*80)
+        logger.info("🚀 STREAMLIT APP STARTED")
+        logger.info(f"📄 Full logs: {st.session_state.log_capture.get_log_path()}")
+        logger.info("="*80)
+
     defaults = {
         'simulation_run': False,
         'results': None,

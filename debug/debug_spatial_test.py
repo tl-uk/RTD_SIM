@@ -1,4 +1,6 @@
 """
+debug_spatial_test.py
+
 Debug test for spatial filtering issue.
 """
 
