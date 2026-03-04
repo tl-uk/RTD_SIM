@@ -50,4 +50,8 @@ INFO:scenarios.scenario_manager:Loaded scenario: Zero Emission Delivery Zones
 INFO:scenarios.scenario_manager:Loaded 17 scenarios from 6 files
 INFO:scenarios.dynamic_policy_engine:Dynamic Policy Engine initialized
 INFO:scenarios.dynamic_policy_engine:✅ Event bus connected to policy engine
+DEBUG:events.spatial_index:🔍 R-tree query: 3 candidates → 3 within 20.0km
+DEBUG:agent.story_driven_agent:test_agent_1 perceived policy: carbon_tax 50.0 → 100.0
+DEBUG:agent.story_driven_agent:test_agent_2 perceived policy: carbon_tax 50.0 → 100.0
+DEBUG:agent.story_driven_agent:test_agent_3 perceived policy: carbon_tax 50.0 → 100.0
 INFO:events.spatial_index:🗑️ Cleared spatial index
