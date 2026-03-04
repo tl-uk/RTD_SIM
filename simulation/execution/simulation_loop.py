@@ -32,7 +32,7 @@ from simulation.execution.dynamic_policies import (
 
 logger = logging.getLogger(__name__)
 
-# Phase 6.2b: Event System
+# Event System
 try:
     from events.event_bus_safe import SafeEventBus
     EVENT_BUS_AVAILABLE = True
@@ -308,19 +308,31 @@ def run_simulation_loop(
     event_bus = None
     if config.enable_event_bus and EVENT_BUS_AVAILABLE:
         try:
-            event_bus = SafeEventBus(
-                enable_redis=True,
-                redis_host=config.redis_host,
-                redis_port=config.redis_port,
-                redis_db=config.redis_db
-            )
+            # CRITICAL FIX: Check if policy engine already has an event bus
+            if policy_engine and hasattr(policy_engine, 'event_bus') and policy_engine.event_bus:
+                # Use the existing event bus from policy engine
+                event_bus = policy_engine.event_bus
+                logger.info("✅ Using event bus from policy engine (shared instance)")
+            else:
+                # Only create NEW event bus if policy engine doesn't have one
+                event_bus = SafeEventBus(
+                    enable_redis=True,
+                    redis_host=config.redis_host,
+                    redis_port=config.redis_port,
+                    redis_db=config.redis_db
+                )
+                logger.info("✅ Created new event bus")
             
             mode = event_bus.get_mode()
-            logger.info(f"✅ Event bus initialized (mode: {mode})")
+            logger.info(f"📊 Event bus mode: {mode}")
             
             if event_bus.is_available():
-                event_bus.start_listening()
-                logger.info("🎧 Event bus listening started")
+                # Start listening if not already started
+                if not event_bus.is_listening():
+                    event_bus.start_listening()
+                    logger.info("🎧 Event bus listening started")
+                else:
+                    logger.info("🎧 Event bus already listening")
                 
                 # Register all agents with spatial locations
                 agents_registered = 0
@@ -338,15 +350,19 @@ def run_simulation_loop(
                 
                 logger.info(f"📍 Registered {agents_registered}/{len(agents)} agents with event bus")
                 
-                # Pass event bus to policy engine
+                # Connect event bus to policy engine (only if needed)
                 if policy_engine and config.enable_policy_events:
-                    if hasattr(policy_engine, 'set_event_bus'):
-                        policy_engine.set_event_bus(event_bus)
-                        logger.info("✅ Event bus connected to policy engine")
+                    # Check if policy engine already has THIS event bus
+                    if hasattr(policy_engine, 'event_bus') and policy_engine.event_bus is event_bus:
+                        logger.info("✅ Policy engine already using this event bus (shared instance)")
                     else:
-                        # Store as attribute if method doesn't exist
-                        policy_engine.event_bus = event_bus
-                        logger.debug("Event bus stored in policy engine")
+                        # Policy engine doesn't have this bus, so set it
+                        if hasattr(policy_engine, 'set_event_bus'):
+                            policy_engine.set_event_bus(event_bus)
+                            logger.info("✅ Event bus connected to policy engine")
+                        else:
+                            policy_engine.event_bus = event_bus
+                            logger.info("✅ Event bus stored in policy engine")
                 
                 # Subscribe agents to events (if enabled)
                 logger.info(f"🔍 DEBUG: config.enable_agent_event_subscription = {config.enable_agent_event_subscription}")
