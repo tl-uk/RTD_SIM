@@ -342,12 +342,6 @@ def render_sidebar_config():
                     help="How far agents can perceive events"
                 )
                 
-                config.enable_agent_event_subscription = st.checkbox(
-                    "Subscribe Agents to Events",
-                    value=config.enable_agent_event_subscription,
-                    help="Enable agent event perception (for Phase 7 replanning)"
-                )
-                
                 # Status check
                 st.markdown("**Status:**")
                 try:
