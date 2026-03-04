@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Configure detailed logging
 logging.basicConfig(
@@ -109,17 +109,16 @@ try:
         print(f"   Location: {agent.state.location}")
         
         # CRITICAL: Register with event bus BEFORE subscribing
-        success = event_bus.register_agent(
-            agent.state.agent_id,
-            lat=lat,
-            lon=lon,
-            perception_radius_km=10.0
-        )
-        
-        if success:
+        try:
+            event_bus.register_agent(
+                agent.state.agent_id,
+                lat=lat,
+                lon=lon,
+                perception_radius_km=10.0
+            )
             print(f"✅ Registered {agent.state.agent_id} with event bus")
-        else:
-            print(f"❌ Failed to register {agent.state.agent_id}")
+        except Exception as e:
+            print(f"❌ Failed to register {agent.state.agent_id}: {e}")
         
         # Subscribe to events
         agent.subscribe_to_events(event_bus)
@@ -181,7 +180,7 @@ try:
         source='test_script'
     )
     
-    print(f"📢 Publishing event: {event.type}")
+    print(f"📢 Publishing event: PolicyChangeEvent")
     print(f"   Parameter: {event.payload['parameter']}")
     print(f"   Location: ({event.spatial.latitude}, {event.spatial.longitude})")
     print(f"   Radius: {event.spatial.radius_km} km")
@@ -246,16 +245,18 @@ print("-" * 80)
 
 try:
     stats = event_bus.get_statistics()
-    print(f"Mode: {stats['mode']}")
-    print(f"Events published: {stats['events_published']}")
-    print(f"Events received: {stats['events_received']}")
-    print(f"Active subscriptions: {stats['active_subscriptions']}")
+    print(f"Mode: {stats.get('mode', 'unknown')}")
+    print(f"Events published: {stats.get('events_published', 0)}")
+    print(f"Events received: {stats.get('events_received', 0)}")
     
-    if stats['events_published'] > 0 and stats['events_received'] == 0:
+    if 'active_subscriptions' in stats:
+        print(f"Active subscriptions: {stats['active_subscriptions']}")
+    
+    if stats.get('events_published', 0) > 0 and stats.get('events_received', 0) == 0:
         print()
         print("⚠️ WARNING: Events published but none received!")
         print("   This indicates a spatial filtering or callback issue.")
-    elif stats['events_received'] > 0:
+    elif stats.get('events_received', 0) > 0:
         print()
         print(f"✅ SUCCESS: {stats['events_received']} events delivered!")
     
