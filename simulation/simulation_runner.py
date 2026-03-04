@@ -100,6 +100,7 @@ def run_simulation(
         # Phase 4.5: Apply policies (simple, combined, or default)
         # ====================================================================
         policy_engine = None
+        event_bus = None  # Phase 6.2b: Event bus from policy initialization
 
         # Check if combined scenario OR default policies are active
         if config.combined_scenario_data or getattr(config, 'use_default_policies', False):
@@ -108,12 +109,16 @@ def run_simulation(
             else:
                 logger.info("🔗 Phase 4.5: Initializing dynamic policy engine (default policies)")
             
-            policy_engine = initialize_policy_engine(config, infrastructure)
+            # Phase 6.2b: Returns BOTH policy_engine and event_bus
+            policy_engine, event_bus = initialize_policy_engine(config, infrastructure)
             
             if policy_engine:
                 logger.info(f"✅ Policy engine initialized")
             else:
                 logger.warning("⚠️ Failed to initialize policy engine, continuing without it")
+            
+            if event_bus:
+                logger.info(f"✅ Event bus initialized (mode: {event_bus.get_mode()})")
 
         # Fallback to simple scenario if no combined scenario and no default policies
         elif config.scenario_name:
@@ -158,6 +163,7 @@ def run_simulation(
             network=network,
             influence_system=influence_system,
             policy_engine=policy_engine,  # NEW: Pass policy engine!
+            event_bus=event_bus,  # Phase 6.2b: Pass event bus from policy initialization!
             progress_callback=progress_callback
         )
         

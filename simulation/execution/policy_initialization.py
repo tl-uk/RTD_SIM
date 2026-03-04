@@ -23,9 +23,9 @@ except ImportError:
     logger.warning("Dynamic policy engine not available")
 
 
-def initialize_policy_engine(config, infrastructure) -> Optional[DynamicPolicyEngine]:
+def initialize_policy_engine(config, infrastructure):
     """
-    Initialize dynamic policy engine with flexible configuration.
+    Initialize dynamic policy engine with event bus.
     
     Priority order:
     1. Combined scenario (if selected)
@@ -37,11 +37,11 @@ def initialize_policy_engine(config, infrastructure) -> Optional[DynamicPolicyEn
         infrastructure: InfrastructureManager instance
     
     Returns:
-        DynamicPolicyEngine instance or None
+        Tuple of (DynamicPolicyEngine or None, SafeEventBus or None)
     """
     if not SCENARIOS_AVAILABLE:
         logger.warning("Policy engine not available - scenarios module not found")
-        return None
+        return None, None
     
     # Check for combined scenario first
     combined_scenario_data = getattr(config, 'combined_scenario_data', None)
@@ -52,24 +52,48 @@ def initialize_policy_engine(config, infrastructure) -> Optional[DynamicPolicyEn
         
         if not use_default_policies:
             logger.info("Policies disabled - baseline simulation")
-            return None
+            return None, None
         
         # Load default policies
         combined_scenario_data = _load_default_policies(config)
         
         if not combined_scenario_data:
             logger.warning("Failed to load default policies - continuing without policy engine")
-            return None
+            return None, None
+    
+    # ====================================================================
+    # Phase 6.2b: Create event bus FIRST (before policy engine)
+    # ====================================================================
+    event_bus = None
+    if getattr(config, 'enable_event_bus', False):
+        try:
+            from events.event_bus_safe import SafeEventBus
+            event_bus = SafeEventBus(
+                enable_redis=True,
+                redis_host=getattr(config, 'redis_host', 'localhost'),
+                redis_port=getattr(config, 'redis_port', 6379)
+            )
+            event_bus.start_listening()
+            logger.info("✅ Event bus created for policy engine")
+        except Exception as e:
+            logger.warning(f"Event bus creation failed: {e}")
+            event_bus = None
     
     # Initialize policy engine
     try:
         policy_engine = _create_policy_engine(config, infrastructure, combined_scenario_data)
-        return policy_engine
+        
+        # Connect event bus to policy engine immediately
+        if event_bus and policy_engine:
+            policy_engine.set_event_bus(event_bus)
+            logger.info("✅ Event bus connected to policy engine")
+        
+        return policy_engine, event_bus
     except Exception as e:
         logger.error(f"Failed to initialize policy engine: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        return None, event_bus  # Still return event_bus even if policy engine fails
 
 
 def _load_default_policies(config) -> Optional[Dict]:

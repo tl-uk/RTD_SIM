@@ -276,6 +276,7 @@ def run_simulation_loop(
         network, 
         influence_system, 
         policy_engine=None,  # NEW
+        event_bus=None,  # Phase 6.2b: Event bus from policy initialization
         progress_callback=None
     ):
     """
@@ -308,32 +309,12 @@ def run_simulation_loop(
     # ====================================================================
     # Phase 6.2b: Event Bus Setup
     # ====================================================================
-    event_bus = None
+    # NOTE: Event bus is now created in policy_initialization.py and passed as parameter
+    # This ensures policy engine and agents use the SAME event bus instance
     
-    if config.enable_event_bus:
+    if event_bus and config.enable_event_bus:
         try:
-            # Check if policy engine already has an event bus
-            if policy_engine and hasattr(policy_engine, 'event_bus') and policy_engine.event_bus:
-                event_bus = policy_engine.event_bus
-                logger.info("✅ Using policy engine's event bus")
-            else:
-                # Create new event bus if policy engine doesn't have one
-                event_bus = SafeEventBus(
-                    enable_redis=True,
-                    redis_host=config.redis_host,
-                    redis_port=config.redis_port
-                )
-                logger.info("✅ Created new event bus")
-            
-            # Start listening (safe to call even if already started)
-            event_bus.start_listening()
-            logger.info(f"📊 Event bus mode: {event_bus.get_mode()}")
-            
-            # Connect to policy engine if it doesn't already have one
-            if policy_engine and hasattr(policy_engine, 'set_event_bus'):
-                if not hasattr(policy_engine, 'event_bus') or not policy_engine.event_bus:
-                    policy_engine.set_event_bus(event_bus)
-                    logger.info("✅ Event bus connected to policy engine")
+            logger.info(f"✅ Using event bus from policy engine (mode: {event_bus.get_mode()})")
             
             # Register agents for spatial filtering
             if event_bus.is_available():
@@ -393,6 +374,8 @@ def run_simulation_loop(
             import traceback
             logger.debug(traceback.format_exc())
             event_bus = None
+    elif config.enable_event_bus and not event_bus:
+        logger.warning("⚠️ Event bus requested but not provided by policy initialization")
     else:
         logger.info("➖ Event bus disabled in config")
     
