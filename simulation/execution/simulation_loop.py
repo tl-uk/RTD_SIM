@@ -349,18 +349,41 @@ def run_simulation_loop(
                         logger.debug("Event bus stored in policy engine")
                 
                 # Subscribe agents to events (if enabled)
+                logger.info(f"🔍 DEBUG: config.enable_agent_event_subscription = {config.enable_agent_event_subscription}")
+                logger.info(f"🔍 DEBUG: Number of agents = {len(agents)}")
+                
                 if config.enable_agent_event_subscription:
+                    logger.info("✅ Agent subscription is ENABLED, proceeding...")
                     subscribed = 0
+                    failed = 0
+                    no_method = 0
+                    
                     for agent in agents:
                         if hasattr(agent, 'subscribe_to_events'):
                             try:
                                 agent.subscribe_to_events(event_bus)
                                 subscribed += 1
                             except Exception as e:
-                                logger.debug(f"Agent subscription failed: {e}")
+                                failed += 1
+                                logger.error(f"❌ Agent subscription failed: {e}")
+                        else:
+                            no_method += 1
+                    
+                    logger.info(f"📊 Subscription results:")
+                    logger.info(f"   ✅ Subscribed: {subscribed}")
+                    logger.info(f"   ❌ Failed: {failed}")
+                    logger.info(f"   ⚠️  No method: {no_method}")
                     
                     if subscribed > 0:
                         logger.info(f"🎧 Subscribed {subscribed} agents to events")
+                    else:
+                        logger.warning(f"⚠️ NO agents subscribed!")
+                        logger.warning(f"   - Agents without method: {no_method}")
+                        logger.warning(f"   - Failed subscriptions: {failed}")
+                else:
+                    logger.warning("⚠️ Agent subscription is DISABLED in config!")
+                    logger.warning(f"   enable_event_bus={config.enable_event_bus}")
+                    logger.warning(f"   enable_agent_event_subscription={config.enable_agent_event_subscription}")
             else:
                 logger.warning("⚠️ Event bus unavailable (continuing without events)")
                 event_bus = None

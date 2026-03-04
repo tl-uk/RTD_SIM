@@ -313,8 +313,8 @@ def render_sidebar_config():
                 help="Agents perceive policy changes in real-time"
             )
             config.enable_agent_event_subscription = subscribe_agents
-        
-        # if enable_events:
+            
+            # Event settings expander
             with st.sidebar.expander("⚙️ Event Settings", expanded=False):
                 # Redis configuration
                 col1, col2 = st.columns(2)
