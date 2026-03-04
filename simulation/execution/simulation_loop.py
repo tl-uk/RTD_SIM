@@ -305,109 +305,97 @@ def run_simulation_loop(
         logger.info("System Dynamics engine initialized")
 
     # Phase 6.2b: Initialize event bus (optional)
+    # ====================================================================
+    # Phase 6.2b: Event Bus Setup
+    # ====================================================================
     event_bus = None
-    if config.enable_event_bus and EVENT_BUS_AVAILABLE:
+    
+    if config.enable_event_bus:
         try:
-            # CRITICAL FIX: Check if policy engine already has an event bus
+            # Check if policy engine already has an event bus
             if policy_engine and hasattr(policy_engine, 'event_bus') and policy_engine.event_bus:
-                # Use the existing event bus from policy engine
                 event_bus = policy_engine.event_bus
-                logger.info("✅ Using event bus from policy engine (shared instance)")
+                logger.info("✅ Using policy engine's event bus")
             else:
-                # Only create NEW event bus if policy engine doesn't have one
+                # Create new event bus if policy engine doesn't have one
                 event_bus = SafeEventBus(
                     enable_redis=True,
                     redis_host=config.redis_host,
-                    redis_port=config.redis_port,
-                    redis_db=config.redis_db
+                    redis_port=config.redis_port
                 )
                 logger.info("✅ Created new event bus")
             
-            mode = event_bus.get_mode()
-            logger.info(f"📊 Event bus mode: {mode}")
+            # Start listening (safe to call even if already started)
+            event_bus.start_listening()
+            logger.info(f"📊 Event bus mode: {event_bus.get_mode()}")
             
+            # Connect to policy engine if it doesn't already have one
+            if policy_engine and hasattr(policy_engine, 'set_event_bus'):
+                if not hasattr(policy_engine, 'event_bus') or not policy_engine.event_bus:
+                    policy_engine.set_event_bus(event_bus)
+                    logger.info("✅ Event bus connected to policy engine")
+            
+            # Register agents for spatial filtering
             if event_bus.is_available():
-                # Start listening if not already started
-                if not event_bus.is_listening():
-                    event_bus.start_listening()
-                    logger.info("🎧 Event bus listening started")
-                else:
-                    logger.info("🎧 Event bus already listening")
-                
-                # Register all agents with spatial locations
-                agents_registered = 0
                 for agent in agents:
                     try:
+                        lat, lon = agent.state.location[1], agent.state.location[0]
                         event_bus.register_agent(
-                            agent_id=agent.agent_id,
-                            lat=agent.state.latitude,
-                            lon=agent.state.longitude,
+                            agent.state.agent_id,
+                            lat=lat,
+                            lon=lon,
                             perception_radius_km=config.agent_perception_radius_km
                         )
-                        agents_registered += 1
                     except Exception as e:
                         logger.debug(f"Agent registration failed: {e}")
                 
-                logger.info(f"📍 Registered {agents_registered}/{len(agents)} agents with event bus")
+                logger.info(f"📍 Registered {len(agents)} agents with event bus")
+            
+            # Subscribe agents to events (if enabled)
+            logger.info(f"🔍 DEBUG: config.enable_agent_event_subscription = {config.enable_agent_event_subscription}")
+            logger.info(f"🔍 DEBUG: Number of agents = {len(agents)}")
+            
+            if config.enable_agent_event_subscription:
+                logger.info("✅ Agent subscription is ENABLED, proceeding...")
+                subscribed = 0
+                failed = 0
+                no_method = 0
                 
-                # Connect event bus to policy engine (only if needed)
-                if policy_engine and config.enable_policy_events:
-                    # Check if policy engine already has THIS event bus
-                    if hasattr(policy_engine, 'event_bus') and policy_engine.event_bus is event_bus:
-                        logger.info("✅ Policy engine already using this event bus (shared instance)")
+                for agent in agents:
+                    if hasattr(agent, 'subscribe_to_events'):
+                        try:
+                            agent.subscribe_to_events(event_bus)
+                            subscribed += 1
+                        except Exception as e:
+                            failed += 1
+                            logger.error(f"❌ Agent subscription failed: {e}")
                     else:
-                        # Policy engine doesn't have this bus, so set it
-                        if hasattr(policy_engine, 'set_event_bus'):
-                            policy_engine.set_event_bus(event_bus)
-                            logger.info("✅ Event bus connected to policy engine")
-                        else:
-                            policy_engine.event_bus = event_bus
-                            logger.info("✅ Event bus stored in policy engine")
+                        no_method += 1
                 
-                # Subscribe agents to events (if enabled)
-                logger.info(f"🔍 DEBUG: config.enable_agent_event_subscription = {config.enable_agent_event_subscription}")
-                logger.info(f"🔍 DEBUG: Number of agents = {len(agents)}")
+                logger.info(f"📊 Subscription results:")
+                logger.info(f"   ✅ Subscribed: {subscribed}")
+                logger.info(f"   ❌ Failed: {failed}")
+                logger.info(f"   ⚠️  No method: {no_method}")
                 
-                if config.enable_agent_event_subscription:
-                    logger.info("✅ Agent subscription is ENABLED, proceeding...")
-                    subscribed = 0
-                    failed = 0
-                    no_method = 0
-                    
-                    for agent in agents:
-                        if hasattr(agent, 'subscribe_to_events'):
-                            try:
-                                agent.subscribe_to_events(event_bus)
-                                subscribed += 1
-                            except Exception as e:
-                                failed += 1
-                                logger.error(f"❌ Agent subscription failed: {e}")
-                        else:
-                            no_method += 1
-                    
-                    logger.info(f"📊 Subscription results:")
-                    logger.info(f"   ✅ Subscribed: {subscribed}")
-                    logger.info(f"   ❌ Failed: {failed}")
-                    logger.info(f"   ⚠️  No method: {no_method}")
-                    
-                    if subscribed > 0:
-                        logger.info(f"🎧 Subscribed {subscribed} agents to events")
-                    else:
-                        logger.warning(f"⚠️ NO agents subscribed!")
-                        logger.warning(f"   - Agents without method: {no_method}")
-                        logger.warning(f"   - Failed subscriptions: {failed}")
+                if subscribed > 0:
+                    logger.info(f"🎧 Subscribed {subscribed} agents to events")
                 else:
-                    logger.warning("⚠️ Agent subscription is DISABLED in config!")
-                    logger.warning(f"   enable_event_bus={config.enable_event_bus}")
-                    logger.warning(f"   enable_agent_event_subscription={config.enable_agent_event_subscription}")
+                    logger.warning(f"⚠️ NO agents subscribed!")
+                    logger.warning(f"   - Agents without method: {no_method}")
+                    logger.warning(f"   - Failed subscriptions: {failed}")
             else:
-                logger.warning("⚠️ Event bus unavailable (continuing without events)")
-                event_bus = None
+                logger.warning("⚠️ Agent subscription is DISABLED in config!")
+                logger.warning(f"   enable_event_bus={config.enable_event_bus}")
+                logger.warning(f"   enable_agent_event_subscription={config.enable_agent_event_subscription}")
                 
         except Exception as e:
-            logger.warning(f"Event bus initialization failed: {e}")
-            logger.info("Continuing simulation without events")
+            logger.warning(f"⚠️ Event bus setup failed: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             event_bus = None
+    else:
+        logger.info("➖ Event bus disabled in config")
+        
     elif config.enable_event_bus and not EVENT_BUS_AVAILABLE:
         logger.warning("⚠️ Event bus requested but not available (import failed)")
 
