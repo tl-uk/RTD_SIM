@@ -395,8 +395,9 @@ def run_simulation_loop(
             event_bus = None
     else:
         logger.info("➖ Event bus disabled in config")
-        
-    elif config.enable_event_bus and not EVENT_BUS_AVAILABLE:
+    
+    # Check if event bus was requested but not available
+    if config.enable_event_bus and not EVENT_BUS_AVAILABLE:
         logger.warning("⚠️ Event bus requested but not available (import failed)")
 
     # Policy tracking
