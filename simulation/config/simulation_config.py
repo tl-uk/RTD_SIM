@@ -242,7 +242,7 @@ class SimulationConfig:
     agent_perception_radius_km: float = 10.0
     """How far agents can perceive events (kilometers)"""
     
-    enable_agent_event_subscription: bool = False
+    enable_agent_event_subscription: bool = True
     """Subscribe agents to events for perception (Phase 7 - dynamic replanning)"""
     
     enable_policy_events: bool = True

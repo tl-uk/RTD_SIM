@@ -305,8 +305,16 @@ def render_sidebar_config():
             help="Enable real-time event system. Auto-falls back to in-memory if Redis unavailable."
         )
         config.enable_event_bus = enable_events
-        
+
         if enable_events:
+            subscribe_agents = st.sidebar.checkbox(
+                "📢 Subscribe Agents to Events",
+                value=config.enable_agent_event_subscription,
+                help="Agents perceive policy changes in real-time"
+            )
+            config.enable_agent_event_subscription = subscribe_agents
+        
+        # if enable_events:
             with st.sidebar.expander("⚙️ Event Settings", expanded=False):
                 # Redis configuration
                 col1, col2 = st.columns(2)
