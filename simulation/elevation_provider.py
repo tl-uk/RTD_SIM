@@ -1,4 +1,14 @@
 """
+simulation/elevation_provider.py
+
+This module implements the ElevationProvider class, which provides elevation data for
+given geographic coordinates. It supports multiple free elevation data sources, including
+the OpenTopoData API and local SRTM tiles. The provider includes caching mechanisms to
+minimize redundant API calls and improve performance. It also offers functionality to add
+elevation data to NetworkX graphs, which can be useful for routing and visualization in the
+simulation. The design is modular and extensible, allowing for additional data sources or
+caching strategies to be integrated as needed.
+
 Elevation data provider using OpenTopoMap and SRTM data.
 
 Supports multiple free elevation data sources:
@@ -35,7 +45,15 @@ try:
 except ImportError:
     NUMPY_AVAILABLE = False
 
-
+# ==========================
+# ELEVATION PROVIDER
+# ==========================
+# The ElevationProvider class provides elevation data for given geographic coordinates. 
+# It supports multiple free elevation data sources, including the OpenTopoData API and 
+# local SRTM tiles. The provider includes caching mechanisms to minimize redundant API 
+# calls and improve performance. It also offers functionality to add elevation data to 
+# NetworkX graphs, which can be useful for routing and visualization in the simulation. 
+# ===========================
 class ElevationProvider:
     """
     Multi-source elevation data provider.

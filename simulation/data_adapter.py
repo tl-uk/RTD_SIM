@@ -1,3 +1,16 @@
+"""
+simulation.data_adapter
+
+This module provides the DataAdapter class, which serves as a bridge for data management 
+in the simulation. It includes functionality for logging simulation state to CSV files 
+and stubs for real-time communication via MQTT and WebSockets. The DataAdapter allows for
+flexible data handling, enabling both post-simulation analysis through CSV logs and 
+potential real-time monitoring in future phases of development. The design is modular, 
+allowing for easy extension to support additional data formats or communication protocols
+as needed.
+
+"""
+
 from __future__ import annotations
 import logging
 from pathlib import Path
@@ -6,8 +19,11 @@ import csv
 
 logger = logging.getLogger(__name__)
 
+# =========================
+# Real-time Communication Stubs
+# =========================
 class RealtimeBridge:
-    """Phase 4-ready stubs for MQTT/WebSocket integration (no-op in Phase 1)."""
+    """Stubs for MQTT/WebSocket integration."""
     def __init__(self) -> None:
         self._mqtt_enabled = False
         self._ws_enabled = False
@@ -30,12 +46,24 @@ class RealtimeBridge:
         if self._ws_enabled:
             logger.debug("WS broadcast (stub) step=%s state=%s", step, state)
 
+# ========================
+# DATA ADAPTER
+# ========================
+# The DataAdapter class provides functionality for logging simulation state to CSV files 
+# and stubs for real-time communication via MQTT and WebSockets. It allows for flexible 
+# data handling, enabling both post-simulation analysis through CSV logs and potential 
+# real-time monitoring in future phases of development. The design is modular, allowing 
+# for easy extension to support additional data formats or communication protocols as 
+# needed.
+# ==========================
 class DataAdapter:
     """CSV logging + realtime stubs."""
     def __init__(self) -> None:
         self.log_buffer: List[Dict[str, Any]] = []
         self.realtime = RealtimeBridge()
 
+    # The append_log and save_log_csv methods provide a simple interface for logging simulation
+    # state to an in-memory buffer and saving it to a CSV file. 
     def append_log(self, step: int, state: Dict[str, Any]) -> None:
         self.log_buffer.append({'step': step, **state})
 
@@ -59,9 +87,17 @@ class DataAdapter:
         logger.info("Saved simulation log: %s (%d rows)", p, len(self.log_buffer))
         return p
 
+    # The get_log method allows retrieval of the in-memory log buffer, while the load_profiles_csv 
+    # method provides functionality to load agent profiles from a CSV file, returning a list of 
+    # dictionaries representing each row. This supports flexible data management for both 
+    # logging and agent configuration.
     def get_log(self) -> List[Dict[str, Any]]:
         return list(self.log_buffer)
 
+    # The load_profiles_csv method allows for loading agent profiles from a CSV file, 
+    # returning a list of dictionaries representing each row. This supports flexible data 
+    # management for both logging and agent configuration. It reads the specified CSV file, 
+    # parses it using csv.DictReader, and logs the number of profiles loaded for verification.
     def load_profiles_csv(self, path: str | Path) -> List[Dict[str, str]]:
         p = Path(path)
         with p.open('r', newline='', encoding='utf-8') as f:

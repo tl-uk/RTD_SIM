@@ -1,18 +1,49 @@
+"""
+simulation/controller.py
+
+This module defines the SimulationController class, which coordinates the simulation 
+loop for multi-agent simulations. It mediates between the environment, agent-based model 
+(ABM), and user interface (UI) by managing the simulation state, publishing events, and 
+handling agent interactions. 
+
+The controller supports starting, stopping, resetting, and stepping through the simulation, 
+while also collecting and broadcasting metrics for visualization and analysis. The design 
+allows for both single-agent and multi-agent modes, with flexibility to integrate various 
+models and data adapters as needed.
+
+The SimulationController is designed to be agnostic to the specific implementations of
+the environment and agents, allowing for a wide range of simulation scenarios and configurations.
+
+"""
 
 from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 
-from .event_bus import EventBus
+from events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
+# =========================
+# DATA CLASSES
+# =========================
 @dataclass
 class SimulationConfig:
     steps: int = 200
     dt_ms: int = 100  # UI cadence
 
+# ==========================
+# SIMULATION CONTROLLER
+# ==========================
+# The SimulationController serves as the central coordinator for the simulation, managing the
+# simulation loop, agent interactions, and communication between the environment, ABM, 
+# and UI. It provides methods to start, stop, reset, and step through the simulation, 
+# while also collecting and broadcasting metrics for visualization and analysis. 
+# The controller is designed to be flexible, supporting both single-agent and multi-agent 
+# modes, and can integrate with various models and data adapters as needed. It uses an
+# event-driven architecture to facilitate communication and decouple components, allowing for
+# a wide range of simulation scenarios and configurations.
 class SimulationController:
     """Coordinates the simulation loop (multi-agent) and mediates between environment, ABM, and UI."""
 
@@ -96,7 +127,8 @@ class SimulationController:
                         state['route'] = rt
                 except Exception:
                     pass
-
+                
+                # Count modal share for metrics and visualization
                 mode = state.get('mode', 'unknown')
                 modal_counts[mode] = modal_counts.get(mode, 0) + 1
 
