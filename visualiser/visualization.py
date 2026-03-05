@@ -225,6 +225,21 @@ def render_map(
                 pickable=True,
                 auto_highlight=True,
             )
+            # ========================================================================
+            # DEBUG: Add routes layer after agents so routes render below agent markers
+            # ========================================================================
+            # TEST: Add a bright red test route to verify PathLayer works
+            test_route = {
+                'path': [[-3.19, 55.95], [-3.18, 55.96], [-3.17, 55.97]],
+                'r': 255,
+                'g': 0,
+                'b': 0,
+                'mode': 'test',
+                'agent_id': 'TEST_ROUTE',
+            }
+            route_data.append(test_route)
+            logger.info("🧪 TEST: Added bright red test route")
+            # ========================================================================
             layers.append(route_layer)
             logger.info(f"✅ ROUTE LAYER ADDED! Total layers now: {len(layers)}")
         else:
