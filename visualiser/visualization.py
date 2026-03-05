@@ -118,7 +118,7 @@ def render_map(
     # Agents Layer
     # ========================================================================
     # 🔍 DEBUG: Log agent_states to console
-    logger.info(f"🔍 DEBUG render_map: show_agents={show_agents}, agent_states count={len(agent_states) if agent_states else 0}")
+    logger.info(f"🔍 DEBUG render_map: show_agents={show_agents}, show_routes={show_routes}, agent_states count={len(agent_states) if agent_states else 0}")
     if agent_states:
         sample = agent_states[0] if agent_states else {}
         logger.info(f"🔍 Sample agent_state keys: {list(sample.keys()) if sample else 'empty'}")
@@ -168,12 +168,15 @@ def render_map(
     # Routes Layer
     # ========================================================================
     if show_routes and agent_states:
+        logger.info(f"🔍 ROUTE RENDERING: show_routes={show_routes}, processing {len(agent_states)} agents")
         route_data = []
         
         for idx, state in enumerate(agent_states):
             route = state.get('route')
             if route and len(route) >= 2:
                 mode = state.get('mode', 'walk')
+                agent_id = state.get('agent_id', f'agent_{idx}')
+                
                 try:
                     path = [[float(pt[0]), float(pt[1])] for pt in route 
                            if isinstance(pt, (list, tuple)) and len(pt) == 2]
@@ -181,12 +184,12 @@ def render_map(
                     if len(path) >= 2:
                         color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
                         
-                        # FIX: Add color variation to distinguish overlapping routes
-                        # When multiple agents use same mode, routes appear identical
-                        variation = (idx % 15) * 8  # 0-112 variation
-                        r = min(255, max(30, color_rgb[0] + (variation if idx % 2 == 0 else -variation)))
-                        g = min(255, max(30, color_rgb[1] + (variation if idx % 3 == 1 else -variation)))
-                        b = min(255, max(30, color_rgb[2] + (variation if idx % 4 == 2 else -variation)))
+                        # Add color variation to distinguish overlapping routes
+                        # When many agents use same mode, subtle variations make routes visible
+                        variation = (idx % 12) * 10  # 0-110 variation
+                        r = min(255, max(40, color_rgb[0] + (variation if idx % 2 == 0 else -variation//2)))
+                        g = min(255, max(40, color_rgb[1] + (variation if idx % 3 == 1 else -variation//2)))
+                        b = min(255, max(40, color_rgb[2] + (variation if idx % 4 == 2 else -variation//2)))
                         
                         route_data.append({
                             'path': path,
@@ -194,24 +197,42 @@ def render_map(
                             'g': int(g),
                             'b': int(b),
                             'mode': mode,
-                            'agent_id': state.get('agent_id', ''),
+                            'agent_id': agent_id,
                         })
-                except:
-                    pass
+                        
+                        # Log first 3 routes for debugging
+                        if idx < 3:
+                            logger.info(f"🔍 Route {idx}: agent={agent_id}, mode={mode}, points={len(path)}, color=[{r},{g},{b}]")
+                
+                except Exception as e:
+                    logger.warning(f"⚠️  Route {idx} failed: {e}")
+        
+        logger.info(f"📊 ROUTE SUMMARY: Created {len(route_data)} route entries from {len(agent_states)} agents")
         
         if route_data:
             route_df = pd.DataFrame(route_data)
+            logger.info(f"🔍 Route DataFrame created: {len(route_df)} rows, columns={list(route_df.columns)}")
+            
             route_layer = pdk.Layer(
                 'PathLayer',
                 data=route_df,
                 get_path='path',
-                get_color='[r, g, b, 180]',  # Semi-transparent so overlaps visible
+                get_color='[r, g, b, 180]',  # Semi-transparent for overlaps
                 width_min_pixels=2,
                 width_max_pixels=4,
-                opacity=0.7,
+                width_scale=1,
+                opacity=0.8,
                 pickable=True,
+                auto_highlight=True,
             )
             layers.append(route_layer)
+            logger.info(f"✅ ROUTE LAYER ADDED! Total layers now: {len(layers)}")
+        else:
+            logger.warning("⚠️  No route data created - routes exist but couldn't be processed")
+    elif show_routes and not agent_states:
+        logger.warning("⚠️  show_routes=True but agent_states is empty!")
+    elif not show_routes:
+        logger.info(f"ℹ️  Routes not shown (show_routes={show_routes})")
     
     # ========================================================================
     # Infrastructure Layer - SMALLER & MORE TRANSPARENT
