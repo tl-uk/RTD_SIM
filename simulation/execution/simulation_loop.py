@@ -41,7 +41,7 @@ except ImportError:
     logger.warning("⚠️ Event bus not available")
     SafeEventBus = None
 
-# Phase 5.3: System Dynamics
+# System Dynamics
 from agent.system_dynamics import StreamingSystemDynamics
 try:
     from simulation.execution.system_dynamics_integration import (
@@ -82,7 +82,7 @@ except ImportError:
     SCENARIOS_AVAILABLE = False
     logger.warning("Scenario framework not available")
 
-# Environmental modules (Phase 5.2)
+# Environmental modules (weathers, emissions, air quality)
 try:
     from environmental.weather_api import create_weather_manager
     from environmental.seasonal_patterns import (
@@ -158,11 +158,11 @@ def apply_scenario_policies(
             logger.info(f"   - {policy['parameter']}: {policy['value']}{mode_info}")
 
         # ====================================================================
-        # NEW: Apply infrastructure policies
+        # Apply infrastructure policies
         # ====================================================================
         infrastructure_changes = {}
         
-        # Get scenario data (FIX: use manager.active_scenario instead of undefined 'scenario')
+        # Get scenario data (use manager.active_scenario instead of undefined 'scenario')
         if manager.active_scenario and config.infrastructure:
             scenario_data = manager.active_scenario
             
@@ -275,7 +275,7 @@ def run_simulation_loop(
         infrastructure, 
         network, 
         influence_system, 
-        policy_engine=None,  # NEW
+        policy_engine=None,  # Pass policy engine for event bus access
         event_bus=None,  # Phase 6.2b: Event bus from policy initialization
         progress_callback=None
     ):
@@ -305,7 +305,6 @@ def run_simulation_loop(
         sd_engine = StreamingSystemDynamics(config.system_dynamics)
         logger.info("System Dynamics engine initialized")
 
-    # Phase 6.2b: Initialize event bus (optional)
     # ====================================================================
     # Phase 6.2b: Event Bus Setup
     # ====================================================================
