@@ -172,11 +172,22 @@ class EventBus:
         else:
             channel = self._get_channel_name(event_type)
         
-        if channel not in self.callbacks:
+        # Check if this is a new channel
+        is_new_channel = channel not in self.callbacks
+        
+        if is_new_channel:
             self.callbacks[channel] = []
         
         self.callbacks[channel].append(callback)
         logger.info(f"✅ Subscribed to {channel}")
+        
+        # Phase 6.2b FIX: If already listening, dynamically subscribe to new channel
+        if is_new_channel and self.listening and self.pubsub:
+            try:
+                self.pubsub.subscribe(channel)
+                logger.info(f"🎧 Dynamically subscribed Redis to {channel}")
+            except Exception as e:
+                logger.error(f"Failed to dynamically subscribe to {channel}: {e}")
     
     def subscribe_all(self, callback: Callable[[BaseEvent], None]):
         """
@@ -186,11 +197,23 @@ class EventBus:
             callback: Function to call for any event
         """
         channel = f"{self.channel_prefix}:all"
-        if channel not in self.callbacks:
+        
+        # Check if this is a new channel
+        is_new_channel = channel not in self.callbacks
+        
+        if is_new_channel:
             self.callbacks[channel] = []
         
         self.callbacks[channel].append(callback)
         logger.info(f"✅ Subscribed to ALL events")
+        
+        # Phase 6.2b FIX: If already listening, dynamically subscribe to new channel
+        if is_new_channel and self.listening and self.pubsub:
+            try:
+                self.pubsub.subscribe(channel)
+                logger.info(f"🎧 Dynamically subscribed Redis to {channel}")
+            except Exception as e:
+                logger.error(f"Failed to dynamically subscribe to {channel}: {e}")
     
     def start_listening(self):
         """
