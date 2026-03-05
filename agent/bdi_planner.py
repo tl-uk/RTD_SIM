@@ -1,13 +1,33 @@
 """
-agent/bdi_planner.py - Phase 4.5F: Expanded Freight Modes
+agent/bdi_planner.py
 
-CRITICAL FIX: Mode filtering was broken - it was checking vehicle_type FIRST,
-but then OVERRIDING with default modes if no distance filtering applied.
+This class implements a BDI (Belief-Desire-Intention) planner that generates and 
+evaluates possible actions for agents based on their context and desires. 
 
-Adds comprehensive freight vehicle types:
-- cargo_bike: Urban micro-delivery
-- truck_electric/diesel: Medium freight (7.5-18 tonnes)
-- hgv_electric/diesel/hydrogen: Heavy goods (44 tonnes)
+The planner has been enhanced to include a wider range of freight vehicle types, 
+such as cargo bikes for urban micro-delivery, medium freight trucks (both electric 
+and diesel), and heavy goods vehicles (including hydrogen-powered options).
+
+How to extend the planner with new modes:
+1. Add new modes to the default mode list and distance constraints, e.g. 'cargo_bike', 
+   'truck_electric', 'hgv_hydrogen'.
+2. Update the mode filtering logic to better handle freight contexts and allow
+   cargo bikes for longer trips.
+3. Enhance the cost function to include preferences for freight modes when relevant.
+4. Add infrastructure checks for new EV types if infrastructure awareness is enabled.
+5. Update the explanation function to provide insights into why freight modes were 
+   chosen.
+6. Ensure that the planner never returns an empty mode list, and implements intelligent 
+   fallbacks based on context.
+7. Add detailed logging to help debug mode filtering and routing issues, especially for
+   freight contexts.
+8. Test the planner with a variety of freight scenarios to ensure the new modes are 
+   being offered and evaluated correctly.
+9. Monitor the distribution of chosen modes in freight contexts to verify that the new
+   modes are being utilized as intended.
+10. Continuously refine the mode selection and cost evaluation logic based on observed 
+    outcomes and feedback from the simulation runs, especially focusing on freight 
+    delivery scenarios.
 """
 
 from __future__ import annotations
@@ -33,7 +53,7 @@ class ActionScore:
     cost: float
     breakdown: Optional[Dict[str, float]] = None
 
-
+# BDI Planner with expanded freight modes and improved mode filtering logic.
 class BDIPlanner:
     """BDI planner with expanded freight modes."""
     
@@ -114,7 +134,6 @@ class BDIPlanner:
         """Check if infrastructure awareness is enabled."""
         return self.infrastructure is not None
     
-    # CRITICAL FIX: Revised mode filtering logic with debugging
     # Ensures freight modes are properly selected and never returns empty list
     def actions_for(
         self,
@@ -136,6 +155,8 @@ class BDIPlanner:
         available_modes = self._filter_modes_by_context(context, straight_line_distance)
         
         # ENHANCED DEBUG LOGGING
+        # Log the context and filtering results in detail to diagnose mode filtering 
+        # issues, especially for freight contexts.
         agent_id = getattr(state, 'agent_id', 'unknown')
         vehicle_required = context.get('vehicle_required', False)
         vehicle_type = context.get('vehicle_type', 'personal')
@@ -180,7 +201,7 @@ class BDIPlanner:
                 routing_results[mode] = "no_route_computed"
                 continue
 
-            # ✅ FIX: Accept 2-point routes for very short trips
+            # Accept 2-point routes for very short trips
             if len(route) == 2 and straight_line_distance > 0.5:
                 # Only warn for longer routes with just 2 points
                 logger.warning(f"         ⚠️  Short route ({len(route)} points) for {straight_line_distance:.1f}km trip")
@@ -202,14 +223,15 @@ class BDIPlanner:
                 routing_results[mode] = f"too_long: {actual_route_distance:.1f}km"
                 continue
             
-            # SUCCESS!
+            # SUCCESS! Track the successful route and generate action
             logger.info(f"         SUCCESS: {actual_route_distance:.1f}km route")
             routing_results[mode] = f"success: {actual_route_distance:.1f}km"
             
             params = {}
             if mode in self.EV_RANGE_KM and self.has_infrastructure:
                 params = self._get_ev_params(origin, dest, route, context)
-            
+            # For freight modes, we could add additional parameters here, such as 
+            # load capacity, delivery time windows, etc.
             actions.append(Action(mode=mode, route=route, params=params))
         
         # Final summary
@@ -348,7 +370,7 @@ class BDIPlanner:
                 modes = ['van_diesel']
                 logger.warning(f"Fallback: Using {modes} for commercial")
             elif vehicle_type == 'micro_mobility':
-                # ✅ FIX 2: Upgrade to van if we're in fallback (means too long)
+                # Upgrade to van if we're in fallback (means too long)
                 modes = ['van_diesel', 'van_electric']
                 logger.warning(f"Fallback: Upgrading micro-mobility to VAN (trip too long for cargo bike)")
             else:
@@ -411,6 +433,12 @@ class BDIPlanner:
         
         return True
     
+    # This function gathers detailed parameters about the EV trip, including distance, 
+    # nearest charger info, and grid stress factors.
+    # This allows the cost function to make more informed decisions about EV feasibility 
+    # and costs.
+    # This is especially important for freight modes, where range and charging logistics 
+    # are critical factors in mode choice.
     def _get_ev_params(
         self,
         origin: Tuple[float, float],
@@ -427,7 +455,7 @@ class BDIPlanner:
         nearest = self.infrastructure.find_nearest_charger(
             dest, charger_type='any', max_distance_km=2.0
         )
-        
+        # If no charger found within 2km, try a wider search for freight modes, which may be more tolerant of detours
         if nearest:
             station_id, distance_to_charger = nearest
             params['nearest_charger'] = station_id
@@ -440,6 +468,11 @@ class BDIPlanner:
         
         return params
     
+    # Enhanced cost function to include freight mode preference bonuses, 
+    # which lower the cost of freight modes when the agent context indicates a freight 
+    # delivery. Logic is based on the agent's vehicle type and priority, allowing for 
+    # more nuanced mode selection that better reflects the needs of freight deliveries 
+    # while still considering the agent's desires and the trip characteristics.
     def cost(
         self,
         action: Action,
@@ -525,7 +558,10 @@ class BDIPlanner:
             w_time = 0.7
             w_cost = 0.2
 
-        # Calculate total cost
+        # Calculate total cost. Total cost is a weighted sum of normalized time, cost, 
+        # comfort penalty, risk, and emissions, plus any infrastructure penalties. 
+        # Freight mode preference bonuses are applied after the initial cost calculation 
+        # to ensure that they influence the final mode choice effectively.
         total_cost = (
             w_time * time_norm +
             w_cost * cost_norm +
@@ -542,7 +578,10 @@ class BDIPlanner:
             'truck_electric', 'truck_diesel',
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'
         ]
-        
+        # Freight modes get a cost reduction bonus if the agent context indicates a freight delivery,
+        # with the size of the bonus depending on the specific vehicle type. This encourages the planner 
+        # to select freight-appropriate modes when the agent is in a freight context, while still allowing
+        # for other modes to be chosen if they are significantly better in terms of the base cost metrics.
         if (priority == 'commercial' or vehicle_type in ['commercial', 'medium_freight', 'heavy_freight', 'micro_mobility']) and mode in freight_modes:
             if vehicle_type == 'micro_mobility' and mode == 'cargo_bike':
                 total_cost *= 0.6
@@ -556,6 +595,13 @@ class BDIPlanner:
         
         return total_cost
     
+    # This function evaluates all feasible actions by calculating their costs and optionally 
+    # providing a detailed cost breakdown for XAI purposes. The cost breakdown includes 
+    # time, monetary cost, comfort penalty, risk, emissions, and any infrastructure-related 
+    # factors such as charging wait times or range anxiety for EVs. This detailed breakdown 
+    # allows the planner to explain its choices in a more transparent way, especially when 
+    # freight modes are involved and the decision may be influenced by specific parameters 
+    # related to freight deliveries.
     def evaluate_actions(
         self,
         env,
@@ -568,18 +614,27 @@ class BDIPlanner:
         """Evaluate all feasible actions."""
         actions = self.actions_for(env, state, origin, dest, agent_context)
         scores: List[ActionScore] = []
-        
+        # Evaluate each action and calculate cost, including detailed breakdown for XAI
         for action in actions:
             cost = self.cost(action, env, state, desires, agent_context)
             
             breakdown = None
             if self.has_infrastructure:
                 breakdown = self._calculate_cost_breakdown(action, env, desires, agent_context)
-            
+            # The breakdown provides insights into the specific factors contributing to the cost of each action, 
+            # which can be used for explaining the planner's choices to users or for debugging purposes. 
+            # This is especially important for freight modes, where factors like charging logistics and 
+            # range anxiety can play a significant role in mode choice.
             scores.append(ActionScore(action=action, cost=cost, breakdown=breakdown))
         
         return scores
     
+    # This function calculates a detailed cost breakdown for a given action, including 
+    # time, monetary cost, comfort penalty, risk, emissions, and any infrastructure-related 
+    # factors such as charging wait times or range anxiety for EVs. This breakdown is used 
+    # for explainability purposes, allowing the planner to provide insights into why certain 
+    # modes were chosen over others, especially in freight contexts where specific parameters 
+    # can heavily influence the decision.
     def _calculate_cost_breakdown(
         self,
         action: Action,
@@ -590,7 +645,11 @@ class BDIPlanner:
         """Calculate detailed cost breakdown."""
         route = action.route
         mode = action.mode
-        
+        # The breakdown includes the key cost components that contribute to the overall 
+        # cost of the action, allowing for a more transparent explanation of the planner's
+        # choices. This is particularly valuable for freight modes, where factors like 
+        # charging logistics and range anxiety can be significant and may not be immediately 
+        # obvious to users.
         breakdown = {
             'time': env.estimate_travel_time(route, mode) / 60.0,
             'cost': env.estimate_monetary_cost(route, mode),
@@ -598,23 +657,36 @@ class BDIPlanner:
             'risk': env.estimate_risk(route, mode),
             'emissions': env.estimate_emissions(route, mode) / 500.0,
         }
-        
+        # Logic here is to add specific breakdown components related to EV infrastructure 
+        # when evaluating EV modes, which can be critical factors in the cost and mode choice, 
+        # especially for freight deliveries where range and charging logistics are important 
+        # considerations.
         if mode in self.EV_RANGE_KM:
             breakdown['charging_wait'] = action.params.get('charger_wait_min', 0) / 60.0
             breakdown['range_anxiety'] = action.params.get('trip_distance_km', 0) / self.EV_RANGE_KM.get(mode, 350.0)
         
         return breakdown
     
+    # This function selects the best action based on the lowest cost from the evaluated scores.
+    # It includes enhanced logging to provide insights into the decision-making process, which is
+    # especially useful for debugging and understanding mode choice in freight contexts where the
+    # decision may be influenced by specific parameters related to freight deliveries.
     def choose_action(self, scores: List[ActionScore]) -> Action:
         """Choose best action (lowest cost)."""
         if not scores:
             logger.error("❌ NO SCORES TO CHOOSE FROM - RETURNING WALK FALLBACK")
             return Action(mode='walk', route=[], params={})
-        
+        # By bets we mean the action with the lowest cost, which is the most preferred 
+        # action according to the planner's evaluation.
         best = min(scores, key=lambda s: s.cost)
         logger.info(f"✅ Chose {best.action.mode} with cost {best.cost:.2f}")
         return best.action
-    
+    # This function generates an explanation for why a particular action was chosen, based on the
+    # evaluated scores and the agent's desires. The explanation includes insights into the 
+    # agent's priorities, the cost breakdown of the chosen action, and any specific factors 
+    # that influenced the decision. This is particularly important for freight modes, where 
+    # the choice may be influenced by specific parameters related to freight deliveries, 
+    # such as charging logistics and range anxiety.
     def explain_choice(
         self,
         chosen: Action,
@@ -623,7 +695,11 @@ class BDIPlanner:
     ) -> str:
         """Explain why an action was chosen (XAI)."""
         mode = chosen.mode
-        
+        # The explanation provides a detailed rationale for why the chosen mode was selected, 
+        # including the agent's priorities and the specific cost components that influenced 
+        # the decision. Useful for freight modes, where factors like charging logistics and 
+        # range anxiety can play a significant role in mode choice and may not be immediately 
+        # obvious to users.
         chosen_score = next((s for s in all_scores if s.action.mode == mode), None)
         if not chosen_score:
             return f"Chose {mode} (no explanation available)"
@@ -641,7 +717,10 @@ class BDIPlanner:
             wait = chosen.params['charger_wait_min']
             if wait > 0:
                 explanation += f"  (Charging wait: {wait:.0f} min)\n"
-        
+        # Include the cost breakdown in the explanation to provide insights into the specific 
+        # factors that contributed to the cost of the chosen action, which can help users 
+        # understand why certain modes were preferred over others, especially in freight 
+        # contexts where specific parameters can heavily influence the decision.
         if chosen_score.breakdown:
             breakdown = chosen_score.breakdown
             top_costs = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:3]

@@ -1,4 +1,15 @@
-# agent/cognitive_abm.py
+"""
+agent/cognitive_abm.py
+
+This module defines a simple cognitive agent for the ABM, with integrated planning and 
+movement logic.
+
+Cognitive model is a toy implementation with attention, working memory, stress, and 
+performance variables that evolve over time. The planner is integrated to allow the agent
+to choose routes and modes based on its desires and the environment. Movement logic 
+advances the agent along its route and tracks travel time, distance, emissions, and dwell time.
+
+"""
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Tuple, Optional
@@ -28,7 +39,7 @@ class AgentState:
     route_index: int = 0            # segment index along route
     route_offset_km: float = 0.0    # distance progressed on current segment
 
-    # Travel accounting (Phase 2)
+    # Travel accounting
     arrived: bool = False
     departed_at_step: int | None = None
     arrived_at_step: int | None = None
@@ -77,7 +88,12 @@ class CognitiveAgent:
         self.origin = origin
         self.dest = dest
 
-
+    # This function applies a habit bonus to the costs of modes that have been used recently,
+    # making them more likely to be chosen again. This simulates the real-world tendency for
+    # people to stick with familiar modes. The bonus is applied as a 20% cost reduction to 
+    # the most frequently used mode in the last 3 trips, if that mode is present in the 
+    # current cost evaluation. This can help the agent develop "habits" over time, which is
+    # a common aspect of human behavior in transportation mode choice.
     def _apply_habit_bonus(self, costs: dict) -> dict:
         """Add habit discount to recently used modes."""
         if len(self.state.mode_history) < 3:
@@ -105,24 +121,31 @@ class CognitiveAgent:
         self.state.route = []
         self.t = 0
 
+    # This function checks if the agent needs to plan a new route and, if so, calls the 
+    # planner to evaluate possible actions and choose the best one. The planner is passed 
+    # the current environment, the agent's state, desires, location, and destination, as 
+    # well as the agent context which can include information about infrastructure and other 
+    # relevant factors.
     def _maybe_plan(self, env) -> None:
         s = self.state
         if env is None or self.planner is None or s.arrived:
             return
+        # Agent replans if it's the first step, if it has no route, or every _replan_period 
+        # steps to adapt to changes.
         need_plan = (self.t % self._replan_period == 1) or (not s.route)
         if need_plan:
-            # CRITICAL FIX: Pass agent_context to planner
+            # MUST Pass agent_context to planner!
             scores = self.planner.evaluate_actions(
                 env, 
                 s, 
                 self.desires, 
                 s.location, 
                 s.destination,
-                agent_context=self.agent_context  # ← ADDED THIS LINE!
+                agent_context=self.agent_context # Critical for infrastructure-aware planning 
             )
             best = self.planner.choose_action(scores)
             
-            # ✅ FIX: Only update route if we got a valid one
+            # Only update route if we got a valid one
             if best.route and len(best.route) > 0:
                 s.route = [(float(x), float(y)) for (x, y) in best.route]
                 s.route_index = 0
@@ -147,6 +170,12 @@ class CognitiveAgent:
                     s.route_index = 0
                     s.route_offset_km = 0.0
 
+    # This function calculates the dwell time to be added whenever the agent finishes a 
+    # segment of its route, based on the mode of transportation. Different modes have 
+    # different typical dwell times (e.g., bus passengers may have longer dwell times 
+    # due to stops and boarding, while car drivers may have minimal dwell time). This
+    # adds realism to the simulation by accounting for the time spent not just moving 
+    # but also waiting or stopping, which can be significant in certain modes.
     def _dwell_per_segment(self, mode: str) -> float:
         """Dwell time (minutes) applied whenever the agent finishes a segment."""
         dwell_lookup = {
@@ -158,6 +187,12 @@ class CognitiveAgent:
         }
         return dwell_lookup.get(mode, 0.0)
 
+    # This function advances the agent along its route based on the environment's routing logic. 
+    # It updates the agent's location and route index. It also calculates the distance traveled, 
+    # time taken, emissions generated, and dwell time accumulated based on the movement. 
+    # The function checks for arrival at the destination and updates the agent's state accordingly. 
+    # This is a critical part of the ABM as it simulates the actual movement of the agent 
+    # through the environment and tracks key metrics that can be used for analysis and visualisation.
     def _move(self, env) -> None:
         s = self.state
         if env is None or not s.route or len(s.route) < 2 or s.arrived:
@@ -209,6 +244,15 @@ class CognitiveAgent:
                 if s.arrived_at_step is None:
                     s.arrived_at_step = self.t
 
+    # Main function that advances the agent's state by one step. It first updates the
+    # cognitive variables (attention, working memory, stress, performance) based on a 
+    # simple model. Then it calls the planning function to potentially update the route 
+    # and mode, and finally calls the movement function to advance the agent along its 
+    # route. The function returns a dictionary of the agent's state variables for logging
+    # or analysis. 
+    # Debug logging included to track the route status at the start and end of the first 
+    # few steps to help identify issues with route planning and movement early on in 
+    # the simulation.
     def step(self, env=None) -> Dict[str, Any]:
         s = self.state
         self.t += 1
@@ -218,7 +262,13 @@ class CognitiveAgent:
             route_info = f"{len(s.route)} points" if s.route else "None"
             logger.info(f"🔍 {s.agent_id} step {self.t} START: route={route_info}, arrived={s.arrived}")
 
-        # Cognitive updates (same as Phase 1)
+        # Cognitive updates with some randomness to simulate variability in attention and stress. 
+        # The agent's attention is influenced by a random stimulus and its current stress level. 
+        # Working memory is a combination of attention and some randomness. Performance is a 
+        # function of attention, working memory, and stress. Stress increases if performance is low.
+        # This simple cognitive model allows the agent's internal state to evolve over time, which can
+        # affect its decision-making and movement in a more realistic way than a purely rational agent.
+        # Arbitrary parameters and equations used here and can be tuned to achieve different behaviors.
         stimulus = self.rng.uniform(-0.1, 0.1)
         s.attention = _clip(s.attention + 0.05 * stimulus - 0.02 * s.stress)
         s.working_memory = _clip(0.6 * s.working_memory + 0.4 * s.attention + self.rng.uniform(-0.05, 0.05))
@@ -254,5 +304,11 @@ class CognitiveAgent:
             'dwell_time_min': round(s.dwell_time_min, 3),
         }
 
+# Utility function to clip values between a lower and upper bound, used for cognitive 
+# variable updates. This ensures that attention, working memory, stress, and performance 
+# values remain within a reasonable range (0.0 to 1.0) to prevent unrealistic values that
+# could arise from the random updates in the cognitive model. This is a common technique 
+# in cognitive modeling to maintain stability in the variables and ensure they reflect 
+# plausible human-like states.
 def _clip(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, x))

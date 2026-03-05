@@ -127,7 +127,11 @@ def generate_freight_delivery_variations() -> Dict[str, Any]:
     
     return generated_jobs
 
-
+# Additional generation function for time-sensitive delivery variations, demonstrating 
+# how we can create multiple job stories with different time windows and urgency levels 
+# while keeping the core delivery task consistent. This allows us to test how the agent 
+# handles tasks with varying temporal constraints and priorities, which is common in 
+# real-world delivery scenarios.
 def generate_time_window_variations() -> Dict[str, Any]:
     """
     Generate time-sensitive delivery variations.
@@ -160,7 +164,7 @@ def generate_time_window_variations() -> Dict[str, Any]:
         }
     }
     
-    generated = {}
+    generated = {} # Generate variations for each time window
     
     for time_name, time_config in time_windows.items():
         job_id = f'urban_delivery_{time_name}_generated'
@@ -181,7 +185,7 @@ def generate_time_window_variations() -> Dict[str, Any]:
     
     return generated
 
-
+# Master function to generate all job templates, combining different generation strategies.
 def generate_all_job_templates() -> Dict[str, Any]:
     """
     Generate all programmatic job variations.

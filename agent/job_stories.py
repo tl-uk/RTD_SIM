@@ -20,8 +20,13 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Data Classes
+# The use of dataclasses simplifies the definition and management of 
+# complex data structures.
+# ============================================================================
 
-@dataclass
+@dataclass # Dataclass decorator for JobStory and related classes
 class TimeWindow:
     """Represents a time constraint."""
     start: str  # HH:MM format
@@ -36,7 +41,7 @@ class TimeWindow:
         return (start_h * 60 + start_m, end_h * 60 + end_m)
 
 
-@dataclass
+@dataclass # Dataclass for multi-stage trip stages, allowing for complex trips with multiple legs and constraints.
 class StageDefinition:
     """Multi-stage trip stage definition."""
     stage_id: int
@@ -45,8 +50,14 @@ class StageDefinition:
     constraints: List[str] = field(default_factory=list)
     typical_distance_km: Optional[List[float]] = None
 
-
-@dataclass
+# Main dataclass for job stories, representing the parsed information from YAML files 
+# and templates. Contains all the necessary information to define a task for the agent, 
+# including spatial and temporal constraints, parameters, and multi-stage trip details. 
+# The to_task_context method allows for easy conversion to a TaskContext object that can 
+# be used for planning and execution. This structure supports a wide variety of tasks and
+# can be easily extended with additional fields as needed for different types of jobs 
+# (commute, delivery, leisure, etc.).
+@dataclass 
 class TaskContext:
     """
     Parsed task context from job story.
@@ -60,7 +71,14 @@ class TaskContext:
     constraints: List[str] = field(default_factory=list)
     parameters: Dict[str, Any] = field(default_factory=dict)
 
-
+# The JobStory dataclass represents a complete job story with all the relevant information 
+# parsed from YAML files or generated templates. It includes methods to convert the job story 
+# into a TaskContext that can be used for planning and execution. The JobStoryParser class is 
+# responsible for loading job stories from YAML files and providing access to them. 
+# Convenience functions are provided for easy loading and listing of job stories. 
+# This structure allows for a flexible and extensible way to define a wide variety of 
+# tasks for the agent, and can be easily integrated with the rest of the system for planning 
+# and execution. 
 @dataclass
 class JobStory:
     """
@@ -164,6 +182,13 @@ class JobStory:
         
         return constraints
     
+    # Apply CSV data to override/augment task context. This allows for dynamic updates 
+    # to the task context based on external data sources, which can be useful for testing 
+    # or for real-time updates in a simulation. The CSV data can include overrides for 
+    # origin/destination coordinates, time windows, and any additional parameters that 
+    # may be relevant for the task. This function ensures that the task context can be 
+    # easily modified without changing the underlying job story definition, allowing for 
+    # greater flexibility in how tasks are defined and executed.
     def _apply_csv_overrides(
         self, 
         context: TaskContext, 
@@ -203,8 +228,14 @@ class JobStory:
     def __repr__(self) -> str:
         return f"JobStory(id={self.story_id}, type={self.job_type})"
 
+# ============================================================================
+# Job Story Parser
+# ============================================================================
 
-class JobStoryParser:
+# Main class for parsing job stories from YAML files and templates.
+# Supports loading from a single YAML file or a directory of YAML files, as well as
+# programmatically generated job templates. Caches loaded stories for efficient access.
+class JobStoryParser: 
     """
     Parser for job context YAML files.
     """
@@ -336,7 +367,7 @@ class JobStoryParser:
             
             logger.info(f"Loaded {len(self._stories_cache)} stories from {len(yaml_files)} YAML files")
         
-        # ✅ ADD: Load programmatically generated jobs (Strategy 3)
+        # Load programmatically generated jobs (Strategy 3)
         try:
             from agent.job_templates import generate_all_job_templates
             generated = generate_all_job_templates()

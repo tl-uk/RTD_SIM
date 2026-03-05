@@ -1,15 +1,21 @@
 """
 agent/social_influence_dynamics.py
 
-Realistic social influence with:
-- Temporal decay (influences fade over time)
-- Habit formation & inertia
-- Competing trends
-- Influence saturation
-- Recency bias
-- Personal experience override
+This module implements a more realistic social influence system for the agent, addressing
+the over-deterministic cascade problem. It incorporates temporal decay of influence, 
+habit formation and inertia, competing trends, influence saturation, recency bias, and 
+personal experience override. This allows for more nuanced and realistic modeling of how 
+agents are influenced by their peers and their own past experiences when making mode 
+choices.
 
-This addresses the over-deterministic cascade problem.
+Key features:
+- Temporal decay: Influence from peers fades over time, so recent influences matter more.
+- Habit formation & inertia: Repeated use of a mode builds a habit, making switching harder.
+- Competing trends: Multiple modes can be popular simultaneously, preventing a single mode from dominating. 
+- Influence saturation: The effect of peer influence saturates after a certain point, preventing runaway cascades.
+- Recency bias: Recent peer adoptions have a stronger influence than older ones.
+- Personal experience override: Agents weigh their own past satisfaction with a mode against peer influence, allowing 
+  for personal preferences to override social trends in some cases.
 """
 
 from __future__ import annotations
@@ -21,8 +27,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Data Classes for Influence Memory and Habit State
+# ============================================================================
 
-@dataclass
+@dataclass # Data class for tracking influence events with temporal decay.
 class InfluenceMemory:
     """
     Tracks influence events with temporal decay.
@@ -42,7 +51,7 @@ class InfluenceMemory:
         return max(0.0, decayed)
 
 
-@dataclass
+@dataclass # Data class for tracking habit formation for a mode.
 class HabitState:
     """
     Tracks agent's habit formation for a mode.
@@ -64,7 +73,7 @@ class HabitState:
         if self.consecutive_uses == 0:
             return 0.0
         
-        # Saturation at ~10 consecutive uses
+        # Saturation at ~10 consecutive uses for max habit strength
         return 1.0 - 1.0 / (1.0 + self.consecutive_uses / 5.0)
     
     def get_average_satisfaction(self) -> float:
@@ -73,7 +82,16 @@ class HabitState:
             return 0.5  # Neutral
         return sum(self.satisfaction_history[-10:]) / len(self.satisfaction_history[-10:])
 
-
+# ============================================================================
+# Realistic Social Influence System
+# ============================================================================
+# This class implements the enhanced social influence system with realistic dynamics,
+# addressing the over-deterministic cascade problem. It tracks influence events with 
+# temporal decay, habit formation and inertia, competing trends, influence saturation, 
+# recency bias, and personal experience override. The calculate_mode_attractiveness 
+# method combines these factors to adjust the attractiveness of modes based on both 
+# social influence and personal experience, allowing for more nuanced and realistic 
+# agent behavior.
 class RealisticSocialInfluence:
     """
     Enhanced social influence with realistic dynamics.
@@ -124,7 +142,18 @@ class RealisticSocialInfluence:
     def advance_time(self, steps: int = 1) -> None:
         """Advance simulation time (for decay calculations)."""
         self._current_time += steps
-    
+
+    # The record_influence_event method allows the system to track when an agent is 
+    # influenced by a peer's mode choice, including the strength of the influence and 
+    # the source agent. The record_mode_usage method tracks when an agent uses a mode, 
+    # which contributes to habit formation. The calculate_mode_attractiveness method 
+    # combines the base cost of a mode with adjustments based on habit inertia, personal 
+    # experience, and peer influence to determine how attractive a mode is for the agent 
+    # at any given time. Helper methods are included to calculate the individual contributions 
+    # of habit, experience, and peer influence, as well as to prune old influence memories 
+    # and summarize an agent's state for debugging purposes. 
+    # Additional methods are provided to detect trend reversals and apply fashion cycle 
+    # effects, further enhancing the realism of the social influence dynamics.
     def record_influence_event(
         self,
         agent_id: str,
