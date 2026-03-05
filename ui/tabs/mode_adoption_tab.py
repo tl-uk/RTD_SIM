@@ -1,8 +1,12 @@
 """
 ui/tabs/mode_adoption_tab.py
 
-Mode adoption visualization tab - extracted from main_tabs.py
-FIXED: Remove results.modes reference (doesn't exist in SimulationResults)
+This module contains the rendering function for the Mode Adoption tab in the RTD_SIM UI. 
+
+It visualizes the adoption of different transportation modes over time, showing both 
+historical trends and current distribution. The tab is designed to provide insights into 
+how different policies and scenarios impact mode choice among agents in the simulation.
+
 """
 
 import streamlit as st
@@ -19,7 +23,9 @@ from visualiser.visualization import (
     MODE_COLORS_HEX
 )
 
-
+# Added anim and current_data parameters to maintain consistency with other tabs, even 
+# if not used directly in this function. This allows for future enhancements where we 
+# might want to use animation state or current data for more dynamic visualisations.
 def render_mode_adoption_tab(results, anim, current_data):
     """
     Render mode adoption charts.
@@ -59,7 +65,7 @@ def render_mode_adoption_tab(results, anim, current_data):
     with col2:
         st.markdown("**Current Share:**")
         
-        # FIXED: Call get_mode_distribution with just agent_states
+        # Call get_mode_distribution with just agent_states
         # The function should calculate mode distribution from agent_states directly
         mode_dist = get_mode_distribution(agent_states)
         

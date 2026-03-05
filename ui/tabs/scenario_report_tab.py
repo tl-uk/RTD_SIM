@@ -1,11 +1,10 @@
-# ============================================================================
-# ui/tabs/scenario_report_tab.py
-# ============================================================================
-
 """
 ui/tabs/scenario_report_tab.py
 
-Scenario report visualization tab - extracted from main_tabs.py
+This module contains the rendering function for the Scenario Report tab in the RTD_SIM UI.
+
+It provides Scenario report visualization tab. Shows what policies were applied and 
+their expected outcomes.
 
 """
 

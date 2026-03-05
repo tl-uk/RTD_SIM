@@ -1,8 +1,20 @@
 """
 ui/tabs/shap_analysis_tab.py
 
-SHAP Analysis Visualization Tab
-Explains which features drive EV adoption using SHAP values
+This module contains the rendering function for the SHAP Analysis visualization tab in the RTD_SIM UI.
+
+It explains which features drive EV adoption using SHAP values.
+
+SHAP (SHapley Additive exPlanations) is a powerful explainable AI technique that quantifies 
+the contribution of each input feature to the model's predictions. 
+
+In the context of RTD_SIM, we apply SHAP analysis to the System Dynamics model to understand 
+which factors most influence the flow of EV adoption.
+
+Low value features indicate factors that suppress adoption, while high value features 
+indicate factors that promote adoption. This tab provides insights into the key drivers 
+of EV adoption and helps identify potential leverage points for policy intervention.
+
 """
 
 import streamlit as st

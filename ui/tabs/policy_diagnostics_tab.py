@@ -1,8 +1,11 @@
 """
 ui/tabs/policy_diagnostics_tab.py
 
-NEW Phase 5.2: Policy diagnostics and "why no triggers?" explanation.
+This module contains the rendering function for the Policy Diagnostics tab in the RTD_SIM UI.
+
+It provides Policy diagnostics and "why no triggers?" explanation.
 Helps users understand policy behavior and configure scenarios effectively.
+
 """
 
 import streamlit as st

@@ -1,8 +1,14 @@
 """
 ui/tabs/system_dynamics_tab.py
 
-System Dynamics visualization tab - Phase 5.3
-Shows real-time SD metrics, predicted vs actual trajectories, parameter sensitivity
+This module contains the rendering function for the System Dynamics visualization tab in the RTD_SIM UI.
+
+It shows real-time SD metrics, predicted vs actual trajectories, and parameter sensitivity.
+
+The flow diagram is rendered in the Map tab, while this tab focuses on the underlying 
+SD model outputs and diagnostics. It is designed to help users understand the system-level 
+dynamics driving EV adoption and how different factors interact over time.
+
 """
 
 import streamlit as st

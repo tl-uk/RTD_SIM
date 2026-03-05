@@ -1,8 +1,26 @@
 """
 ui/tabs/sensitivity_analysis_tab.py
 
-Sensitivity Analysis Tab for System Dynamics
-Shows Jacobians, elasticity, regime analysis, and SHAP readiness
+This module contains the rendering function for the Sensitivity Analysis tab in the RTD_SIM UI.
+
+It provides sensitivity analysis and derivative visualization for System Dynamics. 
+
+Shows Jacobians, elasticity, regime analysis, and SHAP readiness.
+
+Jacobian matrix of partial derivatives, parameter elasticity, and feature contributions 
+are visualized to help users understand the dynamics and leverage points in the system.
+
+Elasticity metrics indicate which parameters have the most influence on growth rates, 
+guiding policy focus.
+
+Regime analysis identifies whether the system is in a feedback-dominated regime or 
+logistic growth, and detects proximity to critical thresholds where behavior may change 
+abruptly.
+
+SHAP-like feature contributions decompose the growth rate into contributions from 
+different feedback loops, providing insights into what is driving adoption at the 
+current state.
+
 """
 
 import streamlit as st

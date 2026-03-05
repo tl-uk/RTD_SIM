@@ -1,9 +1,7 @@
-# ============================================================================
-# ui/tabs/network_tab.py
-# ============================================================================
-
 """
 ui/tabs/network_tab.py
+
+This module contains the rendering function for the Network Analysis tab in the RTD_SIM UI.
 
 Network visualization tab - extracted from main_tabs.py
 
@@ -19,7 +17,7 @@ if str(parent_dir) not in sys.path:
 
 from visualiser.visualization import render_cascade_chart
 
-def render_network_tab(results, anim, current_data):  # FIXED: Changed agent_states to current_data
+def render_network_tab(results, anim, current_data):
     """
     Render social network analysis tab.
     

@@ -2,7 +2,7 @@
 ui/tabs/map_tab.py
 
 Map visualization tab with fragment-based rendering.
-PROPER FIX: Map updates reactively without full page rerun
+Map updates reactively without full page rerun
 """
 
 import streamlit as st
@@ -12,7 +12,10 @@ from visualiser.visualization import (
 )
 from ui.widgets.policy_status_widget import render_policy_status_widget
 
-
+# Note: This tab is designed to be lightweight and reactive, with the map rendered as a 
+# fragment that updates independently when display options change. This allows users to 
+# toggle visibility of agents, routes, and infrastructure without triggering a full page 
+# rerun, ensuring a smoother user experience.
 def render_map_tab(results, anim, current_data):
     """
     Render map visualization tab.
@@ -52,7 +55,9 @@ def render_map_tab(results, anim, current_data):
     if config and hasattr(results, 'policy_status') and results.policy_status:
         render_policy_status_widget(results, anim.current_step, config)
 
-
+# Fragment for map rendering - updates independently when display options change
+# This prevents full page reruns when checkboxes are toggled, improving performance and 
+# user experience.
 @st.fragment
 def render_map_fragment(agent_states, infrastructure_manager):
     """
