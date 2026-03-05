@@ -1,6 +1,11 @@
-# visualiser/style_config.py
 """
-Visualization styling configuration for Phase 2.3
+visualiser/style_config.py
+
+This module contains visualization styling configuration. It centralizes all colors, 
+sizes, and visual parameters for the RTD_SIM visualizations. 
+
+This allows for consistent styling across different tabs and makes it easy to adjust the 
+visual appearance of the maps, charts, and other components in one place.
 
 Centralizes all colors, sizes, and visual parameters.
 """
