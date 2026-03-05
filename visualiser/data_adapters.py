@@ -1,12 +1,24 @@
-# visualiser/data_adapters.py
 """
-Data adapters for converting simulation data to visualization format.
+visualiser/data_adapters.py
+
+This module contains data adapters for converting simulation data into formats suitable 
+for visualization in the RTD_SIM UI.
 
 Transforms:
 - Agent states -> pydeck ScatterplotLayer data
 - Routes -> pydeck PathLayer data
 - Congestion -> pydeck PathLayer with colors
-- Time series storage and retrieval
+- Time series storage and retrieval for replay and scrubbing functionality.
+- Convenience functions for extracting visualization data from simulation state.
+- Summary statistics calculation for agent states.
+- Modal split calculation for mode adoption tab.
+- Agent trail tracking for replay and path visualization.
+- Metrics time series storage for analytics tab.
+- Centralized data transformation logic to keep visualization code clean and focused on 
+  rendering.
+- Designed for extensibility to support new visualization types and data formats as the 
+  simulation evolves.
+
 """
 
 from typing import List, Dict, Tuple, Optional
@@ -46,7 +58,9 @@ except ImportError:
         normalized = min(1.0, (factor - 1.0) / 2.0)
         return 2 + (10 - 2) * normalized
 
-
+# ============================================================================ 
+# Data adapters for converting simulation data to visualization formats.
+# ============================================================================
 class AgentDataAdapter:
     """Convert agent states to pydeck-compatible format."""
     
