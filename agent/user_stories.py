@@ -1,8 +1,20 @@
 """
 agent/user_stories.py
 
-User story parser - converts persona definitions to BDI parameters.
-Supports direct mapping, inference, and hybrid approaches.
+This module implements the UserStory class and UserStoryParser for converting persona 
+definitions into BDI parameters. The parser supports direct mapping from YAML, inference 
+from narrative text, and a hybrid approach. User stories represent the WHO of the agent, 
+including personality, beliefs, constraints, and mode preferences. This allows us to 
+create diverse agent personas that can be used in the simulation, and to test how 
+different types of agents interact with various job stories and system dynamics. 
+
+The parser also includes convenience functions for loading stories and listing available 
+story IDs, making it easy to integrate into the agent generation process. 
+
+This is a critical component for creating a realistic and coherent population of agents 
+with diverse motivations and behaviors, which is essential for testing the impacts of 
+policies and system changes in the real-time digital twin simulation.
+
 """
 
 from __future__ import annotations
@@ -21,7 +33,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ===============================================================================
+# Data classes for User Stories
+# ===============================================================================
 
+# Belief class to represent agent beliefs with strength and updateability, allowing for
+# dynamic belief updates based on experiences and interactions in the simulation.
 @dataclass
 class Belief:
     """Represents an agent belief."""
@@ -29,7 +46,10 @@ class Belief:
     strength: float = 0.5  # 0-1
     updateable: bool = True
 
-
+# UserStory class to represent the parsed user story, including persona type, desires, 
+# beliefs, constraints, mode preferences, and planning hints. This structured 
+# representation allows for easy integration into the agent generation process and supports 
+# dynamic behavior based on the agent's narrative and characteristics.
 @dataclass
 class UserStory:
     """
@@ -79,7 +99,15 @@ class UserStory:
     def __repr__(self) -> str:
         return f"UserStory(id={self.story_id}, type={self.persona_type})"
 
+# ===============================================================================
+# User Story Parser
+# ===============================================================================
 
+# UserStoryParser class to load and parse user stories from a YAML file, supporting 
+# direct mapping, inference from narrative text, and a hybrid approach. This allows for
+# flexible story definitions and the ability to create rich agent personas based on 
+# narrative descriptions, which can be particularly useful for testing how different 
+# types of agents interact with the system and respond to policies in the simulation.
 class UserStoryParser:
     """
     Parser for user story YAML files.
@@ -187,7 +215,13 @@ class UserStoryParser:
             self._stories_cache = yaml.safe_load(f)
         
         logger.info(f"Loaded {len(self._stories_cache)} user stories")
-    
+   
+    # Infer desires from narrative text using keyword matching and context clues. 
+    # This allows for creating user stories with minimal explicit parameters, relying on 
+    # the narrative to convey the agent's motivations and preferences, which can be 
+    # particularly useful for testing how well the agent generation process can capture 
+    # the essence of a persona  based on its story, and how those inferred desires 
+    # influence behavior in the simulation.
     def _infer_desires(self, narrative: str, persona_type: str) -> Dict[str, float]:
         """
         Infer BDI desires from narrative text.
@@ -249,6 +283,12 @@ class UserStoryParser:
         
         return desires
     
+    # Infer mode preferences from desires. This creates a mapping from the agent's 
+    # underlying motivations (desires) to specific transportation mode preferences, 
+    # which can then be used to influence the agent's mode choice behavior in the 
+    # simulation. This allows us to test how well the inferred desires translate into 
+    # realistic mode preferences, and how those preferences affect the agent's 
+    # interactions with the system and response to policies.
     def _infer_mode_preferences(self, desires: Dict[str, float]) -> Dict[str, float]:
         """
         Infer mode preferences from desires.

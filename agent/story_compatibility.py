@@ -1,10 +1,16 @@
 """
 agent/story_compatibility.py
 
-Filters out nonsensical user story + job story combinations.
-Ensures realistic agent generation.
+This module implements a compatibility system for user stories and job stories in the 
+agent-based transport simulation. It defines rules to filter out unrealistic combinations 
+of user personas and job scenarios, ensuring that generated agents have plausible motivations 
+and behaviors. The system includes functions to check compatibility, generate preferred 
+combinations, and explain incompatibilities, which can be integrated into the agent generation 
+process to create a more realistic and coherent population of agents for simulation.
 
-CREATE THIS FILE: agent/story_compatibility.py
+NOTE: This is experimental and filters may not be perfect - we can adjust rules as we see what 
+combinations are generated and how they behave in the simulation.
+
 """
 
 from typing import List, Tuple, Set

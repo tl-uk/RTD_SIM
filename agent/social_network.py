@@ -1,7 +1,11 @@
 """
 agent/social_network.py
 
-Phase 4: Social Network Influence System
+This module implements a Social Network Influence System. The SocialNetwork class models 
+the social connections between agents, allowing for peer influence on transport mode 
+choice. It supports multiple network topologies (small-world, scale-free, homophily-based), 
+distinguishes between strong and weak ties, and includes mechanisms for detecting social 
+cascades and tipping points in mode adoption.
 
 Implements:
 - Social network topologies (small-world, scale-free, homophily-based)
@@ -31,7 +35,13 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ========================================================================
+# Data Classes for Social Ties and Network Metrics
+# ========================================================================
 
+# Data class representing a social tie between two agents, with attributes for strength, 
+# type, geographic distance, and interaction frequency. Includes methods to determine if 
+# it's a strong tie and to calculate influence weight.
 @dataclass
 class SocialTie:
     """Represents a social connection between two agents."""
@@ -61,7 +71,9 @@ class SocialTie:
         )
         return min(1.0, weight)
 
-
+# Data class for aggregate network metrics, including total agents, ties, average degree,
+# clustering coefficient, average path length, network density, strong tie ratio, mode
+# distribution, and cascade/tipping point indicators.
 @dataclass
 class NetworkMetrics:
     """Aggregate network statistics."""
@@ -79,7 +91,16 @@ class NetworkMetrics:
     tipping_point_reached: bool = False
     cascade_active: bool = False
 
+# ========================================================================
+# Social Network Class
+# ========================================================================
 
+# The SocialNetwork class models the social connections between agents, allowing for peer
+# influence on transport mode choice. It supports multiple network topologies (small-world,
+# scale-free, homophily-based), distinguishes between strong and weak ties, and includes
+# mechanisms for detecting social cascades and tipping points in mode adoption. The class
+# includes methods for building the network, applying social influence to mode costs,
+# detecting cascades, and calculating network metrics.
 class SocialNetwork:
     """
     Social network for agent-based transport simulation.
@@ -173,6 +194,20 @@ class SocialNetwork:
         
         logger.info(f"Network built: {n} agents, {self.G.number_of_edges()} ties")
     
+    # ========================================================================
+    # Helper methods for building different topologies
+    # ========================================================================
+    # Note: These methods create a temporary graph structure and then map it to the 
+    # agent IDs in self.G. This allows us to leverage NetworkX's built-in graph generators 
+    # while maintaining control over the agent IDs and tie attributes in our main graph.
+    # The homophily-based network is built by calculating similarity between agents and connecting
+    # them based on that similarity, with some randomness to avoid deterministic connections.
+    # The tie attributes are assigned after the network is built, based on the similarity 
+    # and interaction patterns of the connected agents.
+    # The influence weight of each tie is calculated based on its strength, interaction 
+    # frequency, and geographic distance, which can be used later when applying social 
+    # influence to mode costs. This allows for a more nuanced influence mechanism where 
+    # not all connections have the same impact on an agent's mode choice.
     def _build_small_world(self, n: int, k: int, p: float, seed: Optional[int]) -> None:
         """Watts-Strogatz small-world network."""
         # Create lattice

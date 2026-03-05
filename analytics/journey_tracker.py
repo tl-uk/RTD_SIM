@@ -1,8 +1,23 @@
 """
 analytics/journey_tracker.py
 
-Phase 5.3: Journey-level metrics and analysis.
-Tracks individual agent decisions, journey performance, and influencing factors.
+This module provides journey-level metrics and analysis. 
+
+The JourneyTracker class captures detailed data for each agent's journey, including 
+decisions made, performance outcomes, and influencing factors such as weather and social 
+influence. It also provides methods to analyze this data, generate statistics, and produce 
+summary reports. This allows us to understand not just what decisions agents are making, 
+but why they are making them and how those decisions play out in terms of costs, emissions, 
+and overall journey success.
+
+Key features:
+- Comprehensive data capture for each journey, including decision context and performance metrics.
+- Analysis of decision factors to understand what influences mode choice.
+- Assessment of weather impact on journey outcomes.
+- Measurement of social influence patterns.
+- Generation of summary reports for overall insights into agent behavior and system performance.
+
+Bottom line: Tracks individual agent decisions, journey performance, and influencing factors.
 """
 
 from __future__ import annotations
@@ -14,7 +29,15 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# Data Classes for Journey Metrics
+# ==============================================================================
 
+# JourneyMetrics class to represent the complete data for a single agent's journey, including
+# decision context, performance outcomes, costs, emissions, weather influence, and social
+# influence. This structured representation allows for detailed analysis of each journey and
+# the factors that influenced it, which can be used to understand agent behavior and the
+# effectiveness of policies in the simulation.
 @dataclass
 class JourneyMetrics:
     """Complete journey data for a single agent at a single step."""
@@ -67,7 +90,15 @@ class JourneyMetrics:
     vehicle_required: bool = False
     cargo_capacity: bool = False
 
+# =============================================================================
+# Journey Tracker Class
+# =============================================================================
 
+# JourneyTracker class to capture and analyze journey-level data for all agents in the simulation,
+# allowing for detailed insights into decision factors, performance outcomes, weather impact, and
+# social influence patterns. This class provides methods to record journeys, query data, and generate
+# statistics and summary reports, enabling a comprehensive understanding of agent behavior and system
+# performance at the journey level.
 class JourneyTracker:
     """
     Comprehensive journey-level data collection and analysis.

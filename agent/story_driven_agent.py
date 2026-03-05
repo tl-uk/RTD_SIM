@@ -1,8 +1,15 @@
 """
 agent/story_driven_agent.py
 
-FIXED: Proper context extraction from unified job_contexts.yaml format
-Handles both simple parameters and vehicle_constraints structure
+This module implements the StoryDrivenAgent class, which creates agents based on user stories 
+and job stories. It extracts relevant context from the stories to inform the agent's beliefs, 
+desires, and intentions (BDI). The agent can also perceive events such as policy changes 
+and infrastructure failures, allowing for dynamic replanning. Additionally, there are batch 
+generation functions to create multiple agents from combinations of user and job stories, 
+with options for balanced generation across story combinations.
+
+NOTE: May not handle simple parameters and vehicle_constraints structure perfectly yet - 
+we can adjust as we see what stories are generated and how they behave in the simulation.
 """
 
 from __future__ import annotations
@@ -99,10 +106,9 @@ class StoryDrivenAgent(CognitiveAgent):
         """
         Extract infrastructure-relevant context from stories.
         
-        FIXED: Properly extracts from unified job_contexts.yaml format.
         Checks both parameters and vehicle_constraints sections.
         """
-        context = {}
+        context = {} # Start with empty context
         
         # === STEP 1: Extract from parameters (simple format) ===
         params = self.task_context.parameters
@@ -171,6 +177,7 @@ class StoryDrivenAgent(CognitiveAgent):
         
         return context
     
+    # Conflict resolution between user desires and job context
     def _resolve_desires(self) -> Dict[str, float]:
         """Resolve desires from user story + job story."""
         # Get base desires from user story
@@ -289,11 +296,15 @@ class StoryDrivenAgent(CognitiveAgent):
                 f"user={self.user_story_id}, job={self.job_story_id})")
     
     # ===============================================================================
-    # Phase 7: Event Perception (Optional)
+    # Event Perception (Optional but necessary when we want dynamic replanning based 
+    # on events tying in with the story context - e.g., if a policy change affects a constraint in the job story,
+    # the agent can perceive this and replan accordingly).
+    # Needed for Phase 7, but we can implement the subscription and perception logic 
+    # here in Phase 6.2b.
     # ===============================================================================
     def subscribe_to_events(self, event_bus):
         """
-        Subscribe agent to relevant events (OPTIONAL - Phase 7).
+        Subscribe agent to relevant events (OPTIONAL).
         
         This method enables dynamic event perception for replanning.
         Without calling this, agent works normally.

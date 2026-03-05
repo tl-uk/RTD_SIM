@@ -1,14 +1,19 @@
 """
 agent/system_dynamics.py
 
-Phase 5.3: Streaming System Dynamics for Real-Time Digital Twin
+This module implements Streaming System Dynamics for Real-Time Digital Twin.
+It models continuous variables like EV adoption, grid load, and emissions, while also 
+monitoring thresholds to trigger discrete events. The SD state is updated incrementally 
+based on actual agent behavior and external data, rather than solving ODEs. This allows 
+for real-time feedback loops between agent actions and system-level dynamics.
 
 Implements hybrid continuous-discrete dynamics:
 - Continuous: dEV_adoption/dt, dGrid_load/dt, dEmissions/dt
 - Discrete: Threshold crossings → Events
 - Data assimilation: Kalman-like sensor fusion (future)
 
-Phase 1-3: Basic EV adoption with threshold monitoring
+NOTE: This is a first implementation and may not perfectly capture all dynamics or be 
+fully calibrated.
 """
 
 from __future__ import annotations
@@ -19,7 +24,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
+# ================================================================================
+# DATA CLASSES
+# ================================================================================
+# Discrete event class for threshold crossings and other system-level events that agents 
+# can perceive and react to.
 @dataclass
 class DiscreteEvent:
     """
@@ -40,7 +49,9 @@ class DiscreteEvent:
     radius_km: float = 10.0
     severity: str = 'medium'
 
-
+# System Dynamics state class to hold continuous variables, flows, parameters, and 
+# # threshold states. This is updated incrementally based on agent behavior and external 
+# data, rather than solving ODEs, allowing for real-time feedback loops.
 @dataclass
 class StreamingSDState:
     """
@@ -115,7 +126,12 @@ class StreamingSDState:
         'emissions': 0.9
     })
 
-
+# ============================================================================
+# STREAMING SYSTEM DYNAMICS ENGINE
+# ============================================================================
+# Master function to generate freight delivery job variations based on time windows and 
+# urgency levels. This creates multiple job templates programmatically, which can be used
+# for testing or to populate the simulation with realistic job diversity.
 class StreamingSystemDynamics:
     """
     Real-time System Dynamics engine.
@@ -178,7 +194,9 @@ class StreamingSystemDynamics:
         
         logger.info(f"System Dynamics initialized: EV={initial_adoption:.1%}, "
                    f"r={self.state.ev_growth_rate_r:.3f}, K={self.state.ev_carrying_capacity_K:.1%}")
-    
+    # Apply configuration parameters to SD state, allowing for dynamic adjustment of growth rates, 
+    # thresholds, and feedback strengths without needing to modify the core logic. 
+    # This supports experimentation and calibration.
     def _apply_config(self, config):
         """Apply configuration parameters to SD state."""
         # Config can be either SystemDynamicsConfig directly or a SimulationConfig with .system_dynamics attr
@@ -287,7 +305,7 @@ class StreamingSystemDynamics:
             'grid_utilization': self.state.grid_load_stock / self.state.grid_capacity if self.state.grid_capacity > 0 else 0,
             'emissions': self.state.emissions_stock,
             'timestamp': time.time(),
-            # CRITICAL: Add threshold states to history for UI display
+            # Add threshold states to history for UI display and analysis.
             # Map internal keys to UI-expected keys
             'thresholds_crossed': {
                 'adoption_tipping_point': self.state.thresholds['adoption_tipping']['crossed'],
@@ -304,6 +322,20 @@ class StreamingSystemDynamics:
         
         return discrete_events
     
+    # =============================================================================
+    # INTERNAL METHODS
+    # =============================================================================
+
+    # Helper function to compute EV adoption flow based on logistic growth and feedbacks.
+    # This is the core of the continuous dynamics, and it incorporates both the natural 
+    # growth of adoption and the influence of infrastructure and social factors.
+    # The flow is a prediction of how adoption would change based on current conditions, 
+    # but the actual stock is updated from agent reality, allowing for feedback loops.
+    # This separation of flow (theoretical change) and stock (actual state) is key to the 
+    # streaming SD approach, where we want to model the dynamics but also ground them in 
+    # the reality of agent behavior and external data. This allows for more realistic and 
+    # responsive system dynamics that can adapt to the complexity of a real-time 
+    # digital twin environment.
     def _compute_ev_adoption_flow(self, current_adoption: float) -> float:
         """
         Compute dEV_adoption/dt using logistic growth with feedbacks.

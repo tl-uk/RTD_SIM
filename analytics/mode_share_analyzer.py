@@ -1,8 +1,17 @@
 """
 analytics/mode_share_analyzer.py
 
-Phase 5.3: Mode share evolution and tipping point detection.
-Analyzes population-level adoption patterns, cascades, and transitions.
+This module provides analysis of mode share evolution and tipping point detection. It tracks 
+transitions between modes, detects when rapid adoption occurs, and measures cascade effects.
+
+Key features:
+- Transition tracking: Records who switched from what to what, when, and why.
+- Tipping point detection: Identifies when adoption rapidly accelerates and what triggered it.
+- Cascade measurement: Analyzes how changes spread through the population via social influence.
+- Temporal pattern analysis: Examines how mode share evolves over time and in response to events.
+
+This enables a deeper understanding of population-level adoption patterns, cascades, and transitions.
+
 """
 
 from __future__ import annotations
@@ -16,7 +25,12 @@ from scipy.stats import linregress
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# Data Classes for Mode Share Analysis
+# =============================================================================
 
+# ModeTransition records when an agent switches modes, including the reason and any 
+# social influence.
 @dataclass
 class ModeTransition:
     """Record of an agent switching modes."""
@@ -31,7 +45,7 @@ class ModeTransition:
         if self.influenced_by is None:
             self.influenced_by = []
 
-
+# TippingPoint represents a detected tipping point in the adoption curve, including the mode,
 @dataclass
 class TippingPoint:
     """Detected tipping point in adoption curve."""
@@ -43,7 +57,8 @@ class TippingPoint:
     trigger: str  # What caused it
     statistical_significance: float  # p-value
 
-
+# CascadeMetrics captures the characteristics of a social cascade, including its origin, 
+# size, duration, and network spread.
 @dataclass
 class CascadeMetrics:
     """Metrics for social cascade analysis."""
@@ -56,7 +71,14 @@ class CascadeMetrics:
     max_network_distance: int  # hops from origin
     avg_network_distance: float
 
-
+# ============================================================================
+# Mode Share Analyzer Class
+# ============================================================================
+# This class provides methods to record mode share data, detect tipping points, and 
+# analyze cascades. It maintains a history of mode shares and transitions, allowing for 
+# detailed analysis of how mode share evolves over time and in response to events and 
+# social influence. This enables analysis of population-level adoption patterns and the
+# factors that drive them, which can inform policy design and system interventions.
 class ModeShareAnalyzer:
     """
     Analyze mode share evolution, detect tipping points, measure cascade effects.
@@ -171,13 +193,13 @@ class ModeShareAnalyzer:
             List of detected tipping points
         """
         tipping_points = []
-        
+        # Analyze specified mode or all modes
         modes_to_analyze = [mode] if mode else self.adoption_history.keys()
         
         for mode_name in modes_to_analyze:
             if mode_name not in self.adoption_history:
                 continue
-            
+            # Get adoption history for this mode
             history = self.adoption_history[mode_name]
             
             if len(history) < window_size * 2:
