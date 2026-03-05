@@ -1,12 +1,25 @@
 """
 simulation/infrastructure/infrastructure_manager.py
 
-REFACTORED: Thin facade orchestrating infrastructure subsystems.
+This module implements the InfrastructureManager, a thin facade that orchestrates 
+various infrastructure subsystems for the EV adoption simulation. It provides a unified 
+API for managing charging stations, grid capacity, load balancing, pricing, expansion, 
+depots, and EV range adjustments. The manager delegates complex logic to specialized 
+subsystems, allowing for modularity and separation of concerns. It also maintains 
+backward compatibility with existing code by exposing key methods and data structures 
+for charging station management and grid interactions.
 
-This file is now ~250 lines instead of 700+.
+The InfrastructureManager is designed to be initialized during the simulation setup phase,
+and provides methods for agents and the simulation environment to interact with the
+infrastructure components. It also tracks historical metrics for visualization and 
+analysis, and supports optional load balancing features for more advanced scenarios. 
+
+Overall, this module serves as the central point of coordination for all infrastructure-related 
+functionality, while keeping the implementation clean and maintainable by delegating to 
+specialized classes
+
 All complex logic delegated to specialized subsystems.
 
-COMPLETE VERSION: Includes load balancing support
 """
 
 from __future__ import annotations
@@ -26,7 +39,13 @@ from .weather.ev_range_adjuster import EVRangeAdjuster
 
 logger = logging.getLogger(__name__)
 
-
+# =======================================================================
+# INFRASTRUCTURE MANAGER
+# =======================================================================
+# The InfrastructureManager serves as a thin facade that orchestrates various 
+# infrastructure subsystems, # including charging station management, grid capacity 
+# tracking, load balancing, dynamic pricing, expansion strategies, depot management, 
+# and EV range adjustments.
 class InfrastructureManager:
     """
     Thin facade orchestrating infrastructure subsystems.
@@ -240,7 +259,7 @@ class InfrastructureManager:
         self.grid.update_load(load_mw)
     
     # ========================================================================
-    # Load Balancing API (Delegate to LoadBalancer) - ADDED
+    # Load Balancing API (Delegate to LoadBalancer)
     # ========================================================================
     
     def request_balanced_charging(

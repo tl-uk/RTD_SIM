@@ -1,6 +1,18 @@
 """
 simulation/routing/route_diversity.py
 
+This module implements route diversity strategies for realistic agent routing behavior.
+It provides multiple approaches to prevent deterministic shortest-path routing, 
+including:
+- Perturbed weights: Adds random noise to edge weights for agent-specific preferences.
+- K-shortest paths: Computes multiple shortest paths and randomly selects among them.
+- Ultra-fast hash-based perturbation: Uses a deterministic hash function for minimal overhead.
+
+The module is designed to be flexible, allowing different strategies to be applied based 
+on performance needs and realism requirements. It modifies the routing behavior of the 
+spatial environment by wrapping the existing route computation function with the selected 
+diversity strategy.
+
 Route diversity strategies for realistic agent routing behavior.
 Prevents deterministic shortest-path routing.
 """
@@ -11,7 +23,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
+# ===========================
+# ROUTE DIVERSITY STRATEGIES
+# ===========================
 def add_route_diversity_perturbed(env):
     """
     Add route diversity through weight perturbation.
@@ -27,7 +41,7 @@ def add_route_diversity_perturbed(env):
         """Compute route with agent-specific perturbation."""
         agent_seed = hash(agent_id) % (2**32)
         rng = random.Random(agent_seed)
-        
+        # Map modes to network types
         network_type = {
             'walk': 'walk', 'bike': 'bike', 'bus': 'drive',
             'car': 'drive', 'ev': 'drive',
@@ -67,7 +81,8 @@ def add_route_diversity_perturbed(env):
     env.compute_route = diversified_compute_route
     return env
 
-
+# Other strategies (k-shortest, ultra-fast) can be implemented similarly by wrapping the 
+# compute_route function with different logic for path selection.
 def add_route_diversity_k_shortest(env, k=3):
     """
     Add route diversity using k-shortest paths.
@@ -152,6 +167,15 @@ def add_route_diversity_ultra_fast(env):
     """
     original_compute_route = env.compute_route
     
+    # This method applies a deterministic hash-based perturbation to edge weights, creating
+    # agent-specific route preferences with minimal computational overhead. It does not
+    # guarantee optimality but provides a simple way to introduce diversity without complex
+    # path enumeration or random sampling. The logic is embedded directly in the weight function, 
+    # ensuring that the same agent will consistently receive the same route for the same 
+    # origin-destination pair, while different agents will have different routes due to 
+    # their unique hashes. This approach is ideal for large-scale simulations where performance 
+    # is a concern and some level of route diversity is desired without the need for complex 
+    # algorithms.
     def ultra_fast_diverse_route(agent_id, origin, dest, mode='drive'):
         """Route with hash-based agent-specific bias."""
         agent_seed = hash(agent_id) % (2**32)
