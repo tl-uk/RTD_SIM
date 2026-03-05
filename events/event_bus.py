@@ -251,7 +251,8 @@ class EventBus:
                 message = self.pubsub.get_message(timeout=0.1)
                 
                 if message and message['type'] == 'message':
-                    channel = message['channel']
+                    # FIX: Decode channel from bytes to string
+                    channel = message['channel'].decode('utf-8') if isinstance(message['channel'], bytes) else message['channel']
                     data = message['data']
                     
                     # Deserialize event
