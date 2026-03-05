@@ -616,7 +616,7 @@ def run_simulation_loop(
 
             # Phase 6.2b: Update agent locations in event bus (if agents moved)
             if event_bus and event_bus.is_available():
-                for other_agent in agents:  # ← FIXED: Use different variable name
+                for other_agent in agents:  # MUST Use different variable name
                     # Only update if agent has moved (check if attribute exists)
                     if hasattr(other_agent, 'has_moved') and other_agent.has_moved:
                         try:
@@ -627,18 +627,6 @@ def run_simulation_loop(
                             )
                         except Exception as e:
                             logger.debug(f"Location update failed: {e}")
-            # if event_bus and event_bus.is_available():
-            #     for agent in agents:
-            #         # Only update if agent has moved (check if attribute exists)
-            #         if hasattr(agent, 'has_moved') and agent.has_moved:
-            #             try:
-            #                 event_bus.update_agent_location(
-            #                     agent_id=agent.agent_id,
-            #                     lat=agent.state.latitude,
-            #                     lon=agent.state.longitude
-            #                 )
-            #             except Exception as e:
-            #                 logger.debug(f"Location update failed: {e}")
 
             # RECORD JOURNEY
             if journey_tracker and agent.state.location != prev_location:
