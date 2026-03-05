@@ -1,4 +1,14 @@
 """
+simulation/spatial/metrics_calculator.py
+
+This module implements the MetricsCalculator class which calculates various performance 
+metrics for routes and trips in the simulation. It provides methods to compute travel 
+time, monetary cost, emissions (with elevation awareness), comfort, and risk for a given 
+route and transport mode based on predefined parameters and assumptions. 
+
+The MetricsCalculator uses utility functions for distance calculations and can integrate
+with the GraphManager to access elevation data for more accurate emissions calculations.
+
 Route and trip metrics calculator.
 
 Calculates:
@@ -8,7 +18,8 @@ Calculates:
 - Comfort
 - Risk
 
-✅ FIXED: speeds_km_min now uses simple floats instead of nested dicts
+NOTE: speeds_km_min now uses simple floats instead of nested dicts
+
 """
 
 from __future__ import annotations
@@ -30,7 +41,9 @@ except ImportError:
     def segment_distance_km(a, b):
         return 0.0
 
-
+# ============================================================
+# Metrics Calculator Class
+# ============================================================
 class MetricsCalculator:
     """
     Calculates performance metrics for routes and trips.
@@ -38,7 +51,7 @@ class MetricsCalculator:
     
     def __init__(self):
         """Initialize with default mode speeds and parameters."""
-        # ✅ FIXED: Speed in km per MINUTE (simple floats, not nested dicts)
+        # Speed in km per MINUTE (simple floats, not nested dicts)
         self.speeds_km_min = {
             # Active mobility
             'walk': 0.083,       # 5 km/h = 0.083 km/min
@@ -177,6 +190,9 @@ class MetricsCalculator:
             'cargo_bike': 0.35,
         }
     
+    # ============================================================
+    # Metric Calculation Methods
+    # ============================================================
     def calculate_distance(self, route: List[Tuple[float, float]]) -> float:
         """
         Calculate total route distance.

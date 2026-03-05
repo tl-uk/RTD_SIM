@@ -1,12 +1,27 @@
-# visualiser/animation_controller.py
 """
-Animation and playback control for Phase 2.3
+visualiser/animation_controller.py
+
+This module implements animation and playback control interfaces for the simulation 
+visualizer. It includes an AnimationController class that manages the playback 
+state (play/pause/seek), speed control, loop control, and time synchronization for 
+the animation of simulation results. 
+
+It also includes a LayerManager class that manages the visibility of different map 
+layers (agents, routes, congestion, trails, labels) to allow users to customize their 
+view of the simulation.
 
 Manages:
 - Playback state (play/pause/seek)
 - Speed control
 - Loop control
 - Time synchronization
+- Layer visibility (agents, routes, congestion, trails, labels)
+
+This module is designed to be integrated with the Streamlit UI, where the 
+AnimationController's state can be updated based on user interactions 
+(e.g., play/pause buttons, speed slider, layer toggles) and the visualizer can query 
+the current state to render the appropriate frame and layers of the simulation results.
+
 """
 
 from typing import Optional

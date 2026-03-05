@@ -1,6 +1,14 @@
 """
 simulation/spatial/router.py
 
+This module implements the Router class which computes routes and route alternatives 
+using OSM graphs. It provides methods for basic routing (shortest path) as well as 
+generating route alternatives based on different objectives (fastest, safest, greenest, 
+scenic) by applying different weight functions to the graph edges. The Router integrates 
+with the GraphManager to access the appropriate graph for the transport mode and can also
+optionally use a CongestionManager to adjust travel time weights based on current congestion
+levels.
+
 Route computation and alternatives generation.
 
 Handles:
@@ -8,7 +16,6 @@ Handles:
 - Route alternatives (fastest, safest, greenest, scenic)
 - Weight functions for different routing objectives
 
-✅ FIXED: Complete mode_network_types mapping for all 21 transport modes
 """
 
 from __future__ import annotations
@@ -35,7 +42,10 @@ try:
 except ImportError:
     ROUTE_ALTERNATIVE_AVAILABLE = False
 
-
+# ============================================================
+# Router Class
+# ============================================================
+# This class is responsible for computing routes and route alternatives using OSM graphs.
 class Router:
     """
     Computes routes and route alternatives using OSM graphs.
@@ -52,7 +62,7 @@ class Router:
         self.graph_manager = graph_manager
         self.congestion_manager = congestion_manager
         
-        # ✅ FIXED: Complete mode to network type mapping for ALL modes
+        # Complete mode to network type mapping for ALL modes
         self.mode_network_types = {
             # Active mobility
             'walk': 'walk',
@@ -92,7 +102,7 @@ class Router:
             'flight_electric': 'drive',
         }
         
-        # ✅ FIXED: Complete speed mapping for ALL modes (in km per minute)
+        # Complete speed mapping for ALL modes (in km per minute)
         self.speeds_km_min = {
             # Active mobility
             'walk': 0.083,       # 5 km/h
@@ -132,7 +142,7 @@ class Router:
             'flight_electric': 5.83,   # 350 km/h
         }
     
-    # ✅ NEW: Interpolation function for smoother routes (optional, can be called in compute_route if needed)
+    # Interpolation function for smoother routes (optional, can be called in compute_route if needed)
     def _interpolate_route_geometry(
         self,
         coords: List[Tuple[float, float]],
@@ -190,7 +200,7 @@ class Router:
             logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
             return []
         
-        # ✅ FIX: Handle very short trips (< 100m)
+        # Handle very short trips (< 100m)
         from simulation.spatial.coordinate_utils import haversine_km
         distance_km = haversine_km(origin, dest)
         
@@ -214,7 +224,7 @@ class Router:
                 logger.error(f"   Origin: {origin}, Dest: {dest}")
                 logger.error(f"   Trying fallback to 'drive' network...")
                 
-                # ✅ FIX: Try fallback to 'drive' network
+                # Try fallback to 'drive' network
                 if network_type != 'drive':
                     graph = self.graph_manager.get_graph('drive')
                     if graph:
@@ -236,7 +246,7 @@ class Router:
             # Get node route
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
             
-            # ✅ NEW: Extract detailed geometry
+            # Extract detailed geometry
             detailed_coords = []
             
             for i in range(len(route_nodes) - 1):
@@ -267,7 +277,7 @@ class Router:
                     # No geometry: add destination node
                     detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
             
-            # ✅ INTERPOLATION: Add intermediate points since geometry data is missing
+            # INTERPOLATION: Add intermediate points since geometry data is missing
             detailed_coords = self._interpolate_route_geometry(detailed_coords, max_segment_km=0.05)
             
             logger.info(f"✅ {agent_id}: {mode} route with {len(detailed_coords)} points (from {len(route_nodes)} nodes)")
@@ -363,7 +373,7 @@ class Router:
                 for n in route_nodes
             ]
             
-            # ✅ NEW: Interpolate for smoother visualization
+            # Interpolate for smoother visualization
             coords = self._interpolate_route_geometry(coords, max_segment_km=0.05)
             
             logger.info(f"✅ {agent_id}: {mode} route with {len(coords)} points (from {len(route_nodes)} nodes)")
@@ -377,6 +387,7 @@ class Router:
             logger.warning(f"Route variant {variant} failed: {e}")
             return []  # ← Changed from None
     
+    # Weight attribute functions for different routing variants
     def _get_weight_attribute(
         self,
         graph: Any,

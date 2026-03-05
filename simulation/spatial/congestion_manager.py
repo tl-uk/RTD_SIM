@@ -1,5 +1,20 @@
 """
+simulation/spatial/congestion_manager.py
+
 Dynamic traffic congestion management.
+
+This module implements the CongestionManager class which tracks vehicle density on 
+network edges and adjusts travel times based on configurable congestion models. 
+It supports linear, BPR, and exponential congestion functions, as well as time-of-day 
+patterns and decay over time. The manager maintains statistics on congestion levels and 
+provides methods to query congestion factors for edges, get congested edges, and reset 
+congestion data.
+
+It is designed to be integrated with the GraphManager and the agent movement logic, 
+allowing for dynamic congestion effects that influence agent route choices and travel 
+times throughout the simulation. The congestion manager can be extended with additional
+features such as incident handling, real-time traffic updates, or more complex congestion
+models as needed.
 
 Tracks vehicle density on network edges and adjusts travel times.
 
@@ -23,14 +38,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
+# ============================================================
+# Congestion Models and Configuration
+# ============================================================
 class CongestionModel(Enum):
     """Congestion calculation models."""
     LINEAR = "linear"           # Simple linear increase
     BPR = "bpr"                # Bureau of Public Roads function
     EXPONENTIAL = "exponential" # Exponential growth
 
-
+# Default congestion configuration
 @dataclass
 class CongestionConfig:
     """Configuration for congestion behavior."""
@@ -78,7 +95,9 @@ class CongestionConfig:
         if self.peak_hours is None:
             self.peak_hours = {7, 8, 9, 17, 18, 19}
 
-
+# ============================================================
+# Congestion Manager Class
+# ============================================================
 class CongestionManager:
     """
     Manages dynamic traffic congestion across the network.

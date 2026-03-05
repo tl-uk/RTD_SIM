@@ -1,16 +1,29 @@
 """
 ui/report_generator.py
 
-On-demand report generation from simulation results
-Generates text and CSV reports summarizing key metrics, SD results, and configuration
-Phase 5.3: Report Generator for SD insights
+This module implements the report generation functionality for the SD insights phase of 
+the simulation framework. It provides functions to create detailed text reports and CSV 
+summaries based on the simulation results and configuration. The report generator is 
+accessible via a button in the Streamlit sidebar, allowing users to generate and download
+reports on demand.
+
+The main functions include:
+- generate_text_report: Creates a comprehensive text report summarizing the simulation results.
+- generate_csv_summary: Creates a CSV string summarizing key metrics from the simulation.
+- render_report_generator_button: Renders the button in the sidebar and handles report generation 
+  and download when clicked.
+- The text report includes sections on configuration, general results, system dynamics 
+  results, grid metrics, and mode distribution. The CSV summary provides a structured format 
+  for key metrics that can be easily imported into spreadsheets or data analysis tools.
+- The report generation functions are designed to be flexible and can be extended to 
+  include additional metrics or sections as needed.
 
 """
 
 import streamlit as st
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import csv
 
 
@@ -83,7 +96,7 @@ def generate_text_report(results, config) -> str:
                           if agent.get('mode') in ev_modes)
             ev_pct = (ev_count / total_agents * 100) if total_agents > 0 else 0
             report.append(f"EV Adoption (Agents): {ev_pct:.1f}%")
-    
+    # Cascades so that they are visible in general results
     if hasattr(results, 'cascade_events'):
         report.append(f"Cascades Detected: {len(results.cascade_events)}")
     
@@ -195,7 +208,11 @@ def generate_text_report(results, config) -> str:
     
     return "\n".join(report)
 
-
+#  This function generates a CSV summary of key metrics from the simulation results and 
+#  configuration. It creates a list of rows, starting with a header, and then adds rows 
+#  for configuration parameters, infrastructure metrics, system dynamics results, and 
+#  cascade events. Finally, it converts the list of rows into a CSV string using the csv 
+#  module and returns it.
 def generate_csv_summary(results, config) -> str:
     """
     Generate CSV summary of key metrics.
@@ -318,6 +335,6 @@ def render_report_generator_button(results, config):
             # Preview section
             with st.expander("📋 Preview Text Report", expanded=False):
                 st.text(text_report)
-            
+            # For CSV, use st.code with language="csv" for better formatting
             with st.expander("📊 Preview CSV Summary", expanded=False):
                 st.code(csv_report, language="csv")

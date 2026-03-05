@@ -1,6 +1,15 @@
 """
 ui/welcome_screen.py
 
+This module implements the welcome screen for the simulation app. It provides
+guidance for users on how to get started with configuring and running simulations,
+as well as a color guide for interpreting results. The welcome screen is displayed
+when no simulation is currently running, and encourages users to explore the various
+configuration options available in the sidebar. It also highlights new features and
+improvements in the latest version of the app, to keep users informed about the
+capabilities of the simulation and encourage them to try out new scenarios and 
+configurations.
+
 UI modules: Welcome screen and status footer
 """
 

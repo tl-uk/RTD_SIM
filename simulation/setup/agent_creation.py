@@ -3,7 +3,17 @@ simulation/setup/agent_creation.py
 
 Agent creation and initialization.
 
-✅ CRITICAL FIX: Compute initial routes immediately after agent creation
+This module is responsible for creating the agent population for the simulation, 
+including both story-driven agents (if user/job stories are provided) and basic 
+cognitive agents (as a fallback). 
+
+It uses a crypto-secure random generator to create spatially diverse origin-destination 
+pairs for agents, with a minimum distance filter to ensure realistic trips.
+
+The module also computes initial routes for all agents immediately upon creation, which 
+is a critical fix to ensure that agents have valid routes from the start of the 
+simulation.
+
 """
 
 import secrets
@@ -61,8 +71,6 @@ def create_agents(
 ) -> Tuple[List[Any], Dict[str, float]]:
     """
     Create agent population with initial routes.
-    
-    ✅ CRITICAL FIX: Now computes initial routes for all agents
     """
     if progress_callback:
         progress_callback(0.35, "🤖 Creating agents...")
@@ -177,7 +185,7 @@ def create_agents(
                 apply_variance=True
             )
             
-            # ✅ CRITICAL FIX: Compute initial route immediately
+            # Compute initial route immediately
             try:
                 # Force initial planning by directly calling the planner
                 # (don't rely on _maybe_plan's replan period logic)

@@ -1,6 +1,15 @@
 """
 ui/status_footer.py
 
+This module implements the status footer for the simulation results page. 
+It displays active features such as scenario presets, infrastructure-aware mode, 
+and social influence type. It also shows a metric for desire diversity 
+(standard deviation) to indicate how varied agent preferences are. 
+
+The footer provides a quick overview of the current simulation state and 
+key metrics, to help understand the implications of configuration choices 
+and the dynamics of the system.
+
 Status footer showing active features and system capabilities.
 """
 

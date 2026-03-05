@@ -1,7 +1,18 @@
 """
 simulation/setup/network_setup.py
 
-Docstring for simulation.setup.network_setup
+This module implements the setup of the social network and influence dynamics for the 
+simulation.
+
+It includes the `setup_social_network` function which initializes the social network
+based on the agents and configuration settings. If social influence is enabled, it 
+builds a homophily-based network and optionally enhances it with realistic influence 
+dynamics that account for habit formation, experience, and peer influence.
+
+The module is designed to be called during the simulation setup phase, after agents
+have been created, to establish the social connections and influence mechanisms that 
+will drive agent interactions and behavior changes throughout the simulation.
+
 """
 
 import logging
@@ -47,10 +58,19 @@ def setup_social_network(
     
     if progress_callback:
         progress_callback(0.45, "🌐 Building social network...")
-    
+
+    # Why homophily-based network? It creates clusters of similar agents, which can 
+    # lead to more realistic diffusion patterns and emergent phenomena like echo 
+    # chambers or opinion polarization. This allows us to study how social structure 
+    # impacts the spread of behaviors and preferences in the simulation.
     network = SocialNetwork(topology='homophily', influence_enabled=True)
-    network.build_network(agents, k=5, seed=42)
     
+    # Use homophily-based network with k=5 neighbors and fixed seed for reproducibility.
+    # Change the seed or k value to test different network structures and their impact 
+    # on diffusion dynamics.
+    network.build_network(agents, k=5, seed=42) 
+
+    # Ensure influence system is returned even if not realistic to avoid downstream errors
     influence_system = None
     if config.use_realistic_influence:
         influence_system = RealisticSocialInfluence(

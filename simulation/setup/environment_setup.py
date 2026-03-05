@@ -1,10 +1,32 @@
 """
 simulation/setup/environment_setup.py
 
-Environment and infrastructure initialization.
-Handles OSM graph loading and charging infrastructure setup.
+This module implements the environment and infrastructure initialization for the 
+simulation setup process. It includes functions to load the OSM graph based on user 
+configuration (place name or bounding box), and to set up the charging infrastructure 
+if enabled.
 
-FIXED: bbox coordinate ordering for OSMnx
+The `setup_environment` function handles loading the spatial environment, including 
+support for multi-city inputs by generating an appropriate bounding box. It also 
+verifies that the graph is loaded successfully and that congestion tracking is available 
+if requested.
+
+The `setup_infrastructure` function initializes the infrastructure manager and populates 
+it with charging stations based on the specified configuration. It supports both 
+city-scale and regional-scale setups, and logs key metrics about the infrastructure for 
+verification.
+
+Ensure that the environment and infrastructure are properly initialized before proceeding 
+to agent creation and simulation execution, as they are critical components of the system.
+
+Ensure that OSM longatitude and latitude are correctly handled in the bounding box 
+(west, south, east, north) format when loading the graph.
+
+NOTE: The OSM graph loading now supports multi-city inputs by detecting patterns in the 
+place name and generating a bounding box that covers all specified cities. This allows 
+users to easily set up simulations that span multiple urban areas without needing to 
+manually specify complex bounding boxes.
+
 """
 
 from __future__ import annotations
@@ -23,8 +45,12 @@ logger = logging.getLogger(__name__)
 def setup_environment(config: SimulationConfig, progress_callback=None) -> SpatialEnvironment:
     """
     Initialize spatial environment with OSM graph.
-    
-    ✅ NOW HANDLES: Multi-city inputs like "Edinburgh, Newcastle"
+
+    Args:
+        config: SimulationConfig instance
+        progress_callback: Optional callback(progress: float, message: str)
+    Returns:
+        SpatialEnvironment instance with loaded graph
     """
     if progress_callback:
         progress_callback(0.1, "🗺️ Loading environment...")
@@ -53,7 +79,7 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
             region_name = config.region_name or "Custom Region"
             
         elif config.place:
-            # ✅ NEW: Check if multi-city input
+            # Check if multi-city input
             is_multi, bbox = detect_multi_city_input(config.place)
             
             if is_multi and bbox:
@@ -115,7 +141,9 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
     return env
 
 
-
+# ============================================================
+# Infrastructure Setup
+# ============================================================
 def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Optional[InfrastructureManager]:
     """
     Initialize infrastructure manager with charging stations.
@@ -185,9 +213,9 @@ def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Op
     
     return infrastructure
 
-# ------------------------------------------------------------
+# ============================================================
 # Multi-City Input Detection Utility
-# ------------------------------------------------------------
+# ============================================================
 def detect_multi_city_input(place: str) -> Tuple[bool, Optional[tuple]]:
     """
     Detect if place string is multi-city and convert to bbox.

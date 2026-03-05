@@ -1,8 +1,14 @@
 """
 ui/sidebar_presets.py
 
-Preset configuration selector for sidebar.
-Integrates with ConfigurationPresets system.
+This module implements the Preset configuration selector for sidebar.
+- Integrates with ConfigurationPresets system.
+- Provides UI for selecting and previewing presets, as well as building custom configurations.
+- Includes explanations and warnings for policy-triggering presets.
+- Allows parameter overrides while maintaining preset defaults for flexibility.
+- Ensures that users understand the implications of their choices, especially when 
+  selecting presets that are designed to trigger policy actions.
+  
 """
 
 import streamlit as st

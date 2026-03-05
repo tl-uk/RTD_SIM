@@ -1,4 +1,6 @@
 """
+simulation/spatial/coordinate_utils.py
+
 Coordinate utilities for spatial calculations.
 
 Pure functions for:

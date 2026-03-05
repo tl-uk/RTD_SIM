@@ -1,5 +1,13 @@
 """
+simulation/spatial/graph_manager.py
+
 OSM graph loading, caching, and management.
+
+This module implements the GraphManager class which handles downloading OSM graphs 
+for specified regions, caching them on disk for performance, and providing 
+interfaces for querying the graph (e.g., nearest nodes). It supports loading separate 
+graphs for different transport modes (walk, bike, drive) to allow for mode-specific 
+routing and analysis.
 
 Handles:
 - Graph downloading from OpenStreetMap
@@ -32,7 +40,9 @@ try:
 except ImportError:
     ELEVATION_PROVIDER_AVAILABLE = False
 
-
+# ============================================================
+# Graph Manager Class
+# ============================================================
 class GraphManager:
     """
     Manages OSM graph loading, caching, and queries.
