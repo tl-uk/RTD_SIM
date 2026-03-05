@@ -108,7 +108,14 @@ def calculate_mode_satisfaction(
     
     return max(0.0, min(1.0, overall))
 
+# ============================================================================
+# Helper Functions for Estimation and Mode Characteristics
+# ============================================================================
 
+# Simple heuristics or defaults used here. In a real system, these would be more 
+# complex and data-driven.
+# For full implementation, use the environment and agent state to provide better 
+# estimates. 
 def _estimate_expectations(agent, env, mode: str) -> Dict[str, float]:
     """Estimate what agent expected from this mode choice."""
     expectations = {}
@@ -138,7 +145,8 @@ def _estimate_expectations(agent, env, mode: str) -> Dict[str, float]:
     
     return expectations
 
-
+# These are very rough estimates based on typical mode characteristics. In a real system,
+# these would be based on data and could even be personalised.
 def _get_mode_comfort(mode: str) -> float:
     """Mode comfort ratings (0-1)."""
     comfort_map = {
@@ -155,7 +163,8 @@ def _get_mode_comfort(mode: str) -> float:
     }
     return comfort_map.get(mode, 0.5)
 
-
+# Safety is influenced by mode characteristics and also by agent desires. 
+# For simplicity, fixed ratings used here.
 def _get_mode_safety(mode: str) -> float:
     """Mode safety ratings (0-1)."""
     safety_map = {
