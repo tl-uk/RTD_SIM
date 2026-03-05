@@ -1,7 +1,7 @@
 """
 ui/tabs/combined_scenarios_tab.py
 
-NEW Phase 5.1: Combined policy scenarios tab with interaction rules and feedback loops.
+Combined policy scenarios tab with interaction rules and feedback loops.
 Extracted as separate tab module for maintainability.
 """
 

@@ -1,7 +1,3 @@
-# ============================================================================
-# ui/tabs/infrastructure_tab.py
-# ============================================================================
-
 """
 ui/tabs/infrastructure_tab.py
 
@@ -36,25 +32,25 @@ def render_infrastructure_tab(results, anim, current_data):  # FIXED: Added anim
     # Current metrics
     col1, col2, col3, col4 = st.columns(4)
     
-    col1.metric(
+    col1.metric( # Added utilization delta with warning threshold
         "Charger Utilization",
         f"{metrics['utilization']:.1%}",
         delta="High" if metrics['utilization'] > 0.7 else "Normal"
     )
     
-    col2.metric(
+    col2.metric( # Added grid load delta with utilization percentage
         "Grid Load",
         f"{metrics['grid_load_mw']:.1f} MW",
         delta=f"{metrics['grid_utilization']:.0%}"
     )
     
-    col3.metric(
+    col3.metric( # Added queued agents delta with warning threshold
         "Queued Agents",
         metrics['queued_agents'],
         delta="⚠️" if metrics['queued_agents'] > 10 else "✅"
     )
     
-    col4.metric(
+    col4.metric( # Added hotspots delta with warning threshold
         "Hotspots",
         len(infra_data['hotspots']),
         delta="Critical" if len(infra_data['hotspots']) > 5 else "OK"
@@ -67,7 +63,7 @@ def render_infrastructure_tab(results, anim, current_data):  # FIXED: Added anim
         st.markdown("### ⚡ Grid Utilization Over Time")
         st.plotly_chart(infra_data['grid_figure'], use_container_width=True)
         
-        # Add capacity info
+        # Add capacity info (generally capcity is static, but we can show it here for context)
         st.info(f"📊 **Grid Capacity**: {metrics['grid_capacity_mw']:.0f} MW | "
                 f"**Peak Load**: {max(results.infrastructure.historical_utilization) * 100:.1f}% | "
                 f"**Average Load**: {sum(results.infrastructure.historical_utilization) / len(results.infrastructure.historical_utilization) * 100:.1f}%")

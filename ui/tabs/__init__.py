@@ -2,7 +2,7 @@
 ui/tabs/__init__.py
 
 Tab rendering functions for RTD_SIM UI
-Phase 5.3: Added System Dynamics tab
+
 """
 
 # Import all tab renderers
@@ -16,7 +16,7 @@ from .combined_scenarios_tab import render_combined_scenarios_tab
 from .environmental_tab import render_environmental_tab
 from .analytics_tab import render_analytics_tab
 from .policy_diagnostics_tab import render_policy_diagnostics_tab
-from .system_dynamics_tab import render_system_dynamics_tab  # Phase 5.3
+from .system_dynamics_tab import render_system_dynamics_tab 
 
 __all__ = [
     'render_map_tab',
@@ -29,5 +29,5 @@ __all__ = [
     'render_environmental_tab',
     'render_analytics_tab',
     'render_policy_diagnostics_tab',
-    'render_system_dynamics_tab',  # Phase 5.3
+    'render_system_dynamics_tab', 
 ]

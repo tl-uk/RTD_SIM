@@ -1,7 +1,7 @@
 """
 ui/tabs/analytics_tab.py
 
-Phase 5.3: Analytics visualization tab.
+Analytics visualization tab.
 """
 
 import streamlit as st
