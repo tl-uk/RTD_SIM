@@ -170,39 +170,66 @@ def render_map(
     if show_routes and agent_states:
         route_data = []
         
-        for state in agent_states:
+        logger.info(f"🔍 ROUTE DEBUG: Processing routes for {len(agent_states)} agents")
+        routes_found = 0
+        routes_valid = 0
+        
+        for idx, state in enumerate(agent_states):
             route = state.get('route')
             if route and len(route) >= 2:
+                routes_found += 1
                 mode = state.get('mode', 'walk')
+                agent_id = state.get('agent_id', f'agent_{idx}')
+                
                 try:
+                    # Convert route points to [lon, lat] format
                     path = [[float(pt[0]), float(pt[1])] for pt in route 
                            if isinstance(pt, (list, tuple)) and len(pt) == 2]
                     
                     if len(path) >= 2:
+                        routes_valid += 1
                         color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+                        
+                        # Add unique identifier for each route
                         route_data.append({
                             'path': path,
                             'r': int(color_rgb[0]),
                             'g': int(color_rgb[1]),
                             'b': int(color_rgb[2]),
                             'mode': mode,
-                            'agent_id': state.get('agent_id', ''),
+                            'agent_id': agent_id,
+                            'route_id': f'route_{idx}',  # Unique ID for each route
                         })
-                except:
-                    pass
+                        
+                        # Log first 3 routes for debugging
+                        if idx < 3:
+                            logger.info(f"🔍 Route {idx}: {len(path)} points, mode={mode}, color=[{color_rgb[0]},{color_rgb[1]},{color_rgb[2]}]")
+                
+                except Exception as e:
+                    logger.warning(f"⚠️ Route {idx} conversion failed: {e}")
+        
+        logger.info(f"📊 Route summary: {routes_found} found, {routes_valid} valid, creating layer with {len(route_data)} routes")
         
         if route_data:
             route_df = pd.DataFrame(route_data)
+            logger.info(f"🔍 Route DataFrame: {len(route_df)} rows × {len(route_df.columns)} columns")
+            
             route_layer = pdk.Layer(
                 'PathLayer',
                 data=route_df,
                 get_path='path',
-                get_color='[r, g, b]',
-                width_min_pixels=3,
-                opacity=0.6,
+                get_color='[r, g, b, 180]',  # Added alpha for semi-transparency
+                width_min_pixels=2,
+                width_max_pixels=5,
+                opacity=0.7,
                 pickable=True,
+                auto_highlight=True,
+                highlight_color=[255, 255, 0, 200],  # Yellow highlight on hover
             )
             layers.append(route_layer)
+            logger.info(f"✅ Route layer added (total layers: {len(layers)})")
+        else:
+            logger.warning("⚠️ No valid route data to display!")
     
     # ========================================================================
     # Infrastructure Layer - SMALLER & MORE TRANSPARENT
