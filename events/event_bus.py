@@ -234,12 +234,17 @@ class EventBus:
         
         logger.info("🛑 Event bus listening stopped")
     
+    # DEBUGGING PATCH for event_bus.py
     def _listen_loop(self):
         """
         Main listening loop (runs in background thread).
         Receives events and dispatches to callbacks.
         """
         logger.info("🎧 Listener thread started")
+        
+        # DEBUG: Show registered callbacks
+        logger.info(f"🔍 DEBUG: Registered callbacks: {list(self.callbacks.keys())}")
+        logger.info(f"🔍 DEBUG: Total callback channels: {len(self.callbacks)}")
         
         while self.listening:
             try:
@@ -250,35 +255,45 @@ class EventBus:
                 # Get message (blocking with timeout)
                 message = self.pubsub.get_message(timeout=0.1)
                 
-                if message and message['type'] == 'message':
-                    # FIX: Decode channel from bytes to string
-                    channel = message['channel'].decode('utf-8') if isinstance(message['channel'], bytes) else message['channel']
-                    data = message['data']
-                    
-                    # Deserialize event
-                    event_dict = json.loads(data)
-                    event = BaseEvent.from_dict(event_dict)
-                    
-                    # Dispatch to callbacks
-                    if channel in self.callbacks:
-                        for callback in self.callbacks[channel]:
-                            try:
-                                callback(event)
-                                self.events_received += 1
-                            except Exception as e:
-                                logger.error(f"Callback failed for {channel}: {e}")
+                # DEBUG: Log every message received
+                if message:
+                    logger.debug(f"🔍 DEBUG: Raw message type: {message.get('type')}")
+                    if message['type'] == 'message':
+                        channel = message['channel']
+                        data = message['data']
+                        
+                        # DEBUG: Log channel and data
+                        logger.info(f"🔍 DEBUG: Message on channel: '{channel}' (type: {type(channel)})")
+                        logger.info(f"🔍 DEBUG: Channel in callbacks? {channel in self.callbacks}")
+                        logger.info(f"🔍 DEBUG: Available channels: {list(self.callbacks.keys())}")
+                        
+                        # Deserialize event
+                        event_dict = json.loads(data)
+                        event = BaseEvent.from_dict(event_dict)
+                        
+                        logger.info(f"🔍 DEBUG: Deserialized event type: {event.event_type}")
+                        
+                        # Dispatch to callbacks
+                        if channel in self.callbacks:
+                            logger.info(f"✅ Channel matched! Calling {len(self.callbacks[channel])} callbacks")
+                            for callback in self.callbacks[channel]:
+                                try:
+                                    callback(event)
+                                    self.events_received += 1
+                                    logger.info(f"✅ Callback executed! Total received: {self.events_received}")
+                                except Exception as e:
+                                    logger.error(f"Callback failed for {channel}: {e}")
+                        else:
+                            logger.warning(f"❌ Channel '{channel}' NOT in callbacks dict!")
+                            logger.warning(f"   Callback keys: {list(self.callbacks.keys())}")
                 
             except (ValueError, OSError) as e:
-                # Connection closed during shutdown - this is expected
-                if 'closed file' in str(e) or 'I/O operation' in str(e):
-                    logger.debug("Pubsub connection closed gracefully")
-                    break
-                else:
-                    logger.error(f"Error in listener loop: {e}")
-                    time.sleep(0.1)
+                if self.listening:
+                    logger.error(f"Listen loop error: {e}")
             except Exception as e:
-                logger.error(f"Error in listener loop: {e}")
-                time.sleep(0.1)  # Brief pause on error
+                logger.error(f"Unexpected error in listen loop: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
         
         logger.info("🛑 Listener thread stopped")
     
