@@ -34,7 +34,6 @@ class ShapResults:
     feature_importance: Dict[str, float]  # Absolute mean SHAP values
     top_features: List[Tuple[str, float]]  # Ranked features
 
-
 def prepare_shap_features(sd_history: List[Dict]) -> Tuple[pd.DataFrame, np.ndarray, List[str]]:
     """
     Prepare feature matrix for SHAP analysis from SD history.

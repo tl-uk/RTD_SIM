@@ -462,7 +462,7 @@ class NullEventBus:
 
 
 # ========================================
-# Example Usage and Testing
+# DEBUG: Usage and Testing
 # ========================================
 
 if __name__ == "__main__":
