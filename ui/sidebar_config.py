@@ -32,7 +32,7 @@ from ui.widgets.policy_parameter_controls import (
     apply_parameter_overrides
 )
 
-# 
+# Phase 7.1 - Extended Temporal Simulation testing
 from ui.components.temporal_settings import render_temporal_settings
 
 def render_sidebar_config():
