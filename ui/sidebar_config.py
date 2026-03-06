@@ -7,6 +7,7 @@ Sidebar configuration with Phase 5.1 combined scenarios.
 
 import streamlit as st
 from pathlib import Path
+import logging
 from typing import Any, Dict, Optional, List
 import sys
 import yaml
@@ -33,6 +34,8 @@ from ui.widgets.policy_parameter_controls import (
 )
 
 # Phase 7.1 - Extended Temporal Simulation testing
+logger = logging.getLogger(__name__)
+
 from ui.components.temporal_settings import render_temporal_settings
 
 def render_sidebar_config():
@@ -233,6 +236,11 @@ def render_sidebar_config():
         
         st.markdown("---")
 
+        # === PHASE 7.1: TEMPORAL SETTINGS ===
+        temporal_config = render_temporal_settings()
+
+        st.markdown("---")
+
         # Submit button
         run_btn = st.form_submit_button(
             "🚀 Run Simulation", 
@@ -279,6 +287,21 @@ def render_sidebar_config():
         weather_wind_multiplier=weather_config['weather_wind_multiplier'],
     )
     
+    # === PHASE 7.1: APPLY TEMPORAL SETTINGS ===
+    if temporal_config['enable_temporal_scaling']:
+        config.enable_temporal_scaling = True
+        config.time_scale = temporal_config['time_scale']
+        config.start_datetime = temporal_config['start_datetime']
+        
+        # Override steps with temporal-aware suggestion
+        if temporal_config['suggested_steps']:
+            config.steps = temporal_config['suggested_steps']
+            logger.info(f"⏰ Temporal scaling enabled: {config.time_scale}, {config.steps} steps")
+    else:
+        config.enable_temporal_scaling = False
+        config.time_scale = None
+        config.start_datetime = None
+
     # Apply System Dynamics config (ALWAYS - use defaults if not customized)
     from simulation.config.system_dynamics_config import SystemDynamicsConfig
     

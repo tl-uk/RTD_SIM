@@ -15,6 +15,7 @@ from collections import defaultdict
 from simulation.config.simulation_config import SimulationConfig
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.execution.timeseries import TimeSeries
+from simulation.time.temporal_engine import create_temporal_engine_from_config
 
 from analytics import (
     JourneyTracker,
@@ -306,7 +307,21 @@ def run_simulation_loop(
         logger.info("System Dynamics engine initialized")
 
     # ====================================================================
-    # Phase 6.2b: Event Bus Setup
+    # Phase 7.1: Initialize Temporal Engine
+    # ====================================================================
+    temporal_engine = create_temporal_engine_from_config(config)
+    
+    if temporal_engine:
+        logger.info("⏰ Temporal scaling enabled")
+        summary = temporal_engine.get_summary()
+        logger.info(f"   Time scale: {summary['time_scale']}")
+        logger.info(f"   Duration: {summary['duration']}")
+        logger.info(f"   From {summary['start_date']} to {summary['end_date']}")
+    else:
+        logger.info("⏰ Temporal scaling disabled (using default time)")
+
+    # ====================================================================
+    # Event Bus Setup
     # ====================================================================
     # NOTE: Event bus is now created in policy_initialization.py and passed as parameter
     # This ensures policy engine and agents use the SAME event bus instance
@@ -455,14 +470,30 @@ def run_simulation_loop(
         # Initialize agent states for this step
         agent_states = []
         
-        # Calculate current time
-        time_of_day = (step % 1440) / 60.0  # hours (assuming 1 step = 1 min)
-        hour = int(time_of_day)
-        
-        # Calculate date (if seasonal patterns enabled)
-        month = config.season_month or 6  # Default to summer
-        day_of_year = config.season_day_of_year or 180
-        day_of_week = (step // 1440) % 7  # Assuming day 0 is Monday
+        # === PHASE 7.1: Get time info from temporal engine ===
+        if temporal_engine:
+            time_info = temporal_engine.get_time_info(step)
+            time_of_day = time_info['hour'] + (time_info['datetime'].minute / 60.0)
+            hour = time_info['hour']
+            month = time_info['month']
+            day_of_year = time_info['day_of_year']
+            day_of_week = time_info['day_of_week']
+            current_datetime = time_info['datetime']
+            
+            # Log progress with human-readable time (every 20 steps)
+            if step % 20 == 0:
+                logger.info(
+                    f"Step {step}/{config.steps}: {time_info['date']} {time_info['time']} "
+                    f"({temporal_engine.get_progress_string(step)})"
+                )
+        else:
+            # Fallback to old method if temporal engine not enabled
+            time_of_day = (step % 1440) / 60.0  # hours (assuming 1 step = 1 min)
+            hour = int(time_of_day)
+            month = config.season_month or 6  # Default to summer
+            day_of_year = config.season_day_of_year or 180
+            day_of_week = (step // 1440) % 7  # Assuming day 0 is Monday
+            current_datetime = None
         
         # UPDATE WEATHER
         if weather_manager:
@@ -904,7 +935,7 @@ def run_simulation_loop(
         'time_series': time_series,
         'adoption_history': dict(adoption_history),
         'cascade_events': cascade_events,
-        # Phase 5.3: Analytics
+        # Analytics
         'journey_tracker': journey_tracker,
         'mode_share_analyzer': mode_share_analyzer,
         'policy_impact_analyzer': policy_impact_analyzer,
@@ -916,8 +947,11 @@ def run_simulation_loop(
         'weather_history': weather_history,  # Add weather history
         'air_quality_tracker': air_quality,
         
-        # Phase 5.3: System Dynamics
+        # System Dynamics
         'system_dynamics_history': get_system_dynamics_history(system_dynamics),
+
+        # Phase 7.1
+        'temporal_engine': temporal_engine,  
     }
     
     # Add dynamic policy results if available
@@ -953,3 +987,23 @@ def run_simulation_loop(
     results['event_bus_stats'] = event_bus.get_statistics() if event_bus else None
     
     return results
+
+# For debugging
+if __name__ == "__main__":
+    # Quick test
+    from simulation.config.simulation_config import SimulationConfig
+    from datetime import datetime
+    
+    config = SimulationConfig(
+        steps=7,
+        enable_temporal_scaling=True,
+        time_scale="1day_per_step",
+        start_datetime=datetime(2024, 1, 1)
+    )
+    
+    temporal_engine = create_temporal_engine_from_config(config)
+    
+    print("Testing temporal engine in simulation loop:")
+    for step in range(7):
+        time_info = temporal_engine.get_time_info(step)
+        print(f"Step {step}: {time_info['date']} - {time_info['season']}")
