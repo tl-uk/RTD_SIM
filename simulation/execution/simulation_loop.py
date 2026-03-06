@@ -2,7 +2,7 @@
 simulation/execution/simulation_loop.py
 
 Main simulation loop execution with metrics tracking.
-FIXED: Infrastructure policy application with correct variable references.
+Infrastructure policy application with correct variable references.
 """
 
 from __future__ import annotations
