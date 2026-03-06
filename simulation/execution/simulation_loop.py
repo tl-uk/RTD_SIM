@@ -987,23 +987,3 @@ def run_simulation_loop(
     results['event_bus_stats'] = event_bus.get_statistics() if event_bus else None
     
     return results
-
-# For debugging
-if __name__ == "__main__":
-    # Quick test
-    from simulation.config.simulation_config import SimulationConfig
-    from datetime import datetime
-    
-    config = SimulationConfig(
-        steps=7,
-        enable_temporal_scaling=True,
-        time_scale="1day_per_step",
-        start_datetime=datetime(2024, 1, 1)
-    )
-    
-    temporal_engine = create_temporal_engine_from_config(config)
-    
-    print("Testing temporal engine in simulation loop:")
-    for step in range(7):
-        time_info = temporal_engine.get_time_info(step)
-        print(f"Step {step}: {time_info['date']} - {time_info['season']}")
