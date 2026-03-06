@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_temporal_integration.py
+debug/test_temporal_integration.py
 
 Standalone test script for Phase 7.1 temporal engine integration.
 Run from project root: python test_temporal_integration.py

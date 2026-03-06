@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Optional, List, Tuple, Dict, Any
 from pathlib import Path
 from collections import defaultdict
+from datetime import datetime
 
 # Import sub-configs
 from .infrastructure_config import InfrastructureConfig
@@ -48,6 +49,11 @@ class SimulationConfig:
         
         # ===== ROUTING =====
         route_diversity_mode: str = 'ultra_fast',
+
+        # ===== PHASE 7.1: TEMPORAL SCALING =====
+        enable_temporal_scaling: bool = False,
+        time_scale: Optional[str] = None,
+        start_datetime: Optional[Any] = None,
         
         # ===== SCENARIO FRAMEWORK =====
         scenario_name: Optional[str] = None,
@@ -132,6 +138,11 @@ class SimulationConfig:
         self.use_realistic_influence = use_realistic_influence
         self.enable_route_diversity = enable_route_diversity
         self.route_diversity_mode = route_diversity_mode
+        
+        # Phase 7.1: Temporal scaling
+        self.enable_temporal_scaling = enable_temporal_scaling
+        self.time_scale = time_scale
+        self.start_datetime = start_datetime
         
         # Scenario
         self.scenario_name = scenario_name
