@@ -6,7 +6,6 @@ Analytics and tracking configuration.
 
 from dataclasses import dataclass
 
-
 @dataclass
 class AnalyticsConfig:
     """Analytics and tracking configuration."""
