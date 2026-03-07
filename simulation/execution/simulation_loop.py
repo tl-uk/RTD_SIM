@@ -735,7 +735,7 @@ def run_simulation_loop(
                     )
                 
                 if journey_tracker:
-                    # Get weather from active synthetic events
+                    # === PHASE 7.2: Get weather from active synthetic events ===
                     weather_impact = {
                         'temperature': 10.0,
                         'precipitation': 0.0,
@@ -757,16 +757,11 @@ def run_simulation_loop(
                                 elif weather_type == 'wind':
                                     weather_impact['temperature'] = 5.0
                     
+                    # COMPLETE CALL - Simple and clean!
                     journey_tracker.record_journey(
-                        agent_id=agent.state.agent_id,
-                        step=step,
-                        timestamp=step,
-                        mode_chosen=agent.state.mode,
-                        # ... existing fields ...
-                        temperature=weather_impact['temperature'],
-                        precipitation=weather_impact['precipitation'],
-                        ice_warning=weather_impact['ice_warning'],
-                        # ... rest of fields ...
+                        agent=agent,                          # ← Pass whole agent object
+                        step=step,                            # ← Current step
+                        weather_conditions=weather_impact,    # ← Weather as dict
                     )
             
             # RECORD MODE TRANSITION
