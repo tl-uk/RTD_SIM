@@ -758,10 +758,10 @@ def run_simulation_loop(
                                     weather_impact['temperature'] = 5.0
                     
                     journey_tracker.record_journey(
-                        agent_id=agent.agent_id,
+                        agent_id=agent.state.agent_id,
                         step=step,
                         timestamp=step,
-                        mode_chosen=agent.mode,
+                        mode_chosen=agent.state.mode,
                         # ... existing fields ...
                         temperature=weather_impact['temperature'],
                         precipitation=weather_impact['precipitation'],
