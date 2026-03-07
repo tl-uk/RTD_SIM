@@ -167,14 +167,12 @@ def render_shap_analysis_tab(results, anim, current_data):
     
     # Top 3 features callout
     top_3 = shap_results.top_features[:3]
-    st.info(f"""
-    💡 **Top 3 Most Important Features:**
-    1. **{top_3[0][0]}** (Importance: {top_3[0][1]:.5f})
-    2. **{top_3[1][0]}** (Importance: {top_3[1][1]:.5f})
-    3. **{top_3[2][0]}** (Importance: {top_3[2][1]:.5f})
-    
-    These features have the strongest influence on EV adoption flow.
-    """)
+    # Build top features list safely
+    top_features_text = "**Top Most Important Features:**\n"
+    for i, (feature, importance) in enumerate(top_3, start=1):
+        top_features_text += f"{i}. **{feature}** (Importance: {importance:.5f})\n"
+
+    st.markdown(top_features_text)
     
     st.markdown("---")
     
