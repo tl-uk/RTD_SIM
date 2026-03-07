@@ -32,7 +32,7 @@ from simulation.analysis.scenario_comparison import (
     format_comparison_report
 )
 
-# NEW Phase 5.1: Import dynamic policy engine
+# Import dynamic policy engine
 from simulation.execution.dynamic_policies import initialize_policy_engine
 
 logger = logging.getLogger(__name__)

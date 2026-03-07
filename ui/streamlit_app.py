@@ -1,7 +1,7 @@
 """
 ui/streamlit_app.py
 
-RTD_SIM Unified Visualization - Phase 5.2 Fixed
+RTD_SIM Unified Visualization
 Main entry point with policy diagnostics properly integrated
 
 FIXES:
@@ -105,7 +105,7 @@ init_session_state()
 
 # Header
 st.title("🚦 RTD_SIM - Real-Time Transport Decarbonization Simulator")
-st.markdown("**Phase 5.2: Interactive Policy Configuration**")
+st.markdown("**Phase 7: Interactive Events Configuration**")
 
 # Show active region
 if st.session_state.simulation_run and st.session_state.current_region:
@@ -208,12 +208,11 @@ results = st.session_state.results
 anim = st.session_state.animation_controller
 config = st.session_state.last_config
 
-# CRITICAL: Restore animation position from session state
+# NOTE: Restore animation position from session state
 # This preserves the step when checkboxes trigger reruns
 if anim and 'current_animation_step' in st.session_state:
     anim.current_step = st.session_state.current_animation_step
 
-# Sidebar panels
 # Sidebar panels
 with st.sidebar:
     render_diagnostics_panel(results)
