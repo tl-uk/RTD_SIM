@@ -446,6 +446,22 @@ class InfrastructureManager:
             metrics['pending_charging_requests'] = lb_metrics.get('pending_requests', 0)
         else:
             metrics['load_balancing_enabled'] = False
+
+        # === PHASE 7.2: QUEUE TRACKING ===
+        # Count agents waiting for charging
+        queued_count = 0
+        
+        # Check pending requests in load balancer
+        if self.load_balancer and hasattr(self.load_balancer, 'pending_requests'):
+            queued_count = len(self.load_balancer.pending_requests)
+        
+        # Also check station-level queues if they exist
+        if hasattr(self.stations, 'stations'):
+            for station in self.stations.stations:
+                if hasattr(station, 'queue') and station.queue:
+                    queued_count += len(station.queue)
+        
+        metrics['queued_agents'] = queued_count
         
         # Cost recovery
         cost_metrics = self.cost_recovery.get_metrics()

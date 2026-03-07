@@ -22,7 +22,7 @@ Bottom line: Tracks individual agent decisions, journey performance, and influen
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 import logging
 import numpy as np
@@ -447,6 +447,37 @@ class JourneyTracker:
             report['statistics_by_mode'][mode] = self.get_journey_statistics(mode)
         
         return report
+    
+    def get_weather_impact_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics on weather impact on journeys.
+        
+        Returns breakdown by weather condition:
+        - Clear (temp > 5, no precip, no ice)
+        - Cold (temp <= 0)
+        - Rain (precip > 0)
+        - Ice (ice_warning = True)
+        """
+        stats = {
+            'clear': 0,
+            'cold': 0,
+            'rain': 0,
+            'ice': 0,
+            'total': len(self.journeys)
+        }
+        
+        for journey in self.journeys:
+            # Categorize weather
+            if journey.ice_warning:
+                stats['ice'] += 1
+            elif journey.precipitation > 0:
+                stats['rain'] += 1
+            elif journey.temperature <= 0:
+                stats['cold'] += 1
+            else:
+                stats['clear'] += 1
+        
+        return stats
     
     def get_summary_statistics(self) -> Dict:
         """Quick summary statistics for display."""

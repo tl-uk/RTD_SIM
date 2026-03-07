@@ -123,17 +123,31 @@ def render_journey_insights(results):
     weather_impact = journey_tracker.analyze_weather_impact()
     
     if weather_impact:
-        impact_df = pd.DataFrame([
-            {
-                'Condition': condition.replace('_', ' ').title(),
-                'Journeys': data['journeys'],
-                'Avg Delay (min)': data['avg_delay'],
-                'Speed Penalty': f"{data['avg_speed_penalty']*100:.0f}%"
-            }
-            for condition, data in weather_impact.items()
-        ])
-        st.dataframe(impact_df, use_container_width=True)
+        # impact_df = pd.DataFrame([
+        #     {
+        #         'Condition': condition.replace('_', ' ').title(),
+        #         'Journeys': data['journeys'],
+        #         'Avg Delay (min)': data['avg_delay'],
+        #         'Speed Penalty': f"{data['avg_speed_penalty']*100:.0f}%"
+        #     }
+        #     for condition, data in weather_impact.items()
+        # ])
+        # st.dataframe(impact_df, use_container_width=True)
 
+        # === PHASE 7.2: WEATHER IMPACT FROM JOURNEY TRACKER ===
+        if hasattr(results, 'journey_tracker') and results.journey_tracker:
+            weather_stats = results.journey_tracker.get_weather_impact_stats()
+            
+            # Display in existing weather impact chart
+            weather_df = pd.DataFrame({
+                'Condition': ['Clear', 'Cold', 'Rain', 'Ice'],
+                'Journeys': [
+                    weather_stats['clear'],
+                    weather_stats['cold'],
+                    weather_stats['rain'],
+                    weather_stats['ice']
+                ]
+            })
 
 def render_adoption_dynamics(results):
     """Mode share evolution and tipping points."""

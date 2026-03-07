@@ -16,6 +16,10 @@ from simulation.config.simulation_config import SimulationConfig
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.execution.timeseries import TimeSeries
 from simulation.time.temporal_engine import create_temporal_engine_from_config
+from simulation.events.synthetic_generator import (
+    create_event_generator_from_config,
+    EventType
+)
 
 from analytics import (
     JourneyTracker,
@@ -321,6 +325,21 @@ def run_simulation_loop(
         logger.info("⏰ Temporal scaling disabled (using default time)")
 
     # ====================================================================
+    # Phase 7.2: Initialize Synthetic Event Generator
+    # ====================================================================
+    event_generator = create_event_generator_from_config(config)
+    
+    if event_generator:
+        logger.info("🎲 Synthetic event generator initialized")
+        summary = event_generator.get_summary()
+        logger.info(f"   Traffic: {'enabled' if summary['traffic_enabled'] else 'disabled'}")
+        logger.info(f"   Weather: {'enabled' if summary['weather_enabled'] else 'disabled'}")
+        logger.info(f"   Infrastructure: {'enabled' if summary['infrastructure_enabled'] else 'disabled'}")
+    else:
+        event_generator = None
+        logger.info("🎲 Synthetic events disabled")
+
+    # ====================================================================
     # Event Bus Setup
     # ====================================================================
     # NOTE: Event bus is now created in policy_initialization.py and passed as parameter
@@ -486,6 +505,44 @@ def run_simulation_loop(
                     f"Step {step}/{config.steps}: {time_info['date']} {time_info['time']} "
                     f"({temporal_engine.get_progress_string(step)})"
                 )
+        else:
+            time_info = None
+            current_datetime = None
+        
+        # === PHASE 7.2: GENERATE SYNTHETIC EVENTS ===
+        active_weather_event = None  # Track current weather for journey tracker
+        
+        if event_generator and time_info:
+            new_events = event_generator.generate_events_for_step(step, time_info)
+            
+            if new_events:
+                event_icons = {
+                    'traffic_congestion': '🚗',
+                    'weather_disruption': '🌧️',
+                    'infrastructure_failure': '🔌',
+                    'grid_stress': '⚡',
+                }
+                
+                for event in new_events:
+                    icon = event_icons.get(event.event_type.value, '🎲')
+                    logger.info(f"{icon} Event: {event.description} ({event.duration_steps} steps)")
+                    
+                    # Track weather events for journey tracker
+                    if event.event_type == EventType.WEATHER_DISRUPTION:
+                        active_weather_event = event
+                        weather_type = event.impact_data.get('weather_type', 'unknown')
+                        logger.info(f"   Weather type: {weather_type}, "
+                                   f"Impact: {event.impact_data}")
+                    
+                    # Publish to event bus if available
+                    if event_bus and event_bus.is_available():
+                        event_data = event.to_dict()
+                        event_data['step'] = step
+                        if time_info:
+                            event_data['date'] = time_info['date']
+                        event_bus.publish_infrastructure_failure(event_data)
+        
+        # UPDATE WEATHER
         else:
             # Fallback to old method if temporal engine not enabled
             time_of_day = (step % 1440) / 60.0  # hours (assuming 1 step = 1 min)
@@ -677,14 +734,40 @@ def run_simulation_loop(
                         distance_km=trip_distance
                     )
                 
-                journey_tracker.record_journey(
-                    agent=agent,
-                    step=step,
-                    decision_factors=decision_factors,
-                    weather_conditions=weather_conditions if weather_manager else None,
-                    social_influence=social_influence,
-                    emissions=trip_emissions
-                )
+                if journey_tracker:
+                    # Get weather from active synthetic events
+                    weather_impact = {
+                        'temperature': 10.0,
+                        'precipitation': 0.0,
+                        'ice_warning': False,
+                    }
+                    
+                    if event_generator:
+                        active_events = event_generator.get_active_events()
+                        for event in active_events:
+                            if event.event_type == EventType.WEATHER_DISRUPTION:
+                                weather_type = event.impact_data.get('weather_type', 'unknown')
+                                
+                                # Map weather type to journey tracker format
+                                if weather_type in ['snow', 'ice']:
+                                    weather_impact['temperature'] = -5.0
+                                    weather_impact['ice_warning'] = True
+                                elif weather_type in ['rain', 'heavy_rain']:
+                                    weather_impact['precipitation'] = 5.0
+                                elif weather_type == 'wind':
+                                    weather_impact['temperature'] = 5.0
+                    
+                    journey_tracker.record_journey(
+                        agent_id=agent.agent_id,
+                        step=step,
+                        timestamp=step,
+                        mode_chosen=agent.mode,
+                        # ... existing fields ...
+                        temperature=weather_impact['temperature'],
+                        precipitation=weather_impact['precipitation'],
+                        ice_warning=weather_impact['ice_warning'],
+                        # ... rest of fields ...
+                    )
             
             # RECORD MODE TRANSITION
             if mode_share_analyzer and prev_mode != agent.state.mode:
@@ -952,6 +1035,7 @@ def run_simulation_loop(
 
         # Phase 7.1
         'temporal_engine': temporal_engine,  
+        'event_generator': event_generator,  # Phase 7.2
     }
     
     # Add dynamic policy results if available
