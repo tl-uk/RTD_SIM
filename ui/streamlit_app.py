@@ -214,8 +214,64 @@ if anim and 'current_animation_step' in st.session_state:
     anim.current_step = st.session_state.current_animation_step
 
 # Sidebar panels
+# Sidebar panels
 with st.sidebar:
     render_diagnostics_panel(results)
+    
+    # === PHASE 7.1: TEMPORAL PROGRESS DISPLAY ===
+    if hasattr(results, 'temporal_engine') and results.temporal_engine:
+        st.markdown("---")
+        st.markdown("### ⏰ Simulation Time")
+        
+        time_info = results.temporal_engine.get_time_info(anim.current_step)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Date", time_info['date'])
+        with col2:
+            st.metric("Time", time_info['time'])
+        
+        # Context
+        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        day_name = days[time_info['day_of_week']]
+        season = time_info['season'].capitalize()
+        
+        context = [f"**{day_name}**", f"**{season}**"]
+        if time_info['is_rush_hour']:
+            context.append("🚗 Rush Hour")
+        if time_info['is_weekend']:
+            context.append("📅 Weekend")
+        
+        st.caption(" | ".join(context))
+        
+        progress_str = results.temporal_engine.get_progress_string(anim.current_step)
+        st.caption(f"📊 {progress_str}")
+    
+    # === PHASE 7.2: ACTIVE EVENTS DISPLAY ===
+    if hasattr(results, 'event_generator') and results.event_generator:
+        active_events = results.event_generator.get_active_events()
+        if active_events:
+            st.markdown("---")
+            st.markdown("### 🎲 Active Events")
+            
+            event_icons = {
+                'traffic_congestion': '🚗',
+                'weather_disruption': '🌧️',
+                'infrastructure_failure': '🔌',
+                'grid_stress': '⚡',
+            }
+            
+            for event in active_events:
+                icon = event_icons.get(event.event_type.value, '⚠️')
+                st.caption(f"{icon} **{event.description}**")
+                st.caption(f"   Remaining: {event.steps_remaining} steps")
+                
+                if event.impact_data:
+                    impact_str = ", ".join([f"{k}: {v}" for k, v in list(event.impact_data.items())[:2]])
+                    st.caption(f"   Impact: {impact_str}")
+            
+            st.caption(f"📊 {len(active_events)} active event(s)")
+    
     render_animation_controls(anim)
     
     # Phase 5.4: Report Generator

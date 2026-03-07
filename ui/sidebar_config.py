@@ -33,10 +33,13 @@ from ui.widgets.policy_parameter_controls import (
     apply_parameter_overrides
 )
 
-# Phase 7.1 - Extended Temporal Simulation testing
+# DEBUG: Extended Temporal Simulation testing
 logger = logging.getLogger(__name__)
 
+# Phase 7.1 - Extended Temporal Simulation testing
 from ui.components.temporal_settings import render_temporal_settings
+# Phase 7.2 - Synthetic Events
+from ui.components.synthetic_events_settings import render_synthetic_events_settings
 
 def render_sidebar_config():
     """
@@ -206,6 +209,16 @@ def render_sidebar_config():
             st.caption("💡 These parameters control logistic growth dynamics at the system level")
     
     st.sidebar.markdown("---")
+
+    # === PHASE 7.1: TEMPORAL SETTINGS (BEFORE FORM) ===
+    temporal_config = render_temporal_settings()
+    
+    st.sidebar.markdown("---")
+    
+    # === PHASE 7.2: SYNTHETIC EVENTS (BEFORE FORM) ===  
+    synthetic_config = render_synthetic_events_settings()
+    
+    st.sidebar.markdown("---")
     
     with st.form("config_form"):
         # Basic settings
@@ -233,11 +246,6 @@ def render_sidebar_config():
             scenarios_dir = Path(__file__).resolve().parent.parent / 'scenarios' / 'configs'
             scenario_config = {'scenario_name': None, 'scenarios_dir': scenarios_dir}
             st.info("ℹ️ Simple scenarios disabled (using combined scenario)")
-        
-        st.markdown("---")
-
-        # === PHASE 7.1: TEMPORAL SETTINGS ===
-        temporal_config = render_temporal_settings()
 
         st.markdown("---")
 
@@ -301,6 +309,31 @@ def render_sidebar_config():
         config.enable_temporal_scaling = False
         config.time_scale = None
         config.start_datetime = None
+
+    # === PHASE 7.2: APPLY SYNTHETIC EVENT SETTINGS ===
+    if synthetic_config['enable_synthetic_events']:
+        config.enable_synthetic_events = True
+        config.synthetic_traffic_events = synthetic_config['synthetic_traffic_events']
+        config.synthetic_weather_events = synthetic_config['synthetic_weather_events']
+        config.synthetic_infrastructure_events = synthetic_config['synthetic_infrastructure_events']
+        config.synthetic_grid_events = synthetic_config['synthetic_grid_events']
+        config.event_frequency = synthetic_config['event_frequency']
+        
+        # Apply frequency multiplier
+        freq_multipliers = {
+            'rare': 0.25,
+            'occasional': 0.5,
+            'normal': 1.0,
+            'frequent': 2.0,
+            'very_frequent': 4.0,
+        }
+        config.event_frequency_multiplier = freq_multipliers.get(
+            config.event_frequency, 1.0
+        )
+        
+        logger.info(f"🎲 Synthetic events enabled: {config.event_frequency} frequency")
+    else:
+        config.enable_synthetic_events = False
 
     # Apply System Dynamics config (ALWAYS - use defaults if not customized)
     from simulation.config.system_dynamics_config import SystemDynamicsConfig

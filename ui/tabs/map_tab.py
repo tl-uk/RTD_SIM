@@ -32,7 +32,14 @@ def render_map_tab(results, anim, current_data):
     # Get config from session state
     config = st.session_state.get('last_config')
     
-    st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
+    # Build header with temporal info if available
+    header = f"Live View - Step {anim.current_step + 1}/{anim.total_steps}"
+    
+    if hasattr(results, 'temporal_engine') and results.temporal_engine:
+        time_info = results.temporal_engine.get_time_info(anim.current_step)
+        header += f" | 📅 {time_info['date']} {time_info['time'][:5]}"
+    
+    st.subheader(header)
     
     # Use fragment to isolate map rendering
     # This allows display options to update the map without full page rerun
