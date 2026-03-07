@@ -144,6 +144,8 @@ if run_btn:
         st.session_state.animation_controller = AnimationController(
             total_steps=config.steps, fps=5
         )
+        # Phase 7.1: Reset animation step when starting new simulation
+        st.session_state.current_animation_step = 0
         
         # Store region name
         if hasattr(config, 'region_name') and config.region_name:

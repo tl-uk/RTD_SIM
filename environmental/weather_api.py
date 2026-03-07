@@ -1,4 +1,10 @@
-# environmental/weather_api.py
+"""
+environmental/weather_api.py
+
+This module implements Open-Mateo API for real-time, historical and synthethically 
+generated weather profiles.
+
+"""
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, Optional
