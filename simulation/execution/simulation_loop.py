@@ -555,8 +555,8 @@ def run_simulation_loop(
         # UPDATE WEATHER
         if weather_manager:
             try:
-                weather_manager.step()  # Advance weather simulation
-                weather_conditions = weather_manager.get_current_conditions()
+                # Update weather (fetches new data if needed and applies adjustments)
+                weather_conditions = weather_manager.update_weather(step, time_of_day)
                 
                 # Store in history
                 if hasattr(weather_history, 'append'):
@@ -575,8 +575,8 @@ def run_simulation_loop(
                     })
             except Exception as e:
                 logger.error(f"Weather update failed: {e}")
-            
-            weather_conditions = weather_manager.update_weather(step, time_of_day)
+                # Fallback to current conditions if update fails
+                weather_conditions = weather_manager.current_conditions
             
             # Log weather periodically
             if step % 20 == 0:
