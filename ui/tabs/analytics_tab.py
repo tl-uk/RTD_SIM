@@ -123,17 +123,6 @@ def render_journey_insights(results):
     weather_impact = journey_tracker.analyze_weather_impact()
     
     if weather_impact:
-        # impact_df = pd.DataFrame([
-        #     {
-        #         'Condition': condition.replace('_', ' ').title(),
-        #         'Journeys': data['journeys'],
-        #         'Avg Delay (min)': data['avg_delay'],
-        #         'Speed Penalty': f"{data['avg_speed_penalty']*100:.0f}%"
-        #     }
-        #     for condition, data in weather_impact.items()
-        # ])
-        # st.dataframe(impact_df, use_container_width=True)
-
         # === PHASE 7.2: WEATHER IMPACT FROM JOURNEY TRACKER ===
         if hasattr(results, 'journey_tracker') and results.journey_tracker:
             weather_stats = results.journey_tracker.get_weather_impact_stats()
@@ -148,6 +137,25 @@ def render_journey_insights(results):
                     weather_stats['ice']
                 ]
             })
+
+            # Display the weather impact data
+            fig = px.bar(
+                weather_df,
+                x='Condition',
+                y='Journeys',
+                title="Weather Impact on Journeys",
+                labels={'Journeys': 'Number of Journeys'},
+                color='Condition',
+                color_discrete_map={
+                    'Clear': '#90EE90',
+                    'Cold': '#87CEEB',
+                    'Rain': '#4682B4',
+                    'Ice': '#B0C4DE'
+                }
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No weather impact data available yet.")
 
 def render_adoption_dynamics(results):
     """Mode share evolution and tipping points."""

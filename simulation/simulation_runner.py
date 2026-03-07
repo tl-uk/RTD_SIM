@@ -224,6 +224,18 @@ def run_simulation(
             if results.system_dynamics_history:
                 logger.info(f"✅ System Dynamics: {len(results.system_dynamics_history)} timesteps tracked")
         
+        # Phase 7.1 & 7.2: Store temporal engine and event generator
+        if 'temporal_engine' in loop_results:
+            results.temporal_engine = loop_results['temporal_engine']
+            if results.temporal_engine:
+                logger.info(f"✅ Temporal engine stored")
+        
+        if 'event_generator' in loop_results:
+            results.event_generator = loop_results['event_generator']
+            if results.event_generator:
+                active_count = len(results.event_generator.get_active_events())
+                logger.info(f"✅ Event generator stored ({active_count} active events)")
+        
         results.success = True
         
         # Log summary
