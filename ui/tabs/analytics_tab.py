@@ -261,27 +261,22 @@ def render_adoption_dynamics(results):
             node=dict(
                 pad=20,
                 thickness=25,
-                line=dict(color="black", width=1),
+                line=dict(color="white", width=2),  # White borders for contrast
                 label=labels,
-                color=node_colors,
-                font=dict(
-                    family="Arial, sans-serif",
-                    size=13,
-                    color="white"
-                )
+                color=node_colors
             ),
             link=dict(
                 source=sources,
                 target=targets,
                 value=values,
-                color="rgba(180,180,180,0.3)"
+                color="rgba(200,200,200,0.2)"  # Very light gray transparent
             )
         )])
         
         fig.update_layout(
             title="Mode Transition Flows",
             height=600,
-            font=dict(size=12, color='black'),
+            font=dict(size=14, color='black', family="Arial, sans-serif"),
             plot_bgcolor='white',
             paper_bgcolor='white'
         )
