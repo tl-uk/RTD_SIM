@@ -21,49 +21,123 @@ logger = logging.getLogger(__name__)
 
 # Define incompatible combinations
 INCOMPATIBLE_COMBINATIONS = {
-    # Freight jobs are professional - not for casual personas
+    # ========================================================================
+    # FREIGHT & PROFESSIONAL DELIVERY JOBS
+    # ========================================================================
+    
     'freight_delivery_route': {
         'incompatible_users': [
-            'budget_student',
-            'concerned_parent', 
-            'disabled_commuter',
-            'tourist',
-            'eco_warrior',  # Unless they're a professional driver
+            'budget_student',      # Students don't drive commercial trucks
+            'concerned_parent',    # Parents doing school runs, not freight
+            'disabled_commuter',   # May have medical restrictions
+            'tourist',             # Tourists don't work
+            'eco_warrior',         # Unless they're a professional driver
+            'business_commuter',   # Office workers, not truck drivers
+            'shift_worker',        # Generic shift work, not freight-specific
         ]
     },
     
     'gig_economy_delivery': {
         'incompatible_users': [
-            'concerned_parent',  # Unlikely to do gig work with kids
-            'disabled_commuter',
-            'tourist',
+            'concerned_parent',    # Unlikely with young children
+            'disabled_commuter',   # May have mobility/medical restrictions
+            'tourist',             # Tourists don't work
+            'freight_operator',    # Professional drivers don't do gig work
+            'business_commuter',   # Office job, not delivery
         ]
     },
     
-    # School run is parent-specific
+    'urban_food_delivery': {
+        'incompatible_users': [
+            'concerned_parent',    # Unlikely with young children needing care
+            'tourist',             # Tourists don't work
+            'freight_operator',    # Wrong profession (freight != food delivery)
+        ]
+    },
+    
+    'urban_parcel_delivery': {
+        'incompatible_users': [
+            'tourist',             # Tourists don't work
+            'freight_operator',    # Wrong scale (freight = large vehicles, parcels = vans/bikes)
+        ]
+    },
+    
+    # ========================================================================
+    # PERSONAL & LEISURE TRIPS
+    # ========================================================================
+    
+    'shopping_trip': {
+        'incompatible_users': [
+            'freight_operator',    # Professional driver on duty, not personal shopping
+            'delivery_driver',     # On delivery duty, not personal errands
+        ]
+    },
+    
+    'flexible_leisure': {
+        'incompatible_users': [
+            'freight_operator',    # On the job, not leisure time
+            'delivery_driver',     # On delivery duty
+            'business_commuter',   # Structured work schedule, not flexible leisure
+        ]
+    },
+    
+    # ========================================================================
+    # FAMILY & SCHOOL TRIPS
+    # ========================================================================
+    
     'school_run_then_work': {
         'incompatible_users': [
-            'budget_student',
-            'tourist',
-            'freight_operator',
-            'delivery_driver',
+            'budget_student',      # Students don't have school-age children
+            'tourist',             # Tourists don't have kids in local schools
+            'freight_operator',    # Professional drivers have different schedules
+            'delivery_driver',     # Delivery schedule incompatible with school hours
         ]
     },
     
-    # Tourism is for tourists
+    # ========================================================================
+    # TOURISM & EXPLORATION
+    # ========================================================================
+    
     'tourist_exploration': {
         'incompatible_users': [
-            'freight_operator',
-            'delivery_driver',
-            'business_commuter',  # They're working, not touring
+            'freight_operator',    # Working, not touring
+            'delivery_driver',     # Working, not touring
+            'business_commuter',   # Working, not touring
+            'concerned_parent',    # Parenting duties, not tourism
         ]
     },
     
-    # Night shift is for shift workers
+    # ========================================================================
+    # COMMUTE TRIPS
+    # ========================================================================
+    
+    'morning_commute': {
+        'incompatible_users': [
+            'tourist',             # Tourists don't commute to work
+        ]
+    },
+    
+    'evening_commute': {
+        'incompatible_users': [
+            'tourist',             # Tourists don't commute
+        ]
+    },
+    
     'night_shift': {
         'incompatible_users': [
-            'tourist',
-            'concerned_parent',  # Unlikely with young children
+            'tourist',             # Tourists don't work night shifts
+            'concerned_parent',    # Unlikely with young children (may be overly restrictive)
+        ]
+    },
+    
+    # ========================================================================
+    # SPECIAL TRIPS
+    # ========================================================================
+    
+    'airport_transfer': {
+        'incompatible_users': [
+            'freight_operator',    # On delivery duty, not flying
+            'delivery_driver',     # On delivery duty, not traveling
         ]
     },
 }
