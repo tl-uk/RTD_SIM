@@ -272,29 +272,29 @@ def render_adoption_dynamics(results):
         
         fig = go.Figure(data=[go.Sankey(
             node=dict(
-                pad=25,
-                thickness=20,
+                pad=20,
+                thickness=25,
                 line=dict(color="rgba(0,0,0,0.5)", width=1),
                 label=labels,
                 color=node_colors,
-                align='left',  # Left align prevents off-screen
-                x=[0.01] * len(labels),  # Force nodes near left edge
-                y=[i / max(1, len(labels)-1) for i in range(len(labels))]  # Spread vertically
+                hovertemplate='%{label}<br>%{value} total<extra></extra>'
+                # NO x, y, align - let Plotly auto-position based on flows!
             ),
             link=dict(
                 source=sources,
                 target=targets,
                 value=values,
                 color="rgba(200,200,200,0.2)",  # Light gray
-                hovertemplate='%{source.label} → %{target.label}<br>%{value} trips<extra></extra>'
+                hovertemplate='%{source.label} → %{target.label}<br>%{value} trips<extra></extra>',
+                line=dict(color="rgba(0,0,0,0.1)", width=0.5)  # Subtle link borders
             ),
-            orientation='h',  # Horizontal
+            arrangement='snap',  # Better auto-arrangement
             valueformat=".0f",
             valuesuffix=" trips",
             textfont=dict(
                 size=14,
                 family="Arial, sans-serif",
-                color="rgba(0,0,0,0.9)"  # Dark text, NO shadow
+                color="rgba(0,0,0,0.9)"
             )
         )])
         
@@ -303,11 +303,11 @@ def render_adoption_dynamics(results):
                 text="Mode Transition Flows",
                 font=dict(size=18, color='black')
             ),
-            height=600,  # Better aspect ratio (not too tall!)
+            height=700,  # Taller for better visibility
             font=dict(size=14, color='black', family="Arial, sans-serif"),
             plot_bgcolor='white',
             paper_bgcolor='white',
-            margin=dict(l=20, r=150, t=50, b=20),
+            margin=dict(l=40, r=40, t=60, b=40),
             hoverlabel=dict(
                 bgcolor="white",
                 font_size=13,
