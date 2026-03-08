@@ -223,6 +223,22 @@ class BDIPlanner:
                 routing_results[mode] = f"too_long: {actual_route_distance:.1f}km"
                 continue
             
+            # Additional feasibility checks for active modes (walk/bike)
+            if mode in ['walk', 'bike', 'cargo_bike'] and straight_line_distance > 0:
+                # Check if route is too circuitous (>2.5x straight-line = unrealistic)
+                detour_ratio = actual_route_distance / straight_line_distance
+                if detour_ratio > 2.5:
+                    logger.debug(f"        Route too circuitous: {detour_ratio:.1f}x straight-line")
+                    routing_results[mode] = f"too_circuitous: {detour_ratio:.1f}x"
+                    continue
+                
+                # For walking, reject if straight-line distance alone is too far
+                # This prevents routes like Cramond to Balerno (12km straight-line)
+                if mode == 'walk' and straight_line_distance > 2.5:
+                    logger.debug(f"        Straight-line too far for walking: {straight_line_distance:.1f}km")
+                    routing_results[mode] = f"too_far: {straight_line_distance:.1f}km straight"
+                    continue
+            
             # SUCCESS! Track the successful route and generate action
             logger.info(f"         SUCCESS: {actual_route_distance:.1f}km route")
             routing_results[mode] = f"success: {actual_route_distance:.1f}km"

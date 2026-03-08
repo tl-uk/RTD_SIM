@@ -177,24 +177,48 @@ def render_adoption_dynamics(results):
             mode='lines'
         ))
     
-    # Mark tipping points
+    # Mark tipping points - NO OVERLAPPING LABELS!
     if 'tipping_points' in results.analytics_summary:
         tipping_points = results.analytics_summary['tipping_points']
         
+        # Add vertical lines WITHOUT annotations
         for tp in tipping_points:
             fig.add_vline(
                 x=tp.step,
                 line_dash="dash",
                 line_color="red",
-                annotation_text=f"Tipping Point: {tp.mode}",
-                annotation_position="top"
+                line_width=1.5
+                # NO annotation_text - prevents overlap!
             )
+        
+        # Add ONE legend entry for all tipping points
+        if tipping_points:
+            fig.add_trace(go.Scatter(
+                x=[tipping_points[0].step],  # Just for legend positioning
+                y=[0],  # Bottom of chart
+                mode='lines',
+                line=dict(color='red', dash='dash', width=1.5),
+                name=f'🎯 Tipping Points ({len(tipping_points)})',
+                showlegend=True,
+                hoverinfo='skip'
+            ))
     
     fig.update_layout(
         title="Mode Adoption Over Time",
         xaxis_title="Step",
         yaxis_title="Adoption (%)",
-        height=400
+        height=500,
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1
+        ),
+        margin=dict(r=120)  # Extra space for legend
     )
     st.plotly_chart(fig, use_container_width=True)
     
@@ -242,41 +266,58 @@ def render_adoption_dynamics(results):
             targets.append(mode_to_idx[flow['target']])
             values.append(flow['value'])
         
-        # Create color palette for nodes
+        # Create color palette - softer colors, no harsh shadows
         import plotly.colors as pc
-        node_colors = pc.qualitative.Plotly[:len(labels)]
+        node_colors = pc.qualitative.Set3[:len(labels)]
         
         fig = go.Figure(data=[go.Sankey(
             node=dict(
-                pad=35,  # Increased padding
-                thickness=35,  # Thicker nodes
-                line=dict(color="black", width=2),  # Black borders
+                pad=25,  # Moderate padding
+                thickness=20,  # Standard thickness
+                line=dict(color="rgba(0,0,0,0.5)", width=1),  # Semi-transparent, NO shadow
                 label=labels,
                 color=node_colors,
-                align='left'
+                align='justify'  # Better distribution
             ),
             link=dict(
                 source=sources,
                 target=targets,
                 value=values,
-                color="rgba(150,150,150,0.12)"  # Very light gray
+                color="rgba(200,200,200,0.2)",  # Light gray
+                hovertemplate='%{source.label} → %{target.label}<br>%{value} trips<extra></extra>'
             ),
-            arrangement='snap',
+            orientation='h',  # Horizontal
             valueformat=".0f",
-            valuesuffix=" trips"
+            valuesuffix=" trips",
+            textfont=dict(
+                size=14,
+                family="Arial, sans-serif",
+                color="rgba(0,0,0,0.9)"  # Dark text, NO shadow
+            )
         )])
         
         fig.update_layout(
             title=dict(
                 text="Mode Transition Flows",
-                font=dict(size=20, color='black')
+                font=dict(size=18, color='black')
             ),
-            height=900,  # Much taller
-            font=dict(size=17, color='black', family="Arial, sans-serif"),
+            height=600,  # Better aspect ratio (not too tall!)
+            font=dict(size=14, color='black', family="Arial, sans-serif"),
             plot_bgcolor='white',
             paper_bgcolor='white',
-            margin=dict(l=30, r=180, t=60, b=30)  # Right margin prevents cutoff
+            margin=dict(l=20, r=150, t=50, b=20),
+            hoverlabel=dict(
+                bgcolor="white",
+                font_size=13,
+                font_family="Arial"
+            ),
+            dragmode=False  # DISABLE DRAGGING - no rubber-banding!
         )
+        
+        # Fix axes to prevent rubber-banding
+        fig.update_xaxes(fixedrange=True)
+        fig.update_yaxes(fixedrange=True)
+        
         st.plotly_chart(fig, use_container_width=True)
 
 
