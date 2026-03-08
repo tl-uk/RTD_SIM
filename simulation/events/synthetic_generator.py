@@ -188,6 +188,9 @@ class SyntheticEventGenerator:
         # Active events tracker
         self.active_events: List[SyntheticEvent] = []
         
+        # Event history for visualization (Phase 7.2)
+        self._event_history: List[SyntheticEvent] = []
+        
         # Random seed
         if random_seed is not None:
             random.seed(random_seed)
@@ -250,6 +253,11 @@ class SyntheticEventGenerator:
             if grid_event:
                 new_events.append(grid_event)
                 self.active_events.append(grid_event)
+        
+        # Store events in history with start_step for visualization (Phase 7.2)
+        for event in new_events:
+            event.start_step = step  # Add start_step attribute for UI overlay
+            self._event_history.append(event)
         
         return new_events
     

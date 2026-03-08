@@ -194,18 +194,7 @@ def render_adoption_dynamics(results):
         title="Mode Adoption Over Time",
         xaxis_title="Step",
         yaxis_title="Adoption (%)",
-        height=500,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.25,
-            xanchor="center",
-            x=0.5,
-            bgcolor="rgba(255,255,255,0.9)",
-            bordercolor="rgba(0,0,0,0.2)",
-            borderwidth=1
-        ),
-        margin=dict(b=120)  # Extra bottom margin for legend
+        height=400
     )
     st.plotly_chart(fig, use_container_width=True)
     
@@ -259,26 +248,34 @@ def render_adoption_dynamics(results):
         
         fig = go.Figure(data=[go.Sankey(
             node=dict(
-                pad=20,
-                thickness=25,
-                line=dict(color="white", width=2),  # White borders for contrast
+                pad=35,  # Increased padding
+                thickness=35,  # Thicker nodes
+                line=dict(color="black", width=2),  # Black borders
                 label=labels,
-                color=node_colors
+                color=node_colors,
+                align='left'
             ),
             link=dict(
                 source=sources,
                 target=targets,
                 value=values,
-                color="rgba(200,200,200,0.2)"  # Very light gray transparent
-            )
+                color="rgba(150,150,150,0.12)"  # Very light gray
+            ),
+            arrangement='snap',
+            valueformat=".0f",
+            valuesuffix=" trips"
         )])
         
         fig.update_layout(
-            title="Mode Transition Flows",
-            height=600,
-            font=dict(size=14, color='black', family="Arial, sans-serif"),
+            title=dict(
+                text="Mode Transition Flows",
+                font=dict(size=20, color='black')
+            ),
+            height=900,  # Much taller
+            font=dict(size=17, color='black', family="Arial, sans-serif"),
             plot_bgcolor='white',
-            paper_bgcolor='white'
+            paper_bgcolor='white',
+            margin=dict(l=30, r=180, t=60, b=30)  # Right margin prevents cutoff
         )
         st.plotly_chart(fig, use_container_width=True)
 

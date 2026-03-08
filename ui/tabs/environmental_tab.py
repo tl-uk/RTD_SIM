@@ -241,13 +241,21 @@ def render_environmental_tab(results, anim, current_data):
         emissions = results.lifecycle_emissions_total
         
         if emissions:
-            # ✅ FIX: Extract totals from dicts if needed
+
+            # Debug: Print what we have
+            st.write(f"DEBUG: Total modes in emissions: {len(emissions)}")
+            st.write(f"DEBUG: Sample keys: {list(emissions.keys())[:5]}")
+
+            # Extract totals from dicts if needed
             mode_totals = {}
             for mode, value in emissions.items():
                 if isinstance(value, dict):
                     mode_totals[mode] = sum(value.values())
                 else:
                     mode_totals[mode] = value
+
+            # Filter out modes with zero emissions
+            mode_totals = {k: v for k, v in mode_totals.items() if v > 0}
             
             # Sort by total emissions
             sorted_modes = sorted(mode_totals.items(), key=lambda x: x[1], reverse=True)
