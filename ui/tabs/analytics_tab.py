@@ -194,7 +194,18 @@ def render_adoption_dynamics(results):
         title="Mode Adoption Over Time",
         xaxis_title="Step",
         yaxis_title="Adoption (%)",
-        height=400
+        height=500,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.25,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1
+        ),
+        margin=dict(b=120)  # Extra bottom margin for legend
     )
     st.plotly_chart(fig, use_container_width=True)
     
@@ -242,22 +253,37 @@ def render_adoption_dynamics(results):
             targets.append(mode_to_idx[flow['target']])
             values.append(flow['value'])
         
+        # Create color palette for nodes
+        import plotly.colors as pc
+        node_colors = pc.qualitative.Plotly[:len(labels)]
+        
         fig = go.Figure(data=[go.Sankey(
             node=dict(
-                pad=15,
-                thickness=20,
-                label=labels
+                pad=20,
+                thickness=25,
+                line=dict(color="black", width=1),
+                label=labels,
+                color=node_colors,
+                font=dict(
+                    family="Arial, sans-serif",
+                    size=13,
+                    color="white"
+                )
             ),
             link=dict(
                 source=sources,
                 target=targets,
-                value=values
+                value=values,
+                color="rgba(180,180,180,0.3)"
             )
         )])
         
         fig.update_layout(
             title="Mode Transition Flows",
-            height=400
+            height=600,
+            font=dict(size=12, color='black'),
+            plot_bgcolor='white',
+            paper_bgcolor='white'
         )
         st.plotly_chart(fig, use_container_width=True)
 

@@ -89,10 +89,75 @@ def render_environmental_tab(results, anim, current_data):
                 row=3, col=1
             )
             
+            # === PHASE 7.2: OVERLAY SYNTHETIC WEATHER EVENTS ===
+            if hasattr(results, 'event_generator') and results.event_generator:
+                try:
+                    from simulation.events.synthetic_generator import EventType
+                    
+                    # Get all active and completed events
+                    all_events = []
+                    
+                    # Try to get event history
+                    if hasattr(results.event_generator, '_event_history'):
+                        all_events = results.event_generator._event_history
+                    elif hasattr(results.event_generator, 'active_events'):
+                        all_events = results.event_generator.active_events
+                    
+                    # Add shaded regions for weather events
+                    for event in all_events:
+                        if event.event_type == EventType.WEATHER_DISRUPTION:
+                            weather_type = event.impact_data.get('weather_type', 'unknown')
+                            
+                            # Determine color based on severity
+                            if event.severity == 'Severe':
+                                color = 'rgba(255, 0, 0, 0.15)'  # Red
+                            elif event.severity == 'Moderate':
+                                color = 'rgba(255, 165, 0, 0.15)'  # Orange
+                            else:
+                                color = 'rgba(255, 255, 0, 0.15)'  # Yellow
+                            
+                            # Get event step range
+                            event_start = getattr(event, 'start_step', 0)
+                            event_end = event_start + event.duration_steps
+                            
+                            # Only add if within the visible range
+                            if event_start < len(steps):
+                                # Add shaded region to all 3 subplots
+                                for row_num in [1, 2, 3]:
+                                    fig.add_vrect(
+                                        x0=event_start,
+                                        x1=min(event_end, len(steps)),
+                                        fillcolor=color,
+                                        layer="below",
+                                        line_width=0,
+                                        row=row_num,
+                                        col=1
+                                    )
+                except Exception as e:
+                    # Silently fail if event overlay doesn't work
+                    pass
+            
             fig.update_xaxes(title_text="Simulation Step", row=3, col=1)
             fig.update_layout(height=700, showlegend=False, hovermode='x unified')
             
             st.plotly_chart(fig, use_container_width=True)
+            
+            # Show legend for synthetic events if present
+            if hasattr(results, 'event_generator') and results.event_generator:
+                st.caption("**Synthetic Events:** 🟥 Severe | 🟧 Moderate | 🟨 Minor (shaded regions show active events)")
+                
+                # Show events summary
+                try:
+                    summary = results.event_generator.get_summary()
+                    if summary.get('total_events', 0) > 0:
+                        with st.expander("📋 Synthetic Events Summary"):
+                            st.write(f"**Total Events Generated:** {summary['total_events']}")
+                            if 'by_type' in summary:
+                                st.write(f"**By Type:**")
+                                for event_type, count in summary['by_type'].items():
+                                    st.write(f"  - {event_type}: {count}")
+                except:
+                    pass
             
             # Summary statistics
             col1, col2, col3, col4 = st.columns(4)
