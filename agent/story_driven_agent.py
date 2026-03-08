@@ -397,13 +397,23 @@ def generate_agents_from_stories(
     job_stories_path: Optional[Path] = None
 ) -> List[StoryDrivenAgent]:
     """Generate multiple agents from story combinations."""
+    from agent.story_compatibility import filter_compatible_combinations
+    
     agents = []
     rng = random.Random(seed)
     
+    # Filter to only compatible combinations
+    compatible_combos = filter_compatible_combinations(user_story_ids, job_story_ids)
+    
+    if not compatible_combos:
+        logger.warning("⚠️ No compatible combinations found! Using all combinations (may create nonsensical agents)")
+        compatible_combos = [(u, j) for u in user_story_ids for j in job_story_ids]
+    else:
+        logger.info(f"✅ Using {len(compatible_combos)} compatible story combinations (filtered from {len(user_story_ids) * len(job_story_ids)} total)")
+    
     for i, (origin, dest) in enumerate(origin_dest_pairs):
-        # Pick random user + job story
-        user_story = rng.choice(user_story_ids)
-        job_story = rng.choice(job_story_ids)
+        # Pick random COMPATIBLE user + job story
+        user_story, job_story = rng.choice(compatible_combos)
         
         agent = StoryDrivenAgent(
             user_story_id=user_story,
@@ -417,7 +427,7 @@ def generate_agents_from_stories(
         )
         agents.append(agent)
     
-    logger.info(f"Generated {len(agents)} agents from stories")
+    logger.info(f"Generated {len(agents)} agents from compatible stories")
     return agents
 
 # =============================================================================
@@ -437,34 +447,39 @@ def generate_balanced_population(
     job_stories_path: Optional[Path] = None
 ) -> List[StoryDrivenAgent]:
     """Generate balanced population with even story distribution."""
+    from agent.story_compatibility import filter_compatible_combinations
+    
     agents = []
     rng = random.Random(seed)
     
+    # Filter to only compatible combinations
+    compatible_combos = filter_compatible_combinations(user_story_ids, job_story_ids)
+    
+    if not compatible_combos:
+        logger.warning("⚠️ No compatible combinations found! Using all combinations")
+        compatible_combos = [(u, j) for u in user_story_ids for j in job_story_ids]
+    
     # Calculate agents per combination
-    total_combinations = len(user_story_ids) * len(job_story_ids)
-    agents_per_combo = max(1, num_agents // total_combinations)
+    agents_per_combo = max(1, num_agents // len(compatible_combos))
     
-    logger.info(f"Generating {agents_per_combo} agents per combination")
+    logger.info(f"✅ Generating {agents_per_combo} agents per combination ({len(compatible_combos)} compatible combinations)")
     
-    for user_story in user_story_ids:
-        for job_story in job_story_ids:
-            for i in range(agents_per_combo):
-                origin, dest = origin_dest_generator()
-                
-                agent = StoryDrivenAgent(
-                    user_story_id=user_story,
-                    job_story_id=job_story,
-                    origin=origin,
-                    dest=dest,
-                    planner=planner,
-                    seed=seed + len(agents) if seed else None,
-                    user_stories_path=user_stories_path,
-                    job_stories_path=job_stories_path
-                )
-                agents.append(agent)
-                
-                if len(agents) >= num_agents:
-                    break
+    for user_story, job_story in compatible_combos:
+        for i in range(agents_per_combo):
+            origin, dest = origin_dest_generator()
+            
+            agent = StoryDrivenAgent(
+                user_story_id=user_story,
+                job_story_id=job_story,
+                origin=origin,
+                dest=dest,
+                planner=planner,
+                seed=seed + len(agents) if seed else None,
+                user_stories_path=user_stories_path,
+                job_stories_path=job_stories_path
+            )
+            agents.append(agent)
+            
             if len(agents) >= num_agents:
                 break
         if len(agents) >= num_agents:
