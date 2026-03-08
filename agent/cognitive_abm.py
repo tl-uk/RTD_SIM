@@ -164,11 +164,28 @@ class CognitiveAgent:
                 # ⚠️ No valid route returned - keep existing route if we have one
                 logger.warning(f"{s.agent_id}: No valid route from planner (got {len(best.route) if best.route else 0} points)")
                 if not s.route or len(s.route) == 0:
-                    # Really stuck - create minimal fallback route
-                    logger.warning(f"{s.agent_id}: Creating fallback direct route")
-                    s.route = [s.location, s.destination]
-                    s.route_index = 0
-                    s.route_offset_km = 0.0
+                    # Really stuck - check if we're already at destination
+                    try:
+                        from simulation.spatial.coordinate_utils import haversine_km
+                        dist = haversine_km(s.location, s.destination)
+                        
+                        if dist < 0.05:  # Within 50m - already there!
+                            s.arrived = True
+                            s.arrived_at_step = self.t
+                            logger.info(f"{s.agent_id}: Already at destination!")
+                        else:
+                            # Create fallback route (will appear as straight line on map)
+                            logger.warning(f"{s.agent_id}: Creating fallback direct route ({dist:.2f}km)")
+                            s.route = [s.location, s.destination]
+                            s.route_index = 0
+                            s.route_offset_km = 0.0
+                            s.mode = 'walk'  # Default to walk for fallback
+                    except Exception as e:
+                        # If distance calc fails, create minimal fallback
+                        logger.warning(f"{s.agent_id}: Fallback with error: {e}")
+                        s.route = [s.location, s.destination]
+                        s.route_index = 0
+                        s.route_offset_km = 0.0
 
     # This function calculates the dwell time to be added whenever the agent finishes a 
     # segment of its route, based on the mode of transportation. Different modes have 

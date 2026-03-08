@@ -223,21 +223,25 @@ class BDIPlanner:
                 routing_results[mode] = f"too_long: {actual_route_distance:.1f}km"
                 continue
             
-            # Additional feasibility checks for active modes (walk/bike)
+            # Detour ratio check - route should be reasonably direct
+            # (Only for active modes where circuitous routes are exhausting)
             if mode in ['walk', 'bike', 'cargo_bike'] and straight_line_distance > 0:
-                # Check if route is too circuitous (>2.5x straight-line = unrealistic)
                 detour_ratio = actual_route_distance / straight_line_distance
-                if detour_ratio > 2.5:
-                    logger.debug(f"        Route too circuitous: {detour_ratio:.1f}x straight-line")
+                
+                # Relaxed detour thresholds based on distance
+                max_detour = 3.0 if straight_line_distance < 1.0 else 2.5  # Allow more detour for short trips
+                
+                if detour_ratio > max_detour:
+                    logger.debug(f"        Route too circuitous: {detour_ratio:.1f}x (max {max_detour}x)")
                     routing_results[mode] = f"too_circuitous: {detour_ratio:.1f}x"
                     continue
-                
-                # For walking, reject if straight-line distance alone is too far
-                # This prevents routes like Cramond to Balerno (12km straight-line)
-                if mode == 'walk' and straight_line_distance > 2.5:
-                    logger.debug(f"        Straight-line too far for walking: {straight_line_distance:.1f}km")
-                    routing_results[mode] = f"too_far: {straight_line_distance:.1f}km straight"
-                    continue
+            
+            # For walking specifically, check if trip is extremely long
+            # (This prevents Cramond→Balerno 12km+ straight-line walks, but allows 3-6km walks)
+            if mode == 'walk' and straight_line_distance > 8.0:
+                logger.debug(f"        Straight-line way too far for walking: {straight_line_distance:.1f}km")
+                routing_results[mode] = f"unrealistic_walk: {straight_line_distance:.1f}km straight"
+                continue
             
             # SUCCESS! Track the successful route and generate action
             logger.info(f"         SUCCESS: {actual_route_distance:.1f}km route")

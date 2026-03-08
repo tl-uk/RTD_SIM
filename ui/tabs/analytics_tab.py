@@ -266,18 +266,20 @@ def render_adoption_dynamics(results):
             targets.append(mode_to_idx[flow['target']])
             values.append(flow['value'])
         
-        # Create color palette - softer colors, no harsh shadows
+        # Create color palette - softer colors
         import plotly.colors as pc
         node_colors = pc.qualitative.Set3[:len(labels)]
         
         fig = go.Figure(data=[go.Sankey(
             node=dict(
-                pad=25,  # Moderate padding
-                thickness=20,  # Standard thickness
-                line=dict(color="rgba(0,0,0,0.5)", width=1),  # Semi-transparent, NO shadow
+                pad=25,
+                thickness=20,
+                line=dict(color="rgba(0,0,0,0.5)", width=1),
                 label=labels,
                 color=node_colors,
-                align='justify'  # Better distribution
+                align='left',  # Left align prevents off-screen
+                x=[0.01] * len(labels),  # Force nodes near left edge
+                y=[i / max(1, len(labels)-1) for i in range(len(labels))]  # Spread vertically
             ),
             link=dict(
                 source=sources,
@@ -310,13 +312,8 @@ def render_adoption_dynamics(results):
                 bgcolor="white",
                 font_size=13,
                 font_family="Arial"
-            ),
-            dragmode=False  # DISABLE DRAGGING - no rubber-banding!
+            )
         )
-        
-        # Fix axes to prevent rubber-banding
-        fig.update_xaxes(fixedrange=True)
-        fig.update_yaxes(fixedrange=True)
         
         st.plotly_chart(fig, use_container_width=True)
 
