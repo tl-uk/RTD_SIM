@@ -312,8 +312,13 @@ def render_adoption_dynamics(results):
                 bgcolor="white",
                 font_size=13,
                 font_family="Arial"
-            )
+            ),
+            dragmode=False  # Disable dragging - prevents rubber-banding
         )
+        
+        # Prevent interaction to avoid rubber-banding
+        fig.update_xaxes(fixedrange=True)
+        fig.update_yaxes(fixedrange=True)
         
         st.plotly_chart(fig, use_container_width=True)
 

@@ -81,7 +81,7 @@ class BDIPlanner:
     MODE_MAX_DISTANCE_KM = {
         'walk': 3.0,  # Realistic walking distance
         'bike': 10.0,  # Regular bike comfortable range
-        'cargo_bike': 12.0,  # E-cargo bike realistic urban range (was 50km!)
+        'cargo_bike': 20.0,  # E-cargo bike urban delivery range (realistic for Edinburgh)
         'bus': 100.0,
         'car': 500.0,
         'ev': 350.0,
@@ -293,16 +293,16 @@ class BDIPlanner:
         
         # STEP 1: Initial mode selection
         if vehicle_type == 'micro_mobility':
-            if trip_distance_km > 25:
-                # Long "urban" delivery → actually regional, use van
-                modes = ['van_electric', 'van_diesel', 'cargo_bike']
+            if trip_distance_km > 20:
+                # Long delivery - allow vans as backup
+                modes = ['cargo_bike', 'van_electric', 'van_diesel']
                 logger.warning(
-                    f"Micro-mobility trip {trip_distance_km:.1f}km > 25km → "
-                    f"offering van upgrade (regional bbox effect)"
+                    f"Micro-mobility trip {trip_distance_km:.1f}km > 20km → "
+                    f"allowing van backup: {modes}"
                 )
             else:
-                # Normal urban delivery
-                modes = ['cargo_bike', 'bike']
+                # Normal urban delivery - prefer cargo bike
+                modes = ['cargo_bike', 'bike', 'ebike']
                 logger.debug(f"Micro-mobility context: initial modes {modes}")
         
         elif vehicle_type == 'heavy_freight':
