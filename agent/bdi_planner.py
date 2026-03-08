@@ -77,11 +77,11 @@ class BDIPlanner:
         'hgv_depot': 720.0,
     }
     
-    # Distance-based mode constraints - EXPANDED
+    # Distance-based mode constraints - EXPANDED  
     MODE_MAX_DISTANCE_KM = {
-        'walk': 5.0,
-        'bike': 20.0,
-        'cargo_bike': 50.0,  # ✅ FIXED: Increased from 10km
+        'walk': 3.0,  # Realistic walking distance
+        'bike': 10.0,  # Regular bike comfortable range
+        'cargo_bike': 12.0,  # E-cargo bike realistic urban range (was 50km!)
         'bus': 100.0,
         'car': 500.0,
         'ev': 350.0,
