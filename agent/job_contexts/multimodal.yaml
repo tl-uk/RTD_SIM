@@ -1,4 +1,4 @@
-# job_contexts/multimodal.yaml
+# agent/job_contexts/multimodal.yaml
 # Multimodal job contexts for various travel scenarios involving multiple transport modes
 
 intercity_train_commute:
