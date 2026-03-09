@@ -59,6 +59,15 @@ from ui.report_generator import render_report_generator_button
 # Import SHAP Analysis tab (Phase 5.4)
 from ui.tabs.shap_analysis_tab import render_shap_analysis_tab
 
+# Import Combination Report tab (Agent validation)
+try:
+    from ui.tabs.combination_report_tab import render_combination_report_tab
+    COMBINATION_REPORT_AVAILABLE = True
+except ImportError:
+    COMBINATION_REPORT_AVAILABLE = False
+    import logging
+    logging.warning("Combination report tab not available")
+
 # Import simulation core
 from simulation.simulation_runner import run_simulation
 from visualiser.animation_controller import AnimationController
@@ -333,6 +342,10 @@ if hasattr(results, 'system_dynamics_history') and results.system_dynamics_histo
 # ALWAYS show Policy Diagnostics (handles both cases internally)
 tab_configs.append(("🔍 Policy Diagnostics", render_policy_diagnostics_tab))
 
+# Combination Report tab (ALWAYS show - doesn't need simulation results)
+if COMBINATION_REPORT_AVAILABLE:
+    tab_configs.append(("🔍 Agent Combinations", render_combination_report_tab))
+
 # Create and render tabs
 tab_names = [name for name, _ in tab_configs]
 
@@ -350,6 +363,9 @@ for i, (tab_name, render_func) in enumerate(tab_configs):
         if tab_name == "🔍 Policy Diagnostics":
             # Diagnostics needs config, not current_data
             render_func(results, config)
+        elif tab_name == "🔍 Agent Combinations":
+            # Combination report needs no arguments (loads stories itself)
+            render_func()
         elif tab_name == "🔬 System Dynamics":
             # SD tab needs all three args
             render_func(results, anim, current_data)

@@ -1,142 +1,202 @@
 """
 agent/story_compatibility.py
 
-WHITELIST-BASED compatibility system for user stories and job stories.
+COMPLETE WHITELIST-BASED compatibility system.
 
-Instead of listing hundreds of incompatible combinations, this system defines
-which user stories ARE compatible with each job type. Everything else is blocked.
-
-This is much more maintainable and safer than a blacklist approach.
+Based on actual RTD_SIM personas.yaml and job types from logs.
 """
 
-from typing import List, Tuple, Set
+from typing import List, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# WHITELIST APPROACH: Define which users CAN do each job
+# COMPLETE WHITELIST: User Stories That Can Do Each Job
 # ============================================================================
 
-# For each job type, list the ONLY user stories that make sense
-# If a user story is not in this list for a job, the combination is BLOCKED
+# All 10 user personas from personas.yaml:
+# - eco_warrior (passenger)
+# - concerned_parent (passenger)
+# - budget_student (passenger)
+# - business_commuter (passenger)
+# - disabled_commuter (passenger)
+# - rural_resident (passenger)
+# - freight_operator (freight)
+# - shift_worker (passenger)
+# - tourist (passenger)
+# - delivery_driver (freight)
+
+# Additional personas from extended section:
+# - long_distance_commuter
+# - island_resident
+# - business_traveler
+# - accessibility_user
+# - tourist_visitor
 
 COMPATIBLE_USERS_FOR_JOB = {
     
     # ========================================================================
-    # FREIGHT & LOGISTICS JOBS (Professional drivers only)
+    # FREIGHT & HEAVY GOODS (Professional drivers ONLY)
     # ========================================================================
     
-    'freight_delivery_route': ['freight_operator', 'delivery_driver', 'rural_resident'],
+    'freight_delivery_route': ['freight_operator', 'delivery_driver'],
+    'long_haul_freight': ['freight_operator'],
+    'regional_distribution': ['freight_operator', 'delivery_driver'],
+    'manufacturing_supply_chain': ['freight_operator'],
+    'port_to_warehouse': ['freight_operator'],
     'waste_collection': ['freight_operator', 'shift_worker'],
-    'regional_distribution': ['freight_operator', 'delivery_driver', 'business_commuter'],
-    'construction_supply': ['freight_operator', 'rural_resident'],
+    
+    # Construction-related freight (professional drivers)
+    'construction_materials': ['freight_operator'],
+    'hgv_construction_delivery_generated': ['freight_operator'],
+    'truck_construction_delivery_generated': ['freight_operator'],
+    'van_construction_delivery_generated': ['freight_operator', 'delivery_driver'],
+    
+    # Retail/warehouse freight (professional drivers)
+    'hgv_retail_delivery_generated': ['freight_operator'],
+    'truck_retail_delivery_generated': ['freight_operator', 'delivery_driver'],
+    'van_retail_delivery_generated': ['freight_operator', 'delivery_driver'],
+    
+    'hgv_warehouse_transfer_generated': ['freight_operator'],
+    'truck_warehouse_transfer_generated': ['freight_operator'],
+    'van_warehouse_transfer_generated': ['freight_operator', 'delivery_driver'],
+    
+    # Specialized freight
+    'refrigerated_transport': ['freight_operator'],
     'furniture_delivery': ['freight_operator', 'delivery_driver'],
-    'trades_contractor': ['freight_operator', 'rural_resident', 'business_commuter'],
     'supermarket_supply': ['freight_operator', 'delivery_driver'],
     
     # ========================================================================
-    # GIG ECONOMY & DELIVERY JOBS (Flexible workers)
+    # GIG ECONOMY & URBAN DELIVERY (Flexible workers, students)
     # ========================================================================
     
-    'gig_economy_delivery': ['delivery_driver', 'budget_student', 'shift_worker', 'eco_warrior'],
-    'urban_food_delivery': ['delivery_driver', 'budget_student', 'shift_worker'],
-    'urban_parcel_delivery': ['delivery_driver', 'budget_student', 'shift_worker'],
+    'gig_economy_delivery': [
+        'delivery_driver', 'budget_student', 'shift_worker', 'eco_warrior'
+    ],
+    
+    'urban_food_delivery': [
+        'delivery_driver', 'budget_student', 'shift_worker'
+    ],
+    
+    'urban_parcel_delivery': [
+        'delivery_driver', 'budget_student', 'shift_worker'
+    ],
+    
+    # Generated urban deliveries (time-based)
+    'urban_delivery_morning_generated': [
+        'delivery_driver', 'budget_student', 'shift_worker'
+    ],
+    
+    'urban_delivery_afternoon_generated': [
+        'delivery_driver', 'budget_student', 'shift_worker'
+    ],
+    
+    'urban_delivery_night_generated': [
+        'delivery_driver', 'shift_worker'  # No students at night
+    ],
+    
+    'last_mile_scooter': [
+        'delivery_driver', 'budget_student', 'shift_worker', 'eco_warrior'
+    ],
     
     # ========================================================================
-    # PERSONAL & FAMILY TRIPS (Most personas can do these)
+    # PERSONAL ERRANDS & SHOPPING (Most personas)
     # ========================================================================
     
     'shopping_trip': [
-        'concerned_parent', 'disabled_commuter', 'budget_student', 
-        'rural_resident', 'eco_warrior', 'shift_worker', 'tourist'
+        'concerned_parent', 'disabled_commuter', 'budget_student',
+        'rural_resident', 'eco_warrior', 'shift_worker', 'tourist',
+        'business_commuter'  # Off-duty shopping
     ],
-    
-    'school_run_then_work': ['concerned_parent'],  # ONLY parents
-    
-    'flexible_leisure': [
-        'budget_student', 'tourist', 'eco_warrior', 
-        'disabled_commuter', 'rural_resident'
-    ],
-    
-    'medical_appointment': [
-        'disabled_commuter', 'concerned_parent', 'budget_student', 
-        'eco_warrior', 'shift_worker', 'rural_resident'
-    ],
-    
-    # ========================================================================
-    # TOURISM & EXPLORATION (Tourists + leisure seekers)
-    # ========================================================================
-    
-    'tourist_exploration': ['tourist', 'eco_warrior'],
-    'tourist_scenic_trail': ['tourist', 'eco_warrior', 'budget_student'],
-    'island_ferry_trip': ['tourist', 'rural_resident', 'eco_warrior'],
     
     # ========================================================================
     # COMMUTE JOBS (Workers & students)
     # ========================================================================
     
     'morning_commute': [
-        'business_commuter', 'shift_worker', 'eco_warrior', 
-        'disabled_commuter', 'budget_student'
+        'business_commuter', 'shift_worker', 'eco_warrior',
+        'disabled_commuter', 'budget_student', 'long_distance_commuter',
+        'accessibility_user'
     ],
-    
-    'evening_commute': [
-        'business_commuter', 'shift_worker', 'eco_warrior', 
-        'disabled_commuter', 'budget_student'
-    ],
-    
-    'night_shift': ['shift_worker', 'delivery_driver', 'freight_operator'],
     
     'commute_flexible': [
-        'business_commuter', 'eco_warrior', 'disabled_commuter', 'budget_student'
+        'business_commuter', 'eco_warrior', 'disabled_commuter',
+        'budget_student', 'shift_worker', 'accessibility_user'
+    ],
+    
+    'multi_modal_commute': [
+        'business_commuter', 'eco_warrior', 'budget_student',
+        'long_distance_commuter', 'disabled_commuter', 'accessibility_user'
+    ],
+    
+    'intercity_train_commute': [
+        'business_commuter', 'long_distance_commuter', 'business_traveler'
     ],
     
     # ========================================================================
-    # BUSINESS & PROFESSIONAL TRAVEL (Business travelers only)
+    # TOURISM & LEISURE (Tourists + leisure seekers)
     # ========================================================================
     
-    'airport_transfer': ['business_commuter', 'tourist'],
-    'business_flight': ['business_commuter'],  # ONLY business travelers
-    'conference_attendance': ['business_commuter', 'eco_warrior'],
+    'tourist_scenic_rail': [
+        'tourist', 'eco_warrior', 'budget_student', 'tourist_visitor'
+    ],
+    
+    'island_ferry_trip': [
+        'tourist', 'rural_resident', 'eco_warrior', 'island_resident',
+        'tourist_visitor'
+    ],
     
     # ========================================================================
-    # SPECIAL TRIPS (Broader access)
+    # ACCESSIBILITY-FOCUSED (Disabled users)
     # ========================================================================
     
-    'emergency_trip': [
-        'concerned_parent', 'disabled_commuter', 'budget_student', 
-        'business_commuter', 'eco_warrior', 'shift_worker', 'rural_resident'
+    'accessible_tram_journey': [
+        'disabled_commuter', 'accessibility_user', 'concerned_parent',
+        'eco_warrior', 'budget_student', 'business_commuter', 'tourist'
+        # Tram is accessible, but primarily for disabled users
+    ],
+    
+    # ========================================================================
+    # PROFESSIONAL SERVICES (Business travelers, contractors)
+    # ========================================================================
+    
+    'business_flight': [
+        'business_commuter', 'business_traveler'  # ONLY business travelers
+    ],
+    
+    'service_engineer_call': [
+        'freight_operator',  # Service engineers may use company vans
+        'business_commuter',  # Could be business service calls
+        'delivery_driver'     # Gig service calls
+    ],
+    
+    'trades_contractor': [
+        # ⚠️ IMPORTANT: This appears to be a JOB (contractor work)
+        # NOT a user persona!
+        # Professional contractors doing trade work
+        'freight_operator',   # Contractors with freight needs
+        'business_commuter',  # Small business contractors
+        'rural_resident'      # Rural tradespeople
     ],
 }
 
 
 # ============================================================================
-# Compatibility Check Function (Whitelist-based)
+# Compatibility Check Function
 # ============================================================================
 
 def is_compatible(user_story_id: str, job_story_id: str) -> bool:
     """
-    Check if user story + job story combination makes sense.
-    
-    WHITELIST LOGIC:
-    - If job has explicit whitelist → check if user is in allowed list
-    - If job NOT in whitelist → allow all (assume generic job)
+    Check if user + job combination makes sense (whitelist-based).
     
     Args:
-        user_story_id: User story identifier (e.g., 'concerned_parent')
-        job_story_id: Job story identifier (e.g., 'shopping_trip')
+        user_story_id: User persona (e.g., 'concerned_parent')
+        job_story_id: Job/task type (e.g., 'shopping_trip')
     
     Returns:
-        True if compatible (allowed), False otherwise
-    
-    Examples:
-        >>> is_compatible('concerned_parent', 'shopping_trip')
-        True  # Parent in shopping_trip whitelist
-        
-        >>> is_compatible('concerned_parent', 'waste_collection')
-        False  # Parent NOT in waste_collection whitelist
+        True if compatible, False otherwise
     """
     # If job has explicit whitelist, check it
     if job_story_id in COMPATIBLE_USERS_FOR_JOB:
@@ -147,13 +207,17 @@ def is_compatible(user_story_id: str, job_story_id: str) -> bool:
         else:
             logger.debug(
                 f"❌ Blocked: {user_story_id} + {job_story_id} "
-                f"(user not in whitelist: {allowed_users})"
+                f"(not in whitelist: {allowed_users})"
             )
             return False
     
-    # If job not in whitelist, allow all (generic job)
-    logger.debug(f"⚠️ No whitelist for {job_story_id}, allowing {user_story_id}")
-    return True
+    # ⚠️ CRITICAL: If job NOT in whitelist, BLOCK IT (safe default)
+    # This prevents nonsensical combinations for unknown job types
+    logger.warning(
+        f"⚠️ Job '{job_story_id}' has NO WHITELIST - BLOCKING all users! "
+        f"(user: {user_story_id})"
+    )
+    return False
 
 
 def filter_compatible_combinations(
@@ -161,16 +225,14 @@ def filter_compatible_combinations(
     job_story_ids: List[str]
 ) -> List[Tuple[str, str]]:
     """
-    Get all compatible user + job story combinations.
-    
-    Uses whitelist-based filtering.
+    Filter to only compatible user + job combinations.
     
     Args:
-        user_story_ids: List of user story IDs
-        job_story_ids: List of job story IDs
+        user_story_ids: List of user personas
+        job_story_ids: List of job types
     
     Returns:
-        List of (user_story_id, job_story_id) tuples that are compatible
+        List of (user, job) tuples that are compatible
     """
     compatible = []
     
@@ -183,138 +245,83 @@ def filter_compatible_combinations(
     filtered_count = total_combos - len(compatible)
     
     logger.info(
-        f"✅ Filtered {filtered_count} incompatible combinations "
-        f"({len(compatible)}/{total_combos} valid)"
+        f"✅ Whitelist filtering: {len(compatible)}/{total_combos} allowed "
+        f"({filtered_count} blocked)"
     )
     
     return compatible
 
 
-def get_preferred_combinations(
-    user_story_ids: List[str],
-    job_story_ids: List[str],
-    min_coverage: float = 0.8
-) -> List[Tuple[str, str]]:
+def get_missing_whitelists(job_story_ids: List[str]) -> List[str]:
     """
-    Get preferred combinations that make most sense.
-    
-    Simply returns all compatible combinations (whitelist already ensures quality).
+    Identify job types that don't have whitelists.
     
     Args:
-        user_story_ids: Available user stories
-        job_story_ids: Available job stories
-        min_coverage: Ignored (kept for API compatibility)
+        job_story_ids: All job types in the system
     
     Returns:
-        List of (user_story_id, job_story_id) tuples
+        List of job IDs missing whitelists
     """
-    return filter_compatible_combinations(user_story_ids, job_story_ids)
+    missing = []
+    for job in job_story_ids:
+        if job not in COMPATIBLE_USERS_FOR_JOB:
+            missing.append(job)
+    
+    if missing:
+        logger.warning(
+            f"⚠️ {len(missing)} jobs missing whitelists: {missing}"
+        )
+    
+    return missing
 
 
-def explain_incompatibility(user_story_id: str, job_story_id: str) -> str:
-    """
-    Explain why a combination is incompatible.
-    
-    Args:
-        user_story_id: User story identifier
-        job_story_id: Job story identifier
-    
-    Returns:
-        Explanation string
-    """
-    if not is_compatible(user_story_id, job_story_id):
-        if job_story_id in COMPATIBLE_USERS_FOR_JOB:
-            allowed = COMPATIBLE_USERS_FOR_JOB[job_story_id]
-            return (
-                f"❌ {user_story_id} + {job_story_id} is incompatible: "
-                f"{user_story_id} is not in the allowed list for this job.\n"
-                f"Allowed personas: {', '.join(allowed)}"
-            )
-        else:
-            return f"❌ {user_story_id} + {job_story_id}: No whitelist defined for this job"
-    
-    return f"✅ {user_story_id} + {job_story_id} is compatible"
-
-
-# ============================================================================
-# Integration with Simulation Runner
-# ============================================================================
-
-def create_realistic_agent_pool(
-    num_agents: int,
-    user_story_ids: List[str],
-    job_story_ids: List[str],
-    strategy: str = 'compatible'
-) -> List[Tuple[str, str]]:
-    """
-    Create a pool of (user_story, job_story) pairs for agent generation.
-    
-    Args:
-        num_agents: Number of agents to create
-        user_story_ids: Available user stories
-        job_story_ids: Available job stories
-        strategy: Selection strategy (only 'compatible' and 'preferred' supported now)
-    
-    Returns:
-        List of (user_story_id, job_story_id) tuples
-    """
-    # Get compatible combinations
-    combinations = filter_compatible_combinations(user_story_ids, job_story_ids)
-    
-    if not combinations:
-        logger.warning("⚠️ No compatible combinations found - check whitelists!")
-        return []
-    
-    # Calculate how many agents per combination
-    agents_per_combo = max(1, num_agents // len(combinations))
-    remainder = num_agents % len(combinations)
-    
-    pool = []
-    for i, (user_story, job_story) in enumerate(combinations):
-        # Add base number of agents for this combo
-        count = agents_per_combo
-        # Add one more for first N combinations (to handle remainder)
-        if i < remainder:
-            count += 1
-        
-        for _ in range(count):
-            pool.append((user_story, job_story))
-    
-    logger.info(
-        f"✅ Created agent pool: {len(pool)} agents, "
-        f"{len(combinations)} unique combinations (whitelist-filtered)"
-    )
-    
-    return pool
-
-
-# ============================================================================
-# Diagnostic Functions
-# ============================================================================
-
-def get_all_compatible_jobs_for_user(user_story_id: str, all_job_ids: List[str]) -> List[str]:
+def get_compatible_jobs_for_user(
+    user_story_id: str, 
+    all_job_ids: List[str]
+) -> List[str]:
     """Get all jobs this user can do."""
     return [job for job in all_job_ids if is_compatible(user_story_id, job)]
 
 
-def get_all_compatible_users_for_job(job_story_id: str) -> List[str]:
+def get_compatible_users_for_job(job_story_id: str) -> List[str]:
     """Get all users who can do this job."""
-    if job_story_id in COMPATIBLE_USERS_FOR_JOB:
-        return COMPATIBLE_USERS_FOR_JOB[job_story_id]
-    else:
-        return []  # No whitelist = no users allowed (conservative)
+    return COMPATIBLE_USERS_FOR_JOB.get(job_story_id, [])
 
 
-def print_compatibility_matrix(user_story_ids: List[str], job_story_ids: List[str]):
-    """Print a compatibility matrix for debugging."""
-    print("\n" + "="*80)
-    print("COMPATIBILITY MATRIX (Whitelist-based)")
-    print("="*80)
+def create_realistic_agent_pool(
+    num_agents: int,
+    user_story_ids: List[str],
+    job_story_ids: List[str]
+) -> List[Tuple[str, str]]:
+    """
+    Create pool of (user, job) pairs for agent generation.
     
-    for job in job_story_ids:
-        compatible_users = [u for u in user_story_ids if is_compatible(u, job)]
-        print(f"\n{job}:")
-        print(f"  ✅ Compatible: {', '.join(compatible_users) if compatible_users else 'NONE'}")
-        print(f"  ❌ Blocked: {len(user_story_ids) - len(compatible_users)} user stories")
+    Args:
+        num_agents: Number of agents needed
+        user_story_ids: Available user personas
+        job_story_ids: Available job types
     
-    print("\n" + "="*80)
+    Returns:
+        List of (user, job) tuples
+    """
+    combinations = filter_compatible_combinations(user_story_ids, job_story_ids)
+    
+    if not combinations:
+        logger.error("❌ No compatible combinations - check whitelists!")
+        return []
+    
+    # Distribute evenly across combinations
+    agents_per_combo = max(1, num_agents // len(combinations))
+    remainder = num_agents % len(combinations)
+    
+    pool = []
+    for i, (user, job) in enumerate(combinations):
+        count = agents_per_combo + (1 if i < remainder else 0)
+        pool.extend([(user, job)] * count)
+    
+    logger.info(
+        f"✅ Created agent pool: {len(pool)} agents from "
+        f"{len(combinations)} compatible combinations"
+    )
+    
+    return pool[:num_agents]  # Trim to exact count
