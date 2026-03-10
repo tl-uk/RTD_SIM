@@ -42,6 +42,8 @@ COMPATIBLE_USERS_FOR_JOB = {
     # ========================================================================
     
     'freight_delivery_route': ['freight_operator', 'delivery_driver'],
+    'electric_hgv_port_delivery': ['freight_operator'],
+    'ferry_freight_roro': ['freight_operator'],
     'long_haul_freight': ['freight_operator'],
     'regional_distribution': ['freight_operator', 'delivery_driver'],
     'manufacturing_supply_chain': ['freight_operator'],
@@ -108,7 +110,10 @@ COMPATIBLE_USERS_FOR_JOB = {
     'shopping_trip': [
         'concerned_parent', 'disabled_commuter', 'budget_student',
         'rural_resident', 'eco_warrior', 'shift_worker', 'tourist',
-        'business_commuter'  # Off-duty shopping
+        'business_commuter',  # Off-duty shopping
+        'retired_commuter',     # DFT personas
+        'frequent_driver',      # DFT personas  
+        'elderly_non_driver'    # DFT personas
     ],
     
     # ========================================================================
@@ -118,7 +123,8 @@ COMPATIBLE_USERS_FOR_JOB = {
     'morning_commute': [
         'business_commuter', 'shift_worker', 'eco_warrior',
         'disabled_commuter', 'budget_student', 'long_distance_commuter',
-        'accessibility_user'
+        'accessibility_user', 
+        'frequent_driver' # DFT persona
     ],
     
     'commute_flexible': [
@@ -145,7 +151,8 @@ COMPATIBLE_USERS_FOR_JOB = {
     
     'island_ferry_trip': [
         'tourist', 'rural_resident', 'eco_warrior', 'island_resident',
-        'tourist_visitor'
+        'tourist_visitor', 'retired_commuter',     # DFT persona
+        'elderly_non_driver'    # DFT persona
     ],
     
     # ========================================================================
@@ -180,6 +187,12 @@ COMPATIBLE_USERS_FOR_JOB = {
         'business_commuter',  # Small business contractors
         'rural_resident'      # Rural tradespeople
     ],
+
+    # Ferry/port jobs for freight decarbonization:
+    'port_to_warehouse': [
+        'freight_operator'      # Professional HGV drivers only
+    ],
+
 }
 
 

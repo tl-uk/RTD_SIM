@@ -58,6 +58,7 @@ long_haul_freight:
     - weight_tonnes
     - delivery_deadline
     - driver_id
+    
 port_to_warehouse:
   context: When moving container freight from port to distribution centers
   goal: I want rapid turnaround to minimize port demurrage charges
@@ -114,6 +115,7 @@ port_to_warehouse:
     - weight_tonnes
     - demurrage_deadline
     - customs_cleared
+
 supermarket_supply:
   context: When delivering goods from distribution center to supermarket stores
   goal: I want reliable delivery during store operating hours
@@ -167,6 +169,7 @@ supermarket_supply:
     - delivery_window
     - refrigerated
     - store_capacity
+
 manufacturing_supply_chain:
   context: When delivering components for just-in-time manufacturing
   goal: I want guaranteed on-time delivery to prevent production line stops
@@ -225,3 +228,119 @@ manufacturing_supply_chain:
     - production_slot
     - component_type
     - delivery_tolerance_min
+
+# Port-of-Dover
+electric_hgv_port_delivery:
+  context: When delivering freight to port terminals using electric HGV
+  goal: I want charging infrastructure along route and at port
+  outcome: So I can complete delivery within battery range constraints
+  job_type: freight
+  delivery_params:
+    num_stops:
+    - 1
+    - 2
+    stop_duration_min:
+    - 30
+    - 90
+    charging_stop_required: sometimes
+  time_window:
+    start: 00:00
+    end: '23:59'
+    flexibility: medium
+  destination_type: port_terminal
+  typical_distance_km:
+  - 50
+  - 300
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: high
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg:
+    - 20000
+    - 44000
+    max_range_km: 300
+    charging_required: true
+    preferred_modes:
+    - hgv_electric
+    - hgv_hydrogen
+  plan_context:
+  - Electric HGVs require en-route charging infrastructure
+  - Port arrival SoC varies based on route and load
+  - Charging time adds to journey duration
+  - Shore power availability at port critical
+  - UK mandate: all HGVs <26t zero-emission by 2035
+  - Price parity with diesel expected by 2030
+  csv_columns:
+    required:
+    - depot_lat
+    - depot_lon
+    - port_lat
+    - port_lon
+    optional:
+    - charging_stop_lat
+    - charging_stop_lon
+    - target_soc
+    - port_berth_id
+
+ferry_freight_roro:
+  context: When transporting freight via RoRo ferry with electric vessels
+  goal: I want to minimize emissions while meeting ferry schedules
+  outcome: So I contribute to net-zero targets and maintain schedules
+  job_type: multimodal_freight
+  delivery_params:
+    num_stops:
+    - 1
+    - 2
+    stop_duration_min:
+    - 60
+    - 180
+    ferry_booking_required: true
+  time_window:
+    start: 00:00
+    end: '23:59'
+    flexibility: very_low
+    ferry_schedule_dependent: true
+  destination_type: cross_border_port
+  typical_distance_km:
+  - 10
+  - 200
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: heavy_freight
+    recurring: true
+    urgency: high
+    ferry_dependent: true
+  vehicle_constraints:
+    type: heavy_freight
+    capacity_kg:
+    - 20000
+    - 44000
+    max_range_km: 400
+    roro_compatible: true
+    preferred_modes:
+    - hgv_electric
+    - hgv_diesel
+    - hgv_hydrogen
+  plan_context:
+  - Dover handles 33% of UK-EU RoRo trade (10,000+ vehicles/day)
+  - Electric ferries require 25-35MW shore power per vessel
+  - 45-minute turnaround windows at berth
+  - Port grid capacity: 8MW current → 160MW needed for full electrification
+  - IMO targets 50% GHG reduction from shipping by 2050
+  - Ferry schedules are fixed - missing one adds hours of delay
+  csv_columns:
+    required:
+    - origin_port_lat
+    - origin_port_lon
+    - dest_port_lat
+    - dest_port_lon
+    optional:
+    - ferry_operator
+    - booking_reference
+    - sailing_time
+    - customs_clearance_required

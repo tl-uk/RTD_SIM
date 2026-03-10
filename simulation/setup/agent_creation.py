@@ -146,7 +146,6 @@ def create_agents(
                 num_agents=config.num_agents,
                 user_story_ids=config.user_stories,
                 job_story_ids=config.job_stories,
-                # strategy='compatible'
             )
             
             logger.info(f"Creating {len(agent_pool)} agents from filtered combinations")

@@ -1,4 +1,0 @@
-scenario_name,success,total_agents,total_steps,cascades,initial_adoption_pct,final_adoption_pct,adoption_growth_pct,peak_adoption_pct,peak_step,avg_flow,max_flow,final_flow,logistic_component,infrastructure_component,social_component,tipping_point_crossed,tipping_point_step,growth_rate_r,carrying_capacity_K,final_grid_load_mw,final_grid_utilization_pct,ev_adoption_from_agents_pct
-baseline,True,100,0,5,27.0,30.0,2.9999999999999973,31.0,1,0.030103343749999997,0.030793749999999998,0.030375,0.009375,0.006,0.009,False,-1,0.05,0.8,0.0,0.0,30.0
-aggressive,True,100,0,4,38.0,39.0,1.0000000000000009,39.0,61,0.10463738888888889,0.10550000000000001,0.10550000000000001,0.009993750000000001,0.0078000000000000005,0.0117,False,-1,0.05,0.8,0.0,0.0,39.0
-conservative,True,100,0,7,21.0,26.0,5.000000000000002,27.0,121,0.011564916666666668,0.01197,0.011746666666666667,0.008775000000000002,0.005200000000000001,0.0078,False,-1,0.05,0.8,0.0,0.0,26.0

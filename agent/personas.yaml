@@ -706,3 +706,60 @@ delivery_driver:
       - "Luggage limits active transport"
     
     desire_variance: 0.12
+
+# ==================================================================================
+# DFT personas
+# ==================================================================================
+
+retired_commuter:
+  narrative: |
+    As a recently retired professional, I enjoy using public transport
+    for leisure and want to reduce my carbon footprint while maintaining
+    an active social life.
+  persona_type: "passenger"
+  desires:
+    eco: 0.7
+    time: 0.4
+    cost: 0.6
+    comfort: 0.7
+    safety: 0.8
+    reliability: 0.7
+  mode_preferences:
+    bus: 0.8
+    train: 0.8
+    walk: 0.7
+    car_petrol: 0.4
+
+frequent_driver:
+  narrative: |
+    As a heavy car user with family responsibilities, I drive daily
+    for work, school runs, and errands, but I'm open to electric
+    vehicles to reduce emissions.
+  persona_type: "passenger"
+  desires:
+    time: 0.8
+    comfort: 0.7
+    reliability: 0.8
+    cost: 0.5
+    eco: 0.5
+  mode_preferences:
+    car_petrol: 0.8
+    ev: 0.7
+    car_diesel: 0.6
+
+elderly_non_driver:
+  narrative: |
+    As an elderly person who no longer drives, I rely on public
+    transport and community support to maintain independence.
+  persona_type: "passenger"
+  desires:
+    accessibility: 0.9
+    safety: 0.9
+    reliability: 0.8
+    cost: 0.7
+    comfort: 0.6
+  mode_preferences:
+    bus: 0.8
+    community_transport: 0.9
+    accessible_taxi: 0.7
+  
