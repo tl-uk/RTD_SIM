@@ -1,9 +1,29 @@
 """
 agent/story_compatibility.py
 
-COMPLETE WHITELIST-BASED compatibility system.
+COMPLETE WHITELIST-BASED compatibility system for RTD_SIM.
 
-Based on actual RTD_SIM personas.yaml and job types from logs.
+Maps all 18 user personas to all 39 job types.
+
+Persona groups:
+  Core passenger (8):    eco_warrior, concerned_parent, budget_student,
+                         business_commuter, disabled_commuter, rural_resident,
+                         shift_worker, tourist
+  Freight (2):           freight_operator, delivery_driver
+  DFT segments (3):      retired_commuter, frequent_driver, elderly_non_driver
+  Multi-modal (5):       long_distance_commuter, island_resident,
+                         business_traveler, accessibility_user, tourist_visitor
+
+DESIGN PRINCIPLES:
+  - Whitelist approach: define who CAN do each job (safe default = block)
+  - A persona appears in a job's whitelist only if the combination is
+    behaviourally realistic AND adds simulation value
+  - DFT and multi-modal personas are now fully integrated — they were
+    previously unreachable due to a YAML nesting bug in personas.yaml
+  - Target: 250-320 allowed combinations from 702 possible (18 × 39)
+
+FUNCTION SIGNATURE (no 'strategy' parameter):
+  create_realistic_agent_pool(num_agents, user_story_ids, job_story_ids)
 """
 
 from typing import List, Tuple
@@ -15,182 +35,232 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # COMPLETE WHITELIST: User Stories That Can Do Each Job
 # ============================================================================
-
-# All 10 user personas from personas.yaml:
-# - eco_warrior (passenger)
-# - concerned_parent (passenger)
-# - budget_student (passenger)
-# - business_commuter (passenger)
-# - disabled_commuter (passenger)
-# - rural_resident (passenger)
-# - freight_operator (freight)
-# - shift_worker (passenger)
-# - tourist (passenger)
-# - delivery_driver (freight)
-
-# Additional personas from extended section:
-# - long_distance_commuter
-# - island_resident
-# - business_traveler
-# - accessibility_user
-# - tourist_visitor
+#
+# ALL 18 personas:
+# Core passenger:  eco_warrior, concerned_parent, budget_student,
+#                  business_commuter, disabled_commuter, rural_resident,
+#                  shift_worker, tourist
+# Freight:         freight_operator, delivery_driver
+# DFT:             retired_commuter, frequent_driver, elderly_non_driver
+# Multi-modal:     long_distance_commuter, island_resident,
+#                  business_traveler, accessibility_user, tourist_visitor
 
 COMPATIBLE_USERS_FOR_JOB = {
-    
+
     # ========================================================================
-    # FREIGHT & HEAVY GOODS (Professional drivers ONLY)
+    # HEAVY FREIGHT (professional freight drivers only)
     # ========================================================================
-    
-    'freight_delivery_route': ['freight_operator', 'delivery_driver'],
-    'electric_hgv_port_delivery': ['freight_operator'],
-    'ferry_freight_roro': ['freight_operator'],
-    'long_haul_freight': ['freight_operator'],
-    'regional_distribution': ['freight_operator', 'delivery_driver'],
-    'manufacturing_supply_chain': ['freight_operator'],
-    'port_to_warehouse': ['freight_operator'],
-    'waste_collection': ['freight_operator', 'shift_worker'],
-    
-    # Construction-related freight (professional drivers)
-    'construction_materials': ['freight_operator'],
-    'hgv_construction_delivery_generated': ['freight_operator'],
-    'truck_construction_delivery_generated': ['freight_operator'],
-    'van_construction_delivery_generated': ['freight_operator', 'delivery_driver'],
-    
-    # Retail/warehouse freight (professional drivers)
-    'hgv_retail_delivery_generated': ['freight_operator'],
-    'truck_retail_delivery_generated': ['freight_operator', 'delivery_driver'],
-    'van_retail_delivery_generated': ['freight_operator', 'delivery_driver'],
-    
-    'hgv_warehouse_transfer_generated': ['freight_operator'],
-    'truck_warehouse_transfer_generated': ['freight_operator'],
-    'van_warehouse_transfer_generated': ['freight_operator', 'delivery_driver'],
-    
-    # Specialized freight
-    'refrigerated_transport': ['freight_operator'],
-    'furniture_delivery': ['freight_operator', 'delivery_driver'],
-    'supermarket_supply': ['freight_operator', 'delivery_driver'],
-    
+
+    'freight_delivery_route': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    'long_haul_freight': [
+        'freight_operator'
+    ],
+
+    'regional_distribution': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    'manufacturing_supply_chain': [
+        'freight_operator'
+    ],
+
+    'port_to_warehouse': [
+        'freight_operator'
+    ],
+
+    'electric_hgv_port_delivery': [
+        'freight_operator'
+    ],
+
+    'ferry_freight_roro': [
+        'freight_operator'
+    ],
+
+    'refrigerated_transport': [
+        'freight_operator'
+    ],
+
+    'supermarket_supply': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    'furniture_delivery': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    'waste_collection': [
+        'freight_operator', 'shift_worker'
+    ],
+
+    'construction_materials': [
+        'freight_operator'
+    ],
+
     # ========================================================================
-    # GIG ECONOMY & URBAN DELIVERY (Flexible workers, students)
+    # HGV GENERATED JOBS (professional heavy freight only)
     # ========================================================================
-    
+
+    'hgv_construction_delivery_generated': [
+        'freight_operator'
+    ],
+
+    'hgv_retail_delivery_generated': [
+        'freight_operator'
+    ],
+
+    'hgv_warehouse_transfer_generated': [
+        'freight_operator'
+    ],
+
+    'truck_construction_delivery_generated': [
+        'freight_operator'
+    ],
+
+    'truck_retail_delivery_generated': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    'truck_warehouse_transfer_generated': [
+        'freight_operator'
+    ],
+
+    'van_construction_delivery_generated': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    'van_retail_delivery_generated': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    'van_warehouse_transfer_generated': [
+        'freight_operator', 'delivery_driver'
+    ],
+
+    # ========================================================================
+    # GIG ECONOMY & URBAN DELIVERY (flexible workers)
+    # ========================================================================
+
     'gig_economy_delivery': [
         'delivery_driver', 'budget_student', 'shift_worker', 'eco_warrior'
     ],
-    
+
     'urban_food_delivery': [
         'delivery_driver', 'budget_student', 'shift_worker'
     ],
-    
+
     'urban_parcel_delivery': [
         'delivery_driver', 'budget_student', 'shift_worker'
     ],
-    
-    # Generated urban deliveries (time-based)
-    'urban_delivery_morning_generated': [
-        'delivery_driver', 'budget_student', 'shift_worker'
-    ],
-    
-    'urban_delivery_afternoon_generated': [
-        'delivery_driver', 'budget_student', 'shift_worker'
-    ],
-    
-    'urban_delivery_night_generated': [
-        'delivery_driver', 'shift_worker'  # No students at night
-    ],
-    
+
     'last_mile_scooter': [
         'delivery_driver', 'budget_student', 'shift_worker', 'eco_warrior'
     ],
-    
-    # ========================================================================
-    # PERSONAL ERRANDS & SHOPPING (Most personas)
-    # ========================================================================
-    
-    'shopping_trip': [
-        'concerned_parent', 'disabled_commuter', 'budget_student',
-        'rural_resident', 'eco_warrior', 'shift_worker', 'tourist',
-        'business_commuter',  # Off-duty shopping
-        'retired_commuter',     # DFT personas
-        'frequent_driver',      # DFT personas  
-        'elderly_non_driver'    # DFT personas
+
+    'urban_delivery_morning_generated': [
+        'delivery_driver', 'budget_student', 'shift_worker'
     ],
-    
+
+    'urban_delivery_afternoon_generated': [
+        'delivery_driver', 'budget_student', 'shift_worker'
+    ],
+
+    'urban_delivery_night_generated': [
+        'delivery_driver', 'shift_worker'  # No students at night
+    ],
+
     # ========================================================================
-    # COMMUTE JOBS (Workers & students)
+    # COMMUTE JOBS
     # ========================================================================
-    
+
     'morning_commute': [
         'business_commuter', 'shift_worker', 'eco_warrior',
         'disabled_commuter', 'budget_student', 'long_distance_commuter',
-        'accessibility_user', 
-        'frequent_driver' # DFT persona
-    ],
-    
-    'commute_flexible': [
-        'business_commuter', 'eco_warrior', 'disabled_commuter',
-        'budget_student', 'shift_worker', 'accessibility_user'
-    ],
-    
-    'multi_modal_commute': [
-        'business_commuter', 'eco_warrior', 'budget_student',
-        'long_distance_commuter', 'disabled_commuter', 'accessibility_user'
-    ],
-    
-    'intercity_train_commute': [
-        'business_commuter', 'long_distance_commuter', 'business_traveler'
-    ],
-    
-    # ========================================================================
-    # TOURISM & LEISURE (Tourists + leisure seekers)
-    # ========================================================================
-    
-    'tourist_scenic_rail': [
-        'tourist', 'eco_warrior', 'budget_student', 'tourist_visitor'
-    ],
-    
-    'island_ferry_trip': [
-        'tourist', 'rural_resident', 'eco_warrior', 'island_resident',
-        'tourist_visitor', 'retired_commuter',     # DFT persona
-        'elderly_non_driver'    # DFT persona
-    ],
-    
-    # ========================================================================
-    # ACCESSIBILITY-FOCUSED (Disabled users)
-    # ========================================================================
-    
-    'accessible_tram_journey': [
-        'disabled_commuter', 'accessibility_user', 'concerned_parent',
-        'eco_warrior', 'budget_student', 'business_commuter', 'tourist'
-        # Tram is accessible, but primarily for disabled users
-    ],
-    
-    # ========================================================================
-    # PROFESSIONAL SERVICES (Business travelers, contractors)
-    # ========================================================================
-    
-    'business_flight': [
-        'business_commuter', 'business_traveler'  # ONLY business travelers
-    ],
-    
-    'service_engineer_call': [
-        'freight_operator',  # Service engineers may use company vans
-        'business_commuter',  # Could be business service calls
-        'delivery_driver'     # Gig service calls
-    ],
-    
-    'trades_contractor': [
-        # ⚠️ IMPORTANT: This appears to be a JOB (contractor work)
-        # NOT a user persona!
-        # Professional contractors doing trade work
-        'freight_operator',   # Contractors with freight needs
-        'business_commuter',  # Small business contractors
-        'rural_resident'      # Rural tradespeople
+        'accessibility_user', 'frequent_driver',
+        'concerned_parent',         # school run IS a morning commute
     ],
 
-    # Ferry/port jobs for freight decarbonization:
-    'port_to_warehouse': [
-        'freight_operator'      # Professional HGV drivers only
+    'commute_flexible': [
+        'business_commuter', 'eco_warrior', 'disabled_commuter',
+        'budget_student', 'shift_worker', 'accessibility_user',
+        'long_distance_commuter', 'frequent_driver',
+        'concerned_parent',         # flexible school pickup/drop-off trips
+    ],
+
+    'multi_modal_commute': [
+        'business_commuter', 'eco_warrior', 'budget_student',
+        'long_distance_commuter', 'disabled_commuter', 'accessibility_user',
+        'shift_worker', 'business_traveler',  # multi-leg business travel
+    ],
+
+    'intercity_train_commute': [
+        'business_commuter', 'long_distance_commuter', 'business_traveler',
+        'eco_warrior', 'budget_student',
+        'retired_commuter',         # leisure intercity rail trips
+    ],
+
+    # ========================================================================
+    # SHOPPING & ERRANDS (broad access — most non-freight personas)
+    # ========================================================================
+
+    'shopping_trip': [
+        'concerned_parent', 'disabled_commuter', 'budget_student',
+        'rural_resident', 'eco_warrior', 'shift_worker', 'tourist',
+        'business_commuter', 'retired_commuter', 'frequent_driver',
+        'elderly_non_driver', 'long_distance_commuter', 'island_resident',
+        'accessibility_user', 'tourist_visitor',
+        'business_traveler',        # business travelers shop too
+    ],
+
+    # ========================================================================
+    # TOURISM & LEISURE
+    # ========================================================================
+
+    'tourist_scenic_rail': [
+        'tourist', 'eco_warrior', 'budget_student',
+        'tourist_visitor', 'retired_commuter', 'long_distance_commuter',
+        'concerned_parent',         # family day trips on scenic rail
+        'island_resident',          # mainland day trips via rail
+    ],
+
+    'island_ferry_trip': [
+        'tourist', 'rural_resident', 'eco_warrior', 'island_resident',
+        'tourist_visitor', 'retired_commuter', 'elderly_non_driver',
+        'concerned_parent', 'long_distance_commuter',
+        'business_traveler',        # some island business destinations
+    ],
+
+    # ========================================================================
+    # ACCESSIBILITY-FOCUSED
+    # ========================================================================
+
+    'accessible_tram_journey': [
+        'disabled_commuter', 'accessibility_user', 'concerned_parent',
+        'eco_warrior', 'budget_student', 'business_commuter', 'tourist',
+        'retired_commuter', 'elderly_non_driver', 'tourist_visitor',
+        'business_traveler',        # in-city tram use at meeting destinations
+        'long_distance_commuter',   # city-end of intercity journey
+    ],
+
+    # ========================================================================
+    # PROFESSIONAL SERVICES & BUSINESS TRAVEL
+    # ========================================================================
+
+    'business_flight': [
+        'business_commuter', 'business_traveler'
+    ],
+
+    'service_engineer_call': [
+        'freight_operator', 'business_commuter', 'delivery_driver',
+        'rural_resident', 'frequent_driver'
+    ],
+
+    'trades_contractor': [
+        'freight_operator', 'business_commuter', 'rural_resident',
+        'frequent_driver', 'delivery_driver',
+        'island_resident',          # island tradespeople doing contract work
     ],
 
 }
@@ -203,18 +273,16 @@ COMPATIBLE_USERS_FOR_JOB = {
 def is_compatible(user_story_id: str, job_story_id: str) -> bool:
     """
     Check if user + job combination makes sense (whitelist-based).
-    
+
     Args:
         user_story_id: User persona (e.g., 'concerned_parent')
         job_story_id: Job/task type (e.g., 'shopping_trip')
-    
+
     Returns:
         True if compatible, False otherwise
     """
-    # If job has explicit whitelist, check it
     if job_story_id in COMPATIBLE_USERS_FOR_JOB:
         allowed_users = COMPATIBLE_USERS_FOR_JOB[job_story_id]
-        
         if user_story_id in allowed_users:
             return True
         else:
@@ -223,11 +291,10 @@ def is_compatible(user_story_id: str, job_story_id: str) -> bool:
                 f"(not in whitelist: {allowed_users})"
             )
             return False
-    
-    # ⚠️ CRITICAL: If job NOT in whitelist, BLOCK IT (safe default)
-    # This prevents nonsensical combinations for unknown job types
+
+    # Safe default: block unknown jobs
     logger.warning(
-        f"⚠️ Job '{job_story_id}' has NO WHITELIST - BLOCKING all users! "
+        f"⚠️ Job '{job_story_id}' has NO WHITELIST — blocking all users. "
         f"(user: {user_story_id})"
     )
     return False
@@ -239,57 +306,46 @@ def filter_compatible_combinations(
 ) -> List[Tuple[str, str]]:
     """
     Filter to only compatible user + job combinations.
-    
+
     Args:
         user_story_ids: List of user personas
         job_story_ids: List of job types
-    
+
     Returns:
         List of (user, job) tuples that are compatible
     """
     compatible = []
-    
     for user_story in user_story_ids:
         for job_story in job_story_ids:
             if is_compatible(user_story, job_story):
                 compatible.append((user_story, job_story))
-    
+
     total_combos = len(user_story_ids) * len(job_story_ids)
     filtered_count = total_combos - len(compatible)
-    
+
     logger.info(
         f"✅ Whitelist filtering: {len(compatible)}/{total_combos} allowed "
         f"({filtered_count} blocked)"
     )
-    
+
     return compatible
 
 
 def get_missing_whitelists(job_story_ids: List[str]) -> List[str]:
-    """
-    Identify job types that don't have whitelists.
-    
-    Args:
-        job_story_ids: All job types in the system
-    
-    Returns:
-        List of job IDs missing whitelists
-    """
+    """Identify job types that don't have whitelists."""
     missing = []
     for job in job_story_ids:
         if job not in COMPATIBLE_USERS_FOR_JOB:
             missing.append(job)
-    
     if missing:
         logger.warning(
             f"⚠️ {len(missing)} jobs missing whitelists: {missing}"
         )
-    
     return missing
 
 
 def get_compatible_jobs_for_user(
-    user_story_id: str, 
+    user_story_id: str,
     all_job_ids: List[str]
 ) -> List[str]:
     """Get all jobs this user can do."""
@@ -308,33 +364,35 @@ def create_realistic_agent_pool(
 ) -> List[Tuple[str, str]]:
     """
     Create pool of (user, job) pairs for agent generation.
-    
+
+    NOTE: No 'strategy' parameter — this was removed in Phase 7.2.
+
     Args:
         num_agents: Number of agents needed
         user_story_ids: Available user personas
         job_story_ids: Available job types
-    
+
     Returns:
-        List of (user, job) tuples
+        List of (user, job) tuples, length == num_agents
     """
     combinations = filter_compatible_combinations(user_story_ids, job_story_ids)
-    
+
     if not combinations:
-        logger.error("❌ No compatible combinations - check whitelists!")
+        logger.error("❌ No compatible combinations — check whitelists!")
         return []
-    
+
     # Distribute evenly across combinations
     agents_per_combo = max(1, num_agents // len(combinations))
     remainder = num_agents % len(combinations)
-    
+
     pool = []
     for i, (user, job) in enumerate(combinations):
         count = agents_per_combo + (1 if i < remainder else 0)
         pool.extend([(user, job)] * count)
-    
+
     logger.info(
         f"✅ Created agent pool: {len(pool)} agents from "
         f"{len(combinations)} compatible combinations"
     )
-    
-    return pool[:num_agents]  # Trim to exact count
+
+    return pool[:num_agents]
