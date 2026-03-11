@@ -218,27 +218,12 @@ class DynamicPolicyEngine:
 
     def update_simulation_state(self, step: int, agents: List, env, infrastructure) -> None:
         """Refresh the simulation state snapshot used for condition evaluation."""
-        # personal_ev_count: only mode='ev' (personal electric cars).
-        # This is intentionally narrow. Freight electric modes (van_electric,
-        # truck_electric, hgv_electric) are counted separately as freight_ev_count.
-        # Merging them into a single ev_adoption signal caused the default
-        # add_depot_chargers rule to fire from step 1, because freight agents
-        # account for ~40% of the population and are predominantly electric,
-        # pushing the blended rate above 50% immediately.
-        #
-        # Policy rules that care about ALL electric modes (e.g. grid load
-        # management) should use the expression:
-        #   (ev_count + freight_ev_count) / total_agents
-        # or use grid_utilization as a more direct signal.
         personal_ev_count = sum(1 for a in agents if a.state.mode == 'ev')
         freight_ev_count = sum(
             1 for a in agents
             if a.state.mode in ('van_electric', 'truck_electric', 'hgv_electric')
         )
-        # ev_count remains the legacy field consumed by existing rules and
-        # evaluate_condition's safe_context. It now reflects personal EVs only
-        # so that ev_adoption > 0.3 means "30% of agents drive a personal EV".
-        ev_count = personal_ev_count
+        ev_count = personal_ev_count  # legacy field — now personal EVs only
         total_agents = len(agents)
 
         grid_metrics = infrastructure.get_infrastructure_metrics()
@@ -249,7 +234,7 @@ class DynamicPolicyEngine:
             'time_of_day':         infrastructure.current_hour if hasattr(infrastructure, 'current_hour') else 8,
             'ev_adoption':         ev_count / max(1, total_agents),
             'ev_count':            ev_count,
-            'freight_ev_count':    freight_ev_count,   # van_electric + truck_electric + hgv_electric
+            'freight_ev_count':    freight_ev_count,  # van/truck/hgv electric
             'total_agents':        total_agents,
             'grid_load':           grid_metrics.get('grid_load_mw', 0),
             'grid_capacity':       grid_metrics.get('grid_capacity_mw', 1000),

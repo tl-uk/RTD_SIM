@@ -316,17 +316,12 @@ class BDIPlanner:
         elif vehicle_type == 'commercial':
             modes = ['van_electric', 'van_diesel', 'cargo_bike']
             logger.debug(f"Commercial context: initial modes {modes}")
-
+        
         elif vehicle_type == 'transit':
-            # Public transit and active travel modes only.
-            # car/ev are included as realistic fallbacks (e.g. rail disruption, rural legs).
-            # ALL freight modes are excluded: van_electric, van_diesel, truck_*, hgv_*, cargo_bike.
-            # This vehicle_type is set by transit_passenger.yaml for jobs such as:
-            #   intercity_train_commute, accessible_tram_journey, tourist_scenic_rail,
-            #   island_ferry_trip, multi_modal_commute.
+            # ALL freight modes excluded: van_electric, van_diesel, truck_*, hgv_*, cargo_bike
             modes = ['train', 'tram', 'bus', 'ferry', 'walk', 'bike', 'ebike', 'ev', 'car']
             logger.debug(f"Transit context: initial modes {modes}")
-
+        
         elif priority == 'emergency':
             modes = ['car', 'ev', 'bus']
         elif context.get('luggage_present') or context.get('wheelchair_accessible'):
