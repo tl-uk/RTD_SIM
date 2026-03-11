@@ -63,6 +63,7 @@ class InteractionRule:
                 'total_chargers':     state.get('total_chargers', 1),
                 'ev_adoption':        state.get('ev_adoption', 0),
                 'ev_count':           state.get('ev_count', 0),
+                'freight_ev_count':   state.get('freight_ev_count', 0),  # van/truck/hgv electric
                 'total_agents':       state.get('total_agents', 1),
                 'avg_charging_cost':  state.get('avg_charging_cost', 0),
                 'step':               state.get('step', 0),

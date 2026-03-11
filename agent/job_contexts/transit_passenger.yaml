@@ -1,0 +1,317 @@
+# agent/job_contexts/transit_passenger.yaml
+#
+# Job contexts for transit-oriented passenger journeys.
+#
+# WHY THIS FILE EXISTS:
+#   intercity_train_commute, accessible_tram_journey, and tourist_scenic_rail
+#   previously had no job context YAML. The JobStoryParser fell back to a
+#   generic context with vehicle_type=personal and no preferred_modes, so
+#   the BDI planner evaluated ALL modes (bus, car, ev, van_electric,
+#   truck_electric, hgv_electric, etc.) and selected based purely on
+#   desire weights. This produced results like:
+#     - disabled_commuter_accessible_tram_journey → van_electric (41.5km)
+#     - retired_commuter_tourist_scenic_rail → ev
+#     - eco_warrior_intercity_train_commute → ev/car
+#   None of these match the job semantics.
+#
+#   The fix: each job now specifies preferred_modes to guide the BDI planner
+#   toward contextually correct transport modes. vehicle_required=False is
+#   preserved since these are public-transit journeys (no private vehicle
+#   ownership required). The planner still uses persona desire weights within
+#   the preferred set, so eco_warrior prefers train over bus, business_commuter
+#   prefers first-class where available, etc.
+#
+# INSTALL: agent/job_contexts/transit_passenger.yaml
+
+intercity_train_commute:
+  context: When commuting daily between cities over long distances (e.g. Edinburgh-Glasgow)
+  goal: I want a fast, productive intercity journey with reliable scheduling
+  outcome: So I can arrive on time, work during travel, and avoid city parking costs
+  job_type: passenger_transit
+  time_window:
+    start: 6
+    end: 22
+    flexibility: low
+  destination_type: city_centre_office
+  typical_distance_km:
+    - 50
+    - 150
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    recurring: true
+    urgency: high
+  vehicle_constraints:
+    preferred_modes:
+      - train
+      - bus
+      - car
+      - ev
+    # train is the primary intent; car/ev as fallback for planner
+    # Note: van_electric, truck modes, hgv modes are NOT included —
+    # intercity commuters do not use freight vehicles.
+  plan_context:
+    - Long-distance commuter needs rail or coach as primary mode
+    - Car/EV are valid fallbacks when rail is disrupted
+    - Freight vehicle modes are inappropriate for this job context
+    - Productive use of travel time important (train favoured over car)
+    - Season ticket economics create strong mode lock-in
+
+
+accessible_tram_journey:
+  context: When travelling within the city using step-free accessible public transport
+  goal: I want a fully accessible tram or bus journey with level boarding
+  outcome: So I can travel independently without relying on assistance or taxis
+  job_type: passenger_transit
+  time_window:
+    start: 7
+    end: 21
+    flexibility: medium
+  destination_type: city_centre_or_suburb
+  typical_distance_km:
+    - 1
+    - 15
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    recurring: false
+    urgency: medium
+  vehicle_constraints:
+    preferred_modes:
+      - tram
+      - bus
+      - walk
+      - accessible_taxi
+      - ev
+      - car
+    # tram and bus are the primary modes for this job context.
+    # walk is included for short distances.
+    # accessible_taxi as a fallback when tram/bus unavailable.
+    # Freight modes (van_electric, trucks, hgv) are entirely excluded —
+    # no accessible tram journey involves freight vehicles.
+  plan_context:
+    - Tram is the primary mode where Edinburgh tram network is available
+    - Bus provides coverage outside tram corridor
+    - Journey must be step-free throughout
+    - Avoids stairs, steep ramps, unpaved paths
+    - Pre-booking may be required for community transport fallback
+
+
+tourist_scenic_rail:
+  context: When exploring scenic rail routes as part of a leisure or holiday trip
+  goal: I want a slow, scenic journey that maximises the travel experience
+  outcome: So I can experience the landscape and arrive relaxed without hiring a car
+  job_type: passenger_leisure
+  time_window:
+    start: 8
+    end: 20
+    flexibility: high
+  destination_type: scenic_destination_or_rural
+  typical_distance_km:
+    - 30
+    - 200
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    recurring: false
+    urgency: low
+  vehicle_constraints:
+    preferred_modes:
+      - train
+      - bus
+      - ferry
+      - walk
+      - bike
+    # Rail is the primary mode — the job is specifically a scenic rail journey.
+    # Bus and ferry included for legs where rail is unavailable (islands, rural).
+    # Walk and bike for last-mile or short excursions at destination.
+    # Car, EV, and freight modes excluded — this job represents car-free tourism.
+  plan_context:
+    - West Highland Line and similar scenic routes are the intended experience
+    - Time flexibility is high — slower routes preferred over faster ones
+    - Luggage may limit cycling but does not affect rail/bus
+    - Rail passes may be used for multi-leg journeys
+    - Island ferry legs are natural extensions of scenic rail trips
+
+
+island_ferry_trip:
+  context: When travelling to or from a Scottish island via scheduled ferry service
+  goal: I want a reliable ferry crossing that fits my schedule and budget
+  outcome: So I can access mainland services or return home without stress
+  job_type: passenger_transit
+  time_window:
+    start: 6
+    end: 20
+    flexibility: very_low
+  destination_type: island_or_port
+  typical_distance_km:
+    - 5
+    - 80
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    ferry_dependent: true
+    recurring: false
+    urgency: high
+  vehicle_constraints:
+    preferred_modes:
+      - ferry
+      - bus
+      - walk
+      - car
+      - ev
+    # Ferry is the defining mode for this job — it is non-negotiable.
+    # Car/EV included as the common drive-on mode for the ferry vehicle deck.
+    # Bus for connections to/from ferry terminal.
+    # Freight modes excluded — passenger island trips do not use freight vehicles.
+  plan_context:
+    - Ferry schedule is fixed — missing it has major consequences
+    - Drive-on ferry allows car/EV transport to island
+    - Walk-on passengers use bus connections to terminal
+    - Advance booking strongly preferred
+    - Weather can cancel sailings — plan for contingency
+
+
+shopping_trip:
+  context: When making a routine or occasional trip to shops or services
+  goal: I want a practical, convenient journey that lets me carry my purchases home
+  outcome: So I can complete errands without excessive cost or effort
+  job_type: passenger_errand
+  time_window:
+    start: 9
+    end: 20
+    flexibility: high
+  destination_type: retail_or_town_centre
+  typical_distance_km:
+    - 1
+    - 20
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    recurring: false
+    urgency: low
+  vehicle_constraints:
+    preferred_modes:
+      - walk
+      - bus
+      - tram
+      - bike
+      - car
+      - ev
+      - taxi
+    # Full personal transport mode set is appropriate for shopping trips.
+    # Freight modes excluded — consumers do not use HGVs or trucks for shopping.
+  plan_context:
+    - Mode choice depends heavily on distance and amount to carry
+    - Short trips well-suited to walk or bike
+    - Longer trips or heavy loads favour car, EV, or taxi
+    - Bus/tram viable where routes serve retail destinations
+
+
+morning_commute:
+  context: When travelling to work during the morning peak period
+  goal: I want to arrive at work on time and as stress-free as possible
+  outcome: So I start the working day in a good state and meet my obligations
+  job_type: passenger_commute
+  time_window:
+    start: 6
+    end: 10
+    flexibility: low
+  destination_type: workplace
+  typical_distance_km:
+    - 2
+    - 40
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    recurring: true
+    urgency: high
+  vehicle_constraints:
+    preferred_modes:
+      - bus
+      - tram
+      - train
+      - walk
+      - bike
+      - ebike
+      - car
+      - ev
+    # Full range of commute-appropriate personal modes.
+    # Freight modes excluded — commuters do not use HGVs.
+  plan_context:
+    - Time reliability is the primary concern during morning peak
+    - Mode habits are strong and resistant to change
+    - Weather significantly affects active travel choice
+    - Parking costs and availability influence car vs transit split
+
+
+commute_flexible:
+  context: When commuting with some schedule flexibility — flexi-hours, part-time, or variable start
+  goal: I want to travel outside peak hours where possible to reduce stress and cost
+  outcome: So I have a more comfortable journey and may access cheaper off-peak fares
+  job_type: passenger_commute
+  time_window:
+    start: 7
+    end: 11
+    flexibility: medium
+  destination_type: workplace
+  typical_distance_km:
+    - 2
+    - 30
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    recurring: true
+    urgency: medium
+  vehicle_constraints:
+    preferred_modes:
+      - train
+      - bus
+      - tram
+      - walk
+      - bike
+      - ebike
+      - car
+      - ev
+    # Flexible commuters have a slightly stronger transit preference than
+    # rigid-schedule commuters, since off-peak rail is often cheaper.
+  plan_context:
+    - Flexibility allows use of off-peak cheaper rail/bus fares
+    - Active travel more attractive with relaxed timing
+    - Frequency of services matters less than for peak commuters
+
+
+multi_modal_commute:
+  context: When commuting using a combination of transport modes (e.g. bike + train, bus + walk)
+  goal: I want to chain modes efficiently to cover each leg of my journey optimally
+  outcome: So I can access destinations not well-served by any single mode
+  job_type: passenger_commute
+  time_window:
+    start: 6
+    end: 10
+    flexibility: low
+  destination_type: workplace_or_hub
+  typical_distance_km:
+    - 5
+    - 60
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    recurring: true
+    urgency: high
+  vehicle_constraints:
+    preferred_modes:
+      - train
+      - bus
+      - tram
+      - bike
+      - ebike
+      - walk
+      - ev
+      - car
+    # Multi-modal commuters use a wide set of modes but exclude freight vehicles.
+  plan_context:
+    - First/last mile active travel is a core part of the journey
+    - Integration between modes (bike parking, tram stop proximity) is critical
+    - Disruption to one leg cascades to others
+    - EV/car used as fallback when transit disruption occurs
