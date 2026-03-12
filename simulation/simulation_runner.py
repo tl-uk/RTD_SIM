@@ -10,11 +10,13 @@ Added support for default policies and restored missing Phases 5 & 6
 from __future__ import annotations
 
 # Enable logging to console
+# NOTE: Do NOT use force=True — it strips existing handlers including the
+# FileHandler set up by streamlit_app.py, losing all file logging for the run.
+# basicConfig is a safe no-op if handlers are already configured.
 import logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(levelname)s:%(name)s:%(message)s',
-    force=True
 )
 
 from typing import Optional, Callable
