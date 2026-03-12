@@ -132,6 +132,8 @@ class StoryDrivenAgent(CognitiveAgent):
                 context['vehicle_type'] = 'medium_freight'
             elif vehicle_type_param in ['heavy_freight']:
                 context['vehicle_type'] = 'heavy_freight'
+            elif vehicle_type_param in ['transit']:
+                context['vehicle_type'] = 'transit'
             else:
                 context['vehicle_type'] = 'personal'
         
@@ -148,6 +150,8 @@ class StoryDrivenAgent(CognitiveAgent):
                 context['vehicle_type'] = 'medium_freight'
             elif vc_type in ['heavy_freight']:
                 context['vehicle_type'] = 'heavy_freight'
+            elif vc_type in ['transit']:
+                context['vehicle_type'] = 'transit'
             else:
                 context['vehicle_type'] = 'personal'
         else:
