@@ -819,37 +819,174 @@ def _render_location_settings():
 
 
 def _render_story_selection():
-    """Render story selection section."""
+    """
+    Render story selection section.
+
+    Returns (user_stories, job_stories) as lists of story ID strings, ready to
+    pass directly into SimulationConfig.user_stories / .job_stories.
+
+    ─── GOTCHA: list_available_stories() ordering vs whitelist compatibility ──
+    UserStoryParser and JobStoryParser return stories in YAML-file discovery
+    order (typically alphabetical by filename). Taking the first N entries with
+    [:5] does NOT guarantee those N user IDs are whitelisted against those N job
+    IDs in story_compatibility.py. In practice many combinations are intentionally
+    blocked (e.g. 'freight_operator' + 'shopping_trip'), so a random first-five
+    slice can yield 0 compatible combos → create_realistic_agent_pool returns []
+    → agents=[] → simulation_loop.py UnboundLocalError on `agent`.
+
+    The fix has three layers:
+      1. SAFE DEFAULTS  – explicit curated IDs with known cross-compatibility,
+                          used only when those IDs actually exist in the parsed
+                          list (falls back to [:5] if they don't).
+      2. LIVE COUNTER   – compute and display compatible combo count immediately
+                          after the user changes the multiselects, so the problem
+                          is visible before they hit Run.
+      3. AUTO-EXPAND    – if the selected combo yields 0 compatible pairs, silently
+                          widen to the full available list and warn the user.
+                          This prevents a silent 0-agent run without blocking the UI.
+
+    ─── GOTCHA: story IDs vs display labels ─────────────────────────────────
+    story_compatibility.COMPATIBLE_USERS_FOR_JOB uses snake_case IDs
+    (e.g. 'eco_warrior', 'morning_commute'). If list_available_stories() ever
+    returns human-readable display labels ('Eco Warrior') instead of IDs, ALL
+    compatibility lookups will fail silently (every combo returns False → 0
+    agents). If you see "0/N allowed" in the log after a known-good selection,
+    check UserStoryParser.list_available_stories() return format first.
+    """
     st.markdown("### 📖 Story Selection")
-    
-    user_stories = []
-    job_stories = []
-    
+
+    # ── Personas / user-stories that appear in many whitelist entries.
+    # These are used as the DEFAULT selection when the parsed list contains them.
+    # Update this list whenever story_compatibility.COMPATIBLE_USERS_FOR_JOB changes.
+    _SAFE_DEFAULT_USERS = [
+        'eco_warrior',          # whitelisted in 10+ job types
+        'budget_student',       # whitelisted in 10+ job types
+        'business_commuter',    # whitelisted in 8+ job types
+        'shift_worker',         # whitelisted in 8+ job types
+        'concerned_parent',     # whitelisted in 6+ job types
+    ]
+
+    # ── Job types with the broadest user whitelists (many compatible personas).
+    # morning_commute and shopping_trip alone cover almost all non-freight users.
+    _SAFE_DEFAULT_JOBS = [
+        'morning_commute',          # 9 allowed users
+        'shopping_trip',            # 14 allowed users
+        'commute_flexible',         # 8 allowed users
+        'accessible_tram_journey',  # 11 allowed users
+        'tourist_scenic_rail',      # 7 allowed users
+    ]
+
+    user_stories: List[str] = []
+    job_stories: List[str] = []
+
     if STORIES_AVAILABLE:
         try:
             user_parser = UserStoryParser()
             job_parser = JobStoryParser()
             available_users = user_parser.list_available_stories()
-            available_jobs = job_parser.list_available_stories()
-            
+            available_jobs  = job_parser.list_available_stories()
+
+            # ── Build safe defaults, falling back to [:5] if curated IDs are absent.
+            # GOTCHA: if list_available_stories() returns display names instead of
+            # snake_case IDs, the intersection below will be empty and we fall through
+            # to [:5]. That won't crash — but compatibility will still be 0 because
+            # story_compatibility also expects IDs. Watch the "✅ Whitelist filtering"
+            # log line: if it says "0/N allowed" after a curated selection, the parser
+            # format has drifted.
+            default_users = [u for u in _SAFE_DEFAULT_USERS if u in available_users]
+            if not default_users:
+                default_users = available_users[:min(5, len(available_users))]
+
+            default_jobs = [j for j in _SAFE_DEFAULT_JOBS if j in available_jobs]
+            if not default_jobs:
+                default_jobs = available_jobs[:min(5, len(available_jobs))]
+
             user_stories = st.multiselect(
                 "User Stories",
                 available_users,
-                default=available_users[:min(5, len(available_users))],
-                help="Select which personas to include"
+                default=default_users,
+                help="Select which personas to include. Only combinations whitelisted "
+                     "in story_compatibility.py will generate agents."
             )
-            
+
             job_stories = st.multiselect(
-                "Job Stories", 
+                "Job Stories",
                 available_jobs,
-                default=available_jobs[:min(5, len(available_jobs))],
-                help="Select which job contexts to include"
+                default=default_jobs,
+                help="Select which job contexts to include. Incompatible user+job "
+                     "pairs are filtered out by the whitelist before agents are created."
             )
+
+            # ── Live compatibility counter ─────────────────────────────────────
+            # Compute this here (outside the form submit) so the user sees it
+            # while they're still selecting — not after a failed run.
+            # GOTCHA: this import must mirror the one in agent_creation.py. If
+            # story_compatibility.py is not on sys.path at sidebar load time this
+            # block silently skips, which is safe but loses the warning.
+            if user_stories and job_stories:
+                try:
+                    from agent.story_compatibility import (
+                        create_realistic_agent_pool,
+                        get_missing_whitelists,
+                    )
+                    preview_pool = create_realistic_agent_pool(
+                        num_agents=1,   # dummy — we only care about len(compatible)
+                        user_story_ids=user_stories,
+                        job_story_ids=job_stories,
+                    )
+                    total_combos = len(user_stories) * len(job_stories)
+                    compatible_count = len(preview_pool)
+
+                    if compatible_count == 0:
+                        # ── AUTO-EXPAND: widen to full lists rather than silently
+                        # running with 0 agents. The user sees a warning AND still
+                        # gets a working simulation.
+                        # GOTCHA: this changes their selection without telling them
+                        # exactly which IDs were added — intentional, to keep the UI
+                        # simple, but can be confusing if they expect a narrow run.
+                        st.error(
+                            f"⛔ **0 of {total_combos} combinations are compatible** "
+                            f"with the current whitelist. Expanding to all available "
+                            f"stories to prevent a 0-agent run. Check "
+                            f"`story_compatibility.py` to add the missing combinations."
+                        )
+                        user_stories = available_users
+                        job_stories  = available_jobs
+
+                    elif compatible_count < 3:
+                        st.warning(
+                            f"⚠️ Only **{compatible_count} of {total_combos}** "
+                            f"combinations are compatible — this may produce very few "
+                            f"agents. Consider adding more personas or job types."
+                        )
+                    else:
+                        st.caption(
+                            f"✅ {compatible_count} of {total_combos} combinations "
+                            f"are compatible with the whitelist."
+                        )
+
+                    # Warn about job types that have no whitelist at all
+                    missing = get_missing_whitelists(job_stories)
+                    if missing:
+                        st.warning(
+                            f"⚠️ These job types have **no whitelist** in "
+                            f"`story_compatibility.py` and will block ALL users: "
+                            f"{', '.join(missing)}"
+                        )
+
+                except ImportError:
+                    # story_compatibility not available — skip preview silently.
+                    # agent_creation.py has its own fallback for this case.
+                    pass
+
         except Exception as e:
             st.warning(f"Stories not found: {e}")
+            # Hard-coded fallback: these IDs are known-good in story_compatibility.py.
+            # GOTCHA: if you rename or remove these IDs from COMPATIBLE_USERS_FOR_JOB,
+            # update this fallback too — otherwise the exception path still runs 0-agent.
             user_stories = ['eco_warrior', 'budget_student', 'business_commuter']
-            job_stories = ['morning_commute', 'shopping_trip']
-    
+            job_stories  = ['morning_commute', 'shopping_trip']
+
     return user_stories, job_stories
 
 

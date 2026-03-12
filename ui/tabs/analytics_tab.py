@@ -66,11 +66,13 @@ def render_journey_insights(results):
     
     # Summary metrics
     summary = journey_tracker.get_summary_statistics()
-    
+
+    # Guard: journey_tracker returns empty dict when no journeys were recorded (0-agent run).
+    # All downstream keys (completion_rate, total_distance_km etc.) are absent → KeyError crash.
     if not summary.get('total_journeys'):
         st.info("No journeys recorded. Run the simulation with agents to see journey analytics.")
         return
-    
+
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Journeys", f"{summary.get('total_journeys', 0):,}")
     col2.metric("Completion Rate", f"{summary.get('completion_rate', 0):.1%}")
@@ -164,11 +166,14 @@ def render_journey_insights(results):
 def render_adoption_dynamics(results):
     """Mode share evolution and tipping points."""
     st.header("📈 Mode Share Evolution")
-    
+
     mode_share_analyzer = results.mode_share_analyzer
-    
-    # Adoption curves with tipping points
-    st.subheader("📊 Adoption Curves")
+
+    # Guard: adoption_history is empty when agents=0. go.Figure loop is safe (no crash),
+    # but the chart is a blank axes that confuses users. Return early with a clear message.
+    if not results.adoption_history:
+        st.info("No adoption history recorded. Run the simulation with agents to see mode share dynamics.")
+        return
     
     # Plot adoption history
     fig = go.Figure()
@@ -418,42 +423,55 @@ def render_network_efficiency(results):
     
     # VKT Summary
     st.subheader("🚗 Vehicle Kilometers Traveled")
-    
+
     vkt = network_efficiency.get_vkt_summary()
-    
+
+    # Guard: vkt dicts are empty when no agents moved (0-agent run or all agents stuck).
+    # px.bar / px.pie raise ValueError("'Mode' is not a column in data_frame") on empty DataFrames.
+    if not vkt.get('total_vkt_km'):
+        st.info("No vehicle distance data recorded. Agents must complete journeys for VKT metrics.")
+        return
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.metric("Total VKT", f"{vkt['total_vkt_km']:,.0f} km")
-        
-        # By mode chart
-        vkt_by_mode = pd.DataFrame([
-            {'Mode': mode, 'VKT': km}
-            for mode, km in vkt['by_mode'].items()
-        ])
-        
-        fig = px.bar(
-            vkt_by_mode,
-            x='Mode',
-            y='VKT',
-            title="VKT by Mode"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
+
+        # By mode chart — guard against empty by_mode dict
+        by_mode = vkt.get('by_mode', {})
+        if by_mode:
+            vkt_by_mode = pd.DataFrame([
+                {'Mode': mode, 'VKT': km}
+                for mode, km in by_mode.items()
+            ])
+            fig = px.bar(
+                vkt_by_mode,
+                x='Mode',
+                y='VKT',
+                title="VKT by Mode"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.caption("No per-mode VKT data available.")
+
     with col2:
-        # By vehicle type
-        vkt_by_type = pd.DataFrame([
-            {'Type': vtype, 'VKT': km}
-            for vtype, km in vkt['by_vehicle_type'].items()
-        ])
-        
-        fig = px.pie(
-            vkt_by_type,
-            values='VKT',
-            names='Type',
-            title="VKT by Vehicle Type"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # By vehicle type — guard against empty by_vehicle_type dict.
+        # px.pie also crashes on empty DataFrame (no 'Type' column).
+        by_vtype = vkt.get('by_vehicle_type', {})
+        if by_vtype:
+            vkt_by_type = pd.DataFrame([
+                {'Type': vtype, 'VKT': km}
+                for vtype, km in by_vtype.items()
+            ])
+            fig = px.pie(
+                vkt_by_type,
+                values='VKT',
+                names='Type',
+                title="VKT by Vehicle Type"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.caption("No per-vehicle-type VKT data available.")
     
     # Bottlenecks
     st.subheader("🚧 Infrastructure Bottlenecks")
