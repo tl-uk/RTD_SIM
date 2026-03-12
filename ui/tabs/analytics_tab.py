@@ -67,11 +67,15 @@ def render_journey_insights(results):
     # Summary metrics
     summary = journey_tracker.get_summary_statistics()
     
+    if not summary.get('total_journeys'):
+        st.info("No journeys recorded. Run the simulation with agents to see journey analytics.")
+        return
+    
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Journeys", f"{summary['total_journeys']:,}")
-    col2.metric("Completion Rate", f"{summary['completion_rate']:.1%}")
-    col3.metric("Total Distance", f"{summary['total_distance_km']:.0f} km")
-    col4.metric("Total Emissions", f"{summary['total_emissions_kg']:.0f} kg")
+    col1.metric("Total Journeys", f"{summary.get('total_journeys', 0):,}")
+    col2.metric("Completion Rate", f"{summary.get('completion_rate', 0):.1%}")
+    col3.metric("Total Distance", f"{summary.get('total_distance_km', 0):.0f} km")
+    col4.metric("Total Emissions", f"{summary.get('total_emissions_kg', 0):.0f} kg")
     
     # Journey time distribution
     st.subheader("⏱️ Journey Time Distribution")

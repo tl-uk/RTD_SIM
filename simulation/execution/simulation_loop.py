@@ -510,8 +510,6 @@ def run_simulation_loop(
             current_datetime = None
         
         # === PHASE 7.2: GENERATE SYNTHETIC EVENTS ===
-        active_weather_event = None  # Track current weather for journey tracker
-        
         if event_generator and time_info:
             new_events = event_generator.generate_events_for_step(step, time_info)
             
@@ -527,20 +525,15 @@ def run_simulation_loop(
                     icon = event_icons.get(event.event_type.value, '🎲')
                     logger.info(f"{icon} Event: {event.description} ({event.duration_steps} steps)")
                     
-                    # Track weather events for journey tracker
                     if event.event_type == EventType.WEATHER_DISRUPTION:
-                        active_weather_event = event
                         weather_type = event.impact_data.get('weather_type', 'unknown')
                         logger.info(f"   Weather type: {weather_type}, "
                                    f"Impact: {event.impact_data}")
                     
                     # Publish to event bus if available
+                    # event is a BaseEvent object — use publish() directly
                     if event_bus and event_bus.is_available():
-                        event_data = event.to_dict()
-                        event_data['step'] = step
-                        if time_info:
-                            event_data['date'] = time_info['date']
-                        event_bus.publish_infrastructure_failure(event_data)
+                        event_bus.publish(event)
         
         # UPDATE WEATHER
         else:
@@ -802,7 +795,9 @@ def run_simulation_loop(
             })
         
         # POLICY IMPACT TRACKING
-        if policy_impact_analyzer and policy_engine:
+        # Guard: `agent` is the loop variable from `for agent in agents` above.
+        # If agents list is empty the variable is never bound → UnboundLocalError.
+        if agents and policy_impact_analyzer and policy_engine:
             # Capture snapshots periodically
             if step % 20 == 0:
                 policy_impact_analyzer.capture_step_snapshot(

@@ -1,0 +1,442 @@
+2026-03-12 01:06:00 | INFO     | root | ================================================================================
+2026-03-12 01:06:00 | INFO     | root | Log capture initialized: logs/simulation_20260312_010600.log
+2026-03-12 01:06:00 | INFO     | root | ================================================================================
+2026-03-12 01:06:00 | INFO     | __main__ | ================================================================================
+2026-03-12 01:06:00 | INFO     | __main__ | 🚀 STREAMLIT APP STARTED
+2026-03-12 01:06:00 | INFO     | __main__ | 📄 Full logs: logs/simulation_20260312_010600.log
+2026-03-12 01:06:00 | INFO     | __main__ | ================================================================================
+2026-03-12 01:06:00 | INFO     | agent.user_stories | UserStoryParser initialized: /Users/theolim/AppDev/RTD_SIM/agent/personas.yaml
+2026-03-12 01:06:00 | INFO     | agent.job_stories | JobStoryParser initialized: /Users/theolim/AppDev/RTD_SIM/agent/job_contexts
+2026-03-12 01:06:00 | INFO     | agent.user_stories | Loaded 18 user stories
+2026-03-12 01:06:00 | INFO     | agent.job_stories | Loaded 27 stories from 7 YAML files
+2026-03-12 01:06:00 | INFO     | agent.job_stories | Added 12 generated job templates
+2026-03-12 01:06:03 | INFO     | agent.user_stories | UserStoryParser initialized: /Users/theolim/AppDev/RTD_SIM/agent/personas.yaml
+2026-03-12 01:06:03 | INFO     | agent.job_stories | JobStoryParser initialized: /Users/theolim/AppDev/RTD_SIM/agent/job_contexts
+2026-03-12 01:06:03 | INFO     | agent.user_stories | Loaded 18 user stories
+2026-03-12 01:06:03 | INFO     | agent.job_stories | Loaded 27 stories from 7 YAML files
+2026-03-12 01:06:03 | INFO     | agent.job_stories | Added 12 generated job templates
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🗺️ Phase 1: Environment setup
+2026-03-12 01:06:03 | INFO     | simulation.spatial.graph_manager | Graph cache: /Users/theolim/.rtd_sim_cache/osm_graphs
+2026-03-12 01:06:03 | INFO     | simulation.setup.environment_setup | Loading city: Edinburgh, UK
+2026-03-12 01:06:03 | INFO     | simulation.spatial.graph_manager | Loading from cache: 17309e072c394faa.pkl
+2026-03-12 01:06:03 | INFO     | simulation.spatial.graph_manager | Loaded: 13789 nodes, 31848 edges
+2026-03-12 01:06:03 | INFO     | simulation.setup.environment_setup | ✅ Loaded Edinburgh, UK: 13,789 nodes, 31,848 edges
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🛣️ Phase 2: Route diversity (ultra_fast)
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | ✅ Route diversity: ultra_fast
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🔌 Phase 3: Infrastructure setup
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.charging.station_registry | ChargingStationRegistry initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.grid.grid_capacity | GridCapacityManager initialized (50.0 MW)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.pricing.dynamic_pricing_engine | DynamicPricingEngine initialized (ToD: False)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.expansion.cost_recovery_tracker | CostRecoveryTracker initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | DepotManager initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.weather.ev_range_adjuster | EVRangeAdjuster initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.infrastructure_manager | InfrastructureManager initialized (grid: 50.0 MW)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_000 at (-3.0963921147163878, 55.93639155553755)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_001 at (-3.2957503053742827, 55.903049243462036)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_002 at (-3.2965207112818584, 55.89500205978238)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_003 at (-3.2109073366821077, 55.873434358638356)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_004 at (-3.165575037746147, 55.91203103385945)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_005 at (-3.0929430163113003, 55.983807119268356)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_006 at (-3.108750028933967, 55.94837177905173)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_007 at (-3.2798605859700745, 55.99901588343128)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_008 at (-3.0914828433070864, 55.85865277242809)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_009 at (-3.3041391751664335, 55.86921422739265)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_010 at (-3.277529730281795, 55.87499840509062)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_011 at (-3.1080642880478355, 55.878922848802354)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_012 at (-3.2440587539257555, 55.90458341402192)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_013 at (-3.313997137749632, 55.90321830265497)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_014 at (-3.3194543588449763, 55.850316318627314)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_015 at (-3.101890866284891, 55.96492842500386)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_016 at (-3.19795321743662, 55.88423032261779)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_017 at (-3.3456249971418655, 55.97016698702916)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_018 at (-3.072092653600687, 55.940334119229846)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_019 at (-3.3286970350036302, 55.89825589970634)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_020 at (-3.289534883668802, 55.988759786975464)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_021 at (-3.1312209484316007, 55.90051534710725)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_022 at (-3.2534978227106044, 55.85173837721272)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_023 at (-3.322064612022593, 55.888959357432455)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_024 at (-3.1029590976439616, 55.87529320283462)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_025 at (-3.3290832882484156, 55.92303987435346)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_026 at (-3.0577972308497703, 55.96338924911693)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_027 at (-3.1896048526490914, 55.92841340796463)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_028 at (-3.2613925563757173, 55.94386873461665)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_029 at (-3.345723209491912, 55.97144326421516)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_030 at (-3.2885874639627404, 55.85123775496102)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_031 at (-3.3135140860139902, 55.998102404068476)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_032 at (-3.0715650164254726, 55.98898971818933)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_033 at (-3.096855696907698, 55.92683570682654)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_034 at (-3.1243413589869062, 55.891607731834185)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_035 at (-3.2179034646117723, 55.94638350018355)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_036 at (-3.064537260960795, 55.89277101527295)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_037 at (-3.2412681668478216, 55.86046207458973)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_038 at (-3.2525081972924306, 55.85554867938668)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_039 at (-3.2379398308568828, 55.89272629631461)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_040 at (-3.1946464441837366, 55.91213549797592)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_041 at (-3.1283748774523352, 55.89346275560424)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_042 at (-3.2693096913811543, 55.89863808749554)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_043 at (-3.245990592136346, 55.94896319672362)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_044 at (-3.2688369814916216, 55.85712635211897)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_045 at (-3.2348051674968117, 55.99577269412123)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_046 at (-3.091610318977315, 55.963092315106344)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_047 at (-3.2834577743073536, 55.90474088392549)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_048 at (-3.0967390907766417, 55.98508434642402)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_049 at (-3.1323698099866113, 55.859600353253946)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_00 at (-3.261267443691977, 55.868223738160665)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_01 at (-3.096582239542769, 55.85655191855601)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_02 at (-3.3449712990623053, 55.95280115622871)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_03 at (-3.1083194174210553, 55.90326270500902)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_04 at (-3.0737729883765317, 55.93922129638872)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_05 at (-3.1546131825849955, 55.929686392081344)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_06 at (-3.1202427745164254, 55.8922666574133)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_07 at (-3.182479804905356, 55.86207046734024)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_08 at (-3.3043716429460033, 55.879987348402544)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_09 at (-3.153611691886018, 55.90473795569526)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.charging.station_registry | Populated Edinburgh with 60 charging stations
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_00 (taxi)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_01 (bus)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_02 (bus)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_03 (bus)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_04 (bus)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Populated Edinburgh with 5 depots
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.infrastructure_manager | Populated Edinburgh: 50 chargers, 5 depots
+2026-03-12 01:06:03 | INFO     | simulation.setup.environment_setup | ✅ Infrastructure: 60 stations, 238 ports, 5 depots
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🧠 Phase 4: BDI planner creation
+2026-03-12 01:06:03 | INFO     | agent.bdi_planner | BDI planner: infrastructure-aware (Phase 4.5F - Expanded Freight)
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | ✅ Created infrastructure-aware BDI planner (Phase 4.5)
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🔗 Phase 4.5: Initializing dynamic policy engine (default policies)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization | default_policies.yaml not found at /Users/theolim/AppDev/RTD_SIM/scenarios/configs/default_policies.yaml
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization | Using hardcoded minimal default policies
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: EV Subsidy 30%
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Congestion Charge
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Dynamic Electricity Pricing
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Economy 7 Style Tariff
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Octopus Agile Style Dynamic Pricing
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Workplace Charging Incentive
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Depot Overnight Charging Optimization
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Vehicle-to-Grid (V2G) Pilot
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Combined Freight Electrification + Smart Charging
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Car Free Zone
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Bus Rapid Transit
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Complete Supply Chain Electrification
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Urban Freight Consolidation
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Hydrogen HGV Pilot Program
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Tiered Freight Transition
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Depot-Based Electrification
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Zero Emission Delivery Zones
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded 17 scenarios from 6 files
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Dynamic Policy Engine initialized
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Budget constraint: £50,000,000
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization | ✅ Policy engine initialized: Minimal Default Policies (default policies)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rules: 3
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Constraints: 1
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rule 1: 'grid_utilization > 0.85' → expand_grid_capacity (priority=100, cooldown=5 steps)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rule 2: 'ev_count >= 10 and (ev_count / total_agents) >= 0.30' → add_depot_chargers (priority=90, cooldown=10 steps)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rule 3: 'charger_utilization > 0.80 and ev_count >= 5' → add_emergency_chargers (priority=80, cooldown=5 steps)
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | ✅ Policy engine initialized
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🤖 Phase 5: Agent creation
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | INFO     | agent.story_compatibility | ✅ Whitelist filtering: 0/25 allowed (25 blocked)
+2026-03-12 01:06:03 | ERROR    | agent.story_compatibility | ❌ No compatible combinations — check whitelists!
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | Creating 0 agents from filtered combinations
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | ✅ Created 0 story-driven agents
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation |    Routes: 0 computed, 0 failed
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 📊 Desire diversity - Eco: σ=0.000, Time: σ=0.000, Cost: σ=0.000
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 🚚 Freight context: 0 agents with vehicle_required=True
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 📦 Job distribution: 0 freight/delivery jobs
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 🚗 Mode distribution:
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 🔍 Sample agents:
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🌐 Phase 6: Social network setup
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | ⚙️ Phase 7: Running simulation loop
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | Applied config: r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | System Dynamics initialized: EV=5.0%, r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | System Dynamics engine initialized
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | ⏰ Temporal scaling disabled (using default time)
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | 🎲 Synthetic events disabled
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | ➖ Event bus disabled in config
+2026-03-12 01:06:03 | INFO     | analytics.journey_tracker | ✅ JourneyTracker initialized
+2026-03-12 01:06:03 | INFO     | analytics.mode_share_analyzer | ✅ ModeShareAnalyzer initialized
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer | ✅ PolicyImpactAnalyzer initialized
+2026-03-12 01:06:03 | INFO     | analytics.network_efficiency | ✅ NetworkEfficiencyTracker initialized
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer | 📸 Baseline captured at step 0
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer |    EV count: 0
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer |    Total emissions: 0.0 kg
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | Applied config: r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | System Dynamics initialized: EV=5.0%, r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | simulation.execution.system_dynamics_integration | ✅ System Dynamics initialized: EV=5.0%, r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | ✅ System Dynamics initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.infrastructure_manager | Step 0: Grid 1.35 MW (2.7%) | Public: 0.00 MW, Depot: 1.35 MW
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | ========== POLICY DEBUG Step 0 ==========
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Grid utilization: 0.027000000000000003
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Grid load: 1.35 MW
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Grid capacity: 50.0 MW
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Charger utilization: 0.0
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | EV adoption: 0.0
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Number of rules to check: 3
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | --- Rule 1: expand_grid_capacity ---
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition: grid_utilization > 0.85
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Priority: 100
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition result: False
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   ❌ Condition not met, skipping
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | --- Rule 2: add_depot_chargers ---
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition: ev_count >= 10 and (ev_count / total_agents) >= 0.30
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Priority: 90
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition result: False
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   ❌ Condition not met, skipping
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | --- Rule 3: add_emergency_chargers ---
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition: charger_utilization > 0.80 and ev_count >= 5
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Priority: 80
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition result: False
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   ❌ Condition not met, skipping
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Total actions taken: 0
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | ==========================================
+2026-03-12 01:06:03 | ERROR    | simulation.simulation_runner | ❌ Simulation failed: cannot access local variable 'agent' where it is not associated with a value
+Traceback (most recent call last):
+  File "/Users/theolim/AppDev/RTD_SIM/simulation/simulation_runner.py", line 158, in run_simulation
+    loop_results = run_simulation_loop(
+        config=config,
+    ...<7 lines>...
+        progress_callback=progress_callback
+    )
+  File "/Users/theolim/AppDev/RTD_SIM/simulation/execution/simulation_loop.py", line 852, in run_simulation_loop
+    if emissions_calc and agent.state.location != prev_location:
+                          ^^^^^
+UnboundLocalError: cannot access local variable 'agent' where it is not associated with a value
+2026-03-12 01:06:03 | INFO     | agent.user_stories | UserStoryParser initialized: /Users/theolim/AppDev/RTD_SIM/agent/personas.yaml
+2026-03-12 01:06:03 | INFO     | agent.job_stories | JobStoryParser initialized: /Users/theolim/AppDev/RTD_SIM/agent/job_contexts
+2026-03-12 01:06:03 | INFO     | agent.user_stories | Loaded 18 user stories
+2026-03-12 01:06:03 | INFO     | agent.job_stories | Loaded 27 stories from 7 YAML files
+2026-03-12 01:06:03 | INFO     | agent.job_stories | Added 12 generated job templates
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🗺️ Phase 1: Environment setup
+2026-03-12 01:06:03 | INFO     | simulation.spatial.graph_manager | Graph cache: /Users/theolim/.rtd_sim_cache/osm_graphs
+2026-03-12 01:06:03 | INFO     | simulation.setup.environment_setup | Loading city: Edinburgh, UK
+2026-03-12 01:06:03 | INFO     | simulation.spatial.graph_manager | Loading from cache: 17309e072c394faa.pkl
+2026-03-12 01:06:03 | INFO     | simulation.spatial.graph_manager | Loaded: 13789 nodes, 31848 edges
+2026-03-12 01:06:03 | INFO     | simulation.setup.environment_setup | ✅ Loaded Edinburgh, UK: 13,789 nodes, 31,848 edges
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🛣️ Phase 2: Route diversity (ultra_fast)
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | ✅ Route diversity: ultra_fast
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🔌 Phase 3: Infrastructure setup
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.charging.station_registry | ChargingStationRegistry initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.grid.grid_capacity | GridCapacityManager initialized (50.0 MW)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.pricing.dynamic_pricing_engine | DynamicPricingEngine initialized (ToD: False)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.expansion.cost_recovery_tracker | CostRecoveryTracker initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | DepotManager initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.weather.ev_range_adjuster | EVRangeAdjuster initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.infrastructure_manager | InfrastructureManager initialized (grid: 50.0 MW)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_000 at (-3.191862348437735, 55.982197939294544)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_001 at (-3.0887834224261805, 55.88678419308228)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_002 at (-3.3376174229348905, 55.85891285654943)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_003 at (-3.3369162016916634, 55.927762679501775)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_004 at (-3.215512940189075, 55.8621557533941)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_005 at (-3.146396143053819, 55.929921378220776)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_006 at (-3.2536462963722204, 55.884467165524505)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_007 at (-3.2788017809591854, 55.87231715504322)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_008 at (-3.255249297722343, 55.95083211342055)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_009 at (-3.204298809173768, 55.871342656659245)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_010 at (-3.094447019694128, 55.93649011328882)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_011 at (-3.310308235748553, 55.97397175556934)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_012 at (-3.171765528036758, 55.922514161269206)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_013 at (-3.333673740010651, 55.97643992162838)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_014 at (-3.098969104392156, 55.86944818883737)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_015 at (-3.161345114777985, 55.89490721499186)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_016 at (-3.3050387377383523, 55.857493538809635)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_017 at (-3.160201671968815, 55.95290814860085)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_018 at (-3.0864857114779283, 55.96843996746348)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_019 at (-3.326826345624382, 55.931608807859895)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_020 at (-3.0844601536061527, 55.961512235702536)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_021 at (-3.237818024939579, 55.86647963332327)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_022 at (-3.14880341653556, 55.9092813659385)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_023 at (-3.078374453279344, 55.884194310693374)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_024 at (-3.1868336798955497, 55.90252156125622)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_025 at (-3.1048899728174684, 55.9429290976292)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_026 at (-3.0746161863433588, 55.97958091180795)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_027 at (-3.0753270531127543, 55.92122740213211)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_028 at (-3.1893210339102627, 55.97136057454805)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_029 at (-3.1630630105505455, 55.85921146624827)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_030 at (-3.187465168596649, 55.94170802831659)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_031 at (-3.2266164825857406, 55.89015171253636)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_032 at (-3.2421418910126136, 55.914390328823345)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_033 at (-3.1161467091873813, 55.939515898078554)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_034 at (-3.219682763292972, 55.86471220325295)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_035 at (-3.3448256159951613, 55.910366850731755)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_036 at (-3.065648593313231, 55.94368047420164)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_037 at (-3.2221931070628957, 55.87347101726566)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_038 at (-3.345493849142673, 55.87642282361379)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_039 at (-3.1961647798883144, 55.96808278462935)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_040 at (-3.249855117354281, 55.97424484730619)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_041 at (-3.127729403634965, 55.874860609854075)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_042 at (-3.2323303216060597, 55.85446342914433)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_043 at (-3.317270425577409, 55.89800116700779)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_044 at (-3.254506926591304, 55.992102732993374)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_045 at (-3.2679793669161583, 55.95680166728622)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_046 at (-3.0729652148698943, 55.95654935295788)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_047 at (-3.192354724506756, 55.89140742750698)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_048 at (-3.1662638156316296, 55.89767840372739)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: public_049 at (-3.2548552861432416, 55.94134377243996)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_00 at (-3.0820090767596673, 55.98850855159044)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_01 at (-3.2907734638808996, 55.886240094393465)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_02 at (-3.082955267567999, 55.859003984661236)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_03 at (-3.2045436583875113, 55.94986200555983)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_04 at (-3.2260421151765963, 55.98570761442444)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_05 at (-3.0860904627181274, 55.86623564962939)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_06 at (-3.1020410070889635, 55.856003909922634)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_07 at (-3.218996046493945, 55.96495500120053)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_08 at (-3.1528000540757137, 55.86145905463363)
+2026-03-12 01:06:03 | DEBUG    | simulation.infrastructure.charging.station_registry | Added charging station: dcfast_09 at (-3.188322753653844, 55.86368449911012)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.charging.station_registry | Populated Edinburgh with 60 charging stations
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_00 (bus)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_01 (taxi)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_02 (bus)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_03 (bus)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Added depot: depot_04 (delivery)
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.depots.depot_manager | Populated Edinburgh with 5 depots
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.infrastructure_manager | Populated Edinburgh: 50 chargers, 5 depots
+2026-03-12 01:06:03 | INFO     | simulation.setup.environment_setup | ✅ Infrastructure: 60 stations, 230 ports, 5 depots
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🧠 Phase 4: BDI planner creation
+2026-03-12 01:06:03 | INFO     | agent.bdi_planner | BDI planner: infrastructure-aware (Phase 4.5F - Expanded Freight)
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | ✅ Created infrastructure-aware BDI planner (Phase 4.5)
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🔗 Phase 4.5: Initializing dynamic policy engine (default policies)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization | default_policies.yaml not found at /Users/theolim/AppDev/RTD_SIM/scenarios/configs/default_policies.yaml
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization | Using hardcoded minimal default policies
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: EV Subsidy 30%
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Congestion Charge
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Dynamic Electricity Pricing
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Economy 7 Style Tariff
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Octopus Agile Style Dynamic Pricing
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Workplace Charging Incentive
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Depot Overnight Charging Optimization
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Vehicle-to-Grid (V2G) Pilot
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Combined Freight Electrification + Smart Charging
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Car Free Zone
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Bus Rapid Transit
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Complete Supply Chain Electrification
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Urban Freight Consolidation
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Hydrogen HGV Pilot Program
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Tiered Freight Transition
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Depot-Based Electrification
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded scenario: Zero Emission Delivery Zones
+2026-03-12 01:06:03 | INFO     | scenarios.scenario_manager | Loaded 17 scenarios from 6 files
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Dynamic Policy Engine initialized
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Budget constraint: £50,000,000
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization | ✅ Policy engine initialized: Minimal Default Policies (default policies)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rules: 3
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Constraints: 1
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rule 1: 'grid_utilization > 0.85' → expand_grid_capacity (priority=100, cooldown=5 steps)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rule 2: 'ev_count >= 10 and (ev_count / total_agents) >= 0.30' → add_depot_chargers (priority=90, cooldown=10 steps)
+2026-03-12 01:06:03 | INFO     | simulation.execution.policy_initialization |    Rule 3: 'charger_utilization > 0.80 and ev_count >= 5' → add_emergency_chargers (priority=80, cooldown=5 steps)
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | ✅ Policy engine initialized
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🤖 Phase 5: Agent creation
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: eco_warrior + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: concerned_parent + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: budget_student + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: business_commuter + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + long_haul_freight (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + port_to_warehouse (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + supermarket_supply (not in whitelist: ['freight_operator', 'delivery_driver'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + manufacturing_supply_chain (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | DEBUG    | agent.story_compatibility | ❌ Blocked: disabled_commuter + electric_hgv_port_delivery (not in whitelist: ['freight_operator'])
+2026-03-12 01:06:03 | INFO     | agent.story_compatibility | ✅ Whitelist filtering: 0/25 allowed (25 blocked)
+2026-03-12 01:06:03 | ERROR    | agent.story_compatibility | ❌ No compatible combinations — check whitelists!
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | Creating 0 agents from filtered combinations
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | ✅ Created 0 story-driven agents
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation |    Routes: 0 computed, 0 failed
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 📊 Desire diversity - Eco: σ=0.000, Time: σ=0.000, Cost: σ=0.000
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 🚚 Freight context: 0 agents with vehicle_required=True
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 📦 Job distribution: 0 freight/delivery jobs
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 🚗 Mode distribution:
+2026-03-12 01:06:03 | INFO     | simulation.setup.agent_creation | 🔍 Sample agents:
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | 🌐 Phase 6: Social network setup
+2026-03-12 01:06:03 | INFO     | simulation.simulation_runner | ⚙️ Phase 7: Running simulation loop
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | Applied config: r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | System Dynamics initialized: EV=5.0%, r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | System Dynamics engine initialized
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | ⏰ Temporal scaling disabled (using default time)
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | 🎲 Synthetic events disabled
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | ➖ Event bus disabled in config
+2026-03-12 01:06:03 | INFO     | analytics.journey_tracker | ✅ JourneyTracker initialized
+2026-03-12 01:06:03 | INFO     | analytics.mode_share_analyzer | ✅ ModeShareAnalyzer initialized
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer | ✅ PolicyImpactAnalyzer initialized
+2026-03-12 01:06:03 | INFO     | analytics.network_efficiency | ✅ NetworkEfficiencyTracker initialized
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer | 📸 Baseline captured at step 0
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer |    EV count: 0
+2026-03-12 01:06:03 | INFO     | analytics.policy_impact_analyzer |    Total emissions: 0.0 kg
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | Applied config: r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | agent.system_dynamics | System Dynamics initialized: EV=5.0%, r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | simulation.execution.system_dynamics_integration | ✅ System Dynamics initialized: EV=5.0%, r=0.050, K=80.0%
+2026-03-12 01:06:03 | INFO     | simulation.execution.simulation_loop | ✅ System Dynamics initialized
+2026-03-12 01:06:03 | INFO     | simulation.infrastructure.infrastructure_manager | Step 0: Grid 1.50 MW (3.0%) | Public: 0.00 MW, Depot: 1.50 MW
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | ========== POLICY DEBUG Step 0 ==========
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Grid utilization: 0.03
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Grid load: 1.5 MW
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Grid capacity: 50.0 MW
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Charger utilization: 0.0
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | EV adoption: 0.0
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Number of rules to check: 3
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | --- Rule 1: expand_grid_capacity ---
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition: grid_utilization > 0.85
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Priority: 100
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition result: False
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   ❌ Condition not met, skipping
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | --- Rule 2: add_depot_chargers ---
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition: ev_count >= 10 and (ev_count / total_agents) >= 0.30
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Priority: 90
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition result: False
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   ❌ Condition not met, skipping
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | --- Rule 3: add_emergency_chargers ---
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition: charger_utilization > 0.80 and ev_count >= 5
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Priority: 80
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   Condition result: False
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine |   ❌ Condition not met, skipping
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | Total actions taken: 0
+2026-03-12 01:06:03 | INFO     | scenarios.dynamic_policy_engine | ==========================================
+2026-03-12 01:06:03 | ERROR    | simulation.simulation_runner | ❌ Simulation failed: cannot access local variable 'agent' where it is not associated with a value
+Traceback (most recent call last):
+  File "/Users/theolim/AppDev/RTD_SIM/simulation/simulation_runner.py", line 158, in run_simulation
+    loop_results = run_simulation_loop(
+        config=config,
+    ...<7 lines>...
+        progress_callback=progress_callback
+    )
+  File "/Users/theolim/AppDev/RTD_SIM/simulation/execution/simulation_loop.py", line 852, in run_simulation_loop
+    if emissions_calc and agent.state.location != prev_location:
+                          ^^^^^
+UnboundLocalError: cannot access local variable 'agent' where it is not associated with a value
