@@ -150,6 +150,13 @@ def create_agents(
             
             logger.info(f"Creating {len(agent_pool)} agents from filtered combinations")
             
+            if not agent_pool:
+                logger.warning("⚠️ Story agent pool is empty (0 compatible combinations). "
+                               "Check that config.user_stories/job_stories IDs match the whitelist keys. "
+                               "Falling back to basic CognitiveAgents.")
+                # Fall through to basic agents below
+                config.user_stories = []  # Clear to trigger fallback path
+            
         except ImportError:
             # Fallback to unfiltered
             logger.warning("story_compatibility.py not found - using unfiltered combinations")

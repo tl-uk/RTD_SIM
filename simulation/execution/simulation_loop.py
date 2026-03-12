@@ -796,7 +796,9 @@ def run_simulation_loop(
             })
         
         # POLICY IMPACT TRACKING
-        if policy_impact_analyzer and policy_engine:
+        # Guard: `agent` is the loop variable from `for agent in agents` above.
+        # If agents list is empty the variable is never bound → UnboundLocalError.
+        if agents and policy_impact_analyzer and policy_engine:
             # Capture snapshots periodically
             if step % 20 == 0:
                 policy_impact_analyzer.capture_step_snapshot(
