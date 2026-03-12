@@ -477,6 +477,13 @@ class ModeShareAnalyzer:
         
         flows = []
         for (from_mode, to_mode), count in matrix.items():
+            # Skip self-loops (source == target) — Plotly Sankey renders blank/broken
+            if from_mode == to_mode:
+                logger.debug(f"Sankey: skipping self-loop {from_mode}→{to_mode} (count={count})")
+                continue
+            # Skip zero-value flows
+            if count <= 0:
+                continue
             flows.append({
                 'source': from_mode,
                 'target': to_mode,

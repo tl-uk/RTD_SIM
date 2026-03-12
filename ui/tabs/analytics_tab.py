@@ -184,7 +184,7 @@ def render_adoption_dynamics(results):
         # Add vertical lines WITHOUT annotations
         for tp in tipping_points:
             fig.add_vline(
-                x=tp.step,
+                x=tp.step if hasattr(tp, 'step') else tp['step'],
                 line_dash="dash",
                 line_color="red",
                 line_width=1.5
@@ -230,14 +230,18 @@ def render_adoption_dynamics(results):
         
         if tipping_points:
             for i, tp in enumerate(tipping_points):
-                with st.expander(f"Tipping Point {i+1}: {tp.mode} at step {tp.step}"):
+                # Support both TippingPoint objects and dicts
+                _get = (lambda t, k: getattr(t, k)) if hasattr(tp, 'step') else (lambda t, k: t[k])
+                with st.expander(f"Tipping Point {i+1}: {_get(tp,'mode')} at step {_get(tp,'step')}"):
                     col1, col2, col3 = st.columns(3)
-                    col1.metric("Adoption Before", f"{tp.adoption_before:.1f}%")
-                    col2.metric("Adoption After", f"{tp.adoption_after:.1f}%")
-                    col3.metric("Velocity", f"{tp.velocity:.2f}% per step")
+                    col1.metric("Adoption Before", f"{_get(tp,'adoption_before'):.1f}%")
+                    col2.metric("Adoption After", f"{_get(tp,'adoption_after'):.1f}%")
+                    col3.metric("Velocity", f"{_get(tp,'velocity'):.2f}% per step")
                     
-                    st.write(f"**Trigger**: {tp.trigger}")
-                    st.write(f"**Significance**: p={tp.statistical_significance:.3f}")
+                    st.write(f"**Trigger**: {_get(tp,'trigger')}")
+                    sig = getattr(tp, 'statistical_significance', None) if hasattr(tp, 'step') else tp.get('statistical_significance')
+                    if sig is not None:
+                        st.write(f"**Significance**: p={sig:.3f}")
         else:
             st.info("No tipping points detected in this simulation.")
     
@@ -245,6 +249,10 @@ def render_adoption_dynamics(results):
     st.subheader("🔄 Mode Transitions")
     
     transitions = mode_share_analyzer.get_transition_flows()
+    
+    if transitions:
+        # Filter out any remaining self-loops defensively
+        transitions = [f for f in transitions if f['source'] != f['target']]
     
     if transitions:
         # Create Sankey diagram
@@ -266,9 +274,10 @@ def render_adoption_dynamics(results):
             targets.append(mode_to_idx[flow['target']])
             values.append(flow['value'])
         
-        # Create color palette - softer colors
+        # Create color palette - cycle Set3 so it never runs short (Set3 has only 12 colors)
         import plotly.colors as pc
-        node_colors = pc.qualitative.Set3[:len(labels)]
+        palette = pc.qualitative.Set3
+        node_colors = [palette[i % len(palette)] for i in range(len(labels))]
         
         fig = go.Figure(data=[go.Sankey(
             node=dict(
@@ -321,6 +330,8 @@ def render_adoption_dynamics(results):
         fig.update_yaxes(fixedrange=True)
         
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No mode transitions recorded yet. Transitions appear when agents switch modes during the simulation.")
 
 
 def render_policy_roi(results):
