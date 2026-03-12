@@ -1,0 +1,1253 @@
+====================================================================================================
+RTD_SIM AGENT COMBINATION REPORT
+====================================================================================================
+
+Generated: 2026-03-11 21:19:57
+
+User Stories: 18
+Job Stories: 39
+Total Possible Combinations: 702
+====================================================================================================
+
+✅ ALLOWED Combinations: 143
+❌ BLOCKED Combinations: 559
+📊 Filter Efficiency: 79.6% blocked
+
+====================================================================================================
+⚠️  JOBS WITHOUT WHITELISTS (CRITICAL ISSUE!)
+====================================================================================================
+
+  ✅ All jobs have whitelists defined!
+
+====================================================================================================
+DETAILED BREAKDOWN BY JOB TYPE
+====================================================================================================
+
+📋 JOB: accessible_tram_journey
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (12):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - long_distance_commuter
+      - retired_commuter
+      - tourist
+      - tourist_visitor
+  ❌ BLOCKED (6):
+      - delivery_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - rural_resident
+      - shift_worker
+
+📋 JOB: business_flight
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - business_commuter
+      - business_traveler
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: commute_flexible
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (9):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - frequent_driver
+      - long_distance_commuter
+      - shift_worker
+  ❌ BLOCKED (9):
+      - business_traveler
+      - delivery_driver
+      - elderly_non_driver
+      - freight_operator
+      - island_resident
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: construction_materials
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: electric_hgv_port_delivery
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: ferry_freight_roro
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: freight_delivery_route
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: furniture_delivery
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: gig_economy_delivery
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (4):
+      - budget_student
+      - delivery_driver
+      - eco_warrior
+      - shift_worker
+  ❌ BLOCKED (14):
+      - accessibility_user
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: hgv_construction_delivery_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: hgv_retail_delivery_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: hgv_warehouse_transfer_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: intercity_train_commute
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (6):
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - eco_warrior
+      - long_distance_commuter
+      - retired_commuter
+  ❌ BLOCKED (12):
+      - accessibility_user
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: island_ferry_trip
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (10):
+      - business_traveler
+      - concerned_parent
+      - eco_warrior
+      - elderly_non_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+  ❌ BLOCKED (8):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - delivery_driver
+      - disabled_commuter
+      - freight_operator
+      - frequent_driver
+      - shift_worker
+
+📋 JOB: last_mile_scooter
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (4):
+      - budget_student
+      - delivery_driver
+      - eco_warrior
+      - shift_worker
+  ❌ BLOCKED (14):
+      - accessibility_user
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: long_haul_freight
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: manufacturing_supply_chain
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: morning_commute
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (9):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - frequent_driver
+      - long_distance_commuter
+      - shift_worker
+  ❌ BLOCKED (9):
+      - business_traveler
+      - delivery_driver
+      - elderly_non_driver
+      - freight_operator
+      - island_resident
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: multi_modal_commute
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (8):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - disabled_commuter
+      - eco_warrior
+      - long_distance_commuter
+      - shift_worker
+  ❌ BLOCKED (10):
+      - concerned_parent
+      - delivery_driver
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: port_to_warehouse
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: refrigerated_transport
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: regional_distribution
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: service_engineer_call
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (5):
+      - business_commuter
+      - delivery_driver
+      - freight_operator
+      - frequent_driver
+      - rural_resident
+  ❌ BLOCKED (13):
+      - accessibility_user
+      - budget_student
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: shopping_trip
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+  ❌ BLOCKED (2):
+      - delivery_driver
+      - freight_operator
+
+📋 JOB: supermarket_supply
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: tourist_scenic_rail
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (8):
+      - budget_student
+      - concerned_parent
+      - eco_warrior
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - tourist
+      - tourist_visitor
+  ❌ BLOCKED (10):
+      - accessibility_user
+      - business_commuter
+      - business_traveler
+      - delivery_driver
+      - disabled_commuter
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - rural_resident
+      - shift_worker
+
+📋 JOB: trades_contractor
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (6):
+      - business_commuter
+      - delivery_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - rural_resident
+  ❌ BLOCKED (12):
+      - accessibility_user
+      - budget_student
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - long_distance_commuter
+      - retired_commuter
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: truck_construction_delivery_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: truck_retail_delivery_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: truck_warehouse_transfer_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (1):
+      - freight_operator
+  ❌ BLOCKED (17):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: urban_delivery_afternoon_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (3):
+      - budget_student
+      - delivery_driver
+      - shift_worker
+  ❌ BLOCKED (15):
+      - accessibility_user
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: urban_delivery_morning_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (3):
+      - budget_student
+      - delivery_driver
+      - shift_worker
+  ❌ BLOCKED (15):
+      - accessibility_user
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: urban_delivery_night_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - shift_worker
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: urban_food_delivery
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (3):
+      - budget_student
+      - delivery_driver
+      - shift_worker
+  ❌ BLOCKED (15):
+      - accessibility_user
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: urban_parcel_delivery
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (3):
+      - budget_student
+      - delivery_driver
+      - shift_worker
+  ❌ BLOCKED (15):
+      - accessibility_user
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - freight_operator
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+📋 JOB: van_construction_delivery_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: van_retail_delivery_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: van_warehouse_transfer_generated
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - delivery_driver
+      - freight_operator
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - shift_worker
+      - tourist
+      - tourist_visitor
+
+📋 JOB: waste_collection
+----------------------------------------------------------------------------------------------------
+  ✅ ALLOWED (2):
+      - freight_operator
+      - shift_worker
+  ❌ BLOCKED (16):
+      - accessibility_user
+      - budget_student
+      - business_commuter
+      - business_traveler
+      - concerned_parent
+      - delivery_driver
+      - disabled_commuter
+      - eco_warrior
+      - elderly_non_driver
+      - frequent_driver
+      - island_resident
+      - long_distance_commuter
+      - retired_commuter
+      - rural_resident
+      - tourist
+      - tourist_visitor
+
+====================================================================================================
+BREAKDOWN BY USER PERSONA
+====================================================================================================
+
+👤 USER: accessibility_user
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (5):
+      - accessible_tram_journey
+      - commute_flexible
+      - morning_commute
+      - multi_modal_commute
+      - shopping_trip
+  ❌ CANNOT DO (34):
+      (Too many to list: 34 jobs)
+
+👤 USER: budget_student
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (13):
+      - accessible_tram_journey
+      - commute_flexible
+      - gig_economy_delivery
+      - intercity_train_commute
+      - last_mile_scooter
+      - morning_commute
+      - multi_modal_commute
+      - shopping_trip
+      - tourist_scenic_rail
+      - urban_delivery_afternoon_generated
+      - urban_delivery_morning_generated
+      - urban_food_delivery
+      - urban_parcel_delivery
+  ❌ CANNOT DO (26):
+      (Too many to list: 26 jobs)
+
+👤 USER: business_commuter
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (9):
+      - accessible_tram_journey
+      - business_flight
+      - commute_flexible
+      - intercity_train_commute
+      - morning_commute
+      - multi_modal_commute
+      - service_engineer_call
+      - shopping_trip
+      - trades_contractor
+  ❌ CANNOT DO (30):
+      (Too many to list: 30 jobs)
+
+👤 USER: business_traveler
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (6):
+      - accessible_tram_journey
+      - business_flight
+      - intercity_train_commute
+      - island_ferry_trip
+      - multi_modal_commute
+      - shopping_trip
+  ❌ CANNOT DO (33):
+      (Too many to list: 33 jobs)
+
+👤 USER: concerned_parent
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (6):
+      - accessible_tram_journey
+      - commute_flexible
+      - island_ferry_trip
+      - morning_commute
+      - shopping_trip
+      - tourist_scenic_rail
+  ❌ CANNOT DO (33):
+      (Too many to list: 33 jobs)
+
+👤 USER: delivery_driver
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (17):
+      - freight_delivery_route
+      - furniture_delivery
+      - gig_economy_delivery
+      - last_mile_scooter
+      - regional_distribution
+      - service_engineer_call
+      - supermarket_supply
+      - trades_contractor
+      - truck_retail_delivery_generated
+      - urban_delivery_afternoon_generated
+      - urban_delivery_morning_generated
+      - urban_delivery_night_generated
+      - urban_food_delivery
+      - urban_parcel_delivery
+      - van_construction_delivery_generated
+      - van_retail_delivery_generated
+      - van_warehouse_transfer_generated
+  ❌ CANNOT DO (22):
+      (Too many to list: 22 jobs)
+
+👤 USER: disabled_commuter
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (5):
+      - accessible_tram_journey
+      - commute_flexible
+      - morning_commute
+      - multi_modal_commute
+      - shopping_trip
+  ❌ CANNOT DO (34):
+      (Too many to list: 34 jobs)
+
+👤 USER: eco_warrior
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (10):
+      - accessible_tram_journey
+      - commute_flexible
+      - gig_economy_delivery
+      - intercity_train_commute
+      - island_ferry_trip
+      - last_mile_scooter
+      - morning_commute
+      - multi_modal_commute
+      - shopping_trip
+      - tourist_scenic_rail
+  ❌ CANNOT DO (29):
+      (Too many to list: 29 jobs)
+
+👤 USER: elderly_non_driver
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (3):
+      - accessible_tram_journey
+      - island_ferry_trip
+      - shopping_trip
+  ❌ CANNOT DO (36):
+      (Too many to list: 36 jobs)
+
+👤 USER: freight_operator
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (23):
+      - construction_materials
+      - electric_hgv_port_delivery
+      - ferry_freight_roro
+      - freight_delivery_route
+      - furniture_delivery
+      - hgv_construction_delivery_generated
+      - hgv_retail_delivery_generated
+      - hgv_warehouse_transfer_generated
+      - long_haul_freight
+      - manufacturing_supply_chain
+      - port_to_warehouse
+      - refrigerated_transport
+      - regional_distribution
+      - service_engineer_call
+      - supermarket_supply
+      - trades_contractor
+      - truck_construction_delivery_generated
+      - truck_retail_delivery_generated
+      - truck_warehouse_transfer_generated
+      - van_construction_delivery_generated
+      - van_retail_delivery_generated
+      - van_warehouse_transfer_generated
+      - waste_collection
+  ❌ CANNOT DO (16):
+      (Too many to list: 16 jobs)
+
+👤 USER: frequent_driver
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (5):
+      - commute_flexible
+      - morning_commute
+      - service_engineer_call
+      - shopping_trip
+      - trades_contractor
+  ❌ CANNOT DO (34):
+      (Too many to list: 34 jobs)
+
+👤 USER: island_resident
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (4):
+      - island_ferry_trip
+      - shopping_trip
+      - tourist_scenic_rail
+      - trades_contractor
+  ❌ CANNOT DO (35):
+      (Too many to list: 35 jobs)
+
+👤 USER: long_distance_commuter
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (8):
+      - accessible_tram_journey
+      - commute_flexible
+      - intercity_train_commute
+      - island_ferry_trip
+      - morning_commute
+      - multi_modal_commute
+      - shopping_trip
+      - tourist_scenic_rail
+  ❌ CANNOT DO (31):
+      (Too many to list: 31 jobs)
+
+👤 USER: retired_commuter
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (5):
+      - accessible_tram_journey
+      - intercity_train_commute
+      - island_ferry_trip
+      - shopping_trip
+      - tourist_scenic_rail
+  ❌ CANNOT DO (34):
+      (Too many to list: 34 jobs)
+
+👤 USER: rural_resident
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (4):
+      - island_ferry_trip
+      - service_engineer_call
+      - shopping_trip
+      - trades_contractor
+  ❌ CANNOT DO (35):
+      (Too many to list: 35 jobs)
+
+👤 USER: shift_worker
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (12):
+      - commute_flexible
+      - gig_economy_delivery
+      - last_mile_scooter
+      - morning_commute
+      - multi_modal_commute
+      - shopping_trip
+      - urban_delivery_afternoon_generated
+      - urban_delivery_morning_generated
+      - urban_delivery_night_generated
+      - urban_food_delivery
+      - urban_parcel_delivery
+      - waste_collection
+  ❌ CANNOT DO (27):
+      (Too many to list: 27 jobs)
+
+👤 USER: tourist
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (4):
+      - accessible_tram_journey
+      - island_ferry_trip
+      - shopping_trip
+      - tourist_scenic_rail
+  ❌ CANNOT DO (35):
+      (Too many to list: 35 jobs)
+
+👤 USER: tourist_visitor
+----------------------------------------------------------------------------------------------------
+  ✅ CAN DO (4):
+      - accessible_tram_journey
+      - island_ferry_trip
+      - shopping_trip
+      - tourist_scenic_rail
+  ❌ CANNOT DO (35):
+      (Too many to list: 35 jobs)
+
+====================================================================================================
+🚨 SANITY CHECK: Potentially Odd Combinations
+====================================================================================================
+
+These combinations are ALLOWED but may need review:
+
+  ✅ No obviously odd combinations found!
+
+====================================================================================================
+SUMMARY STATISTICS
+====================================================================================================
+
+Jobs available per user persona:
+  freight_operator                23 jobs ( 59.0%)
+  delivery_driver                 17 jobs ( 43.6%)
+  budget_student                  13 jobs ( 33.3%)
+  shift_worker                    12 jobs ( 30.8%)
+  eco_warrior                     10 jobs ( 25.6%)
+  business_commuter                9 jobs ( 23.1%)
+  long_distance_commuter           8 jobs ( 20.5%)
+  concerned_parent                 6 jobs ( 15.4%)
+  business_traveler                6 jobs ( 15.4%)
+  disabled_commuter                5 jobs ( 12.8%)
+  retired_commuter                 5 jobs ( 12.8%)
+  frequent_driver                  5 jobs ( 12.8%)
+  accessibility_user               5 jobs ( 12.8%)
+  rural_resident                   4 jobs ( 10.3%)
+  tourist                          4 jobs ( 10.3%)
+  island_resident                  4 jobs ( 10.3%)
+  tourist_visitor                  4 jobs ( 10.3%)
+  elderly_non_driver               3 jobs (  7.7%)
+
+Users allowed per job type:
+  shopping_trip                            16 users ( 88.9%)
+  accessible_tram_journey                  12 users ( 66.7%)
+  island_ferry_trip                        10 users ( 55.6%)
+  morning_commute                           9 users ( 50.0%)
+  commute_flexible                          9 users ( 50.0%)
+  tourist_scenic_rail                       8 users ( 44.4%)
+  multi_modal_commute                       8 users ( 44.4%)
+  trades_contractor                         6 users ( 33.3%)
+  intercity_train_commute                   6 users ( 33.3%)
+  service_engineer_call                     5 users ( 27.8%)
+  gig_economy_delivery                      4 users ( 22.2%)
+  last_mile_scooter                         4 users ( 22.2%)
+  urban_food_delivery                       3 users ( 16.7%)
+  urban_parcel_delivery                     3 users ( 16.7%)
+  urban_delivery_morning_generated          3 users ( 16.7%)
+  urban_delivery_afternoon_generated        3 users ( 16.7%)
+  supermarket_supply                        2 users ( 11.1%)
+  freight_delivery_route                    2 users ( 11.1%)
+  regional_distribution                     2 users ( 11.1%)
+  furniture_delivery                        2 users ( 11.1%)
+  waste_collection                          2 users ( 11.1%)
+  business_flight                           2 users ( 11.1%)
+  van_retail_delivery_generated             2 users ( 11.1%)
+  van_warehouse_transfer_generated          2 users ( 11.1%)
+  van_construction_delivery_generated       2 users ( 11.1%)
+  truck_retail_delivery_generated           2 users ( 11.1%)
+  urban_delivery_night_generated            2 users ( 11.1%)
+  long_haul_freight                         1 users (  5.6%)
+  port_to_warehouse                         1 users (  5.6%)
+  manufacturing_supply_chain                1 users (  5.6%)
+  electric_hgv_port_delivery                1 users (  5.6%)
+  ferry_freight_roro                        1 users (  5.6%)
+  construction_materials                    1 users (  5.6%)
+  refrigerated_transport                    1 users (  5.6%)
+  truck_warehouse_transfer_generated        1 users (  5.6%)
+  truck_construction_delivery_generated     1 users (  5.6%)
+  hgv_retail_delivery_generated             1 users (  5.6%)
+  hgv_warehouse_transfer_generated          1 users (  5.6%)
+  hgv_construction_delivery_generated       1 users (  5.6%)
+
+====================================================================================================
+END OF REPORT
+====================================================================================================

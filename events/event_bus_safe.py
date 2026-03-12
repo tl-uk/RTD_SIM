@@ -128,6 +128,74 @@ class SafeEventBus:
             logger.debug(f"Event publish failed (non-critical): {e}")
             return False
     
+    def publish_synthetic_event(self, synthetic_event) -> bool:
+        """
+        Publish a synthetic generator event to the bus (safe - never fails).
+
+        Maps synthetic EventType values to the correct BaseEvent subclass from
+        events.event_types, then delegates to publish().
+
+        Args:
+            synthetic_event: SyntheticEvent from simulation.events.synthetic_generator
+        Returns:
+            True if published, False otherwise
+        """
+        try:
+            from .event_types import (
+                BaseEvent, EventType as BusEventType,
+                SpatialMetadata, WeatherEvent,
+                InfrastructureFailureEvent, TrafficEvent, GridStressEvent
+            )
+
+            event_type_value = getattr(synthetic_event.event_type, 'value',
+                                       str(synthetic_event.event_type))
+            raw = synthetic_event.to_dict() if hasattr(synthetic_event, 'to_dict') else {}
+            impact = getattr(synthetic_event, 'impact_data', {})
+            lat = raw.get('lat', 55.9533)
+            lon = raw.get('lon', -3.1883)
+            duration = getattr(synthetic_event, 'duration_steps', None)
+
+            if event_type_value == 'weather_disruption':
+                base_event = WeatherEvent(
+                    weather_type=impact.get('weather_type', 'general'),
+                    severity=int(impact.get('severity', 5)),
+                    lat=lat, lon=lon, radius_km=10.0,
+                    duration_min=duration,
+                    impacts=impact.get('impacts', []),
+                    source='synthetic_event_generator'
+                )
+            elif event_type_value == 'infrastructure_failure':
+                base_event = InfrastructureFailureEvent(
+                    infrastructure_type=impact.get('infrastructure_type', 'charging_station'),
+                    infrastructure_id=impact.get('infrastructure_id', 'unknown'),
+                    failure_reason=impact.get('failure_reason', 'synthetic_failure'),
+                    lat=lat, lon=lon, radius_km=5.0,
+                    estimated_duration_min=duration,
+                    source='synthetic_event_generator'
+                )
+            elif event_type_value == 'grid_stress':
+                base_event = GridStressEvent(
+                    grid_utilization=impact.get('grid_utilization', 0.85),
+                    threshold=impact.get('threshold', 0.8),
+                    load_mw=impact.get('load_mw', 850.0),
+                    capacity_mw=impact.get('capacity_mw', 1000.0),
+                    crossed_direction=impact.get('direction', 'up'),
+                    source='synthetic_event_generator'
+                )
+            else:
+                # traffic_congestion and any unknown type -> generic TrafficEvent shell
+                base_event = BaseEvent(
+                    event_type=BusEventType.TRAFFIC_EVENT,
+                    payload=raw,
+                    source='synthetic_event_generator'
+                )
+
+            return self.publish(base_event)
+
+        except Exception as e:
+            logger.debug(f"publish_synthetic_event failed (non-critical): {e}")
+            return False
+
     def subscribe(
         self,
         event_type: EventType,
