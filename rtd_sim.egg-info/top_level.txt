@@ -1,5 +1,0 @@
-agent
-config
-simulation
-ui
-visualizer
