@@ -1,0 +1,216 @@
+# config/seed_library.yaml
+#
+# RTD_SIM Tier 2 Fallback — Static Story Library Seed
+#
+# Used when OLMo 2 (Tier 1) is unavailable (e.g. Ollama not running).
+# Domain archetype is auto-detected from the brief by keyword matching.
+# Anthropic (Tier 3) is attempted if this file is also unavailable.
+#
+# Add or extend archetypes as your deployment domains grow.
+# Each archetype must have: personas, job_stories, compatibility_rules.
+
+archetypes:
+
+  # ── Port / Maritime ────────────────────────────────────────────────────────
+  port:
+    personas:
+      dock_worker:
+        narrative: "As a dock worker, I want reliable shift transport so that I arrive on time."
+        persona_type: operations
+        desires: {eco: 0.3, time: 0.9, cost: 0.7, comfort: 0.4, safety: 0.8, reliability: 0.9, flexibility: 0.3}
+        beliefs:
+          - {text: "Ferry timetables are reliable when weather allows", strength: 0.8, updateable: true}
+        mode_preferences: {bus: 0.8, port_shuttle: 0.7, foot: 0.5}
+
+      freight_captain:
+        narrative: "As a freight captain, I want efficient vessel scheduling so that cargo turnaround is minimised."
+        persona_type: freight
+        desires: {eco: 0.3, time: 0.9, cost: 0.6, comfort: 0.3, safety: 0.95, reliability: 0.95, flexibility: 0.3}
+        beliefs:
+          - {text: "Shore power reduces idle emissions significantly", strength: 0.75, updateable: true}
+        mode_preferences: {vessel: 1.0}
+
+      port_operations_manager:
+        narrative: "As a port operations manager, I want real-time grid visibility so that I can prevent overload events."
+        persona_type: operations
+        desires: {eco: 0.5, time: 0.8, cost: 0.7, comfort: 0.2, safety: 0.9, reliability: 0.95, flexibility: 0.6}
+        beliefs:
+          - {text: "Peak shaving prevents costly grid upgrades", strength: 0.9, updateable: false}
+        mode_preferences: {foot: 0.9, port_shuttle: 0.5}
+
+      customs_officer:
+        narrative: "As a customs officer, I want streamlined freight clearance so that port throughput is maintained."
+        persona_type: operations
+        desires: {eco: 0.4, time: 0.8, cost: 0.5, comfort: 0.5, safety: 0.85, reliability: 0.9, flexibility: 0.4}
+        beliefs:
+          - {text: "Electronic manifests reduce clearance time", strength: 0.8, updateable: true}
+        mode_preferences: {foot: 1.0}
+
+    job_stories:
+      shift_transit:
+        context: "When commuting to an early port shift"
+        goal: "I want reliable transport to the terminal gate"
+        outcome: "So I can clock in on time for handover"
+        job_type: commute
+        parameters: {vehicle_type: bus, urgency: high, recurring: true}
+
+      cargo_vessel_run:
+        context: "When loading and departing with containerised cargo"
+        goal: "I want an allocated berth slot and shore power connection"
+        outcome: "So I can depart on schedule with minimum idle time"
+        job_type: freight
+        parameters: {vehicle_type: vessel, urgency: high, recurring: true}
+
+      peak_shaving_trigger:
+        context: "When simultaneous EV charging and vessel arrival creates a 160MW demand spike"
+        goal: "I want the digital twin to simulate load and throttle chargers by 10%"
+        outcome: "So the ferry receives sufficient shore power to depart on time"
+        job_type: operations
+        parameters: {vehicle_type: foot, urgency: critical, recurring: false}
+
+      customs_clearance:
+        context: "When a freight vehicle arrives at the gate"
+        goal: "I want fast document verification"
+        outcome: "So throughput is maintained and queues are minimised"
+        job_type: operations
+        parameters: {vehicle_type: foot, urgency: medium, recurring: true}
+
+    compatibility_rules:
+      - persona: dock_worker
+        rule: "dock workers use surface transport for shift commutes"
+        condition: {field: vehicle_type, operator: equals, value: bus}
+      - persona: freight_captain
+        rule: "freight captains operate vessels only"
+        condition: {field: vehicle_type, operator: equals, value: vessel}
+      - persona: port_operations_manager
+        rule: "operations managers handle non-vessel operational jobs"
+        condition: {field: job_type, operator: equals, value: operations}
+      - persona: customs_officer
+        rule: "customs officers perform operations jobs on foot"
+        condition: {field: job_type, operator: equals, value: operations}
+
+  # ── City / Urban Transport ─────────────────────────────────────────────────
+  city:
+    personas:
+      eco_commuter:
+        narrative: "As an eco-conscious commuter, I want low-carbon options so that I minimise my footprint."
+        persona_type: passenger
+        desires: {eco: 0.9, time: 0.5, cost: 0.6, comfort: 0.4, safety: 0.7, reliability: 0.7, flexibility: 0.6}
+        beliefs:
+          - {text: "Public transport is significantly greener than private car", strength: 0.9, updateable: true}
+        mode_preferences: {bike: 0.9, bus: 0.8, train: 0.85, walk: 0.8, ev: 0.5, car_petrol: 0.1}
+
+      car_dependent_commuter:
+        narrative: "As a car-dependent commuter, I want convenient parking so that I can commute reliably."
+        persona_type: passenger
+        desires: {eco: 0.2, time: 0.8, cost: 0.5, comfort: 0.7, safety: 0.6, reliability: 0.8, flexibility: 0.7}
+        beliefs:
+          - {text: "Public transport is unreliable for my route", strength: 0.7, updateable: true}
+        mode_preferences: {car_petrol: 0.9, car_diesel: 0.8, ev: 0.5, bus: 0.2}
+
+    job_stories:
+      morning_commute:
+        context: "When travelling to work during peak hours"
+        goal: "I want a reliable, fast route"
+        outcome: "So I arrive on time without stress"
+        job_type: commute
+        parameters: {vehicle_type: bus, urgency: high, recurring: true}
+
+      shopping_trip:
+        context: "When making a weekly grocery run"
+        goal: "I want to carry bags without difficulty"
+        outcome: "So I can complete the task efficiently"
+        job_type: leisure
+        parameters: {vehicle_type: car_petrol, urgency: low, recurring: true}
+
+    compatibility_rules:
+      - persona: eco_commuter
+        rule: "eco commuters prefer low-carbon modes"
+        condition: {field: job_type, operator: equals, value: commute}
+      - persona: car_dependent_commuter
+        rule: "car-dependent commuters drive for most trips"
+        condition: {field: job_type, operator: not_equals, value: operations}
+
+  # ── Airport ────────────────────────────────────────────────────────────────
+  airport:
+    personas:
+      ground_handler:
+        narrative: "As a ground handler, I want efficient airside access so that turnarounds meet slot times."
+        persona_type: operations
+        desires: {eco: 0.3, time: 0.95, cost: 0.5, comfort: 0.3, safety: 0.95, reliability: 0.95, flexibility: 0.4}
+        beliefs:
+          - {text: "Electric ground vehicles reduce apron emissions significantly", strength: 0.7, updateable: true}
+        mode_preferences: {ground_vehicle: 0.9, foot: 0.6}
+
+      airline_passenger:
+        narrative: "As a passenger, I want clear terminal navigation so that I board on time."
+        persona_type: passenger
+        desires: {eco: 0.4, time: 0.85, cost: 0.6, comfort: 0.7, safety: 0.8, reliability: 0.9, flexibility: 0.3}
+        beliefs:
+          - {text: "Security queues are the biggest time risk", strength: 0.85, updateable: true}
+        mode_preferences: {passenger_shuttle: 0.8, foot: 0.9}
+
+    job_stories:
+      aircraft_turnaround:
+        context: "When an aircraft arrives at the gate"
+        goal: "I want coordinated ground handling and fuelling"
+        outcome: "So the aircraft departs on schedule"
+        job_type: operations
+        parameters: {vehicle_type: ground_vehicle, urgency: critical, recurring: true}
+
+      passenger_boarding:
+        context: "When boarding is called at the gate"
+        goal: "I want clear signage and fast security"
+        outcome: "So I board without missing my flight"
+        job_type: passenger_transit
+        parameters: {vehicle_type: foot, urgency: high, recurring: false}
+
+    compatibility_rules:
+      - persona: ground_handler
+        rule: "ground handlers perform airside operations"
+        condition: {field: job_type, operator: equals, value: operations}
+      - persona: airline_passenger
+        rule: "passengers perform passenger transit jobs"
+        condition: {field: job_type, operator: equals, value: passenger_transit}
+
+  # ── Default (generic multi-modal) ─────────────────────────────────────────
+  default:
+    personas:
+      generic_commuter:
+        narrative: "As a commuter, I want reliable transport so that I reach my destination on time."
+        persona_type: passenger
+        desires: {eco: 0.5, time: 0.7, cost: 0.6, comfort: 0.5, safety: 0.7, reliability: 0.8, flexibility: 0.5}
+        beliefs:
+          - {text: "Reliability is more important than speed", strength: 0.7, updateable: true}
+        mode_preferences: {bus: 0.7, train: 0.7, car_petrol: 0.5, walk: 0.5}
+
+      operations_staff:
+        narrative: "As operations staff, I want efficient workflows so that service continuity is maintained."
+        persona_type: operations
+        desires: {eco: 0.4, time: 0.8, cost: 0.5, comfort: 0.4, safety: 0.85, reliability: 0.9, flexibility: 0.5}
+        beliefs:
+          - {text: "Process standardisation reduces errors", strength: 0.8, updateable: false}
+        mode_preferences: {foot: 0.9}
+
+    job_stories:
+      generic_commute:
+        context: "When travelling to work"
+        goal: "I want a reliable route"
+        outcome: "So I arrive on time"
+        job_type: commute
+        parameters: {vehicle_type: bus, urgency: medium, recurring: true}
+
+      operations_task:
+        context: "When performing an operational duty"
+        goal: "I want the right equipment and access"
+        outcome: "So I complete the task safely and on time"
+        job_type: operations
+        parameters: {vehicle_type: foot, urgency: medium, recurring: true}
+
+    compatibility_rules:
+      - persona: generic_commuter
+        rule: "commuters perform commute jobs"
+        condition: {field: job_type, operator: equals, value: commute}
+      - persona: operations_staff
+        rule: "operations staff perform operations jobs"
+        condition: {field: job_type, operator: equals, value: operations}
