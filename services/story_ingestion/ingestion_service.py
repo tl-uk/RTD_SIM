@@ -44,7 +44,11 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+def _utcnow() -> str:
+    """Return current UTC time as ISO string (timezone-aware, no deprecation warning)."""
+    return datetime.now(timezone.utc).isoformat()
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -505,7 +509,7 @@ async def _run_ingestion(job_id: str, brief_text: str) -> None:
         library["_whitelist"] = whitelist
         library["_warnings"] = warnings
         library["_job_id"]   = job_id
-        library["_extracted_at"] = datetime.utcnow().isoformat()
+        library["_extracted_at"] = _utcnow()
 
         # 5. Serialise
         yaml_str = yaml.dump(library, default_flow_style=False, sort_keys=False)
@@ -520,7 +524,7 @@ async def _run_ingestion(job_id: str, brief_text: str) -> None:
             status=JobStatus.COMPLETE,
             filename=job.filename,
             created_at=job.created_at,
-            completed_at=datetime.utcnow().isoformat(),
+            completed_at=_utcnow(),
             persona_count=persona_count,
             job_count=job_count,
         )
@@ -540,7 +544,7 @@ async def _run_ingestion(job_id: str, brief_text: str) -> None:
             status=JobStatus.FAILED,
             filename=job.filename,
             created_at=job.created_at,
-            completed_at=datetime.utcnow().isoformat(),
+            completed_at=_utcnow(),
             error=str(exc),
         )
 
@@ -606,7 +610,7 @@ async def ingest(
         job_id=job_id,
         status=JobStatus.PENDING,
         filename=filename,
-        created_at=datetime.utcnow().isoformat(),
+        created_at=_utcnow(),
     )
     _jobs[job_id] = job
 
