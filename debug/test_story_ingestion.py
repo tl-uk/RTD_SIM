@@ -274,12 +274,12 @@ class TestEndToEnd(unittest.TestCase):
         mock_client = MagicMock(); mock_client.messages.create = AsyncMock(return_value=mock_message)
         mock_anthropic = MagicMock(); mock_anthropic.AsyncAnthropic.return_value = mock_client
         brief = "Dover Port\nDock workers commute by bus.\nFreight captains operate vessels.\n" * 5
+        from services.story_ingestion.ingestion_service import _backend_config as _bc
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}), \
              patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), \
              patch("services.story_ingestion.ingestion_service._extract_via_olmo",
                    side_effect=ConnectionError("Ollama not running")), \
-             patch("services.story_ingestion.ingestion_service._backend_config.yaml_fallback_enabled",
-                   new=False):
+             patch.dict(_bc._cfg["yaml_fallback"], {"enabled": False}):
             r = self.client.post("/ingest", files={"file":("dover.txt",brief.encode(),"text/plain")})
             self.assertEqual(r.status_code, 202)
             job_id = r.json()["job_id"]
@@ -352,14 +352,8 @@ class TestExtractViaYamlSeed(unittest.TestCase):
 
     def test_T30_missing_seed_file_raises(self):
         """T30 — Missing seed file raises FileNotFoundError."""
-        with patch.object(
-            __import__("services.story_ingestion.ingestion_service",
-                        fromlist=["_backend_config"])
-            .__dict__["_backend_config"],
-            "yaml_seed_path",
-            new="/tmp/does_not_exist_rtdsim.yaml"
-        ):
-            from services.story_ingestion.ingestion_service import _extract_via_yaml_seed
+        from services.story_ingestion.ingestion_service import _extract_via_yaml_seed, _backend_config as _bc
+        with patch.dict(_bc._cfg["yaml_fallback"], {"seed_library_path": "/tmp/does_not_exist_rtdsim.yaml"}):
             with self.assertRaises(FileNotFoundError):
                 run(_extract_via_yaml_seed("some brief text"))
 
@@ -400,13 +394,12 @@ class TestExtractWithFallback(unittest.TestCase):
 
     def test_T33_tier1_fails_tier2_succeeds(self):
         """T33 — Tier 1 fails; Tier 2 (YAML seed) succeeds."""
+        from services.story_ingestion.ingestion_service import _backend_config as _bc
         with patch("services.story_ingestion.ingestion_service._extract_via_olmo",
                    AsyncMock(side_effect=ConnectionError("Ollama down"))), \
              patch("services.story_ingestion.ingestion_service._extract_via_yaml_seed",
                    AsyncMock(return_value=self._make_lib("yaml_seed"))), \
-             patch.object(__import__("services.story_ingestion.ingestion_service",
-                           fromlist=["_backend_config"]).__dict__["_backend_config"],
-                           "yaml_fallback_enabled", new=True):
+             patch.dict(_bc._cfg["yaml_fallback"], {"enabled": True}):
             result = run(extract_with_fallback("port brief " * 20))
         self.assertEqual(result.backend_used, "yaml_seed")
         self.assertIn("olmo", result.tiers_attempted)
@@ -414,16 +407,15 @@ class TestExtractWithFallback(unittest.TestCase):
 
     def test_T34_tier1_tier2_fail_tier3_succeeds(self):
         """T34 — Tier 1 + 2 fail; Tier 3 (Anthropic) succeeds."""
-        cfg = __import__("services.story_ingestion.ingestion_service",
-                          fromlist=["_backend_config"]).__dict__["_backend_config"]
+        from services.story_ingestion.ingestion_service import _backend_config as _bc
         with patch("services.story_ingestion.ingestion_service._extract_via_olmo",
                    AsyncMock(side_effect=ConnectionError("Ollama down"))), \
              patch("services.story_ingestion.ingestion_service._extract_via_yaml_seed",
                    AsyncMock(side_effect=FileNotFoundError("no seed"))), \
              patch("services.story_ingestion.ingestion_service._extract_via_anthropic",
                    AsyncMock(return_value=self._make_lib("anthropic"))), \
-             patch.object(cfg, "yaml_fallback_enabled", new=True), \
-             patch.object(cfg, "anthropic_fallback_enabled", new=True):
+             patch.dict(_bc._cfg["yaml_fallback"],      {"enabled": True}), \
+             patch.dict(_bc._cfg["anthropic_fallback"], {"enabled": True}):
             result = run(extract_with_fallback("port brief " * 20))
         self.assertEqual(result.backend_used, "anthropic")
         self.assertEqual(result.tiers_attempted, ["olmo","yaml_seed","anthropic"])
@@ -432,16 +424,15 @@ class TestExtractWithFallback(unittest.TestCase):
 
     def test_T35_all_tiers_fail_raises(self):
         """T35 — All three tiers fail → ExtractionFailedError."""
-        cfg = __import__("services.story_ingestion.ingestion_service",
-                          fromlist=["_backend_config"]).__dict__["_backend_config"]
+        from services.story_ingestion.ingestion_service import _backend_config as _bc
         with patch("services.story_ingestion.ingestion_service._extract_via_olmo",
                    AsyncMock(side_effect=ConnectionError("x"))), \
              patch("services.story_ingestion.ingestion_service._extract_via_yaml_seed",
                    AsyncMock(side_effect=FileNotFoundError("x"))), \
              patch("services.story_ingestion.ingestion_service._extract_via_anthropic",
                    AsyncMock(side_effect=EnvironmentError("x"))), \
-             patch.object(cfg, "yaml_fallback_enabled", new=True), \
-             patch.object(cfg, "anthropic_fallback_enabled", new=True):
+             patch.dict(_bc._cfg["yaml_fallback"],      {"enabled": True}), \
+             patch.dict(_bc._cfg["anthropic_fallback"], {"enabled": True}):
             with self.assertRaises(ExtractionFailedError):
                 run(extract_with_fallback("brief " * 20))
 
@@ -512,12 +503,12 @@ class TestNewEndpointsAndPipeline(unittest.TestCase):
         mock_anthropic = MagicMock(); mock_anthropic.AsyncAnthropic.return_value = mock_client
 
         brief = "Port of Dover\nVessels berth daily. Ferry crews operate vessels.\n" * 5
+        from services.story_ingestion.ingestion_service import _backend_config as _bc
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}), \
              patch.dict("os.environ", {"ANTHROPIC_API_KEY":"test-key"}), \
              patch("services.story_ingestion.ingestion_service._extract_via_olmo",
                    AsyncMock(side_effect=ConnectionError("no Ollama"))), \
-             patch("services.story_ingestion.ingestion_service._backend_config.yaml_fallback_enabled",
-                   new=False):
+             patch.dict(_bc._cfg["yaml_fallback"], {"enabled": False}):
             r = self.client.post("/ingest", files={"file":("d.txt",brief.encode(),"text/plain")})
             job_id = r.json()["job_id"]
             deadline = time.monotonic() + 10
@@ -542,12 +533,12 @@ class TestNewEndpointsAndPipeline(unittest.TestCase):
         mock_anthropic = MagicMock(); mock_anthropic.AsyncAnthropic.return_value = mock_client
 
         brief = "Port of Dover\nVessels berth daily. Ferry crews operate vessels.\n" * 5
+        from services.story_ingestion.ingestion_service import _backend_config as _bc
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}), \
              patch.dict("os.environ", {"ANTHROPIC_API_KEY":"test-key"}), \
              patch("services.story_ingestion.ingestion_service._extract_via_olmo",
                    AsyncMock(side_effect=ConnectionError("no Ollama"))), \
-             patch("services.story_ingestion.ingestion_service._backend_config.yaml_fallback_enabled",
-                   new=False):
+             patch.dict(_bc._cfg["yaml_fallback"], {"enabled": False}):
             r = self.client.post("/ingest", files={"file":("d.txt",brief.encode(),"text/plain")})
             job_id = r.json()["job_id"]
             deadline = time.monotonic() + 10
