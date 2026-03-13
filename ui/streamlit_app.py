@@ -9,6 +9,8 @@ FIXES:
 - Config properly stored in session state
 - Tab always shows (handles both policy/no-policy cases)
 - Proper parameter passing to diagnostics tab
+
+To run: streamlit run ui/streamlit_app.py
 """
 
 from __future__ import annotations
