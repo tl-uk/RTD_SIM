@@ -1,25 +1,10 @@
-# RTD_SIM Event Bus Configuration
-# ─────────────────────────────────────────────────────────────────────────────
-# deployment_mode controls which backend SafeEventBus selects at startup:
+# config/event_bus.yaml.example
 #
-#   simulation  — InMemoryEventBus (Phase 7 default; no routing changes)
-#   hybrid      — MicroserviceEventBus; routes per EventType below
-#   production  — MicroserviceEventBus; all routes should point at real URLs
-#
-deployment_mode: simulation
+# Copy this file to config/event_bus.yaml and edit for your machine.
+# config/event_bus.yaml is gitignored — each machine has its own copy.
 
-# routing — only read when deployment_mode is hybrid or production.
-#
-# Values:
-#   InMemory                          → use local InMemoryEventBus
-#   https://service.internal/events   → POST to real microservice endpoint
-#
-# EventTypes not listed default to InMemory.
-# To activate a real service, change the value to its URL.
-#
-# Example — switching INFRASTRUCTURE_FAILURE to a live grid service:
-#   INFRASTRUCTURE_FAILURE: https://grid-service.port.internal/events
-#
+deployment_mode: simulation   # simulation | hybrid | production
+
 routing:
   POLICY_CHANGE:          InMemory
   INFRASTRUCTURE_FAILURE: InMemory
@@ -28,16 +13,9 @@ routing:
   GRID_STRESS:            InMemory
   TRAFFIC_EVENT:          InMemory
   THRESHOLD_CROSSED:      InMemory
-  # STORY_LIBRARY_GENERATED: InMemory   # uncomment when Phase 9 service is live
 
-# async_queue — drain thread tuning for hybrid / production modes.
-# Only applies when routing entries point at real service URLs.
-#
 async_queue:
-  max_retries:    3       # attempts before giving up and routing to fallback
-  max_queue_size: 2000    # items; oldest dropped if full (sim loop never blocks)
+  max_retries:    3
+  max_queue_size: 2000
 
-# schema_validation — enforce event contracts before publish.
-# Leave true in all real deployments; set false only for benchmarking.
-#
 schema_validation: true
