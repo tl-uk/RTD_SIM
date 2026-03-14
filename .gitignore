@@ -76,3 +76,7 @@ htmlcov/
 *.gguf
 *.bin
 models/
+cache/
+main.py.backup
+*.pyc
+__pycache__/

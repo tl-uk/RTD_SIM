@@ -1,0 +1,21 @@
+# config/event_bus.yaml.example
+#
+# Copy this file to config/event_bus.yaml and edit for your machine.
+# config/event_bus.yaml is gitignored — each machine has its own copy.
+
+deployment_mode: simulation   # simulation | hybrid | production
+
+routing:
+  POLICY_CHANGE:          InMemory
+  INFRASTRUCTURE_FAILURE: InMemory
+  WEATHER_EVENT:          InMemory
+  AGENT_MODE_SWITCH:      InMemory
+  GRID_STRESS:            InMemory
+  TRAFFIC_EVENT:          InMemory
+  THRESHOLD_CROSSED:      InMemory
+
+async_queue:
+  max_retries:    3
+  max_queue_size: 2000
+
+schema_validation: true

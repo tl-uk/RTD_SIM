@@ -1,0 +1,25 @@
+# config/ingestion.yaml.example
+#
+# Copy this file to config/ingestion.yaml and edit for your machine.
+# config/ingestion.yaml is gitignored — each machine has its own copy.
+#
+# Three-tier LLM fallback:
+#   Tier 1 — OLMo 2 via Ollama   (primary; Apache 2.0, truly open source)
+#   Tier 2 — Static YAML seed    (offline fallback; no LLM required)
+#   Tier 3 — Anthropic Claude    (last resort; requires ANTHROPIC_API_KEY)
+
+primary_backend: olmo
+
+olmo:
+  model: olmo2:13b                 # or olmo2:7b for lighter hardware
+  url: http://localhost:11434      # change if Ollama is on a remote GPU server
+  timeout_s: 120
+  temperature: 0.1
+
+yaml_fallback:
+  enabled: true
+  seed_library_path: config/seed_library.yaml
+
+anthropic_fallback:
+  enabled: true
+  model: claude-haiku-4-5-20251001
