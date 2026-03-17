@@ -12,16 +12,29 @@ from pathlib import Path
 
 class LogCapture:
     """Captures all logging output to both console and file."""
-    
-    def __init__(self, log_dir="logs"):
+
+    # Project root is always two levels up from this file:
+    #   ui/log_capture.py  →  RTD_SIM/
+    # This means the log directory is always <project_root>/logs regardless
+    # of which directory `streamlit run` (or any other entry-point) is
+    # invoked from.
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+    def __init__(self, log_dir: str = "logs"):
         """
         Initialize log capture.
-        
+
         Args:
-            log_dir: Directory to save log files (default: "logs")
+            log_dir: Relative path from project root, or an absolute path.
+                     Defaults to ``<project_root>/logs``.
+                     Pass an absolute path to override completely.
         """
-        self.log_dir = Path(log_dir)
-        self.log_dir.mkdir(exist_ok=True)
+        candidate = Path(log_dir)
+        self.log_dir = (
+            candidate if candidate.is_absolute()
+            else self._PROJECT_ROOT / log_dir
+        )
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         
         # Create log filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -79,15 +92,22 @@ class LogCapture:
             logger.info("="*80)
 
 
-def init_log_capture():
+def init_log_capture(log_dir: str = "logs") -> LogCapture:
     """
     Initialize log capture for the simulation.
     Call this once at the start of your Streamlit app.
-    
+
+    The log directory is always resolved relative to the project root
+    (``RTD_SIM/logs``), not the current working directory, so logs land
+    in the same place regardless of where ``streamlit run`` is invoked.
+
+    Args:
+        log_dir: Sub-directory name under project root, or an absolute path.
+
     Returns:
         LogCapture instance
     """
-    return LogCapture()
+    return LogCapture(log_dir=log_dir)
 
 
 # Example usage in streamlit_app.py:

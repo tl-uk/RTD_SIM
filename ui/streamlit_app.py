@@ -84,15 +84,18 @@ st.set_page_config(
 def init_session_state():
     """Initialize session state variables."""
 
-    # DEBUG: Initialize log capture FIRST
+    # Initialize log capture first so every subsequent log line is captured.
+    # LogCapture resolves the directory relative to the project root, so logs
+    # always land in RTD_SIM/logs/ regardless of where `streamlit run` is called.
     if 'log_capture' not in st.session_state:
         st.session_state.log_capture = init_log_capture()
         import logging
         logger = logging.getLogger(__name__)
-        logger.info("="*80)
-        logger.info("🚀 STREAMLIT APP STARTED")
-        logger.info(f"📄 Full logs: {st.session_state.log_capture.get_log_path()}")
-        logger.info("="*80)
+        logger.info("=" * 80)
+        logger.info("RTD_SIM STREAMLIT APP STARTED")
+        logger.info(f"Log file : {st.session_state.log_capture.get_log_path()}")
+        logger.info(f"Log dir  : {st.session_state.log_capture.log_dir}")
+        logger.info("=" * 80)
 
     defaults = {
         'simulation_run': False,
@@ -287,6 +290,13 @@ with st.sidebar:
     # Phase 5.4: Report Generator
     if config:
         render_report_generator_button(results, config)
+
+    # Always show where the current log file is so it is easy to find
+    # across different machines / launch directories.
+    if 'log_capture' in st.session_state:
+        st.markdown("---")
+        log_path = st.session_state.log_capture.get_log_path()
+        st.caption(f"📄 Log: `{log_path}`")
 
 # Get current timestep data
 if isinstance(results.time_series, list):
