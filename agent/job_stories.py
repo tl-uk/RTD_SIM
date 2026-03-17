@@ -20,37 +20,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-
 # ============================================================================
-# Helpers
-# ============================================================================
-
-def _coerce_time_str(value: Any) -> str:
-    """Coerce a YAML-parsed time value to a HH:MM string.
-
-    PyYAML (pre-6.0) treats unquoted sexagesimal values such as ``07:00``
-    as integers (7*60 = 420).  This helper normalises both the legacy int
-    form and the modern string form to a consistent ``"HH:MM"`` string, so
-    callers never need to special-case the type.
-
-    Examples
-    --------
-    >>> _coerce_time_str(420)
-    '07:00'
-    >>> _coerce_time_str('08:45')
-    '08:45'
-    >>> _coerce_time_str(7)       # bare integer hour
-    '00:07'
-    """
-    if isinstance(value, int):
-        h, m = divmod(value, 60)
-        return f"{h:02d}:{m:02d}"
-    if isinstance(value, float):
-        h, m = divmod(int(round(value)), 60)
-        return f"{h:02d}:{m:02d}"
-    return str(value)
-
-
+# Data Classes
 # The use of dataclasses simplifies the definition and management of 
 # complex data structures.
 # ============================================================================
@@ -311,19 +282,14 @@ class JobStoryParser:
         story_data = self._stories_cache[story_id]
         
         # Parse time window
-        # This helper converts both the legacy int form and the modern string form to a consistent "HH:MM" string.
-        # Applied at both the job-level and stage-level TimeWindow construction sites, including preferred_arrival.
         time_window = None
         if 'time_window' in story_data:
             tw_data = story_data['time_window']
             time_window = TimeWindow(
-                start=_coerce_time_str(tw_data.get('start', '00:00')),
-                end=_coerce_time_str(tw_data.get('end', '23:59')),
+                start=tw_data.get('start', '00:00'),
+                end=tw_data.get('end', '23:59'),
                 flexibility=tw_data.get('flexibility', 'medium'),
-                preferred_arrival=(
-                    _coerce_time_str(tw_data['preferred_arrival'])
-                    if tw_data.get('preferred_arrival') is not None else None
-                )
+                preferred_arrival=tw_data.get('preferred_arrival')
             )
         
         # Parse stages (for multi-stage trips)
@@ -337,13 +303,10 @@ class JobStoryParser:
                 if 'time_window' in stage_data:
                     tw_data = stage_data['time_window']
                     stage_tw = TimeWindow(
-                        start=_coerce_time_str(tw_data.get('start', '00:00')),
-                        end=_coerce_time_str(tw_data.get('end', '23:59')),
+                        start=tw_data.get('start', '00:00'),
+                        end=tw_data.get('end', '23:59'),
                         flexibility=tw_data.get('flexibility', 'medium'),
-                        preferred_arrival=(
-                            _coerce_time_str(tw_data['preferred_arrival'])
-                            if tw_data.get('preferred_arrival') is not None else None
-                        )
+                        preferred_arrival=tw_data.get('preferred_arrival')
                     )
                 else:
                     # Default time window if not specified
@@ -383,40 +346,57 @@ class JobStoryParser:
         
         return story
     
-    def _load_stories(self):
-        """Load all stories from YAML + generated templates."""
+    # Class-level dict so every JobStoryParser instance sharing the same
+    # resolved path reads the YAML files only once per process lifetime.
+    # Call JobStoryParser._class_cache.clear() after Phase 9 story ingestion
+    # adds new job contexts so the next load picks up the new files.
+    _class_cache: dict = {}
+
+    def _load_stories(self) -> None:
+        """Load all stories from YAML + generated templates, using a class-level cache."""
+        resolved = self.stories_path.resolve()
+
+        if resolved in JobStoryParser._class_cache:
+            self._stories_cache = JobStoryParser._class_cache[resolved]
+            logger.debug(
+                "JobStoryParser: cache hit — %d stories (%s)",
+                len(self._stories_cache), self.stories_path.name,
+            )
+            return
+
         self._stories_cache = {}
-        
+
         # Load YAML files (Strategy 1)
         if self.stories_path.is_file():
             with open(self.stories_path, 'r') as f:
                 self._stories_cache = yaml.safe_load(f)
             logger.info(f"Loaded {len(self._stories_cache)} stories from file")
-        
+
         elif self.stories_path.is_dir():
             yaml_files = sorted(self.stories_path.glob('*.yaml'))
-            
+
             for yaml_file in yaml_files:
                 with open(yaml_file, 'r') as f:
                     stories = yaml.safe_load(f)
                     if stories:
                         self._stories_cache.update(stories)
-            
+
             logger.info(f"Loaded {len(self._stories_cache)} stories from {len(yaml_files)} YAML files")
-        
+
         # Load programmatically generated jobs (Strategy 3)
         try:
             from agent.job_templates import generate_all_job_templates
             generated = generate_all_job_templates()
-            
-            # Add generated jobs (with prefix to distinguish)
+
             for job_id, job_def in generated.items():
                 if job_id not in self._stories_cache:  # Don't override manual jobs
                     self._stories_cache[job_id] = job_def
-            
+
             logger.info(f"Added {len(generated)} generated job templates")
         except ImportError:
             logger.debug("job_templates.py not found, skipping generated jobs")
+
+        JobStoryParser._class_cache[resolved] = self._stories_cache
     
     def list_available_stories(self) -> List[str]:
         """Get list of all available job story IDs."""

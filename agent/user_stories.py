@@ -203,17 +203,34 @@ class UserStoryParser:
         
         return story
     
-    def _load_stories(self):
-        """Load all stories from YAML file."""
+    # Class-level dict so every UserStoryParser instance sharing the same
+    # resolved path reads the YAML file only once per process lifetime.
+    # Call UserStoryParser._class_cache.clear() if the YAML is hot-reloaded
+    # at runtime (e.g. after Phase 9 story ingestion publishes new personas).
+    _class_cache: dict = {}
+
+    def _load_stories(self) -> None:
+        """Load all stories from YAML file, using a class-level cache."""
+        resolved = self.stories_path.resolve()
+
+        if resolved in UserStoryParser._class_cache:
+            self._stories_cache = UserStoryParser._class_cache[resolved]
+            logger.debug(
+                "UserStoryParser: cache hit — %d stories (%s)",
+                len(self._stories_cache), self.stories_path.name,
+            )
+            return
+
         if not self.stories_path.exists():
             raise FileNotFoundError(
                 f"personas.yaml not found at: {self.stories_path}\n"
                 f"Please create this file with user story definitions."
             )
-        
+
         with open(self.stories_path, 'r') as f:
             self._stories_cache = yaml.safe_load(f)
-        
+
+        UserStoryParser._class_cache[resolved] = self._stories_cache
         logger.info(f"Loaded {len(self._stories_cache)} user stories")
    
     # Infer desires from narrative text using keyword matching and context clues. 

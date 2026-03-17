@@ -33,6 +33,31 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Combination Cache
+# ============================================================================
+# filter_compatible_combinations() is called up to 4 times per simulation run
+# (app startup, sidebar, Phase 5 agent creation, Combination Report tab) with
+# the same inputs each time.  Caching the result by frozen input sets reduces
+# the call from O(18 × 39) whitelist lookups + 18,000 DEBUG log lines to a
+# single dict lookup on every call after the first.
+#
+# Call clear_compatibility_cache() if the whitelist or available stories
+# change at runtime (e.g. after Phase 9 story ingestion).
+
+_FILTER_CACHE: dict = {}
+
+
+def clear_compatibility_cache() -> None:
+    """Invalidate the cached combination filter result.
+
+    Call this after the story library is updated (e.g. Phase 9 ingestion)
+    so the next call to filter_compatible_combinations recomputes from scratch.
+    """
+    _FILTER_CACHE.clear()
+    logger.debug("story_compatibility: combination cache cleared")
+
+
+# ============================================================================
 # COMPLETE WHITELIST: User Stories That Can Do Each Job
 # ============================================================================
 #
@@ -307,13 +332,28 @@ def filter_compatible_combinations(
     """
     Filter to only compatible user + job combinations.
 
+    Results are cached by input set so that repeated calls (UI tab renders,
+    agent creation phases) with the same persona/job lists pay the O(N×M)
+    whitelist cost only once per simulation run.
+
     Args:
         user_story_ids: List of user personas
-        job_story_ids: List of job types
+        job_story_ids:  List of job types
 
     Returns:
         List of (user, job) tuples that are compatible
     """
+    cache_key = (frozenset(user_story_ids), frozenset(job_story_ids))
+
+    if cache_key in _FILTER_CACHE:
+        cached = _FILTER_CACHE[cache_key]
+        total_combos = len(user_story_ids) * len(job_story_ids)
+        logger.info(
+            "✅ Whitelist filtering: %d/%d allowed (cached — 0 new evaluations)",
+            len(cached), total_combos,
+        )
+        return list(cached)   # return a copy so callers can mutate freely
+
     compatible = []
     for user_story in user_story_ids:
         for job_story in job_story_ids:
@@ -324,11 +364,12 @@ def filter_compatible_combinations(
     filtered_count = total_combos - len(compatible)
 
     logger.info(
-        f"✅ Whitelist filtering: {len(compatible)}/{total_combos} allowed "
-        f"({filtered_count} blocked)"
+        "✅ Whitelist filtering: %d/%d allowed (%d blocked)",
+        len(compatible), total_combos, filtered_count,
     )
 
-    return compatible
+    _FILTER_CACHE[cache_key] = compatible
+    return list(compatible)
 
 
 def get_missing_whitelists(job_story_ids: List[str]) -> List[str]:
