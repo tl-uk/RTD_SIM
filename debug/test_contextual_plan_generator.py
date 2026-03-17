@@ -5,7 +5,7 @@ Test suite for ContextualPlanGenerator.
 
 Tests the core innovation: extracting plans from story context.
 
-Run with: pytest debug/tests/test_contextual_plan_generator.py -v
+Run with: pytest debug/test_contextual_plan_generator.py
 """
 
 import pytest
