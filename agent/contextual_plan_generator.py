@@ -326,8 +326,15 @@ class ContextualPlanGenerator:
         # Urgency override
         if hasattr(job_story, 'parameters'):
             urgency = job_story.parameters.get('urgency', 'medium')
-            
-            if urgency in ['critical', 'high']:
+
+            if urgency == 'critical':
+                # True emergency: lock objective so persona preferences cannot override
+                plan.primary_objective = 'minimize_time'
+                plan.reliability_critical = True
+                plan.flexibility_allowed = False
+            elif urgency == 'high':
+                # High urgency (e.g. school run, tight delivery): set reliability flag
+                # but keep flexibility_allowed=True so eco/cost persona values still apply
                 plan.primary_objective = 'minimize_time'
                 plan.reliability_critical = True
         
@@ -377,10 +384,20 @@ class ContextualPlanGenerator:
         
         # Carbon-conscious users (override job default)
         if any(word in narrative for word in ['carbon', 'emission', 'environment', 'eco', 'climate', 'decarboni']):
-            # Only override if not time-critical
-            if plan.primary_objective != 'minimize_time' or not plan.reliability_critical:
-                plan.primary_objective = 'minimize_carbon'
-                logger.debug("Eco-conscious user: minimize_carbon")
+            # Only block eco override for a true emergency
+            # (flexibility_allowed is False only for urgency='critical' or desire_overrides.time > 0.9)
+            if plan.flexibility_allowed:
+                eco_desire   = getattr(user_story, 'desires', {}).get('eco',  0.0)
+                cost_desire  = getattr(user_story, 'desires', {}).get('cost', 0.0)
+                persona_type = getattr(user_story, 'persona_type', 'passenger')
+                # Freight personas: eco keyword may appear in business context ("decarbonisation
+                # strategy") — only let eco win if the persona's eco desire clearly exceeds
+                # their cost desire
+                if persona_type == 'freight' and cost_desire >= eco_desire:
+                    pass  # cost mandate takes precedence
+                else:
+                    plan.primary_objective = 'minimize_carbon'
+                    logger.debug("Eco-conscious user: minimize_carbon")
         
         # Budget-conscious users
         if any(word in narrative for word in ['budget', 'afford', 'cheap', 'cost', 'money']):

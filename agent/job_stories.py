@@ -20,8 +20,37 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 # ============================================================================
-# Data Classes
+# Helpers
+# ============================================================================
+
+def _coerce_time_str(value: Any) -> str:
+    """Coerce a YAML-parsed time value to a HH:MM string.
+
+    PyYAML (pre-6.0) treats unquoted sexagesimal values such as ``07:00``
+    as integers (7*60 = 420).  This helper normalises both the legacy int
+    form and the modern string form to a consistent ``"HH:MM"`` string, so
+    callers never need to special-case the type.
+
+    Examples
+    --------
+    >>> _coerce_time_str(420)
+    '07:00'
+    >>> _coerce_time_str('08:45')
+    '08:45'
+    >>> _coerce_time_str(7)       # bare integer hour
+    '00:07'
+    """
+    if isinstance(value, int):
+        h, m = divmod(value, 60)
+        return f"{h:02d}:{m:02d}"
+    if isinstance(value, float):
+        h, m = divmod(int(round(value)), 60)
+        return f"{h:02d}:{m:02d}"
+    return str(value)
+
+
 # The use of dataclasses simplifies the definition and management of 
 # complex data structures.
 # ============================================================================
@@ -282,14 +311,19 @@ class JobStoryParser:
         story_data = self._stories_cache[story_id]
         
         # Parse time window
+        # This helper converts both the legacy int form and the modern string form to a consistent "HH:MM" string.
+        # Applied at both the job-level and stage-level TimeWindow construction sites, including preferred_arrival.
         time_window = None
         if 'time_window' in story_data:
             tw_data = story_data['time_window']
             time_window = TimeWindow(
-                start=tw_data.get('start', '00:00'),
-                end=tw_data.get('end', '23:59'),
+                start=_coerce_time_str(tw_data.get('start', '00:00')),
+                end=_coerce_time_str(tw_data.get('end', '23:59')),
                 flexibility=tw_data.get('flexibility', 'medium'),
-                preferred_arrival=tw_data.get('preferred_arrival')
+                preferred_arrival=(
+                    _coerce_time_str(tw_data['preferred_arrival'])
+                    if tw_data.get('preferred_arrival') is not None else None
+                )
             )
         
         # Parse stages (for multi-stage trips)
@@ -303,10 +337,13 @@ class JobStoryParser:
                 if 'time_window' in stage_data:
                     tw_data = stage_data['time_window']
                     stage_tw = TimeWindow(
-                        start=tw_data.get('start', '00:00'),
-                        end=tw_data.get('end', '23:59'),
+                        start=_coerce_time_str(tw_data.get('start', '00:00')),
+                        end=_coerce_time_str(tw_data.get('end', '23:59')),
                         flexibility=tw_data.get('flexibility', 'medium'),
-                        preferred_arrival=tw_data.get('preferred_arrival')
+                        preferred_arrival=(
+                            _coerce_time_str(tw_data['preferred_arrival'])
+                            if tw_data.get('preferred_arrival') is not None else None
+                        )
                     )
                 else:
                     # Default time window if not specified
