@@ -747,11 +747,11 @@ def run_simulation_loop(
                                 elif weather_type == 'wind':
                                     weather_impact['temperature'] = 5.0
                     
-                    # COMPLETE CALL - Simple and clean!
                     journey_tracker.record_journey(
-                        agent=agent,                          # ← Pass whole agent object
-                        step=step,                            # ← Current step
-                        weather_conditions=weather_impact,    # ← Weather as dict
+                        agent=agent,
+                        step=step,
+                        weather_conditions=weather_impact,
+                        emissions=trip_emissions,             # ← calculated above; None when no movement
                     )
             
             # RECORD MODE TRANSITION
