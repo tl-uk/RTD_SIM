@@ -623,6 +623,9 @@ def run_simulation_loop(
         if infrastructure:
             infrastructure.update_grid_load(step)
             infrastructure.update_time(step)  # Update time for time-of-day pricing
+            # Snapshot per-station utilization so get_hotspots() and
+            # get_avg_utilization() have real data to work with.
+            infrastructure.stations.record_all_utilization()
         
         # Apply dynamic policies
         if policy_engine:
