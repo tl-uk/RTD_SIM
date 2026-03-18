@@ -237,10 +237,24 @@ def run_simulation(
                 logger.info(f"✅ Event generator stored ({active_count} active events)")
         
         results.success = True
-        
-        # Log summary
+
+        # ── Final summary log ─────────────────────────────────────────────
         num_cascades = len(results.cascade_events)
+        fallbacks    = results.routing_fallback_count
+        num_agents   = len(results.agents)
+
         logger.info(f"✅ Simulation complete: {num_cascades} cascades detected")
+
+        if fallbacks == 0:
+            logger.info("✅ Data quality: 0 routing fallbacks (all agents routed successfully)")
+        else:
+            pct = fallbacks / max(num_agents, 1) * 100
+            logger.warning(
+                f"⚠️ Data quality: {fallbacks} routing fallback(s) across {num_agents} agents "
+                f"({pct:.1f}%). Affected agents walked a straight line instead of a real route. "
+                f"Mode-share results may be slightly biased. "
+                f"Check OD-pair generation for graph connectivity gaps."
+            )
         
         if progress_callback:
             progress_callback(1.0, "✅ Complete!")

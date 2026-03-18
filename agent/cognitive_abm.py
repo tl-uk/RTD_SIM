@@ -68,7 +68,8 @@ class CognitiveAgent:
         planner=None,
         origin: Tuple[float, float] | None = None,
         dest: Tuple[float, float] | None = None,
-        agent_context: Optional[Dict] = None
+        agent_context: Optional[Dict] = None,
+        simulation_results=None,  # SimulationResults — for routing_fallback_count
     ):
         self.rng = random.Random(seed)
         self.state = AgentState(agent_id=agent_id or f'agent_{abs(self.rng.randint(1, 9999))}')
@@ -87,6 +88,10 @@ class CognitiveAgent:
         # Store origin/dest for diagnostics
         self.origin = origin
         self.dest = dest
+
+        # Reference to SimulationResults for data-quality counters.
+        # None in unit tests; set by agent_creation.py in production.
+        self._simulation_results = simulation_results
 
     # This function applies a habit bonus to the costs of modes that have been used recently,
     # making them more likely to be chosen again. This simulates the real-world tendency for
@@ -161,27 +166,39 @@ class CognitiveAgent:
                 if s.departed_at_step is None:
                     s.departed_at_step = self.t
             else:
-                # ⚠️ No valid route returned - keep existing route if we have one
-                logger.warning(f"{s.agent_id}: No valid route from planner (got {len(best.route) if best.route else 0} points)")
+                # ⚠️ No valid route returned — keep existing route if we have one
+                route_pts = len(best.route) if best.route else 0
+                logger.warning(
+                    f"{s.agent_id}: No valid route from planner "
+                    f"(got {route_pts} points) — mode={s.mode}"
+                )
                 if not s.route or len(s.route) == 0:
-                    # Really stuck - check if we're already at destination
+                    # Increment data-quality counter so the final summary
+                    # reports how many agents fell back to walk.
+                    if self._simulation_results is not None:
+                        self._simulation_results.routing_fallback_count += 1
+
+                    # Really stuck — check if we're already at destination
                     try:
                         from simulation.spatial.coordinate_utils import haversine_km
                         dist = haversine_km(s.location, s.destination)
-                        
-                        if dist < 0.05:  # Within 50m - already there!
+
+                        if dist < 0.05:  # Within 50 m — already there
                             s.arrived = True
                             s.arrived_at_step = self.t
                             logger.info(f"{s.agent_id}: Already at destination!")
                         else:
-                            # Create fallback route (will appear as straight line on map)
-                            logger.warning(f"{s.agent_id}: Creating fallback direct route ({dist:.2f}km)")
+                            # Straight-line walk fallback — biases mode-share data
+                            logger.warning(
+                                f"{s.agent_id}: Routing fallback — "
+                                f"straight-line walk ({dist:.2f} km). "
+                                f"Check OD-pair connectivity for mode={s.mode}."
+                            )
                             s.route = [s.location, s.destination]
                             s.route_index = 0
                             s.route_offset_km = 0.0
-                            s.mode = 'walk'  # Default to walk for fallback
+                            s.mode = 'walk'
                     except Exception as e:
-                        # If distance calc fails, create minimal fallback
                         logger.warning(f"{s.agent_id}: Fallback with error: {e}")
                         s.route = [s.location, s.destination]
                         s.route_index = 0
@@ -274,10 +291,11 @@ class CognitiveAgent:
         s = self.state
         self.t += 1
         
-        # 🔍 DEBUG: Log route status at start of step (first 3 steps only)
+        # Route-status trace — useful during development; kept at DEBUG so it
+        # doesn't appear in production logs even for the first few steps.
         if self.t <= 3:
             route_info = f"{len(s.route)} points" if s.route else "None"
-            logger.info(f"🔍 {s.agent_id} step {self.t} START: route={route_info}, arrived={s.arrived}")
+            logger.debug(f"🔍 {s.agent_id} step {self.t} START: route={route_info}, arrived={s.arrived}")
 
         # Cognitive updates with some randomness to simulate variability in attention and stress. 
         # The agent's attention is influenced by a random stimulus and its current stress level. 
@@ -297,10 +315,9 @@ class CognitiveAgent:
         self._maybe_plan(env)
         self._move(env)
         
-        # 🔍 DEBUG: Log route status at end of step (first 3 steps only)
         if self.t <= 3:
             route_info = f"{len(s.route)} points" if s.route else "None"
-            logger.info(f"🔍 {s.agent_id} step {self.t} END: route={route_info}, distance={s.distance_km:.1f}km, arrived={s.arrived}")
+            logger.debug(f"🔍 {s.agent_id} step {self.t} END: route={route_info}, distance={s.distance_km:.1f}km, arrived={s.arrived}")
 
         return {
             't': self.t,

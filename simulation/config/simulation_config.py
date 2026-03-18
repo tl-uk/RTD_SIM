@@ -548,3 +548,10 @@ class SimulationResults:
         
         # Phase 5.3: System Dynamics results
         self.system_dynamics_history = []
+
+        # ── Data quality counters ──────────────────────────────────────────
+        # routing_fallback_count: incremented in cognitive_abm._maybe_plan
+        # whenever the planner returns no valid route and the agent falls
+        # back to a straight-line walk.  A non-zero value flags potential
+        # OD-pair connectivity issues that could bias mode-share results.
+        self.routing_fallback_count: int = 0

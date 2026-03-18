@@ -316,7 +316,8 @@ def create_agents(
                 },
                 planner=planner,
                 origin=origin,
-                dest=dest
+                dest=dest,
+                simulation_results=results   # pass the SimulationResults object
             )
             
             # Compute initial route for basic agents too
