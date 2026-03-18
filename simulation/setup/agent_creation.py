@@ -19,14 +19,10 @@ simulation.
 import secrets
 import random
 import logging
-from typing import List, Dict, Tuple, Any, Optional, TYPE_CHECKING
+from typing import List, Dict, Tuple, Any, Optional
 
 from agent.bdi_planner import BDIPlanner
-# SimulationConfig is only used as a type annotation — move under TYPE_CHECKING
-# to break the circular import:
-#   simulation_config → agent_config → simulation_config
-if TYPE_CHECKING:
-    from simulation.config.simulation_config import SimulationConfig
+from simulation.config.simulation_config import SimulationConfig
 from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 from simulation.spatial_environment import SpatialEnvironment
 
@@ -50,28 +46,14 @@ except ImportError:
 def create_planner(infrastructure: Optional[InfrastructureManager]) -> BDIPlanner:
     """
     Create BDI planner (with or without infrastructure).
-
-    Automatically attaches a ContextualPlanGenerator (rule-based backend)
-    so that BDI agents benefit from Phase 1 contextual plan extraction.
-
+    
     Args:
         infrastructure: Optional InfrastructureManager
-
+    
     Returns:
         BDI planner instance
     """
-    try:
-        from agent.contextual_plan_generator import ContextualPlanGenerator
-        plan_generator = ContextualPlanGenerator(llm_backend="rule_based")
-        logger.info("✅ ContextualPlanGenerator attached to BDI planner")
-    except Exception as _e:
-        plan_generator = None
-        logger.warning(f"ContextualPlanGenerator not available: {_e}")
-
-    planner = BDIPlanner(
-        infrastructure_manager=infrastructure,
-        plan_generator=plan_generator,
-    )
+    planner = BDIPlanner(infrastructure_manager=infrastructure)
     
     if infrastructure is not None:
         logger.info("✅ Created infrastructure-aware BDI planner (Phase 4.5)")
