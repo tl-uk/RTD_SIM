@@ -386,8 +386,42 @@ def render_map(
                 get_line_color=[50, 50, 50],
                 line_width_min_pixels=1,  # ✅ FIX: Thinner stroke
             )
-            # ✅ FIX: Add infrastructure layer FIRST so agents render on top
+            # Add infrastructure layer FIRST so agents render on top
             layers.insert(0, station_layer)
+
+            # Hotspot ring layer — bright red pulsing ring around overloaded stations
+            hotspot_ids = set(infrastructure_manager.get_hotspots(threshold=0.5))
+            hotspot_data = [
+                {
+                    'lon': s.location[0],
+                    'lat': s.location[1],
+                    'tooltip_html': (
+                        f'<b>🔴 Hotspot: {sid}</b><br/>'
+                        f'Type: {s.charger_type}<br/>'
+                        f'Ports: {s.currently_occupied}/{s.num_ports} occupied<br/>'
+                        f'Load: {s.occupancy_rate():.0%}'
+                    ),
+                }
+                for sid, s in infrastructure_manager.charging_stations.items()
+                if sid in hotspot_ids
+            ]
+            if hotspot_data:
+                hotspot_df = pd.DataFrame(hotspot_data)
+                hotspot_layer = pdk.Layer(
+                    'ScatterplotLayer',
+                    data=hotspot_df,
+                    get_position='[lon, lat]',
+                    get_fill_color=[255, 0, 0, 0],       # transparent fill
+                    get_line_color=[255, 50, 50, 220],    # bright red ring
+                    get_radius=20,
+                    radius_min_pixels=12,
+                    radius_max_pixels=28,
+                    line_width_min_pixels=3,
+                    stroked=True,
+                    filled=True,
+                    pickable=True,
+                )
+                layers.insert(0, hotspot_layer)   # below stations so rings show around them
     
     # ========================================================================
     # View State
