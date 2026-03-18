@@ -46,20 +46,35 @@ except ImportError:
 def create_planner(infrastructure: Optional[InfrastructureManager]) -> BDIPlanner:
     """
     Create BDI planner (with or without infrastructure).
-    
+
+    Automatically attaches a ContextualPlanGenerator (rule-based) so BDI agents
+    benefit from Phase 1 contextual plan extraction without any code changes
+    elsewhere. Falls back gracefully if the module isn't available.
+
     Args:
         infrastructure: Optional InfrastructureManager
-    
+
     Returns:
         BDI planner instance
     """
-    planner = BDIPlanner(infrastructure_manager=infrastructure)
-    
+    try:
+        from agent.contextual_plan_generator import ContextualPlanGenerator
+        plan_generator = ContextualPlanGenerator(llm_backend="rule_based")
+        logger.info("✅ ContextualPlanGenerator attached to BDI planner")
+    except Exception as _e:
+        plan_generator = None
+        logger.warning(f"ContextualPlanGenerator not available: {_e}")
+
+    planner = BDIPlanner(
+        infrastructure_manager=infrastructure,
+        plan_generator=plan_generator,
+    )
+
     if infrastructure is not None:
         logger.info("✅ Created infrastructure-aware BDI planner (Phase 4.5)")
     else:
         logger.info("✅ Created basic BDI planner (Phase 4)")
-    
+
     return planner
 
 
