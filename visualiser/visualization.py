@@ -86,6 +86,19 @@ MODE_COLORS_HEX = {
 }
 
 
+_MODE_EMOJI = {
+    'walk': '🚶', 'bike': '🚲', 'cargo_bike': '📦🚲',
+    'e_scooter': '🛴', 'bus': '🚌', 'tram': '🚋',
+    'car': '🚗', 'ev': '🔋', 'van_electric': '🔋🚐',
+    'van_diesel': '🚐', 'truck_electric': '🔋🚛',
+    'truck_diesel': '🚛', 'hgv_electric': '🔋🚚',
+    'hgv_diesel': '🚚', 'hgv_hydrogen': '💧🚚',
+    'local_train': '🚆', 'intercity_train': '🚄',
+    'ferry_diesel': '⛴️', 'ferry_electric': '🛳️',
+    'flight_domestic': '✈️', 'flight_electric': '✈️',
+}
+
+
 def render_map(
     agent_states: List[Dict],
     show_agents: bool = True,
@@ -139,18 +152,6 @@ def render_map(
                 pass
 
         _EV_MODES = {'ev', 'van_electric', 'truck_electric', 'hgv_electric'}
-
-        _MODE_EMOJI = {
-            'walk': '🚶', 'bike': '🚲', 'cargo_bike': '📦🚲',
-            'e_scooter': '🛴', 'bus': '🚌', 'tram': '🚋',
-            'car': '🚗', 'ev': '🔋', 'van_electric': '🔋🚐',
-            'van_diesel': '🚐', 'truck_electric': '🔋🚛',
-            'truck_diesel': '🚛', 'hgv_electric': '🔋🚚',
-            'hgv_diesel': '🚚', 'hgv_hydrogen': '💧🚚',
-            'local_train': '🚆', 'intercity_train': '🚄',
-            'ferry_diesel': '⛴️', 'ferry_electric': '🛳️',
-            'flight_domestic': '✈️', 'flight_electric': '✈️',
-        }
 
         for state in agent_states:
             loc = state.get('location')
@@ -245,6 +246,12 @@ def render_map(
                         g = min(255, max(40, color_rgb[1] + (variation if idx % 3 == 1 else -variation//2)))
                         b = min(255, max(40, color_rgb[2] + (variation if idx % 4 == 2 else -variation//2)))
                         
+                        mode_label = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
+                        route_tooltip = (
+                            f'<b>{agent_id}</b><br/>'
+                            f'Route: {mode_label}<br/>'
+                            f'{len(path)} waypoints'
+                        )
                         route_data.append({
                             'path': path,
                             'r': int(r),
@@ -252,6 +259,7 @@ def render_map(
                             'b': int(b),
                             'mode': mode,
                             'agent_id': agent_id,
+                            'tooltip_html': route_tooltip,
                         })
                         
                         # Log first 3 routes for debugging
