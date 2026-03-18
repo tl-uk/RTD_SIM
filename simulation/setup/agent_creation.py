@@ -67,7 +67,8 @@ def create_agents(
     config: SimulationConfig,
     env: SpatialEnvironment,
     planner: Any,
-    progress_callback=None
+    progress_callback=None,
+    simulation_results=None,  # SimulationResults — for routing_fallback_count
 ) -> Tuple[List[Any], Dict[str, float]]:
     """
     Create agent population with initial routes.
@@ -183,6 +184,9 @@ def create_agents(
                 seed=agent_seed,
                 apply_variance=True
             )
+            # Thread simulation_results so CognitiveAgent._maybe_plan
+            # can increment routing_fallback_count on failure.
+            agent._simulation_results = simulation_results
             
             # Compute initial route immediately
             try:
@@ -317,7 +321,7 @@ def create_agents(
                 planner=planner,
                 origin=origin,
                 dest=dest,
-                simulation_results=results   # pass the SimulationResults object
+                simulation_results=simulation_results
             )
             
             # Compute initial route for basic agents too

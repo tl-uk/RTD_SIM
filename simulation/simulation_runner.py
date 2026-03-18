@@ -134,7 +134,7 @@ def run_simulation(
         
         # Phase 5: Create agents
         logger.info("🤖 Phase 5: Agent creation")
-        agents, desire_std = create_agents(config, env, planner, progress_callback)
+        agents, desire_std = create_agents(config, env, planner, progress_callback, results)
         results.agents = agents
         results.desire_std = desire_std
         
