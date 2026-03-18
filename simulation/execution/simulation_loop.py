@@ -684,15 +684,12 @@ def run_simulation_loop(
             except:
                 agent.step()
             
-            # 🔍 DEBUG: Check route status after step (TEMPORARY - REMOVE AFTER DIAGNOSIS)
-            if step <= 2:  # Only log first 3 steps
+            # Route-status trace (DEBUG only — does not appear in production logs)
+            if step <= 2:
                 route_info = "None"
                 if hasattr(agent.state, 'route'):
-                    if agent.state.route:
-                        route_info = f"{len(agent.state.route)} points"
-                    else:
-                        route_info = "empty/None"
-                logger.info(f"      After step: agent={agent.state.agent_id}, route={route_info}, distance={agent.state.distance_km:.1f}km, arrived={agent.state.arrived}")
+                    route_info = f"{len(agent.state.route)} points" if agent.state.route else "empty/None"
+                logger.debug(f"      After step: agent={agent.state.agent_id}, route={route_info}, distance={agent.state.distance_km:.1f}km, arrived={agent.state.arrived}")
 
 
             # Phase 6.2b: Update agent locations in event bus (if agents moved)
@@ -807,11 +804,11 @@ def run_simulation_loop(
                     infrastructure=infrastructure
                 )
             
-            # Record policy activations
-            if hasattr(policy_engine, 'active_combined') and policy_engine.active_combined:
-                # Check which policies activated this step
-                # (Would need policy engine to expose this)
-                pass
+            # Record policy activations from this step's results
+            if policy_result.get('actions_taken'):
+                for action in policy_result['actions_taken']:
+                    action_name = action.get('action', 'unknown_policy')
+                    policy_impact_analyzer.record_policy_activation(action_name, step)
             
             # Social influence (if enabled)
             if network and SOCIAL_AVAILABLE:
@@ -993,6 +990,52 @@ def run_simulation_loop(
             analytics_summary['tipping_points'] = tipping_points
     
     if policy_impact_analyzer:
+        # Compute impact measurements and ROI for every policy that fired.
+        # We need at least one step-snapshot captured during the run (every 20 steps).
+        if (policy_impact_analyzer.policy_activations
+                and len(policy_impact_analyzer.step_snapshots) >= 1):
+
+            final_snapshot = policy_impact_analyzer.step_snapshots[-1]
+
+            # Cost estimates per policy action (£) — expand as new actions are added
+            _POLICY_COSTS = {
+                'expand_grid_capacity':  500_000.0,
+                'add_depot_chargers':    150_000.0,   # 3 depots × 10 chargers × £5k
+                'add_emergency_chargers': 50_000.0,   # 10 chargers × £5k
+                'add_chargers':           25_000.0,   # single station estimate
+                'relocate_chargers':       5_000.0,   # labour only
+            }
+            _DEFAULT_COST = 10_000.0
+
+            for policy_name, activation_step in policy_impact_analyzer.policy_activations.items():
+                # Find the snapshot closest to (but not after) the activation step
+                before_snapshot = policy_impact_analyzer.baseline
+                for snap in policy_impact_analyzer.step_snapshots:
+                    if snap.step <= activation_step:
+                        before_snapshot = snap
+                    else:
+                        break
+
+                if before_snapshot is None:
+                    before_snapshot = final_snapshot  # degenerate fallback
+
+                policy_impact_analyzer.measure_direct_impact(
+                    policy_name=policy_name,
+                    before_snapshot=before_snapshot,
+                    after_snapshot=final_snapshot,
+                    agents=agents,
+                )
+
+                # Estimate simulation duration in days (1 step ≈ 1 minute)
+                sim_days = config.steps / 1440.0
+
+                policy_impact_analyzer.calculate_roi(
+                    policy_name=policy_name,
+                    implementation_cost=_POLICY_COSTS.get(policy_name, _DEFAULT_COST),
+                    operating_cost_annual=_POLICY_COSTS.get(policy_name, _DEFAULT_COST) * 0.1,
+                    simulation_duration_days=max(sim_days, 1.0),
+                )
+
         analytics_summary['policy_impact'] = policy_impact_analyzer.generate_summary_report()
         logger.info(f"💰 Evaluated {len(policy_impact_analyzer.impacts)} policy impacts")
     

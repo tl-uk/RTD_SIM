@@ -21,9 +21,8 @@ def render_analytics_tab(results, anim=None, current_data=None):
     """
     st.title("📊 Advanced Analytics")
     
-    if not results.journey_tracker:
-        st.info("⚠️ Analytics not enabled. Enable in simulation config.")
-        return
+    # Each sub-tab has its own guard — no top-level gate here so that
+    # Policy ROI renders independently of journey_tracker availability.
     
     # Create tabs for different analytics sections
     tab1, tab2, tab3, tab4 = st.tabs([
