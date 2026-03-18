@@ -19,10 +19,14 @@ simulation.
 import secrets
 import random
 import logging
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any, Optional, TYPE_CHECKING
 
 from agent.bdi_planner import BDIPlanner
-from simulation.config.simulation_config import SimulationConfig
+# SimulationConfig is only used as a type annotation — move under TYPE_CHECKING
+# to break the circular import:
+#   simulation_config → agent_config → simulation_config
+if TYPE_CHECKING:
+    from simulation.config.simulation_config import SimulationConfig
 from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 from simulation.spatial_environment import SpatialEnvironment
 
