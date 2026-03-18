@@ -128,27 +128,75 @@ def render_map(
     
     if show_agents and agent_states:
         agent_data = []
+
+        # Pre-build the set of agents currently charging so we can annotate
+        # EV agents in their tooltip without an extra dict lookup per agent.
+        _charging_agents: set = set()
+        if infrastructure_manager and hasattr(infrastructure_manager, 'sessions'):
+            try:
+                _charging_agents = set(infrastructure_manager.sessions.get_charging_agents())
+            except Exception:
+                pass
+
+        _EV_MODES = {'ev', 'van_electric', 'truck_electric', 'hgv_electric'}
+
+        _MODE_EMOJI = {
+            'walk': '🚶', 'bike': '🚲', 'cargo_bike': '📦🚲',
+            'e_scooter': '🛴', 'bus': '🚌', 'tram': '🚋',
+            'car': '🚗', 'ev': '🔋', 'van_electric': '🔋🚐',
+            'van_diesel': '🚐', 'truck_electric': '🔋🚛',
+            'truck_diesel': '🚛', 'hgv_electric': '🔋🚚',
+            'hgv_diesel': '🚚', 'hgv_hydrogen': '💧🚚',
+            'local_train': '🚆', 'intercity_train': '🚄',
+            'ferry_diesel': '⛴️', 'ferry_electric': '🛳️',
+            'flight_domestic': '✈️', 'flight_electric': '✈️',
+        }
+
         for state in agent_states:
             loc = state.get('location')
             if loc and len(loc) == 2:
-                mode = state.get('mode', 'walk')
-                color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
-                
+                mode       = state.get('mode', 'walk')
+                agent_id   = state.get('agent_id', '')
+                arrived    = state.get('arrived', False)
+                distance   = state.get('distance_km', 0.0)
+                emissions  = state.get('emissions_g', 0.0)
+                color_rgb  = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+                is_ev      = mode in _EV_MODES
+                is_charging = agent_id in _charging_agents
+
+                mode_label = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
+
+                # Status line
+                if arrived:
+                    status_html = '✅ Arrived'
+                elif is_ev and is_charging:
+                    status_html = '⚡ Charging'
+                else:
+                    status_html = '🔄 En route'
+
+                # EV-specific line
+                ev_line = ''
+                if is_ev and not is_charging:
+                    ev_line = '<br/>🔋 EV — not charging'
+                elif is_ev and is_charging:
+                    ev_line = '<br/>⚡ At charging station'
+
+                tooltip_html = (
+                    f'<b>{agent_id}</b><br/>'
+                    f'Mode: {mode_label}<br/>'
+                    f'Status: {status_html}<br/>'
+                    f'Distance: {distance:.1f} km<br/>'
+                    f'Emissions: {emissions:.0f} g CO₂'
+                    f'{ev_line}'
+                )
+
                 agent_data.append({
                     'lon': float(loc[0]),
                     'lat': float(loc[1]),
                     'r': int(color_rgb[0]),
                     'g': int(color_rgb[1]),
                     'b': int(color_rgb[2]),
-                    'agent_id': state.get('agent_id', ''),
-                    'mode': mode,
-                    'arrived': state.get('arrived', False),
-                    # Station-side defaults so Deck.gl replaces with '' not literal {field}
-                    'station_id': '',
-                    'type': '',
-                    'occupancy_pct': '',
-                    'free_ports': '',
-                    'total_ports': '',
+                    'tooltip_html': tooltip_html,
                 })
         
         if agent_data:
@@ -276,24 +324,42 @@ def render_map(
             g = int((1 - occupancy) * 255)
             b = 0
             
+            free_ports = max(0, station.num_ports - station.currently_occupied)
+            queue_len  = len(station.queue)
+
+            avail_icon = '🔴 Full' if free_ports == 0 else '🟢 Available'
+
+            # Occupancy bar (5 chars wide)
+            filled = round(occupancy * 5)
+            occ_bar = '█' * filled + '░' * (5 - filled)
+
+            # Charger type display
+            type_labels = {
+                'level2': 'Level 2 (7 kW)',
+                'dcfast':  'DC Fast (50 kW)',
+                'depot':   'Depot (150 kW)',
+                'home':    'Home (3.6 kW)',
+            }
+            type_label = type_labels.get(station.charger_type, station.charger_type)
+
+            queue_line = f'<br/>⏳ Queue: {queue_len} waiting' if queue_len > 0 else ''
+
+            tooltip_html = (
+                f'<b>⚡ {station_id}</b><br/>'
+                f'Type: {type_label}<br/>'
+                f'{avail_icon}<br/>'
+                f'Ports: {free_ports}/{station.num_ports} free<br/>'
+                f'Load: [{occ_bar}] {occupancy:.0%}'
+                f'{queue_line}'
+            )
+
             station_data.append({
                 'lon': station.location[0],
                 'lat': station.location[1],
                 'r': r,
                 'g': g,
                 'b': b,
-                'station_id': station_id,
-                'type': station.charger_type,
-                'occupancy': occupancy,
-                # Pre-format as string: Deck.gl tooltip can't parse Python format specs
-                # (e.g. {occupancy:.0%} is not valid — Deck.gl regex only matches \w+)
-                'occupancy_pct': f"{occupancy:.0%}",
-                'available': station.is_available(),
-                'free_ports': max(0, station.num_ports - station.currently_occupied),
-                'total_ports': station.num_ports,
-                # Agent-side defaults so Deck.gl replaces with '' not literal {field}
-                'agent_id': '',
-                'mode': '',
+                'tooltip_html': tooltip_html,
             })
         
         if station_data:
@@ -343,15 +409,17 @@ def render_map(
         layers=layers,
         initial_view_state=view_state,
         tooltip={
-            'html': (
-                '<b>Agent:</b> {agent_id}<br/>'
-                '<b>Station:</b> {station_id}<br/>'
-                'Mode: {mode}<br/>'
-                'Type: {type}<br/>'
-                'Occupancy: {occupancy_pct}<br/>'
-                'Free: {free_ports}/{total_ports}'
-            ),
-            'style': {'backgroundColor': 'rgba(0,0,0,0.8)', 'color': 'white'}
+            # Each row pre-renders its own HTML so agents and stations show
+            # context-appropriate info without cross-layer field pollution.
+            'html': '{tooltip_html}',
+            'style': {
+                'backgroundColor': 'rgba(0,0,0,0.85)',
+                'color': 'white',
+                'fontSize': '13px',
+                'padding': '8px 12px',
+                'borderRadius': '6px',
+                'lineHeight': '1.6',
+            }
         },
         map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
     )
