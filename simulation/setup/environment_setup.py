@@ -144,7 +144,11 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
 # ============================================================
 # Infrastructure Setup
 # ============================================================
-def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Optional[InfrastructureManager]:
+def setup_infrastructure(
+    config: SimulationConfig,
+    progress_callback=None,
+    env=None,
+) -> Optional[InfrastructureManager]:
     """
     Initialize infrastructure manager with charging stations.
     
@@ -204,14 +208,24 @@ def setup_infrastructure(config: SimulationConfig, progress_callback=None) -> Op
             num_depot=config.num_depots
         )
     
+    # Snap stations to OSM road nodes (prevents sea/field placement)
+    if env is not None and env.graph_loaded:
+        _snap_stations_to_roads(infrastructure, env)
+    else:
+        logger.warning(
+            'setup_infrastructure: env not provided — stations NOT snapped to roads. '
+            'Pass env=env to fix sea/field marker placement.'
+        )
+
     metrics = infrastructure.get_infrastructure_metrics()
     logger.info(f"✅ Infrastructure: {metrics['charging_stations']} stations, "
                 f"{metrics['total_ports']} ports, {metrics['depots']} depots")
-    
+
     if progress_callback:
         progress_callback(0.3, "✅ Infrastructure ready")
-    
+
     return infrastructure
+
 
 # ============================================================
 # Multi-City Input Detection Utility
@@ -357,3 +371,33 @@ def _create_multi_city_bbox(cities: list) -> tuple:
     logger.info(f"Created multi-city bbox covering: {', '.join([c for c in cities if c.split(',')[0].strip().lower() in CITY_COORDS])}")
     
     return bbox
+
+
+def _snap_stations_to_roads(infrastructure, env) -> None:
+    """
+    Move every charging station onto its nearest OSM drive-network node.
+
+    Random bbox coordinates land in the Firth of Forth (~20% of Edinburgh
+    bbox is sea) and on the Pentland Hills. Snapping to the drive graph
+    ensures every marker sits on an actual road junction.
+    """
+    drive_graph = env.graph_manager.get_graph('drive')
+    if drive_graph is None:
+        logger.warning("_snap_stations_to_roads: no drive graph — skipping")
+        return
+
+    total   = len(infrastructure.charging_stations)
+    snapped = 0
+
+    for station in infrastructure.charging_stations.values():
+        node = env._get_nearest_node(station.location, 'drive')
+        if node is not None:
+            station.location = (
+                float(drive_graph.nodes[node]['x']),
+                float(drive_graph.nodes[node]['y']),
+            )
+            snapped += 1
+
+    logger.info(
+        "Snapped %d/%d charging stations to OSM road nodes", snapped, total
+    )

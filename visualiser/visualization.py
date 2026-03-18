@@ -143,6 +143,12 @@ def render_map(
                     'agent_id': state.get('agent_id', ''),
                     'mode': mode,
                     'arrived': state.get('arrived', False),
+                    # Station-side defaults so Deck.gl replaces with '' not literal {field}
+                    'station_id': '',
+                    'type': '',
+                    'occupancy_pct': '',
+                    'free_ports': '',
+                    'total_ports': '',
                 })
         
         if agent_data:
@@ -279,9 +285,15 @@ def render_map(
                 'station_id': station_id,
                 'type': station.charger_type,
                 'occupancy': occupancy,
+                # Pre-format as string: Deck.gl tooltip can't parse Python format specs
+                # (e.g. {occupancy:.0%} is not valid — Deck.gl regex only matches \w+)
+                'occupancy_pct': f"{occupancy:.0%}",
                 'available': station.is_available(),
                 'free_ports': max(0, station.num_ports - station.currently_occupied),
                 'total_ports': station.num_ports,
+                # Agent-side defaults so Deck.gl replaces with '' not literal {field}
+                'agent_id': '',
+                'mode': '',
             })
         
         if station_data:
@@ -331,12 +343,14 @@ def render_map(
         layers=layers,
         initial_view_state=view_state,
         tooltip={
-            'html': '<b>Agent:</b> {agent_id}<br/>'
-                   '<b>Station:</b> {station_id}<br/>'
-                   'Mode: {mode}<br/>'
-                   'Type: {type}<br/>'
-                   'Occupancy: {occupancy:.0%}<br/>'
-                   'Free: {free_ports}/{total_ports}',
+            'html': (
+                '<b>Agent:</b> {agent_id}<br/>'
+                '<b>Station:</b> {station_id}<br/>'
+                'Mode: {mode}<br/>'
+                'Type: {type}<br/>'
+                'Occupancy: {occupancy_pct}<br/>'
+                'Free: {free_ports}/{total_ports}'
+            ),
             'style': {'backgroundColor': 'rgba(0,0,0,0.8)', 'color': 'white'}
         },
         map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
@@ -510,7 +524,7 @@ def render_infrastructure_metrics(
         )
     
     # Hotspot map
-    hotspots = infrastructure_manager.get_hotspots(threshold=0.8)
+    hotspots = infrastructure_manager.get_hotspots(threshold=0.5)
     
     return {
         'metrics': metrics,

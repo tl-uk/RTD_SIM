@@ -89,7 +89,7 @@ def run_simulation(
         
         # Phase 3: Setup infrastructure
         logger.info("🔌 Phase 3: Infrastructure setup")
-        infrastructure = setup_infrastructure(config, progress_callback)
+        infrastructure = setup_infrastructure(config, progress_callback, env=env)
         results.infrastructure = infrastructure
         
         # Phase 4: Create planner
