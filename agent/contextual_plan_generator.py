@@ -533,6 +533,139 @@ class ContextualPlanGenerator:
         
         return "; ".join(reasoning_parts)
     
+
+    # ========================================================================
+    # MODE FILTERING — The BDI Integration Bridge
+    # ========================================================================
+
+    def get_candidate_modes(
+        self,
+        plan: "ExtractedPlan",
+        available_modes: list,
+        distance_km: float = 5.0,
+        weather_conditions: dict = None,
+    ) -> list:
+        """
+        Translate an ExtractedPlan into a filtered list of candidate modes.
+
+        This is the integration bridge between contextual plan extraction and
+        the BDI planner. The planner passes its full available_modes list; this
+        method returns the contextually appropriate subset. The BDI planner then
+        scores within that subset using desire weights, preserving individuality.
+
+        Filtering logic (applied in order):
+          1. Objective filter  — remove modes contradicting primary_objective
+          2. Reliability filter — remove fragile modes when reliability_critical
+          3. Compliance filter  — remove non-compliant modes (e.g. diesel in LEZ)
+          4. Weather filter     — remove unsafe active modes in bad weather
+          5. Distance guardrail — remove modes clearly outside their range
+          6. Fallback           — always keep ≥1 mode to prevent empty returns
+
+        Args:
+            plan:              ExtractedPlan from extract_plan_from_context()
+            available_modes:   Modes offered by _filter_modes_by_context()
+            distance_km:       Straight-line trip distance
+            weather_conditions: Optional dict with 'ice_warning', 'precipitation'
+
+        Returns:
+            Filtered list of mode strings, length >= 1.
+        """
+        weather = weather_conditions or {}
+        modes   = list(available_modes)   # work on a copy
+
+        # ── 1. Objective filter ──────────────────────────────────────────────
+        if plan.primary_objective == 'minimize_carbon':
+            # Prefer zero/low emission modes; remove high-emission diesel freight
+            # unless no alternatives exist (freight agents may have no choice).
+            _HIGH_EMISSION = {
+                'car', 'van_diesel', 'truck_diesel',
+                'hgv_diesel', 'hgv_hydrogen',   # hydrogen still combustion
+            }
+            filtered = [m for m in modes if m not in _HIGH_EMISSION]
+            if filtered:
+                modes = filtered
+                logger.debug("Objective filter (carbon): removed high-emission modes")
+
+        elif plan.primary_objective == 'minimize_cost':
+            # Keep cheapest modes; remove aviation and long-distance rail
+            _EXPENSIVE = {'flight_domestic', 'flight_electric', 'intercity_train'}
+            filtered = [m for m in modes if m not in _EXPENSIVE]
+            if filtered:
+                modes = filtered
+                logger.debug("Objective filter (cost): removed expensive modes")
+
+        elif plan.primary_objective == 'minimize_time':
+            # Remove very slow modes for time-critical trips > 3km
+            if distance_km > 3.0:
+                _SLOW = {'walk'}
+                filtered = [m for m in modes if m not in _SLOW]
+                if filtered:
+                    modes = filtered
+                    logger.debug("Objective filter (time): removed walk for long trip")
+
+        # ── 2. Reliability filter ────────────────────────────────────────────
+        if plan.reliability_critical and distance_km > 2.0:
+            # Remove modes that are unreliable or unsafe when reliability matters
+            # (children present, disability, time-critical delivery).
+            # Keep bikes for short trips (<2km) as they are reliable there.
+            _UNRELIABLE = {'e_scooter', 'cargo_bike'}
+            if weather.get('ice_warning') or weather.get('precipitation', 0) > 5:
+                _UNRELIABLE |= {'bike', 'walk'}   # active modes unsafe in ice/heavy rain
+            filtered = [m for m in modes if m not in _UNRELIABLE]
+            if filtered:
+                modes = filtered
+                logger.debug("Reliability filter: removed fragile modes")
+
+        # ── 3. Compliance filter ─────────────────────────────────────────────
+        if plan.must_comply_with:
+            compliance_text = ' '.join(plan.must_comply_with).lower()
+            if any(w in compliance_text for w in ['emission zone', 'lez', 'ulez', 'zero emission']):
+                _NON_COMPLIANT = {
+                    'car', 'van_diesel', 'truck_diesel',
+                    'hgv_diesel', 'hgv_hydrogen',
+                }
+                filtered = [m for m in modes if m not in _NON_COMPLIANT]
+                if filtered:
+                    modes = filtered
+                    logger.debug("Compliance filter (LEZ): removed diesel/petrol modes")
+
+        # ── 4. Weather filter ────────────────────────────────────────────────
+        if plan.weather_sensitive:
+            if weather.get('ice_warning'):
+                _ICY = {'bike', 'e_scooter', 'cargo_bike', 'walk'}
+                filtered = [m for m in modes if m not in _ICY]
+                if filtered:
+                    modes = filtered
+                    logger.debug("Weather filter (ice): removed active modes")
+
+        # ── 5. Distance guardrail ────────────────────────────────────────────
+        # Remove modes clearly outside their practical range.
+        _MODE_MAX_KM = {
+            'walk': 5.0, 'bike': 20.0, 'cargo_bike': 12.0, 'e_scooter': 10.0,
+        }
+        if distance_km > 2.0:   # only apply for non-trivial distances
+            filtered = [
+                m for m in modes
+                if distance_km <= _MODE_MAX_KM.get(m, 9999)
+            ]
+            if filtered:
+                modes = filtered
+
+        # ── 6. Fallback guarantee ────────────────────────────────────────────
+        if not modes:
+            logger.warning(
+                "get_candidate_modes: all modes filtered out — reverting to available_modes. "
+                "Plan: %s | Distance: %.1fkm", plan, distance_km
+            )
+            return list(available_modes)
+
+        logger.debug(
+            "get_candidate_modes: %d → %d modes (objective=%s, critical=%s)",
+            len(available_modes), len(modes),
+            plan.primary_objective, plan.reliability_critical
+        )
+        return modes
+
     # ========================================================================
     # LLM-BASED EXTRACTION (Optional Enhancement)
     # ========================================================================

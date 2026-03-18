@@ -179,6 +179,12 @@ class StoryDrivenAgent(CognitiveAgent):
                     f"vehicle_type={context['vehicle_type']}, "
                     f"priority={context['priority']}")
         
+        # Attach story objects so BDI planner can pass them to
+        # ContextualPlanGenerator without re-parsing YAML.
+        context["user_story"] = self.user_story
+        context["job_story"]  = self.job_story
+        context["csv_data"]   = getattr(self, "csv_data", None)
+
         return context
     
     # Conflict resolution between user desires and job context

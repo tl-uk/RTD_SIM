@@ -784,63 +784,71 @@ def run_simulation_loop(
             # ── Infrastructure interaction — EV charging ───────────────────
             # This block MUST be inside `for agent in agents` so every EV agent
             # gets a charging opportunity each step, not just the last one.
-            # Previously it lived in the POLICY IMPACT TRACKING block (outside
-            # the loop), so only the leaked loop variable (last agent) ever ran.
             if infrastructure and agent.state.mode in ['ev', 'van_electric', 'truck_electric', 'hgv_electric']:
                 _agent_id = agent.state.agent_id
-
-                if _agent_id not in infrastructure.agent_charging_state:
-                    # Trigger charging when: arrived, or has travelled > 3km,
-                    # or 10% random chance on shorter trips (urban top-up).
-                    _should_charge = (
-                        agent.state.arrived or
-                        agent.state.distance_km > 3.0 or
-                        (agent.state.distance_km > 1.0 and random.random() < 0.1)
-                    )
-
-                    if _should_charge:
-                        _nearest = infrastructure.find_nearest_charger(
-                            location=agent.state.location,
-                            charger_type='any',
-                            max_distance_km=5.0,
-                        )
-
-                        if _nearest:
-                            _station_id, _dist_km = _nearest
-                            _trip_dist = agent.state.distance_km or 5.0
-
-                            if _trip_dist < 5.0:
-                                _charge_dur = random.uniform(15, 30)
-                            elif _trip_dist < 15.0:
-                                _charge_dur = random.uniform(30, 60)
-                            else:
-                                _charge_dur = random.uniform(60, 120)
-
-                            _success = infrastructure.reserve_charger(
-                                _agent_id, _station_id, duration_min=_charge_dur
+                try:
+                    if _agent_id not in infrastructure.agent_charging_state:
+                        # Guard: location must be valid before calling find_nearest_charger
+                        _loc = agent.state.location
+                        if _loc is None or len(_loc) < 2:
+                            pass  # agent not yet placed — skip this step
+                        else:
+                            # Trigger charging when: arrived, or has travelled > 3km,
+                            # or 10% random chance on shorter trips (urban top-up).
+                            _should_charge = (
+                                agent.state.arrived or
+                                agent.state.distance_km > 3.0 or
+                                (agent.state.distance_km > 1.0 and random.random() < 0.1)
                             )
 
-                            if _success:
-                                infrastructure.agent_charging_state[_agent_id]['status'] = 'charging'
-                                infrastructure.agent_charging_state[_agent_id]['start_time'] = step
-                                logger.debug(
-                                    f"Step {step}: {_agent_id} charging at {_station_id} "
-                                    f"({_dist_km:.1f}km away, {_charge_dur:.0f}min)"
+                            if _should_charge:
+                                _nearest = infrastructure.find_nearest_charger(
+                                    location=_loc,
+                                    charger_type='any',
+                                    max_distance_km=5.0,
                                 )
-                                if policy_engine:
-                                    _station = infrastructure.charging_stations.get(_station_id)
-                                    if _station:
-                                        _kwh = (_trip_dist / 5.0) * 20.0
-                                        record_charging_revenue(policy_engine, _kwh * _station.cost_per_kwh)
 
-                else:
-                    # Already charging — check if session is complete
-                    _cs = infrastructure.agent_charging_state[_agent_id]
-                    if _cs.get('status') == 'charging':
-                        _elapsed = (step - _cs.get('start_time', step)) * 1.0
-                        if _elapsed >= _cs.get('duration_min', 999):
-                            infrastructure.release_charger(_agent_id)
-                            logger.debug(f"Step {step}: {_agent_id} finished charging ({_elapsed:.0f}min)")
+                                if _nearest:
+                                    _station_id, _dist_km = _nearest
+                                    _trip_dist = agent.state.distance_km or 5.0
+
+                                    if _trip_dist < 5.0:
+                                        _charge_dur = random.uniform(15, 30)
+                                    elif _trip_dist < 15.0:
+                                        _charge_dur = random.uniform(30, 60)
+                                    else:
+                                        _charge_dur = random.uniform(60, 120)
+
+                                    _success = infrastructure.reserve_charger(
+                                        _agent_id, _station_id, duration_min=_charge_dur
+                                    )
+
+                                    if _success:
+                                        infrastructure.agent_charging_state[_agent_id]['status'] = 'charging'
+                                        infrastructure.agent_charging_state[_agent_id]['start_time'] = step
+                                        logger.debug(
+                                            f"Step {step}: {_agent_id} charging at {_station_id} "
+                                            f"({_dist_km:.1f}km away, {_charge_dur:.0f}min)"
+                                        )
+                                        if policy_engine:
+                                            _station = infrastructure.charging_stations.get(_station_id)
+                                            if _station:
+                                                _kwh = (_trip_dist / 5.0) * 20.0
+                                                record_charging_revenue(policy_engine, _kwh * _station.cost_per_kwh)
+
+                    else:
+                        # Already charging — check if session is complete
+                        _cs = infrastructure.agent_charging_state[_agent_id]
+                        if _cs.get('status') == 'charging':
+                            _elapsed = (step - _cs.get('start_time', step)) * 1.0
+                            if _elapsed >= _cs.get('duration_min', 999):
+                                infrastructure.release_charger(_agent_id)
+                                logger.debug(f"Step {step}: {_agent_id} finished charging ({_elapsed:.0f}min)")
+
+                except Exception as _e:
+                    # Never let a charging error crash the simulation step.
+                    # Log at debug level to avoid flooding INFO logs.
+                    logger.debug(f"Step {step}: charging error for {_agent_id}: {_e}")
 
             # Collect agent state at END of agent loop iteration
             # This MUST be at 12 spaces (inside `for agent in agents`)
