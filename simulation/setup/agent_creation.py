@@ -79,58 +79,76 @@ def create_agents(
     # Crypto RNG for better spatial distribution
     crypto_rng = random.Random(secrets.randbits(128))
     
-    # Helper function to generate random origin-destination pairs
+    # Helper function to generate random origin-destination pairs.
+    #
+    # Design principles (all three needed together):
+    #
+    #   1. Prefer OSM-node pairs from get_random_origin_dest() — these are
+    #      already graph-snapped and connectivity-verified.  The 2km filter
+    #      that used to sit here has been moved INSIDE that call (min_distance_km)
+    #      so we don't waste 10 attempts re-checking what the function already
+    #      handles internally.  Minimum is lowered to 1km: Edinburgh is dense
+    #      and many valid job contexts (shopping_trip, last_mile_scooter,
+    #      accessible_tram_journey) legitimately start at 1km straight-line.
+    #
+    #   2. Attempts raised to 25: reduces bbox fallback frequency.
+    #
+    #   3. Bbox fallback SNAPS raw coordinates to the nearest OSM graph node.
+    #      Raw float bbox coordinates that happen to snap to the SAME nearest
+    #      node produce a 1-element route ([origin]) which then triggers the
+    #      walk fallback.  Snapping first and checking node inequality prevents
+    #      this entirely.
     def random_od() -> Tuple[Tuple[float, float], Tuple[float, float]]:
-        """Generate random origin-destination pairs with minimum distance."""
+        """Generate random OD pair, always snapped to OSM graph nodes."""
+        from simulation.spatial.coordinate_utils import haversine_km
+
+        # ── Strategy 1: OSM-node pairs (preferred) ────────────────────────
         if config.use_osm and env.graph_loaded:
-            # Try OSM-based random OD pairs with distance filter
-            max_attempts = 10
-            for _ in range(max_attempts):
-                pair = env.get_random_origin_dest()
-                if pair:
-                    origin, dest = pair
-                    # Calculate straight-line distance
-                    from math import radians, cos, sin, asin, sqrt
-                    lon1, lat1 = origin
-                    lon2, lat2 = dest
-                    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-                    dlon = lon2 - lon1
-                    dlat = lat2 - lat1
-                    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-                    c = 2 * asin(sqrt(a))
-                    distance_km = 6371 * c
-                    
-                    # Reject trips shorter than 2km
-                    if distance_km >= 2.0:
-                        return pair
-            
-            # If all attempts failed, fall through to random bbox
-            logger.warning("get_random_origin_dest() couldn't find trip >= 2km after 10 attempts, using random bbox coords")
-        
-        # Generate random coordinates within bbox (with distance filter)
+            pair = env.get_random_origin_dest(min_distance_km=1.0, max_attempts=25)
+            if pair:
+                return pair
+            logger.warning(
+                "get_random_origin_dest() failed after 25 attempts — "
+                "falling back to snapped bbox coordinates. "
+                "Check graph connectivity or enlarge the bounding box."
+            )
+
+        # ── Strategy 2: Bbox fallback WITH graph snapping ──────────────────
+        # Raw float coordinates are not OSM nodes.  Both endpoints often snap
+        # to the same nearest node → 1-point route → walk fallback.
+        # Snapping explicitly and checking inequality prevents that.
         if config.extended_bbox:
             west, south, east, north = config.extended_bbox
         else:
             west, south, east, north = -3.35, 55.85, -3.05, 56.00
-        
-        max_attempts = 20
-        for _ in range(max_attempts):
-            origin = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
-            dest = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
-            
-            # Check distance
-            from math import radians, cos, sin, asin, sqrt
-            lon1, lat1 = origin
-            lon2, lat2 = dest
-            lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-            dlon = lon2 - lon1
-            dlat = lat2 - lat1
-            a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-            c = 2 * asin(sqrt(a))
-            distance_km = 6371 * c
-            
-            if distance_km >= 2.0:
+
+        drive_graph = env.graph_manager.get_graph('drive') if env.graph_loaded else None
+
+        for _ in range(25):
+            raw_origin = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
+            raw_dest   = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
+
+            if drive_graph is not None:
+                # Snap to nearest OSM node so the router never receives raw floats
+                orig_node = env._get_nearest_node(raw_origin, 'drive')
+                dest_node = env._get_nearest_node(raw_dest,   'drive')
+
+                if orig_node is None or dest_node is None or orig_node == dest_node:
+                    continue  # Same node → would produce a 1-point route
+
+                origin = (float(drive_graph.nodes[orig_node]['x']),
+                          float(drive_graph.nodes[orig_node]['y']))
+                dest   = (float(drive_graph.nodes[dest_node]['x']),
+                          float(drive_graph.nodes[dest_node]['y']))
+            else:
+                origin, dest = raw_origin, raw_dest
+
+            if haversine_km(origin, dest) >= 1.0:
                 return (origin, dest)
+
+        # Last-resort: return last attempt regardless of distance
+        logger.warning("random_od(): could not satisfy 1km minimum after 25 attempts")
+        return (origin, dest)
         
         # Fallback: just return last attempt even if short
         return (origin, dest)
