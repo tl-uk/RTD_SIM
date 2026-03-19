@@ -543,12 +543,21 @@ class BDIPlanner:
         desires: Dict[str, float],
         agent_context: Optional[Dict] = None
     ) -> float:
-        """Calculate action cost with freight mode bonuses."""
+        """
+        Calculate action cost with freight mode bonuses and Markov habit discount.
+ 
+        Markov: if the agent carries a PersonalityMarkovChain
+        (exposed via agent_context['mode_chain']), habitual modes receive a
+        small cost discount proportional to their self-transition probability.
+ 
+        The discount is intentionally modest (max 12%) so the BDI desire
+        weights still dominate — habit nudges rather than locks.
+        """
         route = action.route
         mode = action.mode
         params = action.params
         context = agent_context or {}
-        
+ 
         # Get raw metrics
         time_min = env.estimate_travel_time(route, mode)
         money = env.estimate_monetary_cost(route, mode)
@@ -562,13 +571,13 @@ class BDIPlanner:
         w_comfort = desires.get('comfort', 0.2)
         w_risk = desires.get('risk', 0.2)
         w_eco = desires.get('eco', 0.6)
-        
+ 
         # Normalize base metrics to [0,1]
         time_norm = min(1.0, time_min / 60.0)
         cost_norm = min(1.0, money / 5.0)
         emissions_norm = min(1.0, emissions_g / 500.0)
         comfort_penalty = 1.0 - comfort
-        
+ 
         # Infrastructure adjustments
         infrastructure_penalty = 0.0
         
@@ -576,38 +585,38 @@ class BDIPlanner:
             trip_distance = params.get('trip_distance_km', 0)
             max_range = self.EV_RANGE_KM.get(mode, 350.0)
             range_ratio = trip_distance / max_range
-            
+ 
             if range_ratio > 0.9:
                 range_anxiety = desires.get('range_anxiety', 0.5)
                 infrastructure_penalty += range_anxiety * 2.0
             elif range_ratio > 0.7:
                 range_anxiety = desires.get('range_anxiety', 0.5)
                 infrastructure_penalty += range_anxiety * 0.5
-            
+ 
             if 'nearest_charger' in params:
                 if not params.get('charger_available', False):
                     wait_time = params.get('charger_wait_min', 30)
                     time_norm += (wait_time / 60.0) * w_time
-                    
+ 
                     if w_time > 0.7:
                         infrastructure_penalty += 0.3
-                
+ 
                 charging_cost_kwh = params.get('charging_cost_kwh', 0.15)
                 charging_cost = (trip_distance * 0.2) * charging_cost_kwh
                 cost_norm += (charging_cost / 5.0) * w_cost
-                
+ 
                 detour_km = params.get('charger_distance_km', 0)
                 if detour_km > 0.5:
                     time_norm += (detour_km / 30.0)
             else:
                 infrastructure_penalty += 1.0
-            
+ 
             if self.infrastructure:
                 grid_stress = self.infrastructure.get_grid_stress_factor()
                 if grid_stress > 1.0:
                     time_norm *= grid_stress
                     cost_norm *= grid_stress
-        
+ 
         # Priority adjustments
         priority = context.get('priority', 'normal')
         vehicle_type = context.get('vehicle_type', 'personal')
@@ -616,7 +625,9 @@ class BDIPlanner:
             w_time = 1.0
             w_cost = 0.0
             w_risk = 0.0
-        elif priority == 'commercial' or vehicle_type in ['commercial', 'medium_freight', 'heavy_freight', 'micro_mobility']:
+        elif priority == 'commercial' or vehicle_type in [
+            'commercial', 'medium_freight', 'heavy_freight', 'micro_mobility'
+        ]:
             w_time = 0.7
             w_cost = 0.2
 
@@ -625,12 +636,12 @@ class BDIPlanner:
         # Freight mode preference bonuses are applied after the initial cost calculation 
         # to ensure that they influence the final mode choice effectively.
         total_cost = (
-            w_time * time_norm +
-            w_cost * cost_norm +
-            w_comfort * comfort_penalty +
-            w_risk * risk +
-            w_eco * emissions_norm +
-            infrastructure_penalty
+            w_time * time_norm
+            + w_cost * cost_norm
+            + w_comfort * comfort_penalty
+            + w_risk * risk
+            + w_eco * emissions_norm
+            + infrastructure_penalty
         )
 
         # Apply freight mode preference bonuses
@@ -638,13 +649,18 @@ class BDIPlanner:
             'van_electric', 'van_diesel',
             'cargo_bike',
             'truck_electric', 'truck_diesel',
-            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'
+            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
         ]
         # Freight modes get a cost reduction bonus if the agent context indicates a freight delivery,
         # with the size of the bonus depending on the specific vehicle type. This encourages the planner 
         # to select freight-appropriate modes when the agent is in a freight context, while still allowing
         # for other modes to be chosen if they are significantly better in terms of the base cost metrics.
-        if (priority == 'commercial' or vehicle_type in ['commercial', 'medium_freight', 'heavy_freight', 'micro_mobility']) and mode in freight_modes:
+        if (
+            priority == 'commercial'
+            or vehicle_type in [
+                'commercial', 'medium_freight', 'heavy_freight', 'micro_mobility'
+            ]
+        ) and mode in freight_modes:
             if vehicle_type == 'micro_mobility' and mode == 'cargo_bike':
                 total_cost *= 0.6
             elif vehicle_type in ['heavy_freight', 'medium_freight']:
@@ -652,6 +668,41 @@ class BDIPlanner:
             else:
                 total_cost *= 0.7
 
+        # ── Phase 3: Markov habit discount ───────────────────────────────────
+        # If the agent has a PersonalityMarkovChain, habitual modes cost less.
+        # The discount is proportional to the self-transition probability P(mode|mode)
+        # capped at 12% so desires still dominate the decision.
+        #
+        # Example: eco_warrior who has cycled 8 consecutive days has
+        #   habit_strength(bike) ≈ 0.72  →  discount ≈ 8.6%
+        # A brand-new agent has habit_strength ≈ 0.45  →  discount ≈ 5.4%
+        # No mode_chain (import failed) → discount = 0, no effect.
+        _mode_chain = context.get('mode_chain')
+        if _mode_chain is not None:
+            try:
+                current_mode = getattr(state, 'mode', mode)
+                prior = _mode_chain.get_prior(current_mode)
+                habit_p = prior.get(mode, 0.0)
+ 
+                # Discount: up to 12% for fully habitual mode (habit_p → 1.0)
+                _MAX_HABIT_DISCOUNT = 0.12
+                habit_discount = _MAX_HABIT_DISCOUNT * habit_p
+                total_cost *= (1.0 - habit_discount)
+ 
+                if habit_discount > 0.05:
+                    logger.debug(
+                        "Markov habit discount %.1f%% on %s for agent %s "
+                        "(habit_p=%.2f, streak=%d)",
+                        habit_discount * 100,
+                        mode,
+                        getattr(state, 'agent_id', '?'),
+                        habit_p,
+                        _mode_chain.habit_counts.get(mode, 0),
+                    )
+            except Exception as _me:
+                logger.debug("Markov discount failed: %s", _me)
+            # ── End Phase 3 Markov ───────────────────────────────────────────────────────
+ 
         # Add stochastic noise (±15%)
         total_cost += random.uniform(-0.15, 0.15)
         

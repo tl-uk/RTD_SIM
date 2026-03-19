@@ -22,6 +22,14 @@ import logging
 import json
 import re
 
+# Import LLM
+try:
+    from services.llm_client import LLMClient
+    _LLM_CLIENT_AVAILABLE = True
+except ImportError:
+    _LLM_CLIENT_AVAILABLE = False
+    LLMClient = None
+    
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -109,7 +117,6 @@ class ExtractedPlan:
             f"critical={self.reliability_critical})"
         )
 
-
 # ============================================================================
 # CONTEXTUAL PLAN GENERATOR
 # ============================================================================
@@ -159,11 +166,37 @@ class ContextualPlanGenerator:
         
         logger.info(f"ContextualPlanGenerator initialized: backend={llm_backend}")
     
+    # ---- LLM Client -------------------------------------------------
     def _init_llm_client(self, backend: str):
-        """Initialize LLM client (future implementation)."""
-        # TODO: Import from services.ingestion.llm_clients
-        logger.warning(f"LLM backend '{backend}' not yet implemented, using rule_based")
-        return None
+        """
+        Initialise shared LLMClient (OLMo primary, Anthropic fallback).
+ 
+        Reads config/ingestion.yaml automatically so URL, model, and
+        timeout stay consistent with the Phase 9 ingestion service.
+        Falls back to defaults if config is absent.
+        """
+        if not _LLM_CLIENT_AVAILABLE:
+            logger.warning(
+                "ContextualPlanGenerator: LLMClient not available "
+                "(services/llm_client.py missing), using rule_based"
+            )
+            return None
+ 
+        client = LLMClient.from_config_file()
+ 
+        # Override backend if caller explicitly requested anthropic
+        if backend == "anthropic":
+            client.backend = "anthropic"
+ 
+        logger.info(
+            "ContextualPlanGenerator: LLMClient ready "
+            "(backend=%s, model=%s, ollama=%s)",
+            client.backend,
+            client.olmo_model,
+            "✅" if client.is_available() else "⚠️ not reachable",
+        )
+        return client
+    
     
     # ========================================================================
     # MAIN ENTRY POINT
@@ -676,40 +709,40 @@ class ContextualPlanGenerator:
         job_story: Any,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
-        csv_data: Optional[Dict]
+        csv_data: Optional[Dict],
     ) -> ExtractedPlan:
         """
-        Extract plan using LLM (OLMo 2 or Claude).
-        
-        This is an optional enhancement that can extract more nuanced
-        constraints from natural language.
+        Extract plan using LLMClient (OLMo 2 primary, Anthropic fallback).
+ 
+        The prompt requests JSON for speed and reliability.
+        Parsing failures raise ValueError so extract_plan_from_context()
+        can catch and fall back to rule-based extraction cleanly.
         """
-        
         if not self.llm:
             raise RuntimeError("LLM client not initialized")
-        
-        # Construct prompt
+ 
         prompt = self._construct_llm_prompt(user_story, job_story)
-        
-        # Call LLM
         response = self.llm.complete(prompt, temperature=0.1)
-        
-        # Parse JSON response
+ 
         plan_data = self._parse_llm_response(response)
-        
-        # Convert to ExtractedPlan
         plan = self._llm_data_to_plan(plan_data)
-        
-        # Add temporal constraints from job story
-        if hasattr(job_story, 'time_window') and job_story.time_window:
+ 
+        # Merge temporal constraints from job story (rule-based is more
+        # reliable for structured fields than LLM inference)
+        if hasattr(job_story, "time_window") and job_story.time_window:
             plan.time_window_start = job_story.time_window.start
             plan.time_window_end = job_story.time_window.end
-        
-        plan.extraction_method = 'llm'
-        plan.reasoning = plan_data.get('reasoning', 'LLM extraction')
-        
-        logger.info(f"LLM extraction: {plan_data.get('reasoning', 'N/A')}")
-        
+ 
+        plan.extraction_method = "llm"
+        plan.reasoning = plan_data.get("reasoning", "LLM extraction")
+ 
+        logger.info(
+            "LLM plan extraction: objective=%s, fixed=%s, critical=%s — %s",
+            plan.primary_objective,
+            plan.schedule_fixed,
+            plan.reliability_critical,
+            plan.reasoning,
+        )
         return plan
     
     def _construct_llm_prompt(self, user_story: Any, job_story: Any) -> str:
@@ -731,36 +764,49 @@ class ContextualPlanGenerator:
         
         prompt = f"""Extract the travel plan from this user story and job context.
 
-USER STORY:
-{user_story.narrative}
+                    USER STORY:
+                    {user_story.narrative}
 
-Key beliefs:
-{beliefs_text}
+                    Key beliefs:
+                    {beliefs_text}
 
-JOB CONTEXT:
-{job_story.context}
-{job_story.goal}
-{job_story.outcome}
+                    JOB CONTEXT:
+                    {job_story.context}
+                    {job_story.goal}
+                    {job_story.outcome}
 
-Plan context:
-{plan_context_text}
+                    Plan context:
+                    {plan_context_text}
 
-Based on this context, extract:
-1. Is this a scheduled trip with fixed times? (yes/no)
-2. What is the primary optimization objective? (minimize_time/minimize_carbon/minimize_cost)
-3. Is reliability critical? (yes/no)
-4. Are there regulatory constraints? (list any)
-5. Is weather a concern? (yes/no)
+                    Based on this context, extract:
+                    1. Is this a scheduled trip with fixed times? (yes/no)
+                    2. What is the primary optimization objective? (minimize_time/minimize_carbon/minimize_cost)
+                    3. Is reliability critical? (yes/no)
+                    4. Are there regulatory constraints? (list any)
+                    5. Is weather a concern? (yes/no)
 
-Respond in JSON format:
-{{
-    "schedule_fixed": true/false,
-    "primary_objective": "minimize_time",
-    "reliability_critical": true/false,
-    "regulatory_constraints": ["list", "of", "constraints"],
-    "weather_sensitive": true/false,
-    "reasoning": "brief explanation"
-}}"""
+                    Respond in JSON format:
+                    {{
+                        "schedule_fixed": true/false,
+                        "primary_objective": "minimize_time",
+                        "reliability_critical": true/false,
+                        "regulatory_constraints": ["list", "of", "constraints"],
+                        "weather_sensitive": true/false,
+                        "reasoning": "brief explanation"
+                    }}"""
+        
+        # Append JSON schema reminder — OLMo needs explicit format instruction
+        prompt += """
+ 
+                    Respond ONLY with a JSON object — no markdown, no explanation:
+                    {
+                    \"schedule_fixed\": true or false,
+                    \"primary_objective\": \"minimize_time\" or \"minimize_carbon\" or \"minimize_cost\",
+                    \"reliability_critical\": true or false,
+                    \"weather_sensitive\": true or false,
+                    \"regulatory_constraints\": [],
+                    \"reasoning\": \"one sentence\"
+                    }"""
         
         return prompt
     

@@ -108,7 +108,18 @@ class StoryDrivenAgent(CognitiveAgent):
             self.mode_chain = None
             logger.debug("MarkovModeSwitching not available: %s", _e)
 
-        # Phase 6.2b: Event perception (optional - Phase 7)
+        # Expose mode_chain via agent_context so bdi_planner.cost() can read
+        # get_prior() without holding a reference to the agent object.
+        # The dict is already held by the parent CognitiveAgent; mutating it
+        # here keeps both self.agent_context and the planner's copy in sync.
+        self.agent_context['mode_chain'] = self.mode_chain   # ← NEW
+        # Logic (hack):
+        #   cost() receives agent_context (a dict), not the agent.
+        #   Adding mode_chain to the dict is the smallest possible change —
+        #   one line, no new parameters, no API breakage.
+        #   If mode_chain is None (import failed), cost() handles it gracefully.
+
+        # Event perception (optional - Phase 7)
         self.perceived_policies = {}  # {parameter: value}
         self.perceived_failures = []  # List of infrastructure failures
         self.event_perception_enabled = False
