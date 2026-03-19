@@ -97,6 +97,17 @@ class StoryDrivenAgent(CognitiveAgent):
                    f"vehicle_required={agent_context.get('vehicle_required')}, "
                    f"vehicle_type={agent_context.get('vehicle_type')}")
         
+        # Phase 3: Markov mode switching — personality-driven habit formation
+        try:
+            from agent.markov_mode_switching import PersonalityMarkovChain
+            self.mode_chain = PersonalityMarkovChain(
+                persona_id=user_story_id,
+                available_modes=None,  # uses ALL_MODES; planner filters at runtime
+            )
+        except Exception as _e:
+            self.mode_chain = None
+            logger.debug("MarkovModeSwitching not available: %s", _e)
+
         # Phase 6.2b: Event perception (optional - Phase 7)
         self.perceived_policies = {}  # {parameter: value}
         self.perceived_failures = []  # List of infrastructure failures

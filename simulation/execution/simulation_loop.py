@@ -13,6 +13,13 @@ from pathlib import Path
 from collections import defaultdict
 
 from simulation.config.simulation_config import SimulationConfig
+
+# Phase 2 + 3: belief updating and Markov mode switching
+try:
+    from agent.bayesian_belief_updater import BayesianBeliefUpdater
+    BELIEF_UPDATER_AVAILABLE = True
+except ImportError:
+    BELIEF_UPDATER_AVAILABLE = False
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.execution.timeseries import TimeSeries
 from simulation.time.temporal_engine import create_temporal_engine_from_config
@@ -485,6 +492,11 @@ def run_simulation_loop(
             logger.info("✅ System Dynamics initialized")
 
     # Main simulation loop
+    # Phase 2: Bayesian belief updater — shared across all agents, stateless
+    belief_updater = BayesianBeliefUpdater() if BELIEF_UPDATER_AVAILABLE else None
+    # Per-agent, per-mode satisfaction tracking for the belief updater
+    satisfaction_by_mode: dict = {}   # mode → [float]
+
     for step in range(config.steps):
         # Initialize agent states for this step
         agent_states = []
@@ -911,6 +923,17 @@ def run_simulation_loop(
                         agent.state.mode,
                         satisfaction
                     )
+
+                    # Phase 2: accumulate satisfaction by mode for belief updater
+                    _mode = agent.state.mode
+                    if _mode not in satisfaction_by_mode:
+                        satisfaction_by_mode[_mode] = []
+                    satisfaction_by_mode[_mode].append(satisfaction)
+
+                    # Phase 3: update Markov chain with this step's outcome
+                    _chain = getattr(agent, 'mode_chain', None)
+                    if _chain is not None:
+                        _chain.record_step(_mode, satisfaction)
             
             # Calculate lifecycle emissions if agent moved
             if emissions_calc and agent.state.location != prev_location:
@@ -940,6 +963,23 @@ def run_simulation_loop(
                 
 
         
+        # Phase 2: Bayesian belief update every 5 steps (all agents)
+        if belief_updater and step % 5 == 0:
+            for _agent in agents:
+                if hasattr(_agent, 'user_story'):
+                    try:
+                        _agent.state._agent_ref = _agent
+                        belief_updater.update_agent(
+                            agent=_agent,
+                            step=step,
+                            infrastructure=infrastructure,
+                            network=network,
+                            satisfaction_by_mode=satisfaction_by_mode,
+                        )
+                    except Exception as _be:
+                        logger.debug("Belief update failed for %s: %s",
+                                     _agent.state.agent_id, _be)
+
         # Air quality step (atmospheric dispersion) - MUST BE OUTSIDE AGENT LOOP
         # TO AVOID DOUBLE COUNTING EMISSIONS
         if air_quality:
