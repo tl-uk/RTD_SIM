@@ -48,6 +48,13 @@ from ui.tabs import (
     render_analytics_tab,
 )
 
+try:
+    from ui.tabs.cognition_tab import render_cognition_tab
+    COGNITION_TAB_AVAILABLE = True
+except ImportError:
+    COGNITION_TAB_AVAILABLE = False
+
+
 # Import policy diagnostics
 from ui.tabs.policy_diagnostics_tab import render_policy_diagnostics_tab
 
@@ -318,6 +325,11 @@ tab_configs = [
 
 if results.infrastructure:
     tab_configs.append(("🔌 Infrastructure", render_infrastructure_tab))
+
+if COGNITION_TAB_AVAILABLE and results.agents and any(
+    hasattr(a, 'user_story') for a in results.agents
+):
+    tab_configs.append(("🧠 Agent Cognition", render_cognition_tab))
 
 if results.scenario_report:
     tab_configs.append(("📋 Scenario Report", render_scenario_report_tab))
