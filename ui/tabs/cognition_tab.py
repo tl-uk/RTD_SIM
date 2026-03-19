@@ -400,7 +400,7 @@ def _render_belief_drift(agents):
         else:
             st.caption("No beliefs recorded for this agent.")
 
-    with st.expander("How belief updating works (Phase 2 Bayesian)"):
+    with st.expander("How belief updating works (Bayesian)"):
         st.markdown("""
 **Update formula** (called every 5 simulation steps):
 
