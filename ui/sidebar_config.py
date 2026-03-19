@@ -269,6 +269,8 @@ def render_sidebar_config():
         user_stories=user_stories,
         job_stories=job_stories,
         use_congestion=advanced_config['use_congestion'],
+        enable_route_diversity=advanced_config['enable_route_diversity'],  # ← NEW (line after use_congestion)
+        route_diversity_mode=advanced_config['route_diversity_mode'],      # ← NEW
         enable_social=advanced_config['enable_social'],
         use_realistic_influence=advanced_config['use_realistic'],
         decay_rate=advanced_config['decay_rate'],
@@ -1102,6 +1104,26 @@ def _render_advanced_features():
                 with st.expander("⚙️ Influence Parameters"):
                     decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05)
                     habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1)
+
+                # Route diversity
+                with st.expander("🛣️ Route Diversity", expanded=False):
+                    enable_route_diversity = st.checkbox(
+                        "Enable route diversity",
+                        value=True,
+                        help="Prevents all agents taking the identical shortest path.",
+                    )
+                    route_diversity_mode = st.radio(
+                        "Strategy",
+                        options=["ultra_fast", "perturbed", "k_shortest"],
+                        index=0,
+                        horizontal=True,
+                        disabled=not enable_route_diversity,
+                        help=(
+                            "ultra_fast: hash-based, ~0.02s/route. "
+                            "perturbed: random noise, ~0.05s/route. "
+                            "k_shortest: top-k paths, ~0.15s/route."
+                        ),
+                    )
     
     return {
         'use_congestion': use_congestion,
@@ -1109,6 +1131,8 @@ def _render_advanced_features():
         'use_realistic': use_realistic,
         'decay_rate': decay_rate,
         'habit_weight': habit_weight,
+        'enable_route_diversity': enable_route_diversity,   # ← NEW
+        'route_diversity_mode': route_diversity_mode,       # ← NEW
         'enable_infrastructure': enable_infrastructure,
         'num_chargers': num_chargers,
         'num_depots': num_depots,

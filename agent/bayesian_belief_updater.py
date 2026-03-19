@@ -63,11 +63,29 @@ class BayesianBeliefUpdater:
         self.w_peer   = peer_weight
         self.interval = update_interval
         self.history  = saturation_history
+        self._agent_index: dict = {}   # populated on first update call
 
         assert abs(prior_weight + experience_weight + peer_weight - 1.0) < 1e-6, \
             "Weights must sum to 1.0"
 
     # ── Public API ────────────────────────────────────────────────────────
+    
+    def rebuild_agent_index(self, agents: list) -> None:
+        """
+        Rebuild the agent_id → agent lookup dict.
+ 
+        Call once after agents are created (in simulation_loop.py,
+        just before the main step loop begins).
+        """
+        self._agent_index = {
+            a.state.agent_id: a
+            for a in agents
+            if hasattr(a, 'state') and hasattr(a.state, 'agent_id')
+        }
+        logger.debug(
+            "BayesianBeliefUpdater: agent index built (%d agents)",
+            len(self._agent_index),
+        )
 
     def update_agent(
         self,
@@ -97,7 +115,12 @@ class BayesianBeliefUpdater:
         agent.agent_context['charger_occupancy_nearby'] = charger_signal
 
         # ── 2. Peer signal ────────────────────────────────────────────────
-        peer_ev_rate, peer_modes = self._get_peer_signal(agent, network)
+        # _agent_index is rebuilt on first call or when agent count changes.
+        # This avoids calling network.get_agent() which doesn't exist on
+        # SocialNetwork — instead we look up agents by ID in a plain dict.
+        peer_ev_rate, peer_modes = self._get_peer_signal(
+            agent, network, self._agent_index
+        )
         agent.agent_context['peer_ev_rate'] = peer_ev_rate
         agent.agent_context['peer_modes']   = peer_modes
 
@@ -152,37 +175,39 @@ class BayesianBeliefUpdater:
             return 0.0
 
     def _get_peer_signal(
-        self, agent, network
+        self, agent, network, agent_index: dict
     ) -> Tuple[float, Dict[str, int]]:
         """
         Return (ev_adoption_rate_among_peers, mode_count_dict).
-        Queries the SocialNetwork for the agent's neighbours.
+ 
+        Uses a pre-built agent_index dict (agent_id → agent) instead of
+        calling network.get_agent() which is not implemented on SocialNetwork.
         """
         if not network:
             return 0.0, {}
-
+ 
         try:
             agent_id = agent.state.agent_id
             neighbors = network.get_neighbors(agent_id)
             if not neighbors:
                 return 0.0, {}
-
+ 
             mode_counts: Dict[str, int] = {}
             ev_modes = {'ev', 'van_electric', 'truck_electric', 'hgv_electric'}
             ev_count = 0
-
+ 
             for nb_id in neighbors:
-                nb = network.get_agent(nb_id)
+                nb = agent_index.get(nb_id)
                 if nb is None:
                     continue
                 mode = getattr(nb.state, 'mode', 'walk')
                 mode_counts[mode] = mode_counts.get(mode, 0) + 1
                 if mode in ev_modes:
                     ev_count += 1
-
+ 
             total = max(len(neighbors), 1)
             return ev_count / total, mode_counts
-
+ 
         except Exception as e:
             logger.debug("peer signal failed: %s", e)
             return 0.0, {}

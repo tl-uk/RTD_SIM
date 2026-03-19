@@ -497,6 +497,10 @@ def run_simulation_loop(
     # Per-agent, per-mode satisfaction tracking for the belief updater
     satisfaction_by_mode: dict = {}   # mode → [float]
 
+    # Fix 2: build agent index so peer signal lookup works
+    if belief_updater and agents:
+        belief_updater.rebuild_agent_index(agents)
+
     for step in range(config.steps):
         # Initialize agent states for this step
         agent_states = []

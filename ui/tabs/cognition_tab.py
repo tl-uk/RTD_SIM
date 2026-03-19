@@ -241,7 +241,11 @@ def _render_influence_network(results, agents):
                 )
 
             for e in edges:
-                net.add_edge(e['source'], e['target'], width=1.0)
+                # Only add edges where both endpoints are in the node set.
+                # Neighbors outside agents[:40] were never added to pyvis and
+                # cause "non existent node" NetworkXError.
+                if e['source'] in node_meta and e['target'] in node_meta:
+                    net.add_edge(e['source'], e['target'], width=1.0)
 
             with tempfile.NamedTemporaryFile(
                 delete=False, suffix='.html', mode='w'
