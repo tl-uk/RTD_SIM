@@ -979,6 +979,35 @@ def run_simulation_loop(
                     except Exception as _be:
                         logger.debug("Belief update failed for %s: %s",
                                      _agent.state.agent_id, _be)
+                        
+        # Phase 3: Log Markov chain summaries every 50 steps
+        # Writes to simulation log file via log_capture.py
+        if step % 50 == 0 and step > 0:
+            _markov_agents = [
+                a for a in agents
+                if getattr(a, 'mode_chain', None) is not None
+            ]
+            if _markov_agents:
+                logger.info(
+                    "─── Markov habit snapshot (step %d, %d agents) ───",
+                    step, len(_markov_agents),
+                )
+                for _ma in _markov_agents[:10]:  # cap at 10 to keep log readable
+                    _summary = _ma.mode_chain.summary()
+                    _habits = _summary.get('habits', {})
+                    _history = _summary.get('mode_history', [])
+                    if _habits:
+                        _habit_str = ", ".join(
+                            f"{m}={p:.2f}" for m, p in
+                            sorted(_habits.items(), key=lambda x: x[1], reverse=True)
+                        )
+                        logger.info(
+                            "  %s [%s]: habits={%s} recent=%s",
+                            _ma.state.agent_id,
+                            _summary.get('persona', '?'),
+                            _habit_str,
+                            _history[-3:] if _history else [],
+                        )
 
         # Air quality step (atmospheric dispersion) - MUST BE OUTSIDE AGENT LOOP
         # TO AVOID DOUBLE COUNTING EMISSIONS
@@ -1023,6 +1052,68 @@ def run_simulation_loop(
     logger.info(f"   Cascades detected: {len(cascade_events)}")
     if weather_manager:
         logger.info(f"   Weather timesteps tracked: {len(weather_history)}")
+
+    # Phase 3: End-of-run Markov habit summary
+    # Logged to simulation file so you can review habit formation after each run
+    _markov_agents_final = [
+        a for a in agents
+        if getattr(a, 'mode_chain', None) is not None
+    ]
+    if _markov_agents_final:
+        logger.info("=" * 60)
+        logger.info("MARKOV HABIT FORMATION SUMMARY (end of run)")
+        logger.info("=" * 60)
+        logger.info(
+            "  %-40s %-20s %-8s %-30s",
+            "Agent ID", "Persona", "Steps", "Strongest Habits",
+        )
+        logger.info("  " + "-" * 100)
+ 
+        for _ma in _markov_agents_final:
+            _s = _ma.mode_chain.summary()
+            _habits = _s.get('habits', {})
+            _steps = _s.get('total_steps', 0)
+            _persona = _s.get('persona', '?')
+ 
+            if _habits:
+                _top = sorted(_habits.items(), key=lambda x: x[1], reverse=True)[:3]
+                _habit_str = "  ".join(f"{m}({p:.2f})" for m, p in _top)
+            else:
+                _habit_str = "none yet"
+ 
+            logger.info(
+                "  %-40s %-20s %-8d %s",
+                _ma.state.agent_id[:40],
+                _persona[:20],
+                _steps,
+                _habit_str,
+            )
+ 
+        # Aggregate: which modes have the strongest habits across the population
+        _mode_habit_totals: dict = {}
+        for _ma in _markov_agents_final:
+            for _mode, _strength in _ma.mode_chain.summary().get('habits', {}).items():
+                if _mode not in _mode_habit_totals:
+                    _mode_habit_totals[_mode] = []
+                _mode_habit_totals[_mode].append(_strength)
+ 
+        if _mode_habit_totals:
+            logger.info("")
+            logger.info("  Population habit averages:")
+            for _mode in sorted(
+                _mode_habit_totals,
+                key=lambda m: sum(_mode_habit_totals[m]) / len(_mode_habit_totals[m]),
+                reverse=True,
+            ):
+                _vals = _mode_habit_totals[_mode]
+                _avg = sum(_vals) / len(_vals)
+                _n = len(_vals)
+                logger.info(
+                    "    %-20s avg=%.3f  n=%d agents with streak",
+                    _mode, _avg, _n,
+                )
+ 
+        logger.info("=" * 60)
 
     # GENERATE ANALYTICS REPORTS
     analytics_summary = {}
