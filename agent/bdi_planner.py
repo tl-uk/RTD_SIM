@@ -159,6 +159,9 @@ class BDIPlanner:
         # Get candidate modes from context filter
         available_modes = self._filter_modes_by_context(context, straight_line_distance)
 
+        # Define agent_id here so it's available in CPG block AND debug logging below
+        agent_id = getattr(state, 'agent_id', 'unknown')
+
         # ── Contextual Plan Extraction (Phase 1 Core Innovation) ──────────
         # If a ContextualPlanGenerator is attached and the agent carries its
         # user/job story objects, extract a plan and narrow the mode list.
@@ -188,17 +191,14 @@ class BDIPlanner:
             except Exception as _cpg_err:
                 logger.debug("CPG extraction failed for %s: %s", agent_id, _cpg_err)
         
-        # ENHANCED DEBUG LOGGING
-        # Log the context and filtering results in detail to diagnose mode filtering 
-        # issues, especially for freight contexts.
-        agent_id = getattr(state, 'agent_id', 'unknown')
+        # Debug logging — agent_id already defined above
         vehicle_required = context.get('vehicle_required', False)
         vehicle_type = context.get('vehicle_type', 'personal')
         
-        logger.info(f"   BDI PLANNING: {agent_id}")
-        logger.info(f"   Context: vehicle_type={vehicle_type}, vehicle_required={vehicle_required}")
-        logger.info(f"   Distance: {straight_line_distance:.1f}km (straight-line)")
-        logger.info(f"   Modes offered: {available_modes}")
+        logger.debug(f"   BDI PLANNING: {agent_id}")
+        logger.debug(f"   Context: vehicle_type={vehicle_type}, vehicle_required={vehicle_required}")
+        logger.debug(f"   Distance: {straight_line_distance:.1f}km (straight-line)")
+        logger.debug(f"   Modes offered: {available_modes}")
         
         if not available_modes:
             logger.error(f"âŒ NO MODES OFFERED - this will cause fallback to walk!")
@@ -444,7 +444,7 @@ class BDIPlanner:
                     modes = ['car', 'bike', 'walk']
                 logger.warning(f"Fallback: Using {modes} for {trip_distance_km:.1f}km trip")
         
-        logger.info(f"  Final modes for vehicle_type={vehicle_type}, distance={trip_distance_km:.1f}km: {modes}")
+        logger.debug(f"  Final modes for vehicle_type={vehicle_type}, distance={trip_distance_km:.1f}km: {modes}")
         return modes
     
     def _is_mode_feasible(
