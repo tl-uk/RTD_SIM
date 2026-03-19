@@ -447,19 +447,18 @@ class InfrastructureManager:
         else:
             metrics['load_balancing_enabled'] = False
 
-        # === PHASE 7.2: QUEUE TRACKING ===
-        # Count agents waiting for charging
-        queued_count = 0
+        # QUEUE TRACKING
+        # Sum queue lengths from every station.  self.stations.stations is a
+        # Dict[str, ChargingStation] so we must iterate .values() — iterating
+        # the dict itself yields string keys, not ChargingStation objects.
+        queued_count = sum(
+            len(station.queue)
+            for station in self.stations.stations.values()
+        )
         
-        # Check pending requests in load balancer
+        # Also count agents in load-balancer pending queue (if enabled)
         if self.load_balancer and hasattr(self.load_balancer, 'pending_requests'):
-            queued_count = len(self.load_balancer.pending_requests)
-        
-        # Also check station-level queues if they exist
-        if hasattr(self.stations, 'stations'):
-            for station in self.stations.stations:
-                if hasattr(station, 'queue') and station.queue:
-                    queued_count += len(station.queue)
+            queued_count += len(self.load_balancer.pending_requests)
         
         metrics['queued_agents'] = queued_count
         
@@ -474,8 +473,8 @@ class InfrastructureManager:
         
         return metrics
     
-    def get_hotspots(self, threshold: float = 0.8) -> List[str]:
-        """Identify overutilized charging stations."""
+    def get_hotspots(self, threshold: float = 0.5) -> List[str]:
+        """Identify overutilized charging stations (>50% port occupancy)."""
         return self.stations.get_hotspots(threshold)
     
     # ========================================================================
@@ -492,4 +491,3 @@ class InfrastructureManager:
         self.depots.populate_edinburgh(num_depot)
         
         logger.info(f"Populated Edinburgh: {num_public} chargers, {num_depot} depots")
-        

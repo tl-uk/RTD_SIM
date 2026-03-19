@@ -24,6 +24,63 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ===========================
+# SHARED GEOMETRY HELPER
+# ===========================
+def _extract_route_geometry(
+    graph,
+    node_path: list,
+) -> list:
+    """
+    Extract detailed (lon, lat) geometry from an OSMnx node path.
+
+    For each edge in the path, uses the Shapely LineString stored on the
+    edge (if present) so that curved roads render correctly on the map.
+    Falls back to endpoint-node coordinates when geometry is absent
+    (e.g. stale cache without geometry).  In that case straight lines are
+    drawn — delete the cache file to force a re-download that includes
+    full geometry.
+
+    Args:
+        graph: NetworkX MultiDiGraph from OSMnx
+        node_path: Ordered list of OSM node IDs
+
+    Returns:
+        List of (lon, lat) tuples following the real road geometry.
+    """
+    if not node_path or len(node_path) < 2:
+        return []
+
+    coords = []
+    for i in range(len(node_path) - 1):
+        u = node_path[i]
+        v = node_path[i + 1]
+
+        # Add first node only on first iteration to avoid duplicates
+        if i == 0:
+            coords.append((float(graph.nodes[u]["x"]), float(graph.nodes[u]["y"])))
+
+        # Prefer the Shapely geometry stored on the edge (curved road data)
+        edge_data = graph.get_edge_data(u, v)
+        if edge_data and isinstance(edge_data, dict) and 0 in edge_data:
+            edge_data = edge_data[0]
+
+        if edge_data and "geometry" in edge_data:
+            geom = edge_data["geometry"]
+            if hasattr(geom, "coords"):
+                # Extend with all geometry points except the first
+                # (already appended as the previous node / loop start)
+                coords.extend(
+                    (float(x), float(y)) for x, y in list(geom.coords)[1:]
+                )
+                continue  # geometry handled — skip node-only fallback
+
+        # Fallback: straight line to next node
+        coords.append((float(graph.nodes[v]["x"]), float(graph.nodes[v]["y"])))
+
+    return coords
+
+
+# ===========================
 # ROUTE DIVERSITY STRATEGIES
 # ===========================
 def add_route_diversity_perturbed(env):
@@ -69,8 +126,7 @@ def add_route_diversity_perturbed(env):
                 return d.get('length', 1.0) * edge_perturbations[edge_key]
             
             node_path = nx.shortest_path(graph, origin_node, dest_node, weight=perturbed_weight)
-            route = [(graph.nodes[n]['x'], graph.nodes[n]['y']) for n in node_path]
-            return route
+            return _extract_route_geometry(graph, node_path)
             
         except nx.NetworkXNoPath:
             return original_compute_route(agent_id, origin, dest, mode)
@@ -145,8 +201,7 @@ def add_route_diversity_k_shortest(env, k=3):
             weights = [1.0 / (1.0 + (length - min_length) / min_length) for _, length in all_paths]
             
             chosen_path, _ = rng.choices(all_paths, weights=weights, k=1)[0]
-            route = [(graph.nodes[n]['x'], graph.nodes[n]['y']) for n in chosen_path]
-            return route
+            return _extract_route_geometry(graph, chosen_path)
             
         except Exception as e:
             logger.warning(f"K-shortest failed: {e}, using standard path")
@@ -201,8 +256,7 @@ def add_route_diversity_ultra_fast(env):
                 return length * perturbation
             
             node_path = nx.shortest_path(graph, origin_node, dest_node, weight=agent_biased_weight)
-            route = [(graph.nodes[n]['x'], graph.nodes[n]['y']) for n in node_path]
-            return route
+            return _extract_route_geometry(graph, node_path)
             
         except Exception as e:
             return original_compute_route(agent_id, origin, dest, mode)

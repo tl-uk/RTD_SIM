@@ -112,8 +112,13 @@ class BDIPlanner:
         'e_scooter': 30.0,
     }
     
-    def __init__(self, infrastructure_manager: Optional[Any] = None) -> None:
+    def __init__(
+        self,
+        infrastructure_manager: Optional[Any] = None,
+        plan_generator=None,  # ContextualPlanGenerator — optional
+    ) -> None:
         """Initialize planner with expanded freight modes."""
+        self.plan_generator = plan_generator
         self.default_modes = [
             'walk', 'bike', 'bus', 
             'car', 'ev',
@@ -151,20 +156,49 @@ class BDIPlanner:
         from simulation.spatial.coordinate_utils import haversine_km
         straight_line_distance = haversine_km(origin, dest)
         
-        # Get candidate modes
+        # Get candidate modes from context filter
         available_modes = self._filter_modes_by_context(context, straight_line_distance)
-        
-        # ENHANCED DEBUG LOGGING
-        # Log the context and filtering results in detail to diagnose mode filtering 
-        # issues, especially for freight contexts.
+
+        # Define agent_id here so it's available in CPG block AND debug logging below
         agent_id = getattr(state, 'agent_id', 'unknown')
+
+        # ── Contextual Plan Extraction (Phase 1 Core Innovation) ──────────
+        # If a ContextualPlanGenerator is attached and the agent carries its
+        # user/job story objects, extract a plan and narrow the mode list.
+        # Falls back to unfiltered available_modes if extraction fails.
+        if self.plan_generator and context.get("user_story") and context.get("job_story"):
+            try:
+                _extracted_plan = self.plan_generator.extract_plan_from_context(
+                    user_story=context["user_story"],
+                    job_story=context["job_story"],
+                    origin=origin,
+                    dest=dest,
+                    csv_data=context.get("csv_data"),
+                )
+                available_modes = self.plan_generator.get_candidate_modes(
+                    plan=_extracted_plan,
+                    available_modes=available_modes,
+                    distance_km=straight_line_distance,
+                    weather_conditions=context.get("weather"),
+                )
+                logger.debug(
+                    "CPG: %s → %s (objective=%s, critical=%s, reasoning=%s)",
+                    agent_id, available_modes,
+                    _extracted_plan.primary_objective,
+                    _extracted_plan.reliability_critical,
+                    _extracted_plan.reasoning,
+                )
+            except Exception as _cpg_err:
+                logger.debug("CPG extraction failed for %s: %s", agent_id, _cpg_err)
+        
+        # Debug logging — agent_id already defined above
         vehicle_required = context.get('vehicle_required', False)
         vehicle_type = context.get('vehicle_type', 'personal')
         
-        logger.info(f"   BDI PLANNING: {agent_id}")
-        logger.info(f"   Context: vehicle_type={vehicle_type}, vehicle_required={vehicle_required}")
-        logger.info(f"   Distance: {straight_line_distance:.1f}km (straight-line)")
-        logger.info(f"   Modes offered: {available_modes}")
+        logger.debug(f"   BDI PLANNING: {agent_id}")
+        logger.debug(f"   Context: vehicle_type={vehicle_type}, vehicle_required={vehicle_required}")
+        logger.debug(f"   Distance: {straight_line_distance:.1f}km (straight-line)")
+        logger.debug(f"   Modes offered: {available_modes}")
         
         if not available_modes:
             logger.error(f"âŒ NO MODES OFFERED - this will cause fallback to walk!")
@@ -410,7 +444,7 @@ class BDIPlanner:
                     modes = ['car', 'bike', 'walk']
                 logger.warning(f"Fallback: Using {modes} for {trip_distance_km:.1f}km trip")
         
-        logger.info(f"  Final modes for vehicle_type={vehicle_type}, distance={trip_distance_km:.1f}km: {modes}")
+        logger.debug(f"  Final modes for vehicle_type={vehicle_type}, distance={trip_distance_km:.1f}km: {modes}")
         return modes
     
     def _is_mode_feasible(

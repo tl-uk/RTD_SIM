@@ -86,6 +86,19 @@ MODE_COLORS_HEX = {
 }
 
 
+_MODE_EMOJI = {
+    'walk': '🚶', 'bike': '🚲', 'cargo_bike': '📦🚲',
+    'e_scooter': '🛴', 'bus': '🚌', 'tram': '🚋',
+    'car': '🚗', 'ev': '🔋', 'van_electric': '🔋🚐',
+    'van_diesel': '🚐', 'truck_electric': '🔋🚛',
+    'truck_diesel': '🚛', 'hgv_electric': '🔋🚚',
+    'hgv_diesel': '🚚', 'hgv_hydrogen': '💧🚚',
+    'local_train': '🚆', 'intercity_train': '🚄',
+    'ferry_diesel': '⛴️', 'ferry_electric': '🛳️',
+    'flight_domestic': '✈️', 'flight_electric': '✈️',
+}
+
+
 def render_map(
     agent_states: List[Dict],
     show_agents: bool = True,
@@ -128,21 +141,63 @@ def render_map(
     
     if show_agents and agent_states:
         agent_data = []
+
+        # Pre-build the set of agents currently charging so we can annotate
+        # EV agents in their tooltip without an extra dict lookup per agent.
+        _charging_agents: set = set()
+        if infrastructure_manager and hasattr(infrastructure_manager, 'sessions'):
+            try:
+                _charging_agents = set(infrastructure_manager.sessions.get_charging_agents())
+            except Exception:
+                pass
+
+        _EV_MODES = {'ev', 'van_electric', 'truck_electric', 'hgv_electric'}
+
         for state in agent_states:
             loc = state.get('location')
             if loc and len(loc) == 2:
-                mode = state.get('mode', 'walk')
-                color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
-                
+                mode       = state.get('mode', 'walk')
+                agent_id   = state.get('agent_id', '')
+                arrived    = state.get('arrived', False)
+                distance   = state.get('distance_km', 0.0)
+                emissions  = state.get('emissions_g', 0.0)
+                color_rgb  = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+                is_ev      = mode in _EV_MODES
+                is_charging = agent_id in _charging_agents
+
+                mode_label = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
+
+                # Status line
+                if arrived:
+                    status_html = '✅ Arrived'
+                elif is_ev and is_charging:
+                    status_html = '⚡ Charging'
+                else:
+                    status_html = '🔄 En route'
+
+                # EV-specific line
+                ev_line = ''
+                if is_ev and not is_charging:
+                    ev_line = '<br/>🔋 EV — not charging'
+                elif is_ev and is_charging:
+                    ev_line = '<br/>⚡ At charging station'
+
+                tooltip_html = (
+                    f'<b>{agent_id}</b><br/>'
+                    f'Mode: {mode_label}<br/>'
+                    f'Status: {status_html}<br/>'
+                    f'Distance: {distance:.1f} km<br/>'
+                    f'Emissions: {emissions:.0f} g CO₂'
+                    f'{ev_line}'
+                )
+
                 agent_data.append({
                     'lon': float(loc[0]),
                     'lat': float(loc[1]),
                     'r': int(color_rgb[0]),
                     'g': int(color_rgb[1]),
                     'b': int(color_rgb[2]),
-                    'agent_id': state.get('agent_id', ''),
-                    'mode': mode,
-                    'arrived': state.get('arrived', False),
+                    'tooltip_html': tooltip_html,
                 })
         
         if agent_data:
@@ -191,6 +246,12 @@ def render_map(
                         g = min(255, max(40, color_rgb[1] + (variation if idx % 3 == 1 else -variation//2)))
                         b = min(255, max(40, color_rgb[2] + (variation if idx % 4 == 2 else -variation//2)))
                         
+                        mode_label = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
+                        route_tooltip = (
+                            f'<b>{agent_id}</b><br/>'
+                            f'Route: {mode_label}<br/>'
+                            f'{len(path)} waypoints'
+                        )
                         route_data.append({
                             'path': path,
                             'r': int(r),
@@ -198,6 +259,7 @@ def render_map(
                             'b': int(b),
                             'mode': mode,
                             'agent_id': agent_id,
+                            'tooltip_html': route_tooltip,
                         })
                         
                         # Log first 3 routes for debugging
@@ -270,18 +332,42 @@ def render_map(
             g = int((1 - occupancy) * 255)
             b = 0
             
+            free_ports = max(0, station.num_ports - station.currently_occupied)
+            queue_len  = len(station.queue)
+
+            avail_icon = '🔴 Full' if free_ports == 0 else '🟢 Available'
+
+            # Occupancy bar (5 chars wide)
+            filled = round(occupancy * 5)
+            occ_bar = '█' * filled + '░' * (5 - filled)
+
+            # Charger type display
+            type_labels = {
+                'level2': 'Level 2 (7 kW)',
+                'dcfast':  'DC Fast (50 kW)',
+                'depot':   'Depot (150 kW)',
+                'home':    'Home (3.6 kW)',
+            }
+            type_label = type_labels.get(station.charger_type, station.charger_type)
+
+            queue_line = f'<br/>⏳ Queue: {queue_len} waiting' if queue_len > 0 else ''
+
+            tooltip_html = (
+                f'<b>⚡ {station_id}</b><br/>'
+                f'Type: {type_label}<br/>'
+                f'{avail_icon}<br/>'
+                f'Ports: {free_ports}/{station.num_ports} free<br/>'
+                f'Load: [{occ_bar}] {occupancy:.0%}'
+                f'{queue_line}'
+            )
+
             station_data.append({
                 'lon': station.location[0],
                 'lat': station.location[1],
                 'r': r,
                 'g': g,
                 'b': b,
-                'station_id': station_id,
-                'type': station.charger_type,
-                'occupancy': occupancy,
-                'available': station.is_available(),
-                'free_ports': max(0, station.num_ports - station.currently_occupied),
-                'total_ports': station.num_ports,
+                'tooltip_html': tooltip_html,
             })
         
         if station_data:
@@ -300,8 +386,42 @@ def render_map(
                 get_line_color=[50, 50, 50],
                 line_width_min_pixels=1,  # ✅ FIX: Thinner stroke
             )
-            # ✅ FIX: Add infrastructure layer FIRST so agents render on top
+            # Add infrastructure layer FIRST so agents render on top
             layers.insert(0, station_layer)
+
+            # Hotspot ring layer — bright red pulsing ring around overloaded stations
+            hotspot_ids = set(infrastructure_manager.get_hotspots(threshold=0.5))
+            hotspot_data = [
+                {
+                    'lon': s.location[0],
+                    'lat': s.location[1],
+                    'tooltip_html': (
+                        f'<b>🔴 Hotspot: {sid}</b><br/>'
+                        f'Type: {s.charger_type}<br/>'
+                        f'Ports: {s.currently_occupied}/{s.num_ports} occupied<br/>'
+                        f'Load: {s.occupancy_rate():.0%}'
+                    ),
+                }
+                for sid, s in infrastructure_manager.charging_stations.items()
+                if sid in hotspot_ids
+            ]
+            if hotspot_data:
+                hotspot_df = pd.DataFrame(hotspot_data)
+                hotspot_layer = pdk.Layer(
+                    'ScatterplotLayer',
+                    data=hotspot_df,
+                    get_position='[lon, lat]',
+                    get_fill_color=[255, 0, 0, 0],       # transparent fill
+                    get_line_color=[255, 50, 50, 220],    # bright red ring
+                    get_radius=20,
+                    radius_min_pixels=12,
+                    radius_max_pixels=28,
+                    line_width_min_pixels=3,
+                    stroked=True,
+                    filled=True,
+                    pickable=True,
+                )
+                layers.insert(0, hotspot_layer)   # below stations so rings show around them
     
     # ========================================================================
     # View State
@@ -331,13 +451,17 @@ def render_map(
         layers=layers,
         initial_view_state=view_state,
         tooltip={
-            'html': '<b>Agent:</b> {agent_id}<br/>'
-                   '<b>Station:</b> {station_id}<br/>'
-                   'Mode: {mode}<br/>'
-                   'Type: {type}<br/>'
-                   'Occupancy: {occupancy:.0%}<br/>'
-                   'Free: {free_ports}/{total_ports}',
-            'style': {'backgroundColor': 'rgba(0,0,0,0.8)', 'color': 'white'}
+            # Each row pre-renders its own HTML so agents and stations show
+            # context-appropriate info without cross-layer field pollution.
+            'html': '{tooltip_html}',
+            'style': {
+                'backgroundColor': 'rgba(0,0,0,0.85)',
+                'color': 'white',
+                'fontSize': '13px',
+                'padding': '8px 12px',
+                'borderRadius': '6px',
+                'lineHeight': '1.6',
+            }
         },
         map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
     )
@@ -510,7 +634,7 @@ def render_infrastructure_metrics(
         )
     
     # Hotspot map
-    hotspots = infrastructure_manager.get_hotspots(threshold=0.8)
+    hotspots = infrastructure_manager.get_hotspots(threshold=0.5)
     
     return {
         'metrics': metrics,

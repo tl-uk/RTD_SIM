@@ -113,6 +113,7 @@ class GraphManager:
                 self.graphs[network_type] = graph
                 
                 logger.info(f"Loaded: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
+                self._validate_cache_geometry(graph, cache_path, network_type)
                 return True
             except Exception as e:
                 logger.warning(f"Cache load failed: {e}")
@@ -303,6 +304,54 @@ class GraphManager:
             logger.exception(f"Failed to add elevation: {e}")
             return False
     
+    def _validate_cache_geometry(
+        self,
+        graph: Any,
+        cache_path: Path,
+        network_type: str,
+    ) -> None:
+        """
+        Warn when a cached graph is missing edge geometry.
+
+        OSMnx stores curved road geometry as a Shapely LineString on each
+        simplified edge.  If it is absent, routes are rendered as straight
+        lines between OSM intersection nodes, which visually cuts through
+        parks, rivers, and buildings even when the underlying road is correct.
+
+        A geometry ratio < 50 % is a strong signal that the cache file was
+        created by an older code version or a different OSMnx release.
+        Deleting the file forces a clean re-download with full geometry.
+
+        Args:
+            graph:        The just-loaded NetworkX graph.
+            cache_path:   Path to the .pkl file, used in the warning message.
+            network_type: Network type string, used for context.
+        """
+        total = graph.number_of_edges()
+        if total == 0:
+            return
+
+        with_geom = sum(
+            1 for _, _, d in graph.edges(data=True) if "geometry" in d
+        )
+        ratio = with_geom / total
+
+        if ratio < 0.5:
+            logger.warning(
+                "⚠️  Cache geometry check FAILED for '%s' graph: "
+                "only %.0f%% of edges have Shapely geometry "
+                "(%d / %d edges).  Routes will appear as straight lines "
+                "through parks and other obstacles.  "
+                "Delete the stale cache file to force a clean re-download:\n"
+                "    rm %s",
+                network_type, ratio * 100, with_geom, total, cache_path,
+            )
+        else:
+            logger.debug(
+                "Cache geometry OK for '%s': %.0f%% of edges have geometry.",
+                network_type, ratio * 100,
+            )
+
     def get_graph(self, network_type: str = 'all') -> Optional[Any]:
         """
         Get graph for specific network type.

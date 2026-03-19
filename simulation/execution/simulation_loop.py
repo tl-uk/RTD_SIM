@@ -13,6 +13,13 @@ from pathlib import Path
 from collections import defaultdict
 
 from simulation.config.simulation_config import SimulationConfig
+
+# Phase 2 + 3: belief updating and Markov mode switching
+try:
+    from agent.bayesian_belief_updater import BayesianBeliefUpdater
+    BELIEF_UPDATER_AVAILABLE = True
+except ImportError:
+    BELIEF_UPDATER_AVAILABLE = False
 from simulation.spatial_environment import SpatialEnvironment
 from simulation.execution.timeseries import TimeSeries
 from simulation.time.temporal_engine import create_temporal_engine_from_config
@@ -485,6 +492,11 @@ def run_simulation_loop(
             logger.info("✅ System Dynamics initialized")
 
     # Main simulation loop
+    # Phase 2: Bayesian belief updater — shared across all agents, stateless
+    belief_updater = BayesianBeliefUpdater() if BELIEF_UPDATER_AVAILABLE else None
+    # Per-agent, per-mode satisfaction tracking for the belief updater
+    satisfaction_by_mode: dict = {}   # mode → [float]
+
     for step in range(config.steps):
         # Initialize agent states for this step
         agent_states = []
@@ -623,6 +635,9 @@ def run_simulation_loop(
         if infrastructure:
             infrastructure.update_grid_load(step)
             infrastructure.update_time(step)  # Update time for time-of-day pricing
+            # Snapshot per-station utilization so get_hotspots() and
+            # get_avg_utilization() have real data to work with.
+            infrastructure.stations.record_all_utilization()
         
         # Apply dynamic policies
         if policy_engine:
@@ -684,15 +699,12 @@ def run_simulation_loop(
             except:
                 agent.step()
             
-            # 🔍 DEBUG: Check route status after step (TEMPORARY - REMOVE AFTER DIAGNOSIS)
-            if step <= 2:  # Only log first 3 steps
+            # Route-status trace (DEBUG only — does not appear in production logs)
+            if step <= 2:
                 route_info = "None"
                 if hasattr(agent.state, 'route'):
-                    if agent.state.route:
-                        route_info = f"{len(agent.state.route)} points"
-                    else:
-                        route_info = "empty/None"
-                logger.info(f"      After step: agent={agent.state.agent_id}, route={route_info}, distance={agent.state.distance_km:.1f}km, arrived={agent.state.arrived}")
+                    route_info = f"{len(agent.state.route)} points" if agent.state.route else "empty/None"
+                logger.debug(f"      After step: agent={agent.state.agent_id}, route={route_info}, distance={agent.state.distance_km:.1f}km, arrived={agent.state.arrived}")
 
 
             # Phase 6.2b: Update agent locations in event bus (if agents moved)
@@ -750,11 +762,11 @@ def run_simulation_loop(
                                 elif weather_type == 'wind':
                                     weather_impact['temperature'] = 5.0
                     
-                    # COMPLETE CALL - Simple and clean!
                     journey_tracker.record_journey(
-                        agent=agent,                          # ← Pass whole agent object
-                        step=step,                            # ← Current step
-                        weather_conditions=weather_impact,    # ← Weather as dict
+                        agent=agent,
+                        step=step,
+                        weather_conditions=weather_impact,
+                        emissions=trip_emissions,             # ← calculated above; None when no movement
                     )
             
             # RECORD MODE TRANSITION
@@ -781,6 +793,75 @@ def run_simulation_loop(
                         step=step
                     )
             
+            # ── Infrastructure interaction — EV charging ───────────────────
+            # This block MUST be inside `for agent in agents` so every EV agent
+            # gets a charging opportunity each step, not just the last one.
+            if infrastructure and agent.state.mode in ['ev', 'van_electric', 'truck_electric', 'hgv_electric']:
+                _agent_id = agent.state.agent_id
+                try:
+                    if _agent_id not in infrastructure.agent_charging_state:
+                        # Guard: location must be valid before calling find_nearest_charger
+                        _loc = agent.state.location
+                        if _loc is None or len(_loc) < 2:
+                            pass  # agent not yet placed — skip this step
+                        else:
+                            # Trigger charging when: arrived, or has travelled > 3km,
+                            # or 10% random chance on shorter trips (urban top-up).
+                            _should_charge = (
+                                agent.state.arrived or
+                                agent.state.distance_km > 3.0 or
+                                (agent.state.distance_km > 1.0 and random.random() < 0.1)
+                            )
+
+                            if _should_charge:
+                                _nearest = infrastructure.find_nearest_charger(
+                                    location=_loc,
+                                    charger_type='any',
+                                    max_distance_km=5.0,
+                                )
+
+                                if _nearest:
+                                    _station_id, _dist_km = _nearest
+                                    _trip_dist = agent.state.distance_km or 5.0
+
+                                    if _trip_dist < 5.0:
+                                        _charge_dur = random.uniform(15, 30)
+                                    elif _trip_dist < 15.0:
+                                        _charge_dur = random.uniform(30, 60)
+                                    else:
+                                        _charge_dur = random.uniform(60, 120)
+
+                                    _success = infrastructure.reserve_charger(
+                                        _agent_id, _station_id, duration_min=_charge_dur
+                                    )
+
+                                    if _success:
+                                        infrastructure.agent_charging_state[_agent_id]['status'] = 'charging'
+                                        infrastructure.agent_charging_state[_agent_id]['start_time'] = step
+                                        logger.debug(
+                                            f"Step {step}: {_agent_id} charging at {_station_id} "
+                                            f"({_dist_km:.1f}km away, {_charge_dur:.0f}min)"
+                                        )
+                                        if policy_engine:
+                                            _station = infrastructure.charging_stations.get(_station_id)
+                                            if _station:
+                                                _kwh = (_trip_dist / 5.0) * 20.0
+                                                record_charging_revenue(policy_engine, _kwh * _station.cost_per_kwh)
+
+                    else:
+                        # Already charging — check if session is complete
+                        _cs = infrastructure.agent_charging_state[_agent_id]
+                        if _cs.get('status') == 'charging':
+                            _elapsed = (step - _cs.get('start_time', step)) * 1.0
+                            if _elapsed >= _cs.get('duration_min', 999):
+                                infrastructure.release_charger(_agent_id)
+                                logger.debug(f"Step {step}: {_agent_id} finished charging ({_elapsed:.0f}min)")
+
+                except Exception as _e:
+                    # Never let a charging error crash the simulation step.
+                    # Log at debug level to avoid flooding INFO logs.
+                    logger.debug(f"Step {step}: charging error for {_agent_id}: {_e}")
+
             # Collect agent state at END of agent loop iteration
             # This MUST be at 12 spaces (inside `for agent in agents`)
             # and MUST be AFTER all agent processing for this step
@@ -807,11 +888,11 @@ def run_simulation_loop(
                     infrastructure=infrastructure
                 )
             
-            # Record policy activations
-            if hasattr(policy_engine, 'active_combined') and policy_engine.active_combined:
-                # Check which policies activated this step
-                # (Would need policy engine to expose this)
-                pass
+            # Record policy activations from this step's results
+            if policy_result.get('actions_taken'):
+                for action in policy_result['actions_taken']:
+                    action_name = action.get('action', 'unknown_policy')
+                    policy_impact_analyzer.record_policy_activation(action_name, step)
             
             # Social influence (if enabled)
             if network and SOCIAL_AVAILABLE:
@@ -842,6 +923,17 @@ def run_simulation_loop(
                         agent.state.mode,
                         satisfaction
                     )
+
+                    # Phase 2: accumulate satisfaction by mode for belief updater
+                    _mode = agent.state.mode
+                    if _mode not in satisfaction_by_mode:
+                        satisfaction_by_mode[_mode] = []
+                    satisfaction_by_mode[_mode].append(satisfaction)
+
+                    # Phase 3: update Markov chain with this step's outcome
+                    _chain = getattr(agent, 'mode_chain', None)
+                    if _chain is not None:
+                        _chain.record_step(_mode, satisfaction)
             
             # Calculate lifecycle emissions if agent moved
             if emissions_calc and agent.state.location != prev_location:
@@ -867,68 +959,27 @@ def run_simulation_loop(
                             emissions=emissions
                         )
             
-            # Infrastructure interaction
-            if infrastructure and agent.state.mode in ['ev', 'van_electric', 'truck_electric', 'hgv_electric']:
-                agent_id = agent.state.agent_id
+            # (Infrastructure charging moved into the agent loop — see below)
                 
-                # Check if agent is already charging
-                if agent_id not in infrastructure.agent_charging_state:
-                    # Agent not yet charging - check if should start
-                    if hasattr(agent.state, 'action_params') and agent.state.action_params:
-                        params = agent.state.action_params
-                        
-                        if 'nearest_charger' in params:
-                            # More realistic charging triggers
-                            should_charge = (
-                                agent.state.arrived or 
-                                agent.state.distance_km > 3.0 or
-                                (agent.state.distance_km > 1.0 and random.random() < 0.1)
-                            )
-                            
-                            if should_charge:
-                                station_id = params['nearest_charger']
-                                
-                                # Realistic charging duration based on trip
-                                trip_distance = params.get('trip_distance_km', 5.0)
-                                if trip_distance < 5.0:
-                                    charge_duration = random.uniform(15, 30)
-                                elif trip_distance < 15.0:
-                                    charge_duration = random.uniform(30, 60)
-                                else:
-                                    charge_duration = random.uniform(60, 120)
-                                
-                                success = infrastructure.reserve_charger(
-                                    agent_id,
-                                    station_id,
-                                    duration_min=charge_duration
-                                )
-                                
-                                if success:
-                                    infrastructure.agent_charging_state[agent_id]['status'] = 'charging'
-                                    infrastructure.agent_charging_state[agent_id]['start_time'] = step
-                                    logger.debug(f"Step {step}: Agent {agent_id} started charging at {station_id} ({charge_duration:.0f} min)")
 
-                                    # Record charging revenue
-                                    if policy_engine:
-                                        station = infrastructure.charging_stations.get(station_id)
-                                        if station:
-                                            # Estimate energy needed (rough calculation)
-                                            kwh_needed = (trip_distance / 5) * 20  # ~20 kWh per 5km
-                                            charging_cost = kwh_needed * station.cost_per_kwh
-                                            record_charging_revenue(policy_engine, charging_cost)
-                
-                else:
-                    # Agent is already charging - check if done
-                    charge_state = infrastructure.agent_charging_state[agent_id]
-                    if charge_state['status'] == 'charging':
-                        start_time = charge_state.get('start_time', step)
-                        duration = charge_state['duration_min']
-                        elapsed_min = (step - start_time) * 1.0
-                        
-                        if elapsed_min >= duration:
-                            infrastructure.release_charger(agent_id)
-                            logger.debug(f"Step {step}: Agent {agent_id} finished charging ({elapsed_min:.0f} min)")
         
+        # Phase 2: Bayesian belief update every 5 steps (all agents)
+        if belief_updater and step % 5 == 0:
+            for _agent in agents:
+                if hasattr(_agent, 'user_story'):
+                    try:
+                        _agent.state._agent_ref = _agent
+                        belief_updater.update_agent(
+                            agent=_agent,
+                            step=step,
+                            infrastructure=infrastructure,
+                            network=network,
+                            satisfaction_by_mode=satisfaction_by_mode,
+                        )
+                    except Exception as _be:
+                        logger.debug("Belief update failed for %s: %s",
+                                     _agent.state.agent_id, _be)
+
         # Air quality step (atmospheric dispersion) - MUST BE OUTSIDE AGENT LOOP
         # TO AVOID DOUBLE COUNTING EMISSIONS
         if air_quality:
@@ -993,6 +1044,52 @@ def run_simulation_loop(
             analytics_summary['tipping_points'] = tipping_points
     
     if policy_impact_analyzer:
+        # Compute impact measurements and ROI for every policy that fired.
+        # We need at least one step-snapshot captured during the run (every 20 steps).
+        if (policy_impact_analyzer.policy_activations
+                and len(policy_impact_analyzer.step_snapshots) >= 1):
+
+            final_snapshot = policy_impact_analyzer.step_snapshots[-1]
+
+            # Cost estimates per policy action (£) — expand as new actions are added
+            _POLICY_COSTS = {
+                'expand_grid_capacity':  500_000.0,
+                'add_depot_chargers':    150_000.0,   # 3 depots × 10 chargers × £5k
+                'add_emergency_chargers': 50_000.0,   # 10 chargers × £5k
+                'add_chargers':           25_000.0,   # single station estimate
+                'relocate_chargers':       5_000.0,   # labour only
+            }
+            _DEFAULT_COST = 10_000.0
+
+            for policy_name, activation_step in policy_impact_analyzer.policy_activations.items():
+                # Find the snapshot closest to (but not after) the activation step
+                before_snapshot = policy_impact_analyzer.baseline
+                for snap in policy_impact_analyzer.step_snapshots:
+                    if snap.step <= activation_step:
+                        before_snapshot = snap
+                    else:
+                        break
+
+                if before_snapshot is None:
+                    before_snapshot = final_snapshot  # degenerate fallback
+
+                policy_impact_analyzer.measure_direct_impact(
+                    policy_name=policy_name,
+                    before_snapshot=before_snapshot,
+                    after_snapshot=final_snapshot,
+                    agents=agents,
+                )
+
+                # Estimate simulation duration in days (1 step ≈ 1 minute)
+                sim_days = config.steps / 1440.0
+
+                policy_impact_analyzer.calculate_roi(
+                    policy_name=policy_name,
+                    implementation_cost=_POLICY_COSTS.get(policy_name, _DEFAULT_COST),
+                    operating_cost_annual=_POLICY_COSTS.get(policy_name, _DEFAULT_COST) * 0.1,
+                    simulation_duration_days=max(sim_days, 1.0),
+                )
+
         analytics_summary['policy_impact'] = policy_impact_analyzer.generate_summary_report()
         logger.info(f"💰 Evaluated {len(policy_impact_analyzer.impacts)} policy impacts")
     
