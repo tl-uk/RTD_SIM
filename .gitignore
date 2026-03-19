@@ -80,3 +80,5 @@ cache/
 main.py.backup
 *.pyc
 __pycache__/
+**/.DS_Store
+**/__pycache__/
