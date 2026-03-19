@@ -903,47 +903,34 @@ def _render_story_selection():
             if not default_jobs:
                 default_jobs = available_jobs[:min(5, len(available_jobs))]
 
-            # ── User Stories ───────────────────────────────────────────────
-            col_u1, col_u2 = st.columns([3, 1])
-            with col_u1:
-                st.caption("**User Stories**")
-            with col_u2:
-                select_all_users = st.checkbox(
-                    "All",
-                    value=st.session_state.get("select_all_users", False),
-                    key="select_all_users",
-                    help="Select all available personas",
-                )
+            # ----- user & job stories list ------------------------
+            _SELECT_ALL_USERS = "── Select All ──"
+            _SELECT_ALL_JOBS  = "── Select All ──"
  
-            user_stories = st.multiselect(
+            user_raw = st.multiselect(
                 "User Stories",
-                available_users,
-                default=available_users if select_all_users else default_users,
-                help="Select which personas to include. Only combinations whitelisted "
-                     "in story_compatibility.py will generate agents.",
-                label_visibility="collapsed",
+                options=[_SELECT_ALL_USERS] + available_users,
+                default=default_users,
+                help="Select which personas to include. Choose '── Select All ──' "
+                     "to include every available persona.",
             )
+            # If the sentinel is in the selection, expand to the full list
+            if _SELECT_ALL_USERS in user_raw:
+                user_stories = available_users
+            else:
+                user_stories = user_raw
  
-            # ── Job Stories ────────────────────────────────────────────────
-            col_j1, col_j2 = st.columns([3, 1])
-            with col_j1:
-                st.caption("**Job Stories**")
-            with col_j2:
-                select_all_jobs = st.checkbox(
-                    "All",
-                    value=st.session_state.get("select_all_jobs", False),
-                    key="select_all_jobs",
-                    help="Select all available job contexts",
-                )
- 
-            job_stories = st.multiselect(
+            job_raw = st.multiselect(
                 "Job Stories",
-                available_jobs,
-                default=available_jobs if select_all_jobs else default_jobs,
-                help="Select which job contexts to include. Incompatible user+job "
-                     "pairs are filtered out by the whitelist before agents are created.",
-                label_visibility="collapsed",
+                options=[_SELECT_ALL_JOBS] + available_jobs,
+                default=default_jobs,
+                help="Select which job contexts to include. Choose '── Select All ──' "
+                     "to include every available job context.",
             )
+            if _SELECT_ALL_JOBS in job_raw:
+                job_stories = available_jobs
+            else:
+                job_stories = job_raw
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it
