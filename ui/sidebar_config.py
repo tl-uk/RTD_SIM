@@ -903,20 +903,46 @@ def _render_story_selection():
             if not default_jobs:
                 default_jobs = available_jobs[:min(5, len(available_jobs))]
 
+            # ── User Stories ───────────────────────────────────────────────
+            col_u1, col_u2 = st.columns([3, 1])
+            with col_u1:
+                st.caption("**User Stories**")
+            with col_u2:
+                select_all_users = st.checkbox(
+                    "All",
+                    value=st.session_state.get("select_all_users", False),
+                    key="select_all_users",
+                    help="Select all available personas",
+                )
+ 
             user_stories = st.multiselect(
                 "User Stories",
                 available_users,
-                default=default_users,
+                default=available_users if select_all_users else default_users,
                 help="Select which personas to include. Only combinations whitelisted "
-                     "in story_compatibility.py will generate agents."
+                     "in story_compatibility.py will generate agents.",
+                label_visibility="collapsed",
             )
-
+ 
+            # ── Job Stories ────────────────────────────────────────────────
+            col_j1, col_j2 = st.columns([3, 1])
+            with col_j1:
+                st.caption("**Job Stories**")
+            with col_j2:
+                select_all_jobs = st.checkbox(
+                    "All",
+                    value=st.session_state.get("select_all_jobs", False),
+                    key="select_all_jobs",
+                    help="Select all available job contexts",
+                )
+ 
             job_stories = st.multiselect(
                 "Job Stories",
                 available_jobs,
-                default=default_jobs,
+                default=available_jobs if select_all_jobs else default_jobs,
                 help="Select which job contexts to include. Incompatible user+job "
-                     "pairs are filtered out by the whitelist before agents are created."
+                     "pairs are filtered out by the whitelist before agents are created.",
+                label_visibility="collapsed",
             )
 
             # ── Live compatibility counter ─────────────────────────────────────

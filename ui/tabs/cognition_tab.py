@@ -190,13 +190,26 @@ def _render_influence_network(results, agents):
             beliefs = _belief_snapshot(a)
             belief_str = '; '.join(f"{t}: {s}" for t, s in beliefs[:3])
 
+            # Build tooltip as a <table> — avoids <br/> serialisation
+            # issues in pyvis/vis.js across different versions.
+            rows = [
+                f"<tr><td colspan='2'><b>{label}</b></td></tr>",
+                f"<tr><td>Mode</td><td>{mode}</td></tr>",
+                f"<tr><td>Eco desire</td><td>{eco:.2f}</td></tr>",
+            ]
+            if occ is not None:
+                rows.append(f"<tr><td>Charger occ.</td><td>{occ:.0%}</td></tr>")
+            if peer_ev is not None:
+                rows.append(f"<tr><td>Peer EV rate</td><td>{peer_ev:.0%}</td></tr>")
+            if belief_str:
+                rows.append(f"<tr><td colspan='2' style='font-size:10px'>{belief_str}</td></tr>")
+ 
             tooltip = (
-                f"<b>{label}</b><br/>"
-                f"Mode: {mode}<br/>"
-                f"Eco desire: {eco:.2f}<br/>"
-                + (f"Charger occupancy: {occ:.0%}<br/>" if occ is not None else "")
-                + (f"Peer EV rate: {peer_ev:.0%}<br/>" if peer_ev is not None else "")
-                + (f"Beliefs: {belief_str}" if belief_str else "")
+                "<table style='border-collapse:collapse;font-size:12px;"
+                "font-family:sans-serif;background:#1e2130;color:#e0e0e0;"
+                "padding:4px'>"
+                + "".join(rows)
+                + "</table>"
             )
             node_meta[aid] = {'eco': eco, 'mode': mode, 'tooltip': tooltip}
 
@@ -252,12 +265,35 @@ def _render_influence_network(results, agents):
             ) as f:
                 net.save_graph(f.name)
                 html_path = f.name
-
+ 
             with open(html_path) as f:
                 html_content = f.read()
             os.unlink(html_path)
-
-            st.components.v1.html(html_content, height=500, scrolling=False)
+ 
+            # Inject CSS to centre the graph and remove iframe margins.
+            # Pyvis names its canvas div #mynetwork by default.
+            # The <style> injection goes right after the opening <head> tag.
+            centering_css = """
+                <style>
+                html, body {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    width: 100%;
+                    height: 100%;
+                    overflow: hidden;
+                    background: transparent;
+                }
+                #mynetwork {
+                    width: 100% !important;
+                    height: 500px !important;
+                    border: none !important;
+                    background: transparent !important;
+                }
+                </style>
+                """
+            html_content = html_content.replace("<head>", "<head>" + centering_css, 1)
+                
+            st.components.v1.html(html_content, height=520, scrolling=False)
 
         except ImportError:
             # Fallback: simple table showing connections
