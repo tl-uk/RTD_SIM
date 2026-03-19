@@ -280,22 +280,22 @@ def _render_influence_network(results, agents):
         st.error(f"Influence network render failed: {e}")
 
     # Explain what the updater is doing
-    with st.expander("How peer influence flows into BDI (Phase 2)"):
+    with st.expander("How peer influence flows into BDI"):
         st.markdown("""
-**Before Phase 2** — `apply_social_influence()` in the simulation loop directly 
-overwrote `agent.state.mode`, bypassing the BDI planner entirely.
+        **Before Phase 2** — `apply_social_influence()` in the simulation loop directly 
+        overwrote `agent.state.mode`, bypassing the BDI planner entirely.
 
-**After Phase 2** — `BayesianBeliefUpdater._reweight_desires_from_peers()` computes 
-the EV adoption rate among the agent's immediate neighbours and nudges 
-`agent.desires['eco']` by up to ±0.03 per update cycle (every 5 steps).
+        **After Phase 2** — `BayesianBeliefUpdater._reweight_desires_from_peers()` computes 
+        the EV adoption rate among the agent's immediate neighbours and nudges 
+        `agent.desires['eco']` by up to ±0.03 per update cycle (every 5 steps).
 
-The BDI planner then scores modes using the updated desire weights — social influence 
-now flows *through* the belief-desire-intention cycle rather than short-circuiting it.
+        The BDI planner then scores modes using the updated desire weights — social influence 
+        now flows *through* the belief-desire-intention cycle rather than short-circuiting it.
 
-**What the colour encodes**: green nodes have high `eco` desire (prefer EV/bike/bus), 
-grey nodes have low `eco` desire (prefer car). As peer influence accumulates over 
-200 steps, you should see clusters of similar-coloured nodes forming — this is 
-emergent homophily-driven opinion convergence.
+        **What the colour encodes**: green nodes have high `eco` desire (prefer EV/bike/bus), 
+        grey nodes have low `eco` desire (prefer car). As peer influence accumulates over 
+        200 steps, you should see clusters of similar-coloured nodes forming — this is 
+        emergent homophily-driven opinion convergence.
         """)
 
 
@@ -461,14 +461,37 @@ def _render_markov_habits(agents):
                     'P(stay)': round(avg, 3),
                     'Agents': len(strengths),
                 })
-        df = pd.DataFrame(rows).sort_values('P(stay)', ascending=False)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        if rows:
+            df = pd.DataFrame(rows).sort_values('P(stay)', ascending=False)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info(
+                "No habits formed yet — agents need 3+ consecutive steps "
+                "on the same mode. Run more steps to see habit data."
+            )
     else:
-        st.info(
-            "No habit data yet. Habits form after an agent uses the same mode "
-            "3+ consecutive times. Run more steps or check that `mode_chain.record_step()` "
-            "is being called (requires `config.enable_social = True`)."
+        # Show all agents even without habits — gives visibility into which
+        # personas are present and confirms Markov chains are wired up.
+        st.caption(
+            "No habits formed yet (need ≥ 3 consecutive uses of same mode). "
+            "Showing all agents to confirm Markov chains are active."
         )
+        rows = []
+        for a in agents:
+            s = _markov_summary(a)
+            if s is None:
+                continue
+            rows.append({
+                'Persona': getattr(a, 'user_story_id', '?').replace('_', ' ').title(),
+                'Agent': a.state.agent_id,
+                'Steps recorded': s.get('total_steps', 0),
+                'Recent modes': ' → '.join(s.get('mode_history', [])[-3:]) or 'none',
+                'Status': '⏳ warming up',
+            })
+        if rows:
+            import pandas as pd
+            df = pd.DataFrame(rows)
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
@@ -514,11 +537,20 @@ def _render_markov_habits(agents):
 
     with col_hist:
         # Show transition matrix as a heatmap for modes with non-zero usage
+        # Include modes from: habit_counts, mode_history, and current mode.
+        # This ensures the matrix is always populated even when warming up.
+        _current_mode = getattr(selected.state, 'mode', '')
+        _history_modes = set(summary.get('mode_history', []))
         active_modes = [
             m for m in chain.modes
             if chain.habit_counts.get(m, 0) > 0
-            or getattr(selected.state, 'mode', '') == m
-        ][:10]  # cap at 10 for readability
+            or m == _current_mode
+            or m in _history_modes
+        ][:10]
+ 
+        # Fallback: if still empty, show the top 5 modes by initial probability
+        if not active_modes and chain.modes:
+            active_modes = chain.modes[:5]
 
         if active_modes:
             mode_idx = {m: chain.modes.index(m) for m in active_modes}

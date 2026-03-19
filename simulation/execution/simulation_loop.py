@@ -866,6 +866,27 @@ def run_simulation_loop(
                     # Log at debug level to avoid flooding INFO logs.
                     logger.debug(f"Step {step}: charging error for {_agent_id}: {_e}")
 
+
+            # ── Phase 3: Markov record_step ──────────────────────────────────
+            # Called every step the agent has a mode, regardless of policy
+            # engine, social network, or influence system availability.
+            # Uses a lightweight satisfaction proxy when the full calculation
+            # isn't available — sufficient for habit formation purposes.
+            _mc = getattr(agent, 'mode_chain', None)
+            if _mc is not None:
+                try:
+                    _mc_mode = getattr(agent.state, 'mode', None)
+                    if _mc_mode:
+                        # Use the real satisfaction score if it was computed
+                        # this step (set by the influence block above).
+                        # Otherwise use a proxy: distance > 0 and not stuck = 0.6
+                        _mc_sat = satisfaction_by_mode.get(_mc_mode, [0.6])[-1] \
+                            if satisfaction_by_mode.get(_mc_mode) else 0.6
+                        _mc.record_step(_mc_mode, _mc_sat)
+                except Exception as _mce:
+                    logger.debug("Markov record_step failed: %s", _mce)
+            # ── End Phase 3 ──────────────────────────────────────────────────
+
             # Collect agent state at END of agent loop iteration
             # This MUST be at 12 spaces (inside `for agent in agents`)
             # and MUST be AFTER all agent processing for this step
@@ -935,9 +956,9 @@ def run_simulation_loop(
                     satisfaction_by_mode[_mode].append(satisfaction)
 
                     # Phase 3: update Markov chain with this step's outcome
-                    _chain = getattr(agent, 'mode_chain', None)
-                    if _chain is not None:
-                        _chain.record_step(_mode, satisfaction)
+                    # _chain = getattr(agent, 'mode_chain', None)
+                    # if _chain is not None:
+                    #     _chain.record_step(_mode, satisfaction)
             
             # Calculate lifecycle emissions if agent moved
             if emissions_calc and agent.state.location != prev_location:
@@ -964,8 +985,6 @@ def run_simulation_loop(
                         )
             
             # (Infrastructure charging moved into the agent loop — see below)
-                
-
         
         # Phase 2: Bayesian belief update every 5 steps (all agents)
         if belief_updater and step % 5 == 0:
@@ -1235,7 +1254,7 @@ def run_simulation_loop(
         logger.info(f"✅ Policy tracking: {len(policy_actions_taken)} actions, "
                    f"{len(constraint_violations)} violations")
         
-    # Phase 6.2b: Cleanup event bus
+    # Cleanup event bus
     if event_bus:
         try:
             stats = event_bus.get_statistics()
