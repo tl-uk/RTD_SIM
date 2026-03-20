@@ -219,20 +219,20 @@ def render_sidebar_config():
     synthetic_config = render_synthetic_events_settings()
     
     st.sidebar.markdown("---")
-    
+ 
+    # Story selection OUTSIDE form — needs rerun on Select All interaction
+    user_stories, job_stories = _render_story_selection()
+ 
+    st.markdown("---")
+ 
     with st.form("config_form"):
         # Basic settings
         st.markdown("### 📊 Basic Settings")
         steps = st.number_input("Simulation Steps", 20, 500, 100, 20)
         num_agents = st.number_input("Number of Agents", 10, 1500, 50, 10)
-        
+ 
         st.markdown("---")
-        
-        # Story selection
-        user_stories, job_stories = _render_story_selection()
-        
-        st.markdown("---")
-        
+ 
         # Advanced features
         advanced_config = _render_advanced_features()
         
