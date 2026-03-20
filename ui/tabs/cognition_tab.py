@@ -53,36 +53,57 @@ def _markov_summary(agent):
         return None
 
 
-def _peer_edges(results, max_edges=80):
+def _peer_edges(results, max_edges=120):
     """
-    Extract (source_id, target_id, weight) edges from SocialNetwork.
-    Falls back to empty list if network is not available or doesn't
-    expose get_neighbors().
+    Extract edges from SocialNetwork for the focal (story) agents.
+ 
+    Returns ALL edges from focal agents regardless of where the target is.
+    Ghost nodes (non-story neighbours) are added by the renderer so edges
+    actually appear. max_edges raised to 120 because ghost nodes make the
+    graph denser and more informative.
     """
     network = getattr(results, 'network', None)
     if network is None:
         return []
-
+ 
     edges = []
     agents = _story_agents(results)
     seen = set()
-
-    for agent in agents[:40]:   # cap at 40 agents to keep graph readable
+ 
+    # Pick focal agents: prefer those with the most connections to other
+    # story agents (most informative for the viewer). Fall back to [:40].
+    story_ids = {a.state.agent_id for a in agents}
+    scored = []
+    for agent in agents:
+        aid = agent.state.agent_id
+        try:
+            neighbors = network.get_neighbors(aid) or []
+        except Exception:
+            neighbors = []
+        within_story = sum(1 for nb in neighbors if nb in story_ids)
+        scored.append((agent, within_story))
+ 
+    # Sort by within-story connections descending, take top 40
+    scored.sort(key=lambda x: x[1], reverse=True)
+    focal_agents = [a for a, _ in scored[:40]]
+ 
+    for agent in focal_agents:
         aid = agent.state.agent_id
         try:
             neighbors = network.get_neighbors(aid)
         except Exception:
             break
-
+ 
         for nb_id in (neighbors or []):
             key = tuple(sorted([aid, nb_id]))
             if key in seen:
                 continue
             seen.add(key)
+            # No endpoint filter here — ghost nodes added by renderer
             edges.append({'source': aid, 'target': nb_id, 'weight': 1.0})
             if len(edges) >= max_edges:
                 return edges
-
+ 
     return edges
 
 
@@ -232,7 +253,10 @@ def _render_influence_network(results, agents):
             )
             net.set_options("""
             {
-              "physics": {"stabilization": {"iterations": 80}},
+              "physics": {
+                "stabilization": {"iterations": 150},
+                "barnesHut": {"gravitationalConstant": -3000, "springLength": 120}
+              },
               "nodes": {"shape": "dot", "scaling": {"min": 10, "max": 24}},
               "edges": {"color": {"opacity": 0.4}, "smooth": {"type": "continuous"}},
               "interaction": {"hover": true, "tooltipDelay": 100}
@@ -253,12 +277,29 @@ def _render_influence_network(results, agents):
                     size=12 + eco * 10,
                 )
 
+            # Add ghost nodes for neighbours not in node_meta.
+            # Ghosts are small, unlabelled, grey — they show connections
+            # without cluttering the graph with agent details.
+            ghost_ids = set()
             for e in edges:
-                # Only add edges where both endpoints are in the node set.
-                # Neighbors outside agents[:40] were never added to pyvis and
-                # cause "non existent node" NetworkXError.
-                if e['source'] in node_meta and e['target'] in node_meta:
-                    net.add_edge(e['source'], e['target'], width=1.0)
+                if e['source'] in node_meta and e['target'] not in node_meta:
+                    if e['target'] not in ghost_ids:
+                        net.add_node(
+                            e['target'],
+                            label='',
+                            title=f"<span style='font-size:11px'>{e['target'].rsplit('_', 2)[0][-25:]}</span>",
+                            color='#888888',
+                            size=6,
+                        )
+                        ghost_ids.add(e['target'])
+ 
+            for e in edges:
+                src_ok = e['source'] in node_meta
+                tgt_ok = e['target'] in node_meta or e['target'] in ghost_ids
+                if src_ok and tgt_ok:
+                    # Thinner edge to ghost nodes to distinguish focal vs peripheral ties
+                    width = 1.5 if e['target'] in node_meta else 0.7
+                    net.add_edge(e['source'], e['target'], width=width)
 
             with tempfile.NamedTemporaryFile(
                 delete=False, suffix='.html', mode='w'
