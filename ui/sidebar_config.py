@@ -906,46 +906,50 @@ def _render_story_selection():
             # ----- user & job stories list ------------------------
             _SENTINEL = "── Select All ──"
  
+            # Initialise session_state on first load — this is the ONLY
+            # place defaults are set. Never pass default= to the widget
+            # when using a key, or Streamlit raises a conflict error.
+            if "_user_ms" not in st.session_state:
+                st.session_state["_user_ms"] = default_users
+            if "_job_ms" not in st.session_state:
+                st.session_state["_job_ms"] = default_jobs
+ 
             # ── User Stories ───────────────────────────────────────────────
-            # Run N+1: pending flag found → pre-populate key with clean list
-            # before the widget renders. Streamlit uses the pre-set value.
+            # Two-run cycle: pending flag pre-populates key before render.
             if st.session_state.pop("_select_all_users_pending", False):
                 st.session_state["_user_ms"] = list(available_users)
  
-            raw_users = st.multiselect(
+            st.multiselect(
                 "User Stories",
                 options=[_SENTINEL] + available_users,
-                default=default_users,
                 key="_user_ms",
                 help="Select which personas to include. Choose '── Select All ──' "
                      "to include every available persona.",
             )
  
-            # Run N: sentinel detected → set flag and rerun immediately
-            if _SENTINEL in (raw_users or []):
+            if _SENTINEL in st.session_state.get("_user_ms", []):
                 st.session_state["_select_all_users_pending"] = True
                 st.rerun()
  
-            user_stories = raw_users or default_users
+            user_stories = st.session_state.get("_user_ms", default_users)
  
             # ── Job Stories ────────────────────────────────────────────────
             if st.session_state.pop("_select_all_jobs_pending", False):
                 st.session_state["_job_ms"] = list(available_jobs)
  
-            raw_jobs = st.multiselect(
+            st.multiselect(
                 "Job Stories",
                 options=[_SENTINEL] + available_jobs,
-                default=default_jobs,
                 key="_job_ms",
                 help="Select which job contexts to include. Choose '── Select All ──' "
                      "to include every available job context.",
             )
  
-            if _SENTINEL in (raw_jobs or []):
+            if _SENTINEL in st.session_state.get("_job_ms", []):
                 st.session_state["_select_all_jobs_pending"] = True
                 st.rerun()
  
-            job_stories = raw_jobs or default_jobs
+            job_stories = st.session_state.get("_job_ms", default_jobs)
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it
