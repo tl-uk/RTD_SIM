@@ -315,6 +315,9 @@ class StreamingSystemDynamics:
             # Add SD parameters for UI display  
             'ev_growth_rate_r': self.state.ev_growth_rate_r,
             'ev_carrying_capacity_K': self.state.ev_carrying_capacity_K,
+            # Infrastructure boost = (charger_count/100) * strength — FLAT, no EV term
+            # Matches system_dynamics._compute_ev_adoption_flow()
+            'infrastructure_capacity_normalised': self.state.infrastructure_capacity_stock / 100.0,
         })
         
         self.state.total_updates += 1

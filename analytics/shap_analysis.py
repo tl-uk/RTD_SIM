@@ -81,8 +81,12 @@ def prepare_shap_features(sd_history: List[Dict]) -> Tuple[pd.DataFrame, np.ndar
             'carrying_capacity_factor': (1 - ev_adoption / K) if K > 0 else 0,
             
             # Feedback terms (may vary if policies are active)
-            'infrastructure_effect': infra_feedback * ev_adoption * (1 - ev_adoption / K) if K > 0 else 0,
-            'social_effect': social_feedback * ev_adoption ** 2,
+            # Infrastructure boost = (charger_count/100) * strength — FLAT, no EV term
+            # Matches system_dynamics._compute_ev_adoption_flow()
+            'infrastructure_effect': infra_feedback * entry.get('infrastructure_capacity_normalised', 0.5),
+            # s*EV*(1-EV/K) — matches corrected system_dynamics.py social term
+            # peaks at EV=K/2, bounded by carrying capacity
+            'social_effect': social_feedback * ev_adoption * (1.0 - ev_adoption / K) if K > 0 else 0,
             
             # Interaction terms
             'adoption_x_distance': ev_adoption * (K - ev_adoption),
