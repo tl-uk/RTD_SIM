@@ -59,18 +59,23 @@ def setup_social_network(
     if progress_callback:
         progress_callback(0.45, "🌐 Building social network...")
 
-    # Why homophily-based network? It creates clusters of similar agents, which can 
-    # lead to more realistic diffusion patterns and emergent phenomena like echo 
-    # chambers or opinion polarization. This allows us to study how social structure 
-    # impacts the spread of behaviors and preferences in the simulation.
     network = SocialNetwork(topology='homophily', influence_enabled=True)
     
-    # Use homophily-based network with k=5 neighbors and fixed seed for reproducibility.
-    # Change the seed or k value to test different network structures and their impact 
-    # on diffusion dynamics.
-    network.build_network(agents, k=5, seed=42) 
+    # cross_persona_prob controls what fraction of each agent's k ties are
+    # forced to cross persona boundaries.  Default 0.25 produces realistic
+    # bridging ties (Granovetter 1973) and ensures EV adoption can diffuse
+    # across persona groups rather than staying siloed within them.
+    # Expose via config.cross_persona_prob (add to SimulationConfig + sidebar
+    # slider: 0.0 = pure homophily, 1.0 = random network).
+    cross_persona_prob = getattr(config, 'cross_persona_prob', 0.25)
 
-    # Ensure influence system is returned even if not realistic to avoid downstream errors
+    network.build_network(
+        agents,
+        k=5,
+        seed=42,
+        cross_persona_prob=cross_persona_prob,
+    )
+
     influence_system = None
     if config.use_realistic_influence:
         influence_system = RealisticSocialInfluence(
@@ -80,9 +85,15 @@ def setup_social_network(
             peer_weight=0.2
         )
         enhance_social_network_with_realism(network, influence_system)
-        logger.info("✅ Realistic influence enabled")
+        logger.info(
+            f"✅ Realistic influence enabled "
+            f"(cross_persona_prob={cross_persona_prob:.2f})"
+        )
     else:
-        logger.info("✅ Deterministic influence enabled")
+        logger.info(
+            f"✅ Deterministic influence enabled "
+            f"(cross_persona_prob={cross_persona_prob:.2f})"
+        )
     
     if progress_callback:
         progress_callback(0.5, "✅ Social network ready")

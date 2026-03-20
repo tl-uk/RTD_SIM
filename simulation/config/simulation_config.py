@@ -74,6 +74,7 @@ class SimulationConfig:
         # Social network (old style)
         decay_rate: float = 0.15,
         habit_weight: float = 0.4,
+        cross_persona_prob: float = 0.25,  # Fraction of ties crossing persona boundary
         
         # Analytics (old style)
         enable_analytics: bool = True,
@@ -138,6 +139,7 @@ class SimulationConfig:
         self.use_realistic_influence = use_realistic_influence
         self.enable_route_diversity = enable_route_diversity
         self.route_diversity_mode = route_diversity_mode
+        self.cross_persona_prob = cross_persona_prob
         
         # Phase 7.1: Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling

@@ -152,17 +152,22 @@ class SocialNetwork:
         self,
         agents: List[Any],
         k: int = 4,  # Average degree
-        p: float = 0.1,  # Rewiring probability
-        seed: Optional[int] = None
+        p: float = 0.1,  # Rewiring probability (for small-world)
+        seed: Optional[int] = None,
+        cross_persona_prob: float = 0.25,  # Fraction of cross-persona ties (homophily)
     ) -> None:
         """
         Build social network from agent population.
         
         Args:
-            agents: List of agent objects
-            k: Average degree (connections per agent)
-            p: Rewiring probability (for small-world)
-            seed: Random seed
+            agents:             List of agent objects.
+            k:                  Average degree (connections per agent).
+            p:                  Rewiring probability (Watts-Strogatz only).
+            seed:               Random seed.
+            cross_persona_prob: Fraction of each agent's ties that cross persona
+                                boundary (homophily topology only).  Default 0.25
+                                matches empirical bridging-tie ratios and ensures
+                                cross-group EV adoption diffusion.
         """
         n = len(agents)
         
@@ -184,7 +189,7 @@ class SocialNetwork:
         elif self.topology == 'random':
             self._build_random(n, k, seed)
         elif self.topology == 'homophily':
-            self._build_homophily(agents, k, seed)
+            self._build_homophily(agents, k, seed, cross_persona_prob=cross_persona_prob)
         else:
             logger.warning(f"Unknown topology: {self.topology}, using small_world")
             self._build_small_world(n, k, p, seed)
@@ -236,55 +241,101 @@ class SocialNetwork:
             self.G.add_edge(agent_ids[u], agent_ids[v])
     
     def _build_homophily(
-        self, 
-        agents: List[Any], 
+        self,
+        agents: List[Any],
         k: int,
-        seed: Optional[int]
+        seed: Optional[int],
+        cross_persona_prob: float = 0.25,
     ) -> None:
         """
-        Homophily network: agents connect with similar others.
-        
-        Similarity based on:
-        - User story similarity
-        - Desire similarity
-        - Geographic proximity (if available)
+        Homophily network: agents connect with similar others, with a
+        guaranteed fraction of cross-persona ties.
+
+        Without cross-persona wiring the desire-similarity scores are so
+        dominated by persona type that the candidate pool (top k*2) is
+        always same-persona, producing a collection of isolated per-persona
+        stars with zero inter-group edges.  Real social networks have both
+        strong homophily *and* bridging ties (Granovetter 1973).
+
+        Algorithm per agent:
+          - same_slots  = round(k * (1 - cross_persona_prob))  ← within-persona
+          - cross_slots = k - same_slots                        ← cross-persona
+          - Same-persona pool: top same_slots*3 most similar WITHIN persona,
+            weighted-random draw.
+          - Cross-persona pool: top cross_slots*3 most similar ACROSS personas,
+            weighted-random draw (ensures diverse bridging ties, not purely
+            random noise).
+
+        Args:
+            agents:             Full agent list.
+            k:                  Target degree per agent.
+            seed:               RNG seed for reproducibility.
+            cross_persona_prob: Fraction of ties that cross persona boundary
+                                (default 0.25 — matches Watts-Strogatz p).
         """
         rng = random.Random(seed)
-        
         agent_list = list(agents)
-        n = len(agent_list)
-        
+
+        # Pre-group agents by persona for fast pool construction.
+        # Fall back to user_story_id then a fixed constant if neither exists.
+        def _persona(a) -> str:
+            return (
+                getattr(a, 'user_story_id', None)
+                or getattr(a, 'persona_id', None)
+                or 'unknown'
+            )
+
+        persona_of = {a.state.agent_id: _persona(a) for a in agent_list}
+
         for agent in agent_list:
-            agent_id = agent.state.agent_id
-            
-            # Calculate similarity to all other agents
-            similarities = []
+            agent_id  = agent.state.agent_id
+            my_persona = persona_of[agent_id]
+
+            # How many slots go to same-persona vs cross-persona
+            cross_slots = max(1, round(k * cross_persona_prob))
+            same_slots  = k - cross_slots
+
+            # Separate existing candidates into two pools
+            same_pool  = []   # (other_id, similarity)
+            cross_pool = []
+
             for other in agent_list:
                 other_id = other.state.agent_id
-                if agent_id != other_id and not self.G.has_edge(agent_id, other_id):
-                    sim = self._calculate_similarity(agent, other)
-                    similarities.append((other_id, sim))
-            
-            # Sort by similarity
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            
-            # Connect to k most similar (with some randomness)
-            num_connections = min(k, len(similarities))
-            
-            # Weighted random selection favoring similar agents
-            weights = [s[1] for s in similarities[:num_connections * 2]]
-            candidates = [s[0] for s in similarities[:num_connections * 2]]
-            
-            if candidates:
-                selected = rng.choices(
-                    candidates,
-                    weights=weights,
-                    k=min(num_connections, len(candidates))
-                )
-                
-                for other_id in selected:
-                    if not self.G.has_edge(agent_id, other_id):
-                        self.G.add_edge(agent_id, other_id)
+                if other_id == agent_id or self.G.has_edge(agent_id, other_id):
+                    continue
+                sim = self._calculate_similarity(agent, other)
+                if persona_of[other_id] == my_persona:
+                    same_pool.append((other_id, sim))
+                else:
+                    cross_pool.append((other_id, sim))
+
+            # Sort both pools by similarity descending so weights are positive
+            same_pool.sort(key=lambda x: x[1], reverse=True)
+            cross_pool.sort(key=lambda x: x[1], reverse=True)
+
+            def _draw(pool, n_slots):
+                """Weighted draw from the top 3*n_slots of pool."""
+                candidates = pool[:n_slots * 3]
+                if not candidates:
+                    return []
+                ids     = [c[0] for c in candidates]
+                weights = [max(c[1], 1e-6) for c in candidates]   # no zero weights
+                draw_n  = min(n_slots, len(ids))
+                # rng.choices allows duplicates; deduplicate while preserving order
+                seen, result = set(), []
+                for oid in rng.choices(ids, weights=weights, k=draw_n * 2):
+                    if oid not in seen and not self.G.has_edge(agent_id, oid):
+                        seen.add(oid)
+                        result.append(oid)
+                    if len(result) == draw_n:
+                        break
+                return result
+
+            selected = _draw(same_pool, same_slots) + _draw(cross_pool, cross_slots)
+
+            for other_id in selected:
+                if not self.G.has_edge(agent_id, other_id):
+                    self.G.add_edge(agent_id, other_id)
     
     def _calculate_similarity(self, agent1: Any, agent2: Any) -> float:
         """

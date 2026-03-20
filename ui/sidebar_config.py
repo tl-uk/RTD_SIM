@@ -1,7 +1,7 @@
 """
 ui/sidebar_config.py
 
-Sidebar configuration with Phase 5.1 combined scenarios.
+Sidebar configuration with advanced settings.
 
 """
 
@@ -275,6 +275,7 @@ def render_sidebar_config():
         use_realistic_influence=advanced_config['use_realistic'],
         decay_rate=advanced_config['decay_rate'],
         habit_weight=advanced_config['habit_weight'],
+        cross_persona_prob=advanced_config['cross_persona_prob'],
         enable_infrastructure=advanced_config['enable_infrastructure'],
         num_chargers=advanced_config['num_chargers'],
         num_depots=advanced_config['num_depots'],
@@ -1121,10 +1122,18 @@ def _render_advanced_features():
         st.info("💡 Enable 'Advanced Parameter Tuning' above to customize infrastructure settings")
     
     # Social networks
+    # The slider only appears when both "Enable Social Networks" and "Use Realistic Influence" 
+    # are on — which is correct, since without realistic influence the cross-persona 
+    # wiring has no downstream effect on Bayesian belief updating. If social is off, 
+    # cross_persona_prob stays at its default 0.25 in SimulationConfig and is simply 
+    # not used.
     enable_social = False
     use_realistic = False
     decay_rate = 0.0
     habit_weight = 0.0
+    cross_persona_prob = 0.25   # default — overridden by slider when social is on
+    enable_route_diversity = True
+    route_diversity_mode = 'ultra_fast'
     
     if STORIES_AVAILABLE:
         enable_social = st.checkbox("Enable Social Networks", value=True)
@@ -1136,6 +1145,26 @@ def _render_advanced_features():
                 with st.expander("⚙️ Influence Parameters"):
                     decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05)
                     habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1)
+                    # The slider ceiling is 0.6 not 1.0. At p=0.75+, the cross-pool 
+                    # draw dominates and the network loses meaningful homophily
+                    cross_persona_prob = st.slider(
+                        "Cross-Persona Tie Probability",
+                        min_value=0.0,
+                        max_value=0.6,
+                        value=0.25,
+                        step=0.05,
+                        key="cross_persona_prob_slider",
+                        help=(
+                            "Fraction of each agent's social ties that cross persona "
+                            "boundaries. 0.0 = pure echo chambers (same-persona only). "
+                            "0.25 = realistic bridging ties — EV adoption can diffuse "
+                            "across groups. 0.5+ = near-random mixing."
+                        ),
+                    )
+                    st.caption(
+                        "💡 Higher values let eco-warrior influence reach business "
+                        "commuters and freight operators — faster cross-group cascade."
+                    )
 
                 # Route diversity
                 with st.expander("🛣️ Route Diversity", expanded=False):
@@ -1163,6 +1192,7 @@ def _render_advanced_features():
         'use_realistic': use_realistic,
         'decay_rate': decay_rate,
         'habit_weight': habit_weight,
+        'cross_persona_prob': cross_persona_prob,
         'enable_route_diversity': enable_route_diversity,   # ← NEW
         'route_diversity_mode': route_diversity_mode,       # ← NEW
         'enable_infrastructure': enable_infrastructure,
