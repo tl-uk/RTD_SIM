@@ -290,7 +290,7 @@ def _render_influence_network(results, agents):
                 color = f"#{r:02x}{g:02x}{b:02x}"
                 net.add_node(
                     aid,
-                    label=aid.rsplit('_', 2)[0][-20:],
+                    label=aid.split('generated_')[0].rstrip('_')[-18:],
                     title=meta['tooltip'],
                     color=color,
                     size=12 + eco * 10,
@@ -305,12 +305,13 @@ def _render_influence_network(results, agents):
                     continue          # source not focal — skip
                 if e['target'] in node_meta or e['target'] in ghost_ids:
                     continue          # already added
-                # Add ghost node for this neighbour
-                ghost_label = e['target'].rsplit('_', 2)[0][-22:]
+                # Add ghost node for this neighbour.
+                # title must be a plain string — pyvis escapes bare <span>
+                # tags as raw text. Full agent id is the most useful hover.
                 net.add_node(
                     e['target'],
                     label='',
-                    title=f"<span style='font-size:11px'>{ghost_label}</span>",
+                    title=e['target'],
                     color='#9e9e9e',
                     size=5,
                 )
