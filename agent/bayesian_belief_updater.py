@@ -1,7 +1,7 @@
 """
 agent/bayesian_belief_updater.py
 
-Phase 2 Core Innovation: Bayesian Belief Updating from experience and social signals.
+Core Innovation: Bayesian Belief Updating from experience and social signals.
 
 The three gaps identified in _is_mode_feasible(state, context):
   1. Charger occupancy never reaches agent beliefs

@@ -114,8 +114,8 @@ def render_cognition_tab(results, anim=None, current_data=None):
 
     st.markdown("## 🧠 Agent Cognition Diagnostics")
     st.caption(
-        "Live view of how Bayesian belief updating (Phase 2) and "
-        "Markov habit formation (Phase 3) are shaping agent decisions."
+        "Live view of how Bayesian belief updating and "
+        "Markov habit formation are shaping agent decisions."
     )
 
     agents = _story_agents(results)
@@ -682,7 +682,7 @@ def _render_markov_habits(agents):
         else:
             st.caption("No transition data yet — run more simulation steps.")
 
-    with st.expander("How habit formation works (Phase 3 Markov)"):
+    with st.expander("How habit formation works (Markov)"):
         st.markdown("""
 **Model**: Each `StoryDrivenAgent` has a `PersonalityMarkovChain` initialised 
 from their persona type. Initial diagonal values:
