@@ -906,49 +906,46 @@ def _render_story_selection():
             # ----- user & job stories list ------------------------
             _SENTINEL = "── Select All ──"
  
-            # Initialise session state on first load
-            if "user_stories_sel" not in st.session_state:
-                st.session_state.user_stories_sel = default_users
-            if "job_stories_sel" not in st.session_state:
-                st.session_state.job_stories_sel = default_jobs
+            # ── User Stories ───────────────────────────────────────────────
+            # Run N+1: pending flag found → pre-populate key with clean list
+            # before the widget renders. Streamlit uses the pre-set value.
+            if st.session_state.pop("_select_all_users_pending", False):
+                st.session_state["_user_ms"] = list(available_users)
  
-            # Callbacks fire immediately because we are now outside the form.
-            # Sentinel detected → replace with full list, no tag remains.
-            def _on_user_change():
-                raw = st.session_state.get("_user_ms", [])
-                if _SENTINEL in raw:
-                    st.session_state.user_stories_sel = list(available_users)
-                else:
-                    st.session_state.user_stories_sel = raw
- 
-            def _on_job_change():
-                raw = st.session_state.get("_job_ms", [])
-                if _SENTINEL in raw:
-                    st.session_state.job_stories_sel = list(available_jobs)
-                else:
-                    st.session_state.job_stories_sel = raw
- 
-            st.multiselect(
+            raw_users = st.multiselect(
                 "User Stories",
                 options=[_SENTINEL] + available_users,
-                default=st.session_state.user_stories_sel,
+                default=default_users,
                 key="_user_ms",
-                on_change=_on_user_change,
                 help="Select which personas to include. Choose '── Select All ──' "
                      "to include every available persona.",
             )
-            user_stories = st.session_state.user_stories_sel
  
-            st.multiselect(
+            # Run N: sentinel detected → set flag and rerun immediately
+            if _SENTINEL in (raw_users or []):
+                st.session_state["_select_all_users_pending"] = True
+                st.rerun()
+ 
+            user_stories = raw_users or default_users
+ 
+            # ── Job Stories ────────────────────────────────────────────────
+            if st.session_state.pop("_select_all_jobs_pending", False):
+                st.session_state["_job_ms"] = list(available_jobs)
+ 
+            raw_jobs = st.multiselect(
                 "Job Stories",
                 options=[_SENTINEL] + available_jobs,
-                default=st.session_state.job_stories_sel,
+                default=default_jobs,
                 key="_job_ms",
-                on_change=_on_job_change,
                 help="Select which job contexts to include. Choose '── Select All ──' "
                      "to include every available job context.",
             )
-            job_stories = st.session_state.job_stories_sel
+ 
+            if _SENTINEL in (raw_jobs or []):
+                st.session_state["_select_all_jobs_pending"] = True
+                st.rerun()
+ 
+            job_stories = raw_jobs or default_jobs
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it
