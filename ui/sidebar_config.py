@@ -953,31 +953,21 @@ def _render_story_selection():
             # job_stories = st.session_state.get("_job_ms", default_jobs)
             # ── User Stories ───────────────────────────────────────────────
             # Define a special "Select All" label
-            ALL_USERS = "Select All"
-            
             user_stories = st.multiselect(
                 "User Stories",
-                options=[ALL_USERS] + available_users,
+                available_users,
                 default=default_users,
-                help="Select 'Select All' to add every persona."
+                help="Select which personas to include. Only combinations whitelisted "
+                     "in story_compatibility.py will generate agents."
             )
 
-            # If they picked "Select All", we override the list to be everything
-            if ALL_USERS in user_stories:
-                user_stories = available_users
-
-            # ── Job Stories ────────────────────────────────────────────────
-            ALL_JOBS = "Select All"
-            
             job_stories = st.multiselect(
                 "Job Stories",
-                options=[ALL_JOBS] + available_jobs,
+                available_jobs,
                 default=default_jobs,
-                help="Select 'Select All' to add every job context."
+                help="Select which job contexts to include. Incompatible user+job "
+                     "pairs are filtered out by the whitelist before agents are created."
             )
-
-            if ALL_JOBS in job_stories:
-                job_stories = available_jobs
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it
