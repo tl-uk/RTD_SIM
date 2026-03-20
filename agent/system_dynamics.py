@@ -367,9 +367,13 @@ class StreamingSystemDynamics:
             * self.state.infrastructure_feedback_strength
         )
         
-        # Social influence feedback: Higher adoption → stronger network effects
+        # Social influence: peer network effects bounded by carrying capacity K.
+        # s * EV * (1 - EV/K) peaks at EV = K/2 — consistent with the logistic
+        # term and responsive to the user's K setting. When K=0.80, peak is at
+        # 40% adoption; when K=1.0, peak is at 50% (standard Bass diffusion).
         social_boost = (
-            current_adoption 
+            current_adoption
+            * (1.0 - current_adoption / self.state.ev_carrying_capacity_K)
             * self.state.social_influence_strength
         )
         

@@ -109,34 +109,33 @@ def render_system_dynamics_tab(results, anim, current_data):
 def _render_adoption_trajectory(sd_history, current_step):
     """Render EV adoption trajectory chart."""
     st.markdown("### 📈 EV Adoption Over Time")
-    st.caption("Actual agent behavior vs System Dynamics predictions")
+    st.caption(
+        "Actual agent behavior vs SD one-step-ahead predictions. "
+        "Predicted[t] = Actual[t-1] + dEV/dt[t-1]. "
+        "The SD model predicts incremental change, not long-run trajectory."
+    )
     
     # Extract data
     steps = list(range(len(sd_history)))
     actual_adoption = [h['ev_adoption'] * 100 for h in sd_history]
     flows = [h['ev_adoption_flow'] for h in sd_history]  # Already in fraction form!
     
-    # The SD prediction should just use the actual adoption (stock = reality)
-    # The "predicted" line shows what the logistic equation suggests as the trajectory
-    # But since stock tracks reality, we'll show both converging
-    
-    # For display: Show actual (from agents) vs theoretical logistic curve
-    r = sd_history[0].get('ev_growth_rate_r', 0.05)
-    K = sd_history[0].get('ev_carrying_capacity_K', 0.80)
-    EV0 = sd_history[0]['ev_adoption']
-    
-    # Theoretical logistic growth: EV(t) = K / (1 + ((K-EV0)/EV0) * exp(-r*t))
-    theoretical = []
-    for t in steps:
-        if EV0 > 0:
-            numerator = K
-            denominator = 1 + ((K - EV0) / EV0) * np.exp(-r * t)
-            ev_t = numerator / denominator
+    # One-step-ahead prediction: predicted[t+1] = actual[t] + flow[t].
+    # This is the correct prediction for a streaming SD where the stock is
+    # always overwritten by agent reality. The closed-form logistic is wrong
+    # here — it diverges from actual because agents don't follow a clean
+    # logistic curve (BDI mode competition, habits, beliefs all interfere).
+    flows = [h['ev_adoption_flow'] for h in sd_history]
+    predicted_osa = []
+    for t in range(len(sd_history)):
+        if t == 0:
+            predicted_osa.append(actual_adoption[0])   # anchor at actual[0]
         else:
-            ev_t = 0
-        theoretical.append(ev_t * 100)
-    
-    predicted = theoretical  # Use theoretical curve for prediction
+            prev_actual = sd_history[t - 1]['ev_adoption']
+            prev_flow   = sd_history[t - 1]['ev_adoption_flow']
+            predicted_osa.append((prev_actual + prev_flow) * 100)
+ 
+    predicted = predicted_osa
     
     # Create figure
     fig = go.Figure()
@@ -207,10 +206,12 @@ def _render_adoption_trajectory(sd_history, current_step):
         try:
             from analytics.sd_validation_metrics import compute_validation_metrics, analyze_temporal_drift
             
-            # Convert to fractions for analysis
-            actual_frac = [a/100 for a in actual_adoption]
-            predicted_frac = [p/100 for p in predicted]
-            
+            # Convert to fractions for analysis.
+            # Skip step 0 (both series are identical at anchor) to avoid
+            # artificially inflating accuracy metrics.
+            actual_frac    = [a/100 for a in actual_adoption[1:]]
+            predicted_frac = [p/100 for p in predicted[1:]]
+ 
             # Compute comprehensive metrics
             metrics = compute_validation_metrics(actual_frac, predicted_frac, "EV Adoption")
             temporal = analyze_temporal_drift(actual_frac, predicted_frac)

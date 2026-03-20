@@ -2,7 +2,8 @@
 analytics/sd_validation_metrics.py
 
 System Dynamics Validation Metrics
-Comprehensive error analysis for SD predictions vs actual behavior
+Comprehensive error analysis for streaming SD predictions vs actual behavior
+
 """
 
 import numpy as np
@@ -279,41 +280,64 @@ def generate_validation_report(
     
     return "\n".join(report)
 
-
-# Example usage for SD tab integration
+# ================================================================================
+# This is a one-step-ahead flow prediction SD.
+# 
+# RTD_SIM's SD is NOT a batch ODE solver. The update() method explicitly sets:
+#  
+#     self.state.ev_adoption_stock = actual_adoption  # always agent reality
+# 
+# The SD model's contribution is computing ev_adoption_flow (dEV/dt) each
+# step. The correct validation is one-step-ahead:
+#  
+#     predicted[t+1] = actual[t] + flow[t] * dt
+# 
+# This measures whether the logistic + feedback equation correctly predicts
+# the *direction and magnitude* of change from step to step — which is the
+# only thing the SD model is actually doing.
+# ================================================================================
 def validate_sd_predictions(sd_history: List[Dict]) -> Tuple[ValidationMetrics, Dict, str]:
     """
-    Convenience function to validate SD predictions from history.
-    
+    Validate SD flow predictions against actual agent behaviour.
+ 
+    Uses one-step-ahead prediction: predicted[t+1] = actual[t] + flow[t].
+ 
+    This is the correct validation for a streaming SD where the stock is
+    always overwritten by agent reality. The SD model's job is to compute
+    dEV/dt accurately; this measures exactly that.
+ 
+    The old approach (closed-form logistic from t=0) was wrong for this
+    architecture because it compared a free-running ODE projection against
+    data-assimilated stocks — two incompatible things.
+ 
     Args:
         sd_history: List of SD history dicts from simulation
-    
+ 
     Returns:
         (metrics, temporal_analysis, report_text)
     """
     
     if not sd_history or len(sd_history) < 10:
         return None, None, "❌ Insufficient data for validation (need 10+ steps)"
-    
-    # Extract actual and predicted adoption
+ 
+    # actual[t] = real EV adoption measured from agents at step t
     actual = [h['ev_adoption'] for h in sd_history]
-    
-    # Compute theoretical prediction
-    r = sd_history[0].get('ev_growth_rate_r', 0.05)
-    K = sd_history[0].get('ev_carrying_capacity_K', 0.80)
-    EV0 = sd_history[0]['ev_adoption']
-    
-    predicted = []
-    for t in range(len(sd_history)):
-        if EV0 > 0:
-            ev_t = K / (1 + ((K - EV0) / EV0) * np.exp(-r * t))
-        else:
-            ev_t = 0
-        predicted.append(ev_t)
-    
-    # Compute metrics
-    metrics = compute_validation_metrics(actual, predicted, "EV Adoption")
-    temporal = analyze_temporal_drift(actual, predicted)
-    report = generate_validation_report(metrics, temporal, "EV Adoption")
-    
+ 
+    # One-step-ahead predictions using recorded flow (dEV/dt) from SD.
+    # predicted[t] ≈ actual[t-1] + flow[t-1]
+    # We compare predicted[1..n] against actual[1..n], so both arrays
+    # are length n-1 (we lose one sample at the start — acceptable).
+    actual_next    = actual[1:]
+    predicted_next = [
+        sd_history[t]['ev_adoption'] + sd_history[t]['ev_adoption_flow']
+        for t in range(len(sd_history) - 1)
+    ]
+ 
+    if not actual_next or not predicted_next:
+        return None, None, "❌ Insufficient data for one-step-ahead validation"
+ 
+    metrics  = compute_validation_metrics(actual_next, predicted_next, "EV Adoption Flow")
+    temporal = analyze_temporal_drift(actual_next, predicted_next)
+    report   = generate_validation_report(metrics, temporal, "EV Adoption (one-step-ahead)")
+ 
     return metrics, temporal, report

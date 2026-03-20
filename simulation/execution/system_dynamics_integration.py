@@ -33,13 +33,19 @@ def initialize_system_dynamics(config: 'SimulationConfig') -> Optional['Streamin
     try:
         from agent.system_dynamics import StreamingSystemDynamics
         
-        # Get initial EV adoption from agent config
-        initial_adoption = getattr(config.agents.behavior, 'initial_ev_adoption', 0.05)
-        
-        # Create SD engine with config
+        # Use config default as a fallback only — the SD update() method
+        # overwrites ev_adoption_stock with actual agent data on the first
+        # call, so this value is only used for logging and history[0].
+        # Keeping it at 0.05 while actual agents start at 35%+ causes the
+        # first history entry to be wrong and confuses the chart.
+        #
+        # The correct approach: pass 0.0 and let the first update() set it.
+        # The update() will immediately replace it with actual agent data.
+        initial_adoption = 0.0   # SD stocks are always agent-reality driven
+ 
         sd = StreamingSystemDynamics(
             initial_adoption=initial_adoption,
-            config=config  # Will extract system_dynamics sub-config
+            config=config
         )
         
         logger.info(f"✅ System Dynamics initialized: EV={initial_adoption:.1%}, "
