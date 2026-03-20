@@ -258,7 +258,10 @@ def _render_influence_network(results, agents):
                 "barnesHut": {"gravitationalConstant": -3000, "springLength": 120}
               },
               "nodes": {"shape": "dot", "scaling": {"min": 10, "max": 24}},
-              "edges": {"color": {"opacity": 0.4}, "smooth": {"type": "continuous"}},
+              "edges": {
+                "color": {"opacity": 0.5},
+                "smooth": {"type": "continuous"}
+              },
               "interaction": {"hover": true, "tooltipDelay": 100}
             }
             """)
@@ -277,29 +280,36 @@ def _render_influence_network(results, agents):
                     size=12 + eco * 10,
                 )
 
-            # Add ghost nodes for neighbours not in node_meta.
-            # Ghosts are small, unlabelled, grey — they show connections
-            # without cluttering the graph with agent details.
-            ghost_ids = set()
+            # Add ghost nodes for targets outside the focal set.
+            # Ghost = small grey unlabelled dot. Shows the real connection
+            # without cluttering with agent detail. Avoids "non existent node".
+            ghost_ids: set = set()
             for e in edges:
-                if e['source'] in node_meta and e['target'] not in node_meta:
-                    if e['target'] not in ghost_ids:
-                        net.add_node(
-                            e['target'],
-                            label='',
-                            title=f"<span style='font-size:11px'>{e['target'].rsplit('_', 2)[0][-25:]}</span>",
-                            color='#888888',
-                            size=6,
-                        )
-                        ghost_ids.add(e['target'])
+                if e['source'] not in node_meta:
+                    continue          # source not focal — skip
+                if e['target'] in node_meta or e['target'] in ghost_ids:
+                    continue          # already added
+                # Add ghost node for this neighbour
+                ghost_label = e['target'].rsplit('_', 2)[0][-22:]
+                net.add_node(
+                    e['target'],
+                    label='',
+                    title=f"<span style='font-size:11px'>{ghost_label}</span>",
+                    color='#9e9e9e',
+                    size=5,
+                )
+                ghost_ids.add(e['target'])
  
+            # Now add edges — source is in focal set, target is focal or ghost
             for e in edges:
-                src_ok = e['source'] in node_meta
-                tgt_ok = e['target'] in node_meta or e['target'] in ghost_ids
-                if src_ok and tgt_ok:
-                    # Thinner edge to ghost nodes to distinguish focal vs peripheral ties
-                    width = 1.5 if e['target'] in node_meta else 0.7
-                    net.add_edge(e['source'], e['target'], width=width)
+                if e['source'] not in node_meta:
+                    continue
+                if e['target'] not in node_meta and e['target'] not in ghost_ids:
+                    continue
+                # Thicker line between two focal agents; thinner to ghost
+                width = 1.5 if e['target'] in node_meta else 0.7
+                net.add_edge(e['source'], e['target'], width=width)
+
 
             with tempfile.NamedTemporaryFile(
                 delete=False, suffix='.html', mode='w'
