@@ -904,33 +904,51 @@ def _render_story_selection():
                 default_jobs = available_jobs[:min(5, len(available_jobs))]
 
             # ----- user & job stories list ------------------------
-            _SELECT_ALL_USERS = "── Select All ──"
-            _SELECT_ALL_JOBS  = "── Select All ──"
+            _SENTINEL = "── Select All ──"
  
-            user_raw = st.multiselect(
+            # Initialise session state on first load
+            if "user_stories_sel" not in st.session_state:
+                st.session_state.user_stories_sel = default_users
+            if "job_stories_sel" not in st.session_state:
+                st.session_state.job_stories_sel = default_jobs
+ 
+            # Callbacks fire immediately because we are now outside the form.
+            # Sentinel detected → replace with full list, no tag remains.
+            def _on_user_change():
+                raw = st.session_state.get("_user_ms", [])
+                if _SENTINEL in raw:
+                    st.session_state.user_stories_sel = list(available_users)
+                else:
+                    st.session_state.user_stories_sel = raw
+ 
+            def _on_job_change():
+                raw = st.session_state.get("_job_ms", [])
+                if _SENTINEL in raw:
+                    st.session_state.job_stories_sel = list(available_jobs)
+                else:
+                    st.session_state.job_stories_sel = raw
+ 
+            st.multiselect(
                 "User Stories",
-                options=[_SELECT_ALL_USERS] + available_users,
-                default=default_users,
+                options=[_SENTINEL] + available_users,
+                default=st.session_state.user_stories_sel,
+                key="_user_ms",
+                on_change=_on_user_change,
                 help="Select which personas to include. Choose '── Select All ──' "
                      "to include every available persona.",
             )
-            # If the sentinel is in the selection, expand to the full list
-            if _SELECT_ALL_USERS in user_raw:
-                user_stories = available_users
-            else:
-                user_stories = user_raw
+            user_stories = st.session_state.user_stories_sel
  
-            job_raw = st.multiselect(
+            st.multiselect(
                 "Job Stories",
-                options=[_SELECT_ALL_JOBS] + available_jobs,
-                default=default_jobs,
+                options=[_SENTINEL] + available_jobs,
+                default=st.session_state.job_stories_sel,
+                key="_job_ms",
+                on_change=_on_job_change,
                 help="Select which job contexts to include. Choose '── Select All ──' "
                      "to include every available job context.",
             )
-            if _SELECT_ALL_JOBS in job_raw:
-                job_stories = available_jobs
-            else:
-                job_stories = job_raw
+            job_stories = st.session_state.job_stories_sel
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it
