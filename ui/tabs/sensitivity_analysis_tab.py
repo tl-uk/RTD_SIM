@@ -130,8 +130,11 @@ def render_sensitivity_analysis_tab(results, anim, current_data):
         )
     
     with col4:
+        # Exclude 'total' sentinel key — it is always 1.0 and would
+        # always win, making "Total" appear as dominant driver.
         dominant = max(
-            sensitivity.feature_contributions.items(),
+            {k: v for k, v in sensitivity.feature_contributions.items()
+             if k != 'total'}.items(),
             key=lambda x: abs(x[1])
         )[0] if sensitivity.feature_contributions else "Unknown"
         st.metric(
@@ -327,7 +330,10 @@ def render_sensitivity_analysis_tab(results, anim, current_data):
             st.write(f"- Infrastructure: {contributions.get('infrastructure', 0)/total*100:.1f}%")
             st.write(f"- Social: {contributions.get('social', 0)/total*100:.1f}%")
         
-        dominant_feature = max(contributions.items(), key=lambda x: abs(x[1]))[0]
+        dominant_feature = max(
+            {k: v for k, v in contributions.items() if k != 'total'}.items(),
+            key=lambda x: abs(x[1])
+        )[0] if contributions else 'unknown'
         st.info(f"🎯 **{dominant_feature.title()}** dominates")
     
     # ==================================================================

@@ -77,19 +77,22 @@ def compute_jacobian(
     df_dr = EV * (1 - EV / K) if K > 0 else 0
     
     # ∂f/∂K: Derivative w.r.t. carrying capacity
-    # f = r·EV·(1 - EV/K) + ...
-    # ∂f/∂K = r·EV·(EV/K²)
-    df_dK = r * EV * (EV / (K**2)) if K > 0 else 0
-    
+    # Full equation: r*EV*(1-EV/K) + infra*EV*cap + s*EV*(1-EV/K)
+    # Both logistic and social terms depend on K:
+    #   d/dK [r*EV*(1-EV/K)] = r*EV*(EV/K²)
+    #   d/dK [s*EV*(1-EV/K)] = s*EV*(EV/K²)
+    # Total: df/dK = (r + social_feedback) * EV * (EV/K²)
+    df_dK = (r + social_feedback) * EV * (EV / (K**2)) if K > 0 else 0
+ 
     # ∂f/∂infra: Derivative w.r.t. infrastructure feedback
     # f = ... + infra·EV·infrastructure_capacity
     # ∂f/∂infra = EV·infrastructure_capacity
     df_dinfra = EV * infrastructure_capacity
-    
+ 
     # ∂f/∂social: Derivative w.r.t. social influence
-    # f = ... + social·EV·(1-EV)  (network effects)
-    # ∂f/∂social = EV·(1-EV)
-    df_dsocial = EV * (1 - EV)
+    # Social term is s*EV*(1-EV/K) — bounded by carrying capacity K
+    # ∂f/∂social = EV·(1-EV/K)
+    df_dsocial = EV * (1.0 - EV / K) if K > 0 else 0
     
     return np.array([df_dr, df_dK, df_dinfra, df_dsocial])
 
@@ -170,8 +173,9 @@ def compute_feature_contributions(
     # Infrastructure feedback component
     infrastructure = infra_feedback * EV * infrastructure_capacity
     
-    # Social influence component (network effects)
-    social = social_feedback * EV * (1 - EV)
+    # Social influence: bounded by K (consistent with system_dynamics.py)
+    # s * EV * (1 - EV/K) — peaks at EV = K/2, goes to 0 at EV = K
+    social = social_feedback * EV * (1.0 - EV / K) if K > 0 else 0
     
     # Total flow
     total_flow = logistic + infrastructure + social
@@ -448,7 +452,8 @@ def analyze_sd_trajectory(sd_history: List[Dict]) -> Dict:
         },
         'n_switches': len(switches),
         'dominant_feature': max(
-            current_sensitivity.feature_contributions.items(),
+            {k: v for k, v in current_sensitivity.feature_contributions.items()
+             if k != 'total'}.items(),
             key=lambda x: abs(x[1])
         )[0] if current_sensitivity.feature_contributions else None
     }
