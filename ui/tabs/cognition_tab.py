@@ -189,9 +189,9 @@ def render_cognition_tab(results, anim=None, current_data=None):
 def _render_influence_network(results, agents):
     st.markdown("### 🌐 Social Influence Network")
     st.caption(
-        "Nodes = agents. Edges = peer connections in the homophily-based social network. "
-        "Node colour encodes current eco desire (green = high, grey = low). "
-        "Hover a node to see belief strength and current mode."
+        "Nodes = agents (colour = eco desire: green high, grey low). "
+        "Edges = peer connections. Small grey dots = non-story neighbours (ghost nodes). "
+        "**Hover any node** to see agent ID, mode, eco desire and beliefs."
     )
 
     try:
@@ -227,27 +227,21 @@ def _render_influence_network(results, agents):
             beliefs = _belief_snapshot(a)
             belief_str = '; '.join(f"{t}: {s}" for t, s in beliefs[:3])
 
-            # Build tooltip as a <table> — avoids <br/> serialisation
-            # issues in pyvis/vis.js across different versions.
-            rows = [
-                f"<tr><td colspan='2'><b>{label}</b></td></tr>",
-                f"<tr><td>Mode</td><td>{mode}</td></tr>",
-                f"<tr><td>Eco desire</td><td>{eco:.2f}</td></tr>",
+            # Plain-text tooltip — pyvis/vis.js escapes arbitrary HTML in the
+            # title attribute; plain string is reliable across all versions.
+            tip_lines = [
+                label,
+                f"Mode:        {mode}",
+                f"Eco desire:  {eco:.2f}",
             ]
             if occ is not None:
-                rows.append(f"<tr><td>Charger occ.</td><td>{occ:.0%}</td></tr>")
+                tip_lines.append(f"Charger occ: {occ:.0%}")
             if peer_ev is not None:
-                rows.append(f"<tr><td>Peer EV rate</td><td>{peer_ev:.0%}</td></tr>")
+                tip_lines.append(f"Peer EV:     {peer_ev:.0%}")
             if belief_str:
-                rows.append(f"<tr><td colspan='2' style='font-size:10px'>{belief_str}</td></tr>")
+                tip_lines.append(belief_str)
 
-            tooltip = (
-                "<table style='border-collapse:collapse;font-size:12px;"
-                "font-family:sans-serif;background:#1e2130;color:#e0e0e0;"
-                "padding:4px'>"
-                + "".join(rows)
-                + "</table>"
-            )
+            tooltip = "\n".join(tip_lines)
             node_meta[aid] = {'eco': eco, 'mode': mode, 'tooltip': tooltip}
 
         if not edges:
@@ -290,7 +284,7 @@ def _render_influence_network(results, agents):
                 color = f"#{r:02x}{g:02x}{b:02x}"
                 net.add_node(
                     aid,
-                    label=aid.split('generated_')[0].rstrip('_')[-18:],
+                    label=' ',
                     title=meta['tooltip'],
                     color=color,
                     size=12 + eco * 10,
