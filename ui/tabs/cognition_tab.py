@@ -198,10 +198,26 @@ def _render_influence_network(results, agents):
         import json
         edges = _peer_edges(results)
 
-        # Build node list with metadata
+        # Build agent lookup keyed by agent_id for O(1) access below.
+        agent_by_id = {a.state.agent_id: a for a in agents}
+
+        # Derive focal agent IDs directly from edge sources.
+        # _peer_edges() selects its own focal_agents (top-40 by within-story
+        # connections) — the set is NOT the same as agents[:40] (list-index
+        # order).  Using agents[:40] for node_meta means the source guard in
+        # the ghost-node and edge passes silently drops every edge:
+        #     if e['source'] not in node_meta: continue   ← always true
+        # Fix: mirror _peer_edges' focal set by reading source IDs straight
+        # from the returned edges. dict.fromkeys preserves insertion order and
+        # deduplicates without a separate seen-set.
+        focal_source_ids = dict.fromkeys(e['source'] for e in edges)
+
+        # Build node list with metadata from the actual focal agents.
         node_meta = {}
-        for a in agents[:40]:
-            aid   = a.state.agent_id
+        for aid in focal_source_ids:
+            a = agent_by_id.get(aid)
+            if a is None:
+                continue
             eco   = a.desires.get('eco', 0.5) if hasattr(a, 'desires') else 0.5
             mode  = getattr(a.state, 'mode', 'walk')
             label = aid.rsplit('_', 1)[0]   # strip trailing random seed
@@ -224,7 +240,7 @@ def _render_influence_network(results, agents):
                 rows.append(f"<tr><td>Peer EV rate</td><td>{peer_ev:.0%}</td></tr>")
             if belief_str:
                 rows.append(f"<tr><td colspan='2' style='font-size:10px'>{belief_str}</td></tr>")
- 
+
             tooltip = (
                 "<table style='border-collapse:collapse;font-size:12px;"
                 "font-family:sans-serif;background:#1e2130;color:#e0e0e0;"
