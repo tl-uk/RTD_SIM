@@ -19,6 +19,7 @@ simulation.
 import secrets
 import random
 import logging
+from pathlib import Path
 from typing import List, Dict, Tuple, Any, Optional
 
 from agent.bdi_planner import BDIPlanner
@@ -27,6 +28,14 @@ from simulation.infrastructure.infrastructure_manager import InfrastructureManag
 from simulation.spatial_environment import SpatialEnvironment
 
 logger = logging.getLogger(__name__)
+
+# Canonical paths for story YAML files.
+# UserStoryParser and JobStoryParser default paths were pointing to the wrong
+# directory (agent/ instead of agent/personas/ and agent/job_contexts/).
+# Defining them here once avoids the same bug recurring in every call site.
+_AGENT_DIR         = Path(__file__).resolve().parent.parent.parent / "agent"
+_PERSONAS_PATH     = _AGENT_DIR / "personas" / "personas.yaml"
+_JOB_CONTEXTS_DIR  = _AGENT_DIR / "job_contexts"
 
 # Story-driven agents and social influence dynamics
 try:
@@ -218,7 +227,9 @@ def create_agents(
                 dest=dest,
                 planner=planner,
                 seed=agent_seed,
-                apply_variance=True
+                apply_variance=True,
+                user_stories_path=_PERSONAS_PATH,
+                job_stories_path=_JOB_CONTEXTS_DIR,
             )
             # Thread simulation_results so CognitiveAgent._maybe_plan
             # can increment routing_fallback_count on failure.

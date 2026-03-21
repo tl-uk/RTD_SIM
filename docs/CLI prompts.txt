@@ -1,7 +1,7 @@
 # Terminal tracking for ollama BDI-agent user/job stories generation
 tail -f /Users/theolim/AppDev/RTD_SIM/logs/simulation_*.log | grep -E "(LLM|CPG|OLMo|olmo|extraction|fallback|plan|backend)"
 
-
-I will require these:  school_run_then_work, flexible_leisure, airport_transfer,    tourist_exploration, night_shift, as these will be useful when demonstrating to DfT and other business stakeholders, that RTD_SIM is a comprehensive decabaonization analytical and predictive tool that looks at freight and passenger mobility with a systems perspective. Since we are refactoring these files, it would be useful to generate specific categories, such as fleet operators (like DHL, Tesco, NHS) for freight and people transport, port operators (Felixstowe (container hub), Dover and Southampton (cruise/container), Immingham (tonnage), Forth Ports (Grangemouth (container)/Leith (renewables and urban logistics)/Rosyth (agri-bulks and Ro-Ro (Roll-on/Roll-off) traffic)), Aberdeen ((Energy & Lifeline Services), Port of London, and Port of Liverpool), rail operators (because both goods and passengers can execute multimodal transfers, and air cargo and passensgers. 
-
-If we set up the stubs with several user and job stories now, it will quicken the implementation  later with the digital twin. What do you think?
+# Report project structure
+find /Users/theolim/AppDev/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
+  grep -v __pycache__ | grep -v .git | sort > project_structure_current.txt && \
+  echo "Done: $(wc -l < project_structure_current.txt) files"

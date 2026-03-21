@@ -20,6 +20,24 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def _normalise_time(raw) -> str:
+    """Normalise a YAML time value to HH:MM string.
+
+    YAML parses bare integers (e.g. ``start: 6``) as ``int``, not ``str``.
+    37 of the 55 job context YAMLs use this format.
+    ``TimeWindow.to_minutes()`` calls ``self.start.split(':')`` and raises
+    ``AttributeError: 'int' object has no attribute 'split'`` when the
+    stored value is an integer — crashing agent creation for most jobs.
+
+    Normalisation rules:
+      int / float  →  ``"HH:00"``   (e.g. ``6`` → ``"06:00"``)
+      str          →  unchanged      (e.g. ``"06:30"`` stays ``"06:30"``)
+    """
+    if isinstance(raw, (int, float)):
+        return f"{int(raw):02d}:00"
+    return str(raw)
+
 # ============================================================================
 # Data Classes
 # The use of dataclasses simplifies the definition and management of 
@@ -286,8 +304,8 @@ class JobStoryParser:
         if 'time_window' in story_data:
             tw_data = story_data['time_window']
             time_window = TimeWindow(
-                start=tw_data.get('start', '00:00'),
-                end=tw_data.get('end', '23:59'),
+                start=_normalise_time(tw_data.get('start', '00:00')),
+                end=_normalise_time(tw_data.get('end', '23:59')),
                 flexibility=tw_data.get('flexibility', 'medium'),
                 preferred_arrival=tw_data.get('preferred_arrival')
             )
@@ -303,8 +321,8 @@ class JobStoryParser:
                 if 'time_window' in stage_data:
                     tw_data = stage_data['time_window']
                     stage_tw = TimeWindow(
-                        start=tw_data.get('start', '00:00'),
-                        end=tw_data.get('end', '23:59'),
+                        start=_normalise_time(tw_data.get('start', '00:00')),
+                        end=_normalise_time(tw_data.get('end', '23:59')),
                         flexibility=tw_data.get('flexibility', 'medium'),
                         preferred_arrival=tw_data.get('preferred_arrival')
                     )

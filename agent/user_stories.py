@@ -132,7 +132,7 @@ class UserStoryParser:
         if stories_path is None:
             # Try to find personas.yaml relative to this file
             module_dir = Path(__file__).parent
-            stories_path = module_dir / "personas.yaml"
+            stories_path = module_dir / "personas" / "personas.yaml"
         
         self.stories_path = Path(stories_path)
         self._stories_cache: Optional[Dict[str, Any]] = None
@@ -210,7 +210,13 @@ class UserStoryParser:
     _class_cache: dict = {}
 
     def _load_stories(self) -> None:
-        """Load all stories from YAML file, using a class-level cache."""
+        """Load all stories from YAML file, using a class-level cache.
+
+        Also merges operator_personas.yaml (sibling file in the same
+        directory) so that fleet_manager_*, port_terminal_operator,
+        rail_freight_operator, and air_freight_operator are available
+        without callers needing to pass an explicit path.
+        """
         resolved = self.stories_path.resolve()
 
         if resolved in UserStoryParser._class_cache:
@@ -224,14 +230,44 @@ class UserStoryParser:
         if not self.stories_path.exists():
             raise FileNotFoundError(
                 f"personas.yaml not found at: {self.stories_path}\n"
-                f"Please create this file with user story definitions."
+                f"Expected location: agent/personas/personas.yaml\n"
+                f"Please ensure the file exists at the correct path."
             )
 
         with open(self.stories_path, 'r') as f:
-            self._stories_cache = yaml.safe_load(f)
+            self._stories_cache = yaml.safe_load(f) or {}
+
+        # Merge operator_personas.yaml from the same directory, if present.
+        # Operator personas (fleet_manager_*, port_terminal_operator, etc.)
+        # are defined there and must be reachable via the same parser.
+        operator_path = self.stories_path.parent / "operator_personas.yaml"
+        if operator_path.exists():
+            with open(operator_path, 'r') as f:
+                operator_data = yaml.safe_load(f) or {}
+            overlap = set(self._stories_cache) & set(operator_data)
+            if overlap:
+                logger.warning(
+                    "UserStoryParser: operator_personas.yaml has key(s) "
+                    "that clash with personas.yaml: %s — operator values used",
+                    overlap,
+                )
+            self._stories_cache.update(operator_data)
+            logger.info(
+                "UserStoryParser: merged %d operator personas from %s",
+                len(operator_data), operator_path.name,
+            )
+        else:
+            logger.debug(
+                "UserStoryParser: operator_personas.yaml not found at %s "
+                "(operator personas unavailable)",
+                operator_path,
+            )
 
         UserStoryParser._class_cache[resolved] = self._stories_cache
-        logger.info(f"Loaded {len(self._stories_cache)} user stories")
+        logger.info(
+            "UserStoryParser: loaded %d stories total (%s)",
+            len(self._stories_cache), self.stories_path.name,
+        )
    
     # Infer desires from narrative text using keyword matching and context clues. 
     # This allows for creating user stories with minimal explicit parameters, relying on 

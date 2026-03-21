@@ -139,7 +139,7 @@ combinations:
   # Freight operator delivery — compliance first
   freight_operator_freight_delivery_route:
     persona: "freight_operator"
-    job: "freight_delivery_route"
+    job: "freight_delivery_route"    # defined in light_commercial.yaml
     conflict_resolution: "explicit"
     conflict_rules:
       - condition: "compliance_requirement"
@@ -163,7 +163,7 @@ combinations:
   # Delivery driver gig work — earnings optimization
   delivery_driver_gig_economy_delivery:
     persona: "delivery_driver"
-    job: "gig_economy_delivery"
+    job: "gig_economy_delivery"      # defined in micro_delivery.yaml
     conflict_resolution: "job_priority"
     overrides:
       desires:
@@ -246,7 +246,7 @@ recommended_test_cases:
     notes: "safety=0.95, school run context → EV or bus, not bike"
 
   - persona: "freight_operator"
-    job: "freight_delivery_route"
+    job: "freight_delivery_route"    # defined in light_commercial.yaml
     expected_mode: "van_electric"
     notes: "vehicle_type=commercial → van_electric or van_diesel"
 
@@ -266,11 +266,17 @@ recommended_test_cases:
     notes: "vehicle_type=transit, 50-150km → intercity_train primary"
 
 # Metadata
-version: "4.0.0"
-description: "Story combination rules for RTD_SIM — cleaned 2026-03-21"
+version: "5.0.0"
+description: "Story combination rules for RTD_SIM — corrected 2026-03-21"
+changes_v5:
+  - "Corrected v4 changelog error: school_run_then_work, flexible_leisure,
+     airport_transfer, tourist_exploration, night_shift DO exist in
+     passenger_special.yaml. story_compatibility.py whitelist now includes them."
+  - "Fixed two dead job references: freight_delivery_route (now light_commercial.yaml),
+     gig_economy_delivery (now micro_delivery.yaml)"
+  - "Fixed recommended test case for freight_operator + freight_delivery_route"
+  - "story_combinations.yaml is now fully consistent with all 55 defined job contexts"
 changes_v4:
-  - "Removed 5 combinations referencing non-existent jobs (school_run_then_work,
-     flexible_leisure, airport_transfer, tourist_exploration, night_shift)"
-  - "Added verified combinations for all existing job contexts"
+  - "RETRACTED: claim that 5 passenger_special.yaml jobs did not exist was incorrect"
+  - "Added verified combinations for job contexts that existed at time of v4 release"
   - "Prohibited list updated to use existing jobs only"
-  - "Recommended test cases verified against job context YAML files"

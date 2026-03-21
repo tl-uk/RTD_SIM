@@ -320,6 +320,16 @@ class StoryLibraryLoader:
 
         self._current_library = library
 
+        # Invalidate the whitelist filter cache so the next call to
+        # filter_compatible_combinations() recomputes against the new
+        # persona and job ID sets rather than returning stale results.
+        try:
+            from agent.story_compatibility import clear_compatibility_cache
+            clear_compatibility_cache()
+            logger.debug("StoryLibraryLoader: compatibility cache cleared after library apply")
+        except ImportError:
+            logger.debug("StoryLibraryLoader: story_compatibility not importable — cache not cleared")
+
         logger.info(
             "StoryLibraryLoader: applied library to simulation "
             "(%d personas, %d jobs, %d whitelist entries)",

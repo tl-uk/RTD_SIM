@@ -185,8 +185,17 @@ class StoryDrivenAgent(CognitiveAgent):
         if self.job_story.desire_overrides:
             # Emergency jobs (desire_overrides present)
             context['priority'] = 'emergency'
-        elif self.job_story.job_type in ['delivery', 'freight', 'gig_delivery']:
-            # Commercial jobs
+        elif self.job_story.job_type in [
+            'delivery', 'freight', 'gig_delivery',
+            # Phase 10 job types — previously fell through to 'normal'
+            'rail_freight',         # rail_operations.yaml
+            'multimodal_freight',   # heavy_freight.yaml (ferry_freight_roro etc.)
+            'business_travel',      # multimodal.yaml, aviation.yaml
+            'service',              # light_commercial.yaml (service_engineer, trades)
+                                    # fleet_operators.yaml (nhs_patient_transport)
+            'air_freight',          # aviation.yaml (air_cargo_express)
+        ]:
+            # Commercial / professional jobs
             context['priority'] = 'commercial'
         elif urgency == 'critical':
             context['priority'] = 'emergency'

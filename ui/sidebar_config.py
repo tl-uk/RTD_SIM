@@ -16,6 +16,11 @@ parent_dir = Path(__file__).resolve().parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
+# Canonical paths — avoids parser falling back to wrong default directory.
+# sidebar_config.py lives at ui/sidebar_config.py, so parent_dir = project root.
+_PERSONAS_PATH    = parent_dir / "agent" / "personas" / "personas.yaml"
+_JOB_CONTEXTS_DIR = parent_dir / "agent" / "job_contexts"
+
 from simulation.config.simulation_config import SimulationConfig
 from ui.sidebar_system_dynamics import render_sd_parameters_section, render_sd_info_box
 
@@ -885,8 +890,8 @@ def _render_story_selection():
 
     if STORIES_AVAILABLE:
         try:
-            user_parser = UserStoryParser()
-            job_parser = JobStoryParser()
+            user_parser = UserStoryParser(_PERSONAS_PATH)
+            job_parser = JobStoryParser(_JOB_CONTEXTS_DIR)
             available_users = user_parser.list_available_stories()
             available_jobs  = job_parser.list_available_stories()
 
