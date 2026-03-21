@@ -9,7 +9,7 @@ description: |
   cost recovery. Models realistic adoption curves with budget constraints.
 
 base_scenarios:
-  - freight_electrification
+  - complete_supply_chain_electrification
   - dynamic_electricity_pricing
 
 interaction_rules:

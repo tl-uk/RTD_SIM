@@ -10,7 +10,7 @@ description: |
 
 base_scenarios:
   - congestion_charge
-  - ev_subsidy_30
+  - ev_subsidy_30%
   - urban_freight_consolidation
 
 interaction_rules:
@@ -56,5 +56,3 @@ expected_outcomes:
   diesel_reduction: 0.55
   congestion_reduction: 0.30
   emissions_reduction: 0.45
-
----

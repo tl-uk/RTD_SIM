@@ -1,0 +1,208 @@
+# =============================================================================
+# scenarios/combined_configs/nhs_logistics_ev_priority.yaml
+# =============================================================================
+# Healthcare fleet charging priority vs commercial logistics
+#
+# NARRATIVE:
+#   NHS Scotland runs ~3,000 vehicles: patient transport vans, clinical
+#   supply vans, staff fleet. All must be operational 24/7. A patient
+#   transport van that cannot charge is a clinical risk — the booking
+#   system has no diesel fallback for a pre-booked wheelchair patient.
+#
+#   On the same hospital site charging infrastructure, Amazon Logistics
+#   and DPD have micro-depots (converted car parks). They serve urban
+#   last-mile delivery from the same grid connection. Their demand is
+#   commercially driven and price-elastic: they can wait. The NHS cannot.
+#
+#   This scenario implements charging priority rules and tests whether
+#   smart charging coordination can serve both actors without NHS
+#   reliability suffering — and at what cost to commercial operators.
+#
+# KEY POLICY QUESTIONS:
+#   1. Can smart charging serve both actors at the same grid node?
+#   2. What is the cost of NHS priority to commercial operators?
+#   3. Does NHS electrification require dedicated infrastructure, or
+#      can shared infrastructure work with the right priority rules?
+#
+# ACTOR TYPES:
+#   fleet_manager_healthcare → nhs_patient_transport, nhs_clinical_supplies
+#   fleet_manager_logistics  → logistics_last_mile_urban, urban_parcel_delivery
+#   delivery_driver          → gig_economy_delivery, urban_food_delivery
+
+name: NHS Fleet Priority vs Urban Logistics Charging Competition
+description: |
+  Models charging infrastructure contention between NHS patient transport
+  (reliability-critical, SLA-bound) and commercial urban logistics
+  (cost-sensitive, schedule-flexible). Tests whether smart charging
+  priority rules can serve both without bespoke NHS infrastructure.
+
+base_scenarios:
+  - complete_supply_chain_electrification
+  - workplace_charging_incentive
+
+interaction_rules:
+
+  # ── Baseline: NHS always gets first charger slot ─────────────────────────
+  # Modelled as a persistent cost discount for healthcare-tagged agents.
+  # In Phase 10b: becomes explicit SLA priority queue at charger level.
+  - condition: "step >= 0"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.30            # 70% effective discount = guaranteed slot
+      target_vehicle_type: healthcare
+    priority: 100
+
+  # ── Commercial logistics: price signal to time-shift ─────────────────────
+  # Daytime peak: logistics operators face surge price → incentive to shift
+  - condition: "charger_utilization > 0.65 and time_of_day >= 8 and time_of_day <= 18"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 2.8             # Commercial operators shift; NHS exempt (see above)
+      duration_steps: 8
+    priority: 90
+    cooldown_steps: 5
+
+  # Night-time: cheap rates draw commercial fleet charging to 22:00-06:00
+  - condition: "time_of_day >= 22 or time_of_day <= 5"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 0.30            # 70% discount — makes overnight commercial charging optimal
+    priority: 85
+
+  # ── Infrastructure: shared depot with priority partitioning ──────────────
+  # First tranche: NHS-tagged chargers (always reserved)
+  - condition: "step == 10"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 4               # One per major Scottish health board hub
+      chargers_per_depot: 6
+      power_kw: 50               # 50kW AC — adequate for van overnight charge
+    priority: 88
+
+  # Second tranche: shared commercial chargers (smart-managed)
+  - condition: "step == 20"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 20
+      strategy: demand_heatmap
+    priority: 82
+
+  # ── Smart charging coordination ───────────────────────────────────────────
+  - condition: "grid_utilization > 0.55"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 80
+
+  # ── If shared infra fails NHS SLA: add dedicated NHS chargers ────────────
+  # This rule represents the fallback if smart coordination is insufficient.
+  # Triggers only if utilization stays critically high at key NHS sites.
+  - condition: "charger_utilization > 0.88 and step > 30"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 2
+      chargers_per_depot: 4
+      power_kw: 50
+    priority: 95
+    cooldown_steps: 40
+
+  # ── EV subsidy for clinical supply vans ──────────────────────────────────
+  - condition: "step == 15"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 9000                # NHS lease subsidy — above standard Plug-in grant
+    priority: 78
+
+  # ── Commercial subsidy tapering ───────────────────────────────────────────
+  - condition: "step >= 65 and ev_adoption > 0.40"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 30   # Phase out commercial subsidy; NHS kept
+    priority: 65
+
+  # ── Grid expansion if shared node approaches limit ────────────────────────
+  - condition: "grid_utilization > 0.82"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.35
+    priority: 70
+    cooldown_steps: 25
+
+constraints:
+  - type: budget
+    limit: 55000000              # £55M — NHS Scotland capital + commercial match
+    warning_threshold: 0.78
+    allocation:
+      nhs_dedicated: 0.45        # NHS vehicles + dedicated chargers
+      shared_infrastructure: 0.35  # Smart-managed shared charging nodes
+      grid_connection: 0.15      # Hospital site grid upgrades
+      coordination_systems: 0.05   # Smart charging software + monitoring
+
+  - type: grid_capacity
+    limit: 90                    # MW — Scottish hospital estate + adjacent logistics
+    warning_threshold: 0.80
+
+  - type: deployment_rate
+    limit: 60
+    warning_threshold: 0.88
+
+feedback_loops:
+  - name: nhs_reliability_non_negotiable
+    description: |
+      NHS patient transport has a hard reliability floor that commercial
+      operators do not. If charging fails, the booking system cannot
+      recover — the patient misses their appointment. This creates an
+      asymmetric cost structure: 1% NHS reliability degradation costs
+      more (clinically and politically) than 20% logistics degradation.
+    variables: [nhs_charger_availability, patient_appointment_reliability, political_cost]
+    loop_type: negative
+    strength: 2.5
+
+  - name: commercial_time_shifting_relief
+    description: |
+      Commercial operators CAN time-shift to night charging if the price
+      signal is strong enough. Smart pricing that moves 70% of logistics
+      demand to 22:00-06:00 resolves the daytime contention without
+      bespoke NHS infrastructure — saving ~£15M in capital cost.
+    variables: [night_pricing_discount, commercial_shift_rate, daytime_grid_headroom]
+    loop_type: negative
+    strength: 1.5
+
+  - name: shared_infrastructure_efficiency
+    description: |
+      Shared infrastructure costs less to build and maintain than
+      sector-specific NHS-only depots. Smart charging coordination
+      achieves the same SLA at lower capital cost — but requires
+      active management and software investment.
+    variables: [shared_charger_count, management_cost, total_infrastructure_cost]
+    loop_type: negative
+    strength: 1.0
+
+expected_outcomes:
+  nhs_ev_fleet_adoption: 0.90   # NHS has strongest electrification mandate
+  logistics_ev_adoption: 0.55
+  nhs_reliability_maintained: true   # Smart charging achieves SLA
+  shared_infra_viable: true
+  dedicated_nhs_infra_triggered: false  # Smart pricing avoids this fallback
+  commercial_cost_increase: 0.12  # 12% cost increase from time-shifting vs free daytime
+
+  policy_finding: |
+    Smart charging priority rules can serve NHS and commercial logistics
+    from shared infrastructure — but only if the price differential
+    between peak and off-peak is at least 2.5x. Below this, commercial
+    operators do not time-shift and NHS reliability degrades.
+    The 2.5x threshold is higher than current UK regulation allows.
+    DfT should review Ofgem network access rules to permit hospital-site
+    dynamic pricing with healthcare SLA guarantees.
+
+dft_talking_points:
+  - "NHS patient transport is a clinical service, not a transport convenience.
+     Charging reliability is a patient safety issue — DfT and NHSE must
+     design for this jointly, not sequentially."
+  - "Shared infrastructure with smart priority rules costs ~£15M less than
+     NHS-dedicated charging — but requires Ofgem rule changes to implement."
+  - "Commercial logistics operators CAN adapt to off-peak charging. The
+     policy lever is price, not mandate — and the price signal must be strong."
+  - "The same grid node serving NHS vans and Amazon last-mile also charges
+     gig delivery workers' e-bikes. Gig workers have no fallback — their
+     income stops if their bike cannot charge. Equity matters here too."

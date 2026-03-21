@@ -13,7 +13,7 @@ description: |
   Year 5: Full cost recovery
 
 base_scenarios:
-  - ev_subsidy_30
+  - ev_subsidy_30%
   - depot_based_electrification
 
 interaction_rules:

@@ -129,7 +129,7 @@ init_session_state()
 
 # Header
 st.title("🚦 RTD_SIM - Real-Time Transport Decarbonization Simulator")
-st.markdown("**Phase 7: Interactive Events Configuration**")
+st.markdown("**Phase 10: Interactive Events & LLM Configuration**")
 
 # Show active region
 if st.session_state.simulation_run and st.session_state.current_region:

@@ -1,0 +1,144 @@
+# =============================================================================
+# scenarios/configs/rail_freight_modal_shift.yaml
+# =============================================================================
+# Rail freight modal shift — Scotland to England corridor
+#
+# NARRATIVE:
+#   The Grangemouth–Daventry (DIRFT) intermodal corridor is one of the most
+#   important rail freight routes in Britain: Scottish imports and exports
+#   moving between Forth Ports and the Midlands Golden Triangle.
+#   Currently 38% of this traffic still moves by HGV on the A1/M1.
+#
+#   DfT modal shift target: double rail freight by 2050.
+#   Scottish Government: 10% modal shift from road to rail by 2030.
+#
+#   This scenario models the policy package needed to achieve the
+#   2030 target on the Grangemouth–Daventry corridor.
+#
+# PHASE 10b MODE STUBS:
+#   The following modes are needed for full implementation but are not
+#   yet in the MODES registry or default_modes. Each has a proxy and
+#   a TODO marker for Phase 10b activation.
+#
+#   freight_rail (MISSING from MODES registry — no proxy is adequate):
+#     Network: rail
+#     Emissions: 35 g/tonne-km (electrified), 76 g/tonne-km (diesel traction)
+#     Average speed: 75 km/h
+#     Path-dependent: true (Network Rail path allocation)
+#     TODO Phase 10b: add to simulation/config/modes.py MODES registry,
+#       update bdi_planner route-cost function, add to RailFreightAgent.
+#
+#   hgv_electric (EXISTS in MODES — but only modes registered in default_modes
+#     are offered to agents unless explicitly added to vehicle_constraints.
+#     This scenario uses hgv_electric as the intermodal drayage leg proxy
+#     until freight_rail exists.)
+#
+#   ferry_diesel (EXISTS in MODE_MAX_DISTANCE_KM but NOT in default_modes):
+#     Used for Rosyth–Zeebrugge RoRo leg in Scottish export routing.
+#     TODO Phase 10b: add ferry_diesel and ferry_electric to default_modes
+#       in simulation/config/modes.py so FerryFreightAgent can use them.
+#
+#   local_train (EXISTS in MODE_MAX_DISTANCE_KM but NOT in default_modes):
+#     Used for rail passenger connections to freight terminals (staff travel).
+#     TODO Phase 10b: add local_train and intercity_train to default_modes
+#       for transit and passenger agents.
+
+name: Rail Freight Modal Shift — Grangemouth–Daventry Corridor
+description: |
+  Policy package to achieve Scottish Government 10% road-to-rail modal
+  shift by 2030 on the Grangemouth–DIRFT corridor. Uses hgv_electric
+  as a proxy for freight_rail (Phase 10b). Full implementation requires
+  freight_rail mode in the MODES registry.
+
+  NOTE: This scenario produces meaningful results with current modes
+  but underestimates rail's CO2 advantage (35 g/tonne-km vs hgv_electric
+  proxy of 0 g/km but higher infrastructure cost). CO2 numbers should
+  be treated as indicative, not precise, until Phase 10b.
+
+policies:
+  # ── Rail subsidy: reduce effective cost of rail freight ─────────────────
+  # Proxy: cost_reduction on hgv_electric = represents Freight Facilities
+  # Grant + rail path cost subsidy. Real freight_rail mode needed for
+  # precise modelling.
+  # TODO Phase 10b: redirect to freight_rail mode when available.
+  - parameter: cost_reduction
+    value: 35.0
+    target: mode
+    mode: hgv_electric           # TODO Phase 10b: replace with freight_rail
+
+  # ── Road HGV carbon tax: penalise diesel HGV on long-haul routes ─────────
+  # Models UK ETS + HGV road charging scheme expected 2025-2027.
+  - parameter: cost_multiplier
+    value: 1.40
+    target: mode
+    mode: hgv_diesel
+
+  # ── Terminal drayage electrification ─────────────────────────────────────
+  # Short drayage legs (terminal gate → DC) are ideal for electric HGV:
+  # distances of 5-80km, depot return, existing charging infrastructure.
+  - parameter: cost_reduction
+    value: 25.0
+    target: mode
+    mode: hgv_electric           # Drayage leg — this is the correct mode
+
+  # ── RoRo ferry: Rosyth–Zeebrugge Scottish export routing ─────────────────
+  # Scottish exporters routing via Rosyth save 500km of English road vs Dover.
+  # ferry_diesel not in default_modes yet — no direct policy lever available.
+  # TODO Phase 10b: add ferry_diesel cost_reduction policy once mode is in
+  #   default_modes registry. For now, documented as a gap.
+  # - parameter: cost_reduction
+  #   value: 20.0
+  #   target: mode
+  #   mode: ferry_diesel          # TODO Phase 10b: UNCOMMENT when mode active
+
+  # ── Add rail-connected chargers at DIRFT and Grangemouth terminals ────────
+  - parameter: add_chargers
+    value: 20
+    target: infrastructure
+
+  # ── Grid capacity: electrify the drayage legs ────────────────────────────
+  - parameter: increase_capacity
+    value: 1.4
+    target: infrastructure
+
+duration: 100
+expected_outcomes:
+  # Note: rail CO2 advantage understated until freight_rail mode added.
+  # 76 g/tonne-km (diesel rail proxy) vs 35 g/tonne-km (electrified rail actual).
+  hgv_electric_adoption: 0.55    # Proxy for combined drayage + rail shift
+  hgv_diesel_reduction: 0.35
+  rail_modal_shift_proxy: 0.22   # Indicative — not precise without freight_rail mode
+  emissions_reduction: 0.38      # Conservative (understated due to mode proxy)
+
+metadata:
+  policy_type: modal_shift
+  target_corridor: grangemouth_daventry
+  phase_10b_dependency: freight_rail_mode
+  proxy_mode: hgv_electric
+  data_sources:
+    - "DB Cargo UK operational data (Grangemouth–DIRFT throughput)"
+    - "Network Rail Strategic Freight Network plan 2023"
+    - "Scottish Government National Transport Strategy 2"
+    - "DfT Freight Carbon Review 2022"
+  known_limitations:
+    - "freight_rail mode not in MODES registry — using hgv_electric as proxy"
+    - "ferry_diesel not in default_modes — Rosyth–Zeebrugge routing not modelled"
+    - "Path allocation constraints (Network Rail) not modelled until Phase 10b"
+    - "HS2 Phase 1 capacity release for freight not yet modelled"
+
+# =============================================================================
+# PHASE 10b ACTIVATION CHECKLIST
+# =============================================================================
+# When freight_rail is added to MODES registry (simulation/config/modes.py):
+#   1. Replace hgv_electric proxy in policies above with freight_rail
+#   2. Update bdi_planner._filter_modes_by_context to offer freight_rail
+#      to rail_freight_operator and freight_operator agents on routes > 200km
+#   3. Add RailFreightAgent class with path-dependent routing
+#   4. Add Network Rail path constraint to SimulationConfig
+#   5. Rerun this scenario and compare CO2 numbers: expect 35 g/tonne-km
+#      vs current 0 g/km proxy (overstated benefit) — may need to recalibrate
+#
+# When ferry_diesel is added to default_modes:
+#   1. Uncomment the ferry_diesel cost_reduction policy above
+#   2. Add rosyth_roro_freight to default job stories for freight_operator
+#   3. Extend scenario to model Rosyth–Zeebrugge vs Dover routing choice

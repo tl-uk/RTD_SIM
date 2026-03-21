@@ -67,5 +67,3 @@ expected_outcomes:
   total_emissions_reduction: 0.25
   budget_exhaustion_step: 75
   cost_recovery_achieved: false
-
----

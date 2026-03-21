@@ -1,0 +1,224 @@
+# =============================================================================
+# scenarios/combined_configs/scotland_grid_competition.yaml
+# =============================================================================
+# DfT Flagship Demonstration Scenario
+#
+# NARRATIVE:
+#   An NHS Scotland fleet manager is charging patient transport vans at
+#   Edinburgh Royal Infirmary. A Tesco distribution HGV has just returned
+#   to the Grangemouth DC and is queuing at the depot chargers. Meanwhile
+#   the CalMac Loch Seaforth is berthed at Ullapool and needs 2.4MW of
+#   shore power to complete its overnight charge before the 07:45 sailing
+#   to Stornoway — a lifeline Public Service Obligation route.
+#   All three draw from the same Scottish Central Belt grid segment.
+#   National Grid is already at 78% utilisation from winter heating demand.
+#
+#   This scenario makes the systems argument RTD_SIM is built for:
+#   decarbonisation policy cannot be designed sector-by-sector when
+#   healthcare, retail logistics, and ferry operations share the same
+#   physical infrastructure. Budget transfers, priority rules, and
+#   smart-charging coordination must be designed together.
+#
+# ACTOR TYPES (all present in current simulation via operator_personas.yaml):
+#   fleet_manager_healthcare  → nhs_patient_transport, nhs_staff_commute
+#   fleet_manager_retail      → retail_dc_to_store, retail_store_collection
+#   port_terminal_operator    → rosyth_roro_freight, offshore_energy_port
+#   freight_operator          → port_to_warehouse, long_haul_freight
+#
+# PHASE 10b NOTE:
+#   ferry_diesel and ferry_electric modes exist in MODE_MAX_DISTANCE_KM but
+#   are not yet in default_modes. The ferry charging demand is modelled here
+#   as a grid_utilization shock (interaction rule) rather than a mode-level
+#   action. Full ferry agent behaviour requires Phase 10b FerryPassengerAgent
+#   and FerryFreightAgent with ferry_electric mode in the MODES registry.
+#   TODO Phase 10b: replace grid_shock rule with ferry_agent_demand signal.
+
+name: Scotland Grid Competition — NHS vs Retail vs Ferry
+description: |
+  Cross-sector EV charging competition on the Scottish Central Belt grid.
+  Models the infrastructure contention that makes sector-siloed policy
+  design inadequate: healthcare SLA, retail logistics schedules, and ferry
+  PSO obligations all compete for the same grid headroom simultaneously.
+
+  Designed for DfT demonstrations to argue for integrated national
+  infrastructure planning rather than sector-by-sector electrification targets.
+
+base_scenarios:
+  - depot_based_electrification
+  - dynamic_electricity_pricing
+
+interaction_rules:
+
+  # ── PHASE 1 (steps 0-25): Baseline charging competition ─────────────────
+
+  # Grid already stressed before policy levers activate
+  - condition: "grid_utilization > 0.60"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 2.5
+      duration_steps: 15
+    priority: 100
+    cooldown_steps: 10
+
+  # NHS patient transport gets priority charging slot.
+  # Modelled as a charging cost reduction for healthcare-tagged agents.
+  # In Phase 10b this becomes an explicit SLA priority queue on the charger.
+  - condition: "step >= 5"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.5            # 50% discount = priority access proxy
+      target_vehicle_type: nhs   # TODO Phase 10b: map to fleet_manager_healthcare agents
+    priority: 95
+    cooldown_steps: 50
+
+  # Ferry shore power demand modelled as a step-change grid shock at berth time.
+  # CalMac Loch Seaforth: ~2.4MW demand, 6-hour overnight charge window.
+  # Shore power at Ullapool is grid-connected but has no smart charging.
+  # TODO Phase 10b: replace with ferry_agent shore_power_demand event
+  #   once FerryFreightAgent and ferry_electric mode exist in MODES registry.
+  - condition: "step == 15"
+    action: increase_grid_capacity
+    parameters:
+      additional_mw: 3           # Headroom to absorb ferry shore power
+      region: scotland_northwest
+    priority: 90
+
+  # ── PHASE 2 (steps 25-50): Infrastructure response ──────────────────────
+
+  # Tesco Grangemouth DC: high-power depot chargers come online
+  - condition: "step == 25"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 2              # Grangemouth DC + Mossend rail terminal
+      chargers_per_depot: 8
+      power_kw: 150              # MCS-capable (megawatt charging for HGV)
+    priority: 85
+
+  # Smart charging kicks in to time-shift retail freight away from NHS peak
+  - condition: "grid_utilization > 0.55 and step >= 20"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+      shift_commercial_to_night: true
+    priority: 80
+
+  # Add emergency public chargers near hospital hubs (NHS staff + patients)
+  - condition: "step == 30"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 12
+      strategy: hospital_proximity  # TODO Phase 10b: implement spatial strategy
+    priority: 80
+
+  # ── PHASE 3 (steps 50-75): Grid management under pressure ───────────────
+
+  # Night-rate discount encourages Tesco fleet to charge 22:00-06:00
+  - condition: "time_of_day >= 22 or time_of_day <= 6"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 0.35           # 65% discount — matches depot overnight economics
+    priority: 75
+
+  # If grid still stressed, expand capacity (Beauly-Denny line upgrade proxy)
+  - condition: "grid_utilization > 0.80 and step >= 50"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.4           # 40% — Scotland has significant renewable headroom
+    priority: 70
+    cooldown_steps: 30
+
+  # ── PHASE 4 (steps 75-100): Cost recovery and policy evaluation ──────────
+
+  # Begin phasing out retail subsidy once infrastructure is proven
+  - condition: "step >= 75 and ev_adoption > 0.45"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 20
+    priority: 65
+
+  # Cost recovery pressure on commercial operators (not NHS)
+  - condition: "charger_utilization < 0.40 and step > 60"
+    action: increase_charging_cost
+    parameters:
+      reason: infrastructure_cost_recovery
+    priority: 60
+
+constraints:
+  - type: budget
+    limit: 75000000              # £75M — combined NHS + retail + port infrastructure
+    warning_threshold: 0.80
+    allocation:
+      nhs_fleet: 0.30            # NHS Scotland van fleet transition
+      retail_logistics: 0.35    # Tesco/ASDA/Morrisons Scottish DC electrification
+      port_shore_power: 0.25    # CalMac + Forth Ports shore power
+      smart_grid: 0.10          # Smart charging coordination systems
+
+  - type: grid_capacity
+    limit: 2200                  # MW — Scottish Central Belt winter peak
+    warning_threshold: 0.78      # Alert before ferry + depot demand coincides
+
+  - type: deployment_rate
+    limit: 80                    # Chargers per scenario run
+    warning_threshold: 0.85
+
+feedback_loops:
+  - name: nhs_reliability_pressure
+    description: |
+      Patient transport SLA demands always-available charging.
+      If chargers are congested, NHS opts for diesel fallback,
+      undermining fleet electrification targets.
+    variables: [charger_utilization, nhs_mode_reliability, diesel_fallback_rate]
+    loop_type: negative
+    strength: 1.4
+
+  - name: ferry_grid_shock
+    description: |
+      Ferry shore power demand is schedule-driven, not price-responsive.
+      CalMac cannot shift its overnight charge — it must sail at 07:45.
+      This makes ferry demand a hard spike that the grid must accommodate,
+      unlike retail freight which can time-shift.
+    variables: [ferry_charging_demand, grid_utilization, smart_charging_headroom]
+    loop_type: positive
+    strength: 1.8
+
+  - name: retail_smart_charging_relief
+    description: |
+      Tesco HGVs can charge overnight if incentivised.
+      Smart charging coordination shifts 60-70% of retail demand
+      to 22:00-06:00, materially reducing daytime grid stress.
+    variables: [depot_smart_charging, grid_daytime_utilization, retail_cost_savings]
+    loop_type: negative
+    strength: 1.1
+
+  - name: infrastructure_investment_spillover
+    description: |
+      Shore power investment at Forth Ports benefits both ferry and
+      container terminal drayage operators — infrastructure built for
+      one actor type reduces costs for adjacent actors.
+    variables: [shore_power_investment, port_ev_adoption, grid_efficiency]
+    loop_type: positive
+    strength: 0.9
+
+expected_outcomes:
+  nhs_ev_adoption: 0.85          # High — NHS has strong mandate and depot charging
+  retail_hgv_ev_adoption: 0.55  # Moderate — range anxiety on Highland routes
+  ferry_shore_power_adoption: 0.60  # Growing — CalMac hybrid fleet by 2027
+  grid_stress_events: 4          # Winter peak coincidences
+  cost_recovery_achieved: false  # NHS cross-subsidy needed for full viability
+  policy_finding: |
+    Without coordinated charging priority rules, NHS patient transport
+    reliability degrades by ~18% during retail delivery peaks.
+    Ferry shore power cannot be deferred — grid planning must treat it
+    as a must-serve baseload, not a flexible demand.
+
+dft_talking_points:
+  - "Sector-siloed electrification targets create invisible conflicts at the
+     grid level. This scenario makes them visible."
+  - "NHS patient transport has a reliability SLA that commercial operators
+     do not — policy must encode this difference into infrastructure rules."
+  - "CalMac ferry charging is schedule-constrained, not price-elastic. Smart
+     charging incentives that work for retail logistics do not work for
+     lifeline ferry services."
+  - "Grangemouth shore power investment serves container drayage AND RoRo
+     freight AND ScotWind offshore supply chain — cross-sector cost-sharing
+     improves the business case for all three."

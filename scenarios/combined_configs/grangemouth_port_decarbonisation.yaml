@@ -1,0 +1,200 @@
+# =============================================================================
+# scenarios/combined_configs/grangemouth_port_decarbonisation.yaml
+# =============================================================================
+# Forth Ports / Grangemouth: Scotland's largest container port
+#
+# NARRATIVE:
+#   Grangemouth handles ~90% of Scotland's deep-sea container imports and
+#   is rail-connected to the Central Belt via the Grangemouth–Mossend
+#   freight corridor. It is also adjacent to the petrochemical complex
+#   (Ineos) and lies 40km from ScotWind offshore wind turbine assembly
+#   at Leith.
+#
+#   This scenario models the three freight flows that converge at Grangemouth:
+#     1. Container terminal drayage (HGV, port_terminal_operator)
+#        → electric HGV from terminal gate to Mossend/Eurocentral DCs
+#     2. Rail freight intermodal transfer (rail_freight_operator)
+#        → Grangemouth–Daventry rail corridor, diesel traction proxy
+#        → TODO Phase 10b: replace hgv_diesel proxy with freight_rail mode
+#     3. ScotWind component delivery (offshore_energy_port)
+#        → Leith assembly, Grangemouth import of turbine nacelles
+#
+#   Policy question for DfT: what combination of shore power investment,
+#   rail electrification, and clean air zone enforcement decarbonises all
+#   three flows fastest at lowest cost?
+#
+# PHASE 10b NOTES:
+#   rail_freight mode does not exist in the MODES registry.
+#   Current proxy: hgv_diesel / hgv_electric for rail freight agents.
+#   TODO Phase 10b: add freight_rail to MODES registry:
+#     'freight_rail': {'network': 'rail', 'emissions_g_km': 35 (electrified),
+#                      'emissions_g_km': 76 (diesel traction)}
+#   TODO Phase 10b: add RailFreightAgent class with path-dependent routing.
+#
+#   ferry_diesel / ferry_electric exist in MODE_MAX_DISTANCE_KM but not
+#   in default_modes. Shore power modelled as grid capacity injection.
+#   TODO Phase 10b: model shore_power_demand as a FerryFreightAgent property.
+
+name: Grangemouth Port Decarbonisation — Forth Ports + Rail + ScotWind
+description: |
+  Integrated decarbonisation of Scotland's principal freight gateway.
+  Three flows — container drayage, rail intermodal transfer, and ScotWind
+  offshore component logistics — share Grangemouth's port estate and grid
+  connection. Models the investment sequencing that achieves the fastest
+  emissions reduction at lowest public cost.
+
+base_scenarios:
+  - depot_based_electrification
+  - tiered_freight_transition
+
+interaction_rules:
+
+  # ── Shore power: prerequisite for port electrification ──────────────────
+  # Grangemouth current grid: 8MW → needs 60-80MW for full electrification.
+  # Shore power investment must come before EV adoption can scale.
+  - condition: "step == 5"
+    action: increase_grid_capacity
+    parameters:
+      additional_mw: 25           # Phase 1 shore power: terminal cranes + drayage
+      region: grangemouth_port
+    priority: 100
+
+  - condition: "step == 40"
+    action: increase_grid_capacity
+    parameters:
+      additional_mw: 35           # Phase 2: full container stack + depot charging
+      region: grangemouth_port
+    priority: 90
+
+  # ── Clean Air Zone: port access restriction ──────────────────────────────
+  # SEPA and Falkirk Council ZEZ expected 2027 — modelled at step 30.
+  # Diesel HGV access cost spike drives rapid adoption at terminal gate.
+  - condition: "step == 30"
+    action: apply_congestion_charge
+    parameters:
+      amount: 25                  # £25/entry — Scottish LEZ enforcement level
+      zone: port_access_road
+    priority: 95
+
+  # ── Rail modal shift incentive ────────────────────────────────────────────
+  # DfT modal shift target: 25% of inland container moves by rail by 2030.
+  # Modelled as cost reduction on hgv_electric (proxy for freight_rail
+  # until Phase 10b). Real implementation requires freight_rail mode.
+  # TODO Phase 10b: redirect this action to freight_rail mode.
+  - condition: "step >= 20 and step < 60"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.70            # 30% cost reduction = rail subsidy proxy
+    priority: 85
+
+  # ── Electric HGV depot charging at terminal ──────────────────────────────
+  - condition: "step == 15"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 3               # Terminal gate, Mossend, Eurocentral
+      chargers_per_depot: 12
+      power_kw: 350               # MCS for HGV (megawatt charging standard)
+    priority: 88
+
+  # ── Grid stress management during peak drayage ───────────────────────────
+  - condition: "grid_utilization > 0.70"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 80
+
+  - condition: "grid_utilization > 0.85"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 2.2
+      duration_steps: 10
+    priority: 100
+    cooldown_steps: 8
+
+  # ── ScotWind supply chain: additional infrastructure at Leith ────────────
+  # ScotWind awarded 25GW — Leith/Forth Ports assembly hub.
+  # Offshore wind component deliveries drive additional HGV movements.
+  - condition: "step == 50 and ev_adoption > 0.30"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 8
+      strategy: demand_heatmap    # Leith-adjacent coverage
+    priority: 75
+
+  # ── Subsidy tapering ─────────────────────────────────────────────────────
+  - condition: "step >= 70 and ev_adoption > 0.50"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 25
+    priority: 60
+
+constraints:
+  - type: budget
+    limit: 120000000             # £120M — UK Shared Prosperity Fund + ScotGov
+    warning_threshold: 0.80
+    allocation:
+      shore_power: 0.40          # Grid connection upgrade — biggest ticket item
+      depot_charging: 0.30       # On-site HGV charging infrastructure
+      rail_subsidy: 0.20         # Rail modal shift incentive
+      zez_enforcement: 0.10      # Clean Air Zone monitoring and enforcement
+
+  - type: grid_capacity
+    limit: 150                   # MW — full Grangemouth estate electrification
+    warning_threshold: 0.82
+
+  - type: deployment_rate
+    limit: 120                   # Chargers over scenario run
+    warning_threshold: 0.90
+
+feedback_loops:
+  - name: shore_power_unlocks_adoption
+    description: |
+      Grid capacity is the binding constraint, not vehicle cost.
+      Shore power investment is therefore the highest-leverage intervention:
+      without it, EV subsidies have nowhere to charge.
+    variables: [shore_power_mw, charger_availability, hgv_ev_adoption]
+    loop_type: positive
+    strength: 2.0               # Strongest feedback in this scenario
+
+  - name: modal_shift_reduces_drayage
+    description: |
+      Rail modal shift (25% target) directly reduces HGV drayage movements,
+      which reduces charging demand, which reduces grid stress — creating
+      headroom for ferry shore power and ScotWind supply chain demand.
+    variables: [rail_freight_share, hgv_movements, grid_headroom]
+    loop_type: negative
+    strength: 1.3
+
+  - name: scotwind_demand_crowding
+    description: |
+      ScotWind component deliveries add new HGV demand just as the terminal
+      is electrifying. Without advance grid planning, the new renewable
+      supply chain competes with the existing port decarbonisation budget.
+    variables: [scotwind_hgv_demand, grid_utilization, shore_power_adequacy]
+    loop_type: positive
+    strength: 1.1
+
+expected_outcomes:
+  hgv_electric_adoption: 0.60   # High — short drayage routes suit current range
+  rail_modal_shift: 0.22        # Near DfT 25% target with subsidy
+  port_emissions_reduction: 0.55
+  grid_stress_events: 3         # Peak drayage + ScotWind delivery coincidence
+  shore_power_payback_years: 9  # Longer than depot charging alone — needs cross-subsidy
+
+  # The core policy finding:
+  policy_finding: |
+    Shore power grid upgrade must precede EV adoption targets.
+    Inverting the sequence (targets before infrastructure) generates
+    stranded EV assets and diesel fallback — the worst outcome.
+    Rail modal shift is cost-complementary: it reduces the grid
+    capacity needed, shrinking the shore power investment required.
+
+dft_talking_points:
+  - "Grangemouth is a single grid node serving container imports, rail freight,
+     and ScotWind assembly. Infrastructure planning must treat it as one system."
+  - "The 25% rail modal shift target and port ZEZ are not independent policies —
+     rail shift reduces the port grid upgrade cost by ~£18M in this model."
+  - "ScotWind supply chain logistics are not in current DfT freight decarbonisation
+     plans but they add significant HGV demand to the same infrastructure."
+  - "Shore power investment has a 9-year payback on port use alone but a
+     4-year payback when ScotWind, rail drayage, and ferry are included."
