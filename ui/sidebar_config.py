@@ -36,9 +36,9 @@ from ui.widgets.policy_parameter_controls import (
 # DEBUG: Extended Temporal Simulation testing
 logger = logging.getLogger(__name__)
 
-# Phase 7.1 - Extended Temporal Simulation testing
+# Extended Temporal Simulation testing
 from ui.components.temporal_settings import render_temporal_settings
-# Phase 7.2 - Synthetic Events
+# Synthetic Events
 from ui.components.synthetic_events_settings import render_synthetic_events_settings
 
 def render_sidebar_config():
@@ -210,12 +210,12 @@ def render_sidebar_config():
     
     st.sidebar.markdown("---")
 
-    # === PHASE 7.1: TEMPORAL SETTINGS (BEFORE FORM) ===
+    # === TEMPORAL SETTINGS (BEFORE FORM) ===
     temporal_config = render_temporal_settings()
     
     st.sidebar.markdown("---")
     
-    # === PHASE 7.2: SYNTHETIC EVENTS (BEFORE FORM) ===  
+    # === SYNTHETIC EVENTS (BEFORE FORM) ===  
     synthetic_config = render_synthetic_events_settings()
     
     st.sidebar.markdown("---")
@@ -904,70 +904,54 @@ def _render_story_selection():
             if not default_jobs:
                 default_jobs = available_jobs[:min(5, len(available_jobs))]
 
-            # # ----- user & job stories list ------------------------
-            # _SENTINEL = "── Select All ──"
+            # ----- user & job stories list ------------------------
+            _SENTINEL = "── Select All ──"
  
-            # # Initialise session_state on first load — this is the ONLY
-            # # place defaults are set. Never pass default= to the widget
-            # # when using a key, or Streamlit raises a conflict error.
-            # if "_user_ms" not in st.session_state:
-            #     st.session_state["_user_ms"] = default_users
-            # if "_job_ms" not in st.session_state:
-            #     st.session_state["_job_ms"] = default_jobs
+            # Initialise session_state on first load — this is the ONLY
+            # place defaults are set. Never pass default= to the widget
+            # when using a key, or Streamlit raises a conflict error.
+            if "_user_ms" not in st.session_state:
+                st.session_state["_user_ms"] = default_users
+            if "_job_ms" not in st.session_state:
+                st.session_state["_job_ms"] = default_jobs
  
-            # # ── User Stories ───────────────────────────────────────────────
-            # # Two-run cycle: pending flag pre-populates key before render.
-            # if st.session_state.pop("_select_all_users_pending", False):
-            #     st.session_state["_user_ms"] = list(available_users)
- 
-            # st.multiselect(
-            #     "User Stories",
-            #     options=[_SENTINEL] + available_users,
-            #     key="_user_ms",
-            #     help="Select which personas to include. Choose '── Select All ──' "
-            #          "to include every available persona.",
-            # )
- 
-            # if _SENTINEL in st.session_state.get("_user_ms", []):
-            #     st.session_state["_select_all_users_pending"] = True
-            #     st.rerun()
- 
-            # user_stories = st.session_state.get("_user_ms", default_users)
- 
-            # # ── Job Stories ────────────────────────────────────────────────
-            # if st.session_state.pop("_select_all_jobs_pending", False):
-            #     st.session_state["_job_ms"] = list(available_jobs)
- 
-            # st.multiselect(
-            #     "Job Stories",
-            #     options=[_SENTINEL] + available_jobs,
-            #     key="_job_ms",
-            #     help="Select which job contexts to include. Choose '── Select All ──' "
-            #          "to include every available job context.",
-            # )
- 
-            # if _SENTINEL in st.session_state.get("_job_ms", []):
-            #     st.session_state["_select_all_jobs_pending"] = True
-            #     st.rerun()
- 
-            # job_stories = st.session_state.get("_job_ms", default_jobs)
             # ── User Stories ───────────────────────────────────────────────
-            # Define a special "Select All" label
-            user_stories = st.multiselect(
+            # Two-run cycle: pending flag pre-populates key before render.
+            if st.session_state.pop("_select_all_users_pending", False):
+                st.session_state["_user_ms"] = list(available_users)
+ 
+            st.multiselect(
                 "User Stories",
-                available_users,
-                default=default_users,
-                help="Select which personas to include. Only combinations whitelisted "
-                     "in story_compatibility.py will generate agents."
+                options=[_SENTINEL] + available_users,
+                key="_user_ms",
+                help="Select which personas to include. Choose '── Select All ──' "
+                     "to include every available persona.",
             )
-
-            job_stories = st.multiselect(
+ 
+            if _SENTINEL in st.session_state.get("_user_ms", []):
+                st.session_state["_select_all_users_pending"] = True
+                st.rerun()
+ 
+            user_stories = st.session_state.get("_user_ms", default_users)
+ 
+            # ── Job Stories ────────────────────────────────────────────────
+            if st.session_state.pop("_select_all_jobs_pending", False):
+                st.session_state["_job_ms"] = list(available_jobs)
+ 
+            st.multiselect(
                 "Job Stories",
-                available_jobs,
-                default=default_jobs,
-                help="Select which job contexts to include. Incompatible user+job "
-                     "pairs are filtered out by the whitelist before agents are created."
+                options=[_SENTINEL] + available_jobs,
+                key="_job_ms",
+                help="Select which job contexts to include. Choose '── Select All ──' "
+                     "to include every available job context.",
             )
+ 
+            if _SENTINEL in st.session_state.get("_job_ms", []):
+                st.session_state["_select_all_jobs_pending"] = True
+                st.rerun()
+ 
+            job_stories = st.session_state.get("_job_ms", default_jobs)
+            # ── User Stories ───────────────────────────────────────────────
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it
@@ -1040,8 +1024,6 @@ def _render_story_selection():
             job_stories  = ['morning_commute', 'shopping_trip']
 
     return user_stories, job_stories
-
-
 
 
 def _render_weather_configuration():
