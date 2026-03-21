@@ -1,8 +1,7 @@
-# scenarios/configs/ - Phase 4.5F: Comprehensive Freight Scenarios
+# ============================================================================
+# scenarios/configs/freight_electrification.yaml
+# ============================================================================
 
-# ============================================================================
-# complete_supply_chain_electrification.yaml
-# ============================================================================
 name: Complete Supply Chain Electrification
 description: Aggressive electrification across all freight segments (first to last mile)
 policies:

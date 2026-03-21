@@ -5,3 +5,15 @@ tail -f /Users/theolim/AppDev/RTD_SIM/logs/simulation_*.log | grep -E "(LLM|CPG|
 find /Users/theolim/AppDev/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
   grep -v __pycache__ | grep -v .git | sort > project_structure_current.txt && \
   echo "Done: $(wc -l < project_structure_current.txt) files"
+
+Key Decarbonisation Policies (Transport & Freight)
+Zero Emission Vehicle (ZEV) Mandate: Crucial for enforcing manufacturer sales targets, requiring 28% of new cars and 16% of vans to be zero-emission in 2025, rising annually.
+Phase-out Deadlines: New petrol and diesel cars/vans will be banned by 2030, with all new cars/vans needing to be 100% zero-emission by 2035.
+Freight/HGV Decarbonisation: Plans to end the sale of new non-zero emission HGVs: those 3.5–26 tonnes by 2035, and over 26 tonnes by 2040.
+Infrastructure Investment: Rapidly expanding public EV charging points, particularly for commercial fleets and HGV charging/refuelling infrastructure.
+Renewable Transport Fuel Obligation (RTFO): Encourages renewable fuel use in road and maritime transport.
+Rail Electrification & Greening: Commitment to remove all diesel-only trains by 2040, investing in battery and hydrogen technology.
+Maritime and Aviation Net Zero: Pushing for net-zero domestic aviation by 2040 and significant emissions reductions in shipping by 2050 through green technology.
+Local Authority Support: Implementing last-mile consolidation hubs, promoting, and transitioning local authority fleets to EVs.
+
+

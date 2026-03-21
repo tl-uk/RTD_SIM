@@ -1,0 +1,136 @@
+# =============================================================================
+# scenarios/configs/rail_electrification_2040.yaml
+# =============================================================================
+# UK Rail Decarbonisation: removing all diesel trains by 2040
+#
+# RESEARCH BASIS (March 2026):
+#   - Target: remove all diesel-only trains (passenger + freight) by 2040
+#     (DfT Transport Decarbonisation Plan, July 2021)
+#   - Current state: only 38% of UK rail network electrified
+#   - TDNS recommendations: 11,700 STK electrification (76%), 900 STK
+#     hydrogen (6%), 400 STK battery (3%), 2,300 STK further analysis (15%)
+#   - Electrification rate 2013-2019: 747km in 6 years = 125 km/yr
+#   - Required rate: ~1,000 km/yr to meet 2040 target — 8x current pace
+#   - Cost: £750k-£1.5m per STK (electrification); hydrogen cheaper on
+#     lightly used routes
+#   - Rail freight: only 38% of current traction is diesel (62% under wire)
+#   - Rail emissions: 1.4% of UK transport emissions (low relative share)
+#   - Rail CO2/passenger-km: 6g vs 171g for car (28x better than car)
+#   - DfT Rail Freight Growth Target: double freight by 2050
+#   - Scotland target: all diesel passenger trains removed by 2035 (5 yrs ahead)
+#   - HS2 Phase 1: releases Classic capacity for freight
+#
+# NOTE ON MODE STUBS (Phase 10b):
+#   freight_rail and local_train are not yet in RTD_SIM MODES registry.
+#   This scenario models rail decarbonisation through proxy interventions:
+#   - hgv_electric cost reduction = rail modal shift incentive proxy
+#   - local_train = proxy for electrified passenger rail
+#   TODO Phase 10b: add freight_rail and expand local_train/intercity_train
+#   in default_modes when RailFreightAgent is implemented.
+
+name: Rail Electrification & Diesel Removal 2040
+description: |
+  Models the UK rail decarbonisation programme: removing all diesel
+  passenger and freight trains by 2040 through electrification (76%),
+  hydrogen (6%), and battery (3%). Tests the trade-off between the
+  speed of electrification, hydrogen/battery alternatives on lightly
+  used routes, and the rail freight modal shift target.
+
+  NOTE: Uses hgv_electric as proxy for freight_rail until Phase 10b
+  adds freight_rail mode to the MODES registry.
+
+policies:
+
+  # ── ELECTRIFICATION INCENTIVES ────────────────────────────────────────────
+  # Rail modal shift: make rail cheaper vs road for freight
+  # Proxy: reduce cost on hgv_electric (represents rail freight subsidy)
+  # TODO Phase 10b: redirect to freight_rail mode
+  - parameter: cost_reduction
+    value: 40.0
+    target: mode
+    mode: hgv_electric            # TODO Phase 10b: freight_rail
+
+  # Passenger rail: electrified commuter routes become cheaper/faster
+  # local_train is in MODE_MAX_DISTANCE_KM — use as electrified rail proxy
+  - parameter: cost_reduction
+    value: 25.0
+    target: mode
+    mode: local_train             # Electrified commuter rail
+
+  - parameter: cost_reduction
+    value: 20.0
+    target: mode
+    mode: intercity_train         # Electrified intercity (already mostly wired)
+
+  # ── DIESEL TRAIN PHASE-OUT PENALTY ────────────────────────────────────────
+  # Diesel traction operating cost increase (carbon tax + replacement fund)
+  # Modelled as cost multiplier on diesel HGV (proxy for diesel train)
+  # TODO Phase 10b: apply to freight_rail diesel traction cost
+  - parameter: cost_multiplier
+    value: 1.35
+    target: mode
+    mode: hgv_diesel              # TODO Phase 10b: freight_rail diesel traction
+
+  # ── INFRASTRUCTURE ─────────────────────────────────────────────────────────
+  # Electrification programme: overhead line equipment + substation upgrades
+  - parameter: increase_capacity
+    value: 1.6
+    target: infrastructure
+
+  # Hydrogen train refuelling (for lightly used routes — 6% of TDNS)
+  # Modelled as add_chargers (hydrogen refuelling infrastructure proxy)
+  - parameter: add_chargers
+    value: 15
+    target: infrastructure
+
+  # ── MODAL SHIFT ────────────────────────────────────────────────────────────
+  # Road freight cost premium: HGV diesel penalised to drive rail shift
+  - parameter: cost_multiplier
+    value: 1.20
+    target: mode
+    mode: hgv_diesel
+
+duration: 100
+
+expected_outcomes:
+  rail_modal_shift_proxy: 0.20   # 20% of eligible freight moves to rail proxy
+  local_train_adoption: 0.35     # 35% increase in electrified rail use
+  diesel_hgv_reduction: 0.25     # Road freight reduction from modal shift
+  emissions_reduction: 0.30      # Combined rail + road freight reduction
+
+  # NOTE: CO2 numbers are understated until freight_rail mode is added.
+  # Actual rail CO2 advantage: 35 g/tonne-km (electrified) vs 89 g (HGV).
+  # Current proxy (hgv_electric = 0 g/km) overstates the rail benefit
+  # by removing all freight emissions rather than reducing them by 61%.
+
+metadata:
+  policy_area: rail_decarbonisation
+  phase_10b_dependency: freight_rail_mode
+  proxy_modes:
+    freight_rail: hgv_electric
+    diesel_rail_penalty: hgv_diesel
+  tdns_targets:
+    electrification_stk: 11700   # 76% of unelectrified network
+    hydrogen_stk: 900            # 6% — lightly used rural routes
+    battery_stk: 400             # 3% — short gaps and depot shunting
+    further_analysis_stk: 2300   # 15% — decision pending
+  required_electrification_rate_km_per_yr: 1000  # 8x current pace
+  current_network_electrified_pct: 38
+  scotland_target_year: 2035     # 5 years ahead of GB target (passenger only)
+  rail_co2_advantage:
+    passenger_g_per_km: 6        # Rail vs 171g for car
+    freight_g_per_tonne_km_electrified: 35   # Rail vs 89g for HGV
+    freight_g_per_tonne_km_diesel: 76        # Rail diesel (current) vs 89g HGV
+  activation_checklist:
+    - "Add freight_rail to simulation/config/modes.py MODES registry"
+    - "Update bdi_planner to offer freight_rail to rail_freight_operator agents"
+    - "Implement RailFreightAgent with path-dependent routing"
+    - "Add Network Rail path constraint to SimulationConfig"
+    - "Add local_train and intercity_train to default_modes in modes.py"
+    - "Uncomment freight_rail cost_reduction policies above"
+  data_sources:
+    - "Network Rail TDNS: 11,700 STK electrification recommendation, Sep 2020"
+    - "RIA Electrification Cost Challenge: £750k-£1.5m/STK, Mar 2019"
+    - "DfT Transport Decarbonisation Plan, Jul 2021"
+    - "Rail Engineer: 747km electrified 2013-2019 (125 km/yr actual)"
+    - "Scottish Government: diesel passenger trains out by 2035"

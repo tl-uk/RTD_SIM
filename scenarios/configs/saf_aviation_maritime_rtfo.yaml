@@ -1,0 +1,147 @@
+# =============================================================================
+# scenarios/configs/saf_aviation_maritime_rtfo.yaml
+# =============================================================================
+# Sustainable Aviation Fuel + Maritime RTFO + Jet Zero
+#
+# RESEARCH BASIS (March 2026):
+#   - SAF mandate: 10% SAF in jet fuel by 2030, 22% by 2040 (Jet Zero strategy)
+#   - UK domestic aviation net-zero: 2040 (airport operations England)
+#   - Aviation emissions: 7% of UK transport CO2, high per-journey impact
+#   - SAF cost: 3-5x conventional jet fuel (HEFA pathway)
+#   - Electric aircraft: viable for <500km by early 2030s (Loganair trialling
+#     hydrogen on Orkney–mainland route — world's first)
+#   - Island lifeline routes: Sumburgh (Shetland), Kirkwall (Orkney),
+#     Stornoway (Western Isles), Barra beach landing — PSO routes
+#   - IMO 2050 target: 50% GHG reduction from international shipping vs 2008
+#   - RTFO expansion: extends to maritime + hydrogen fuel cells from 2028
+#   - UK domestic shipping: CalMac (electrifying fleet), P&O, DFDS trialling
+#     battery-electric ferries on short-sea routes
+#   - Shore power (cold ironing): 25-35MW per large ferry berth required
+#   - Aberdeen: North Sea energy transition hub — offshore wind CTV electrification
+#
+# CONSTRAINT NOTE FOR RTD_SIM:
+#   flight_domestic exists in MODE_MAX_DISTANCE_KM but NOT in default_modes.
+#   ferry_diesel exists in MODE_MAX_DISTANCE_KM but NOT in default_modes.
+#   ferry_electric exists in MODE_MAX_DISTANCE_KM but NOT in default_modes.
+#   These scenarios use available proxy modes and document the Phase 10b gaps.
+#   TODO Phase 10b: add flight_domestic, ferry_diesel, ferry_electric to
+#   default_modes in simulation/config/modes.py
+
+name: SAF + Maritime RTFO + Jet Zero Domestic 2040
+description: |
+  Models the decarbonisation of aviation and maritime transport through
+  SAF mandate, RTFO expansion, island lifeline air/ferry transitions,
+  and shore power investment. Uses available proxy modes with documented
+  Phase 10b activation path for flight_domestic and ferry modes.
+
+policies:
+
+  # ── AVIATION: SAF mandate ─────────────────────────────────────────────────
+  # 10% SAF by 2030, 22% by 2040. SAF costs 3-5x conventional jet fuel.
+  # Modelled as cost multiplier on domestic_air_travel proxy (car mode).
+  # TODO Phase 10b: apply directly to flight_domestic mode when available.
+  - parameter: cost_multiplier
+    value: 1.15                   # 15% fuel cost increase = 10% SAF blended price
+    target: mode
+    mode: car                     # Proxy for domestic_air_travel
+    # TODO Phase 10b: mode: flight_domestic
+
+  # Rail modal shift: make intercity train competitive with domestic air
+  # Key DfT target: Edinburgh-London by rail post-HS2 (3h30 = competitive)
+  - parameter: cost_reduction
+    value: 30.0
+    target: mode
+    mode: intercity_train
+
+  # ── MARITIME: RTFO shore power and ferry electrification ─────────────────
+  # RTFO expansion to maritime from 2028. Shore power at major ports.
+  # ferry_diesel and ferry_electric not in default_modes yet.
+  # TODO Phase 10b: apply directly to ferry_diesel/ferry_electric modes.
+  - parameter: cost_reduction
+    value: 20.0
+    target: mode
+    mode: bus                     # Proxy for ferry passenger transport
+    # TODO Phase 10b: mode: ferry_diesel (shore power reduces operating cost)
+
+  # Shore power infrastructure: modelled as grid capacity increase at ports
+  - parameter: increase_capacity
+    value: 1.3
+    target: infrastructure
+
+  # ── ISLAND LIFELINE SERVICES ──────────────────────────────────────────────
+  # PSO routes must remain affordable. Zero-emission technology adoption
+  # cannot come at cost of connectivity for island communities.
+  # Loganair hydrogen trial (Orkney): world's first island air H2 service.
+  - parameter: cost_reduction
+    value: 35.0
+    target: mode
+    mode: local_train             # Proxy for island lifeline air (PSO routes)
+    # TODO Phase 10b: mode: flight_domestic (PSO-designated routes)
+
+  # ── ELECTRIC AIRCRAFT SUBSIDY ─────────────────────────────────────────────
+  # Sub-500km routes viable for electric/hydrogen aircraft by early 2030s.
+  # Loganair, easyJet, ZeroAvia all trialling on Scottish/short-haul routes.
+  - parameter: add_chargers
+    value: 8                      # Airport charging/H2 refuelling infrastructure
+    target: infrastructure
+
+duration: 100
+
+expected_outcomes:
+  # Note: aviation outcomes limited until flight_domestic mode added.
+  # ferry outcomes limited until ferry_diesel/ferry_electric added.
+  intercity_train_adoption: 0.45  # Modal shift from domestic air <500km
+  domestic_air_cost_proxy: 0.15   # 15% cost increase from SAF mandate
+  island_connectivity_maintained: true
+  shore_power_capacity_increase: 0.30  # 30% port capacity increase
+
+  known_limitations:
+    - "flight_domestic not in default_modes — aviation emissions not modelled directly"
+    - "ferry_diesel/ferry_electric not in default_modes — maritime CO2 proxy only"
+    - "SAF blending cost modelled as flat multiplier — real curve is non-linear"
+    - "Island PSO route viability not tested without FerryPassengerAgent"
+
+metadata:
+  policy_area: saf_aviation_maritime
+  phase_10b_dependencies:
+    - flight_domestic_mode
+    - ferry_diesel_mode
+    - ferry_electric_mode
+    - FerryPassengerAgent_class
+    - FerryFreightAgent_class
+  saf_mandate_targets:
+    pct_2030: 10
+    pct_2040: 22
+  saf_cost_multiple_vs_jet_a: 3.5  # Current HEFA SAF average
+  imo_2050_ghg_target_vs_2008: 0.50
+  uk_domestic_aviation_net_zero_year: 2040
+  aviation_transport_co2_pct: 7
+  island_pso_routes:
+    - "Sumburgh–Aberdeen (Loganair)"
+    - "Kirkwall–Aberdeen/Edinburgh (Loganair)"
+    - "Stornoway–Edinburgh/Glasgow (Loganair)"
+    - "Barra beach landing (world's only scheduled beach airport)"
+  hydrogen_aircraft_trials:
+    - "Loganair: Orkney–mainland hydrogen trial (ZeroAvia H2 engine)"
+    - "EasyJet/Wright Electric: 186-seat aircraft target 2030s"
+  electric_ferry_deployments_2026:
+    - "CalMac: hybrid electric on Gourock–Dunoon"
+    - "P&O: battery-electric trial, Dover-Calais 2026-2028"
+    - "DFDS: battery-electric, short-sea routes"
+    - "Northlink: hybrid diesel-electric, Northern Isles"
+  activation_checklist:
+    - "Add flight_domestic to MODES registry: emissions_g_km=255, network='air'"
+    - "Add flight_electric to MODES registry: emissions_g_km=0"
+    - "Add ferry_diesel to default_modes: emissions_g_km=115"
+    - "Add ferry_electric to default_modes: emissions_g_km=0"
+    - "Implement FerryPassengerAgent with schedule constraints"
+    - "Implement FerryFreightAgent with shore_power_demand property"
+    - "Add PSO designation to island_lifeline_air and island_ferry_trip jobs"
+    - "Redirect cost_multiplier and cost_reduction to correct modes above"
+  data_sources:
+    - "DfT Jet Zero strategy: 10% SAF by 2030, domestic net-zero by 2040"
+    - "IMO: 50% GHG reduction by 2050 vs 2008 baseline"
+    - "RTFO expansion: maritime + hydrogen from 2028"
+    - "ZeroAvia: hydrogen-electric certification target 19-seat aircraft 2025"
+    - "Loganair: Orkney hydrogen aircraft trial announcement 2023"
+    - "CalMac: vessel electrification programme"

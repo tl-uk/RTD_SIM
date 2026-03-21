@@ -1,3 +1,7 @@
+# =============================================================================
+# scenarios/configs/car_free_zone.yaml
+# =============================================================================
+
 name: Car Free Zone
 description: Ban private cars in city center, promote active transport
 policies:

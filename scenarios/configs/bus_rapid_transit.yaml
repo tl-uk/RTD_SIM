@@ -1,3 +1,7 @@
+# =============================================================================
+# scenarios/configs/bus_rapid_transit.yaml
+# =============================================================================
+
 name: Bus Rapid Transit
 description: Dedicated bus lanes increase bus speeds by 40%
 policies:

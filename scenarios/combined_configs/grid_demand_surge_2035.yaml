@@ -1,0 +1,290 @@
+# =============================================================================
+# scenarios/combined_configs/grid_demand_surge_2035.yaml
+# =============================================================================
+# UK Grid Demand Surge: the systemic constraint on all decarbonisation
+#
+# RESEARCH BASIS (March 2026):
+#   - 2023 baseline: 263 TWh electricity consumption, 58 GW peak demand
+#   - 2030 forecast: 287 TWh (+11%) — CCC/NESO Clean Power 2030
+#   - 2035 forecast: 370-408 TWh (+30-55%) — NESO 10-year outlook (July 2025)
+#   - 2050 forecast: 562-692 TWh (+113-163%) — CCC 6th Carbon Budget
+#   - Demand drivers by 2035:
+#     EVs: +50 TWh (10M vehicles × 5,000 kWh/yr average)
+#     Heat pumps: +40 TWh (6M pumps)
+#     Data centres (inc. AI): +41 TWh (NESO high scenario, revised up 2025)
+#     Electrolysers for H2: +11 TWh
+#   - Grid investment: £58bn needed to 2035 (ESO Beyond 2030 plan)
+#   - Connection queue: 50,000+ projects waiting — grid connections 6-18 months
+#   - Renewable target: 95% low-carbon by 2030, 100% by 2035
+#   - Offshore wind: 40GW by 2030, 86GW by 2035 (Beyond 2030 plan)
+#   - Problem: generation is from Scotland/North Sea, demand is in SE England
+#     → North-South transmission constraint is the binding bottleneck
+#
+# RTD_SIM RELEVANCE:
+#   Every EV charger, every depot charge, every ferry shore power connection,
+#   every hydrogen electrolyser draws from the same grid. RTD_SIM is uniquely
+#   positioned to model HOW demand from multiple transport actor types
+#   interacts with a grid that is under structural stress.
+#
+# EMERGENT BEHAVIOUR HYPOTHESES:
+#   H1: Grid connection queue becomes the single largest determinant of
+#       decarbonisation pace — faster than technology readiness or cost
+#   H2: Data centre AI demand (tripling by 2035) competes directly with
+#       EV charging for the same grid connections in SE England
+#   H3: Smart charging + V2G provides 38GW of flexible demand by 2050 —
+#       avoiding the need to build equivalent firm generation capacity
+#   H4: North-South transmission gap means Scottish renewable surplus
+#       does not reach English EV charging demand — geographic mismatch
+#       between clean supply and transport demand
+
+name: Grid Demand Surge 2030–2035 — Managing the 30–50% Demand Increase
+description: |
+  Models the systemic grid demand surge as all decarbonisation policies
+  materialise simultaneously: EV charging, heat pumps, hydrogen
+  electrolysers, and AI data centres all competing for the same grid
+  capacity. Tests whether smart demand management, V2G, and the
+  Great Grid Upgrade can handle the surge without service interruption
+  or decarbonisation delay.
+
+  The transport sector does not own the grid. This scenario makes
+  RTD_SIM's agents compete with non-transport demand — the most
+  realistic representation of the actual policy environment.
+
+base_scenarios:
+  - dynamic_electricity_pricing
+  - depot_based_electrification
+
+interaction_rules:
+
+  # ── BASELINE DEMAND PRESSURE (steps 0-30) ────────────────────────────────
+  # Represent the 2026-2028 growing load from EVs + heat pumps.
+  # Grid already at 70%+ utilisation in peak periods.
+
+  - condition: "grid_utilization > 0.55"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 100
+
+  # Night-rate Economy 7 style: shift 60% of EV demand to 22:00-06:00
+  - condition: "time_of_day >= 22 or time_of_day <= 6"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 0.30            # 70% overnight discount — most aggressive rate
+    priority: 95
+
+  # Peak pricing: 17:00-20:00 demand spike — EVs + cooking + heating coincide
+  - condition: "time_of_day >= 17 and time_of_day <= 20"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 3.5             # 3.5x peak — makes V2G commercially viable
+      duration_steps: 3
+    priority: 98
+    cooldown_steps: 4
+
+  # ── GREAT GRID UPGRADE (steps 20-60) ──────────────────────────────────────
+  # £58bn investment. North-South spine. Offshore wind connection.
+  # Modelled as phased capacity releases matching actual project timelines.
+
+  # Phase 1 release: Eastern HVDC corridor (East Coast offshore wind)
+  - condition: "step == 20"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.25           # 25% — first transmission upgrade tranche
+    priority: 90
+
+  # Phase 2: Western HVDC (Scottish offshore wind to England)
+  - condition: "step == 40"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.35           # 35% — resolves North-South constraint partially
+    priority: 88
+
+  # Phase 3: Full offshore grid buildout (86GW by 2035)
+  - condition: "step == 70"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.50           # 50% — approaching Beyond 2030 full plan
+    priority: 85
+
+  # ── DATA CENTRE DEMAND SHOCK (steps 35-55) ────────────────────────────────
+  # AI data centres forecast to triple electricity use by 2035.
+  # NESO revised forecast: 41 TWh high scenario by 2035 (vs 33 TWh in 2022).
+  # Modelled as sudden grid utilisation spike — non-transport demand crowding out.
+  # This is intentionally non-controllable from RTD_SIM's transport perspective.
+  - condition: "step == 35"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 4.5             # Extreme peak: represents grid stress when
+      duration_steps: 2           # data centre + transport demand coincides
+    priority: 100
+    cooldown_steps: 20
+
+  # Emergency response: load balancing to protect EV charging from data demand
+  - condition: "grid_utilization > 0.85"
+    action: load_balancing
+    parameters:
+      strategy: time_shift
+    priority: 100
+    cooldown_steps: 3
+
+  # ── V2G FLEET RESPONSE (steps 50+) ─────────────────────────────────────────
+  # EVs become grid assets, not just loads. 38GW theoretical V2G by 2050.
+  # Modelled as smart charging with V2G export during peak pricing.
+  # At 3.5x peak pricing, V2G export earns 35p+ per kWh → commercially viable.
+  - condition: "step == 50"
+    action: increase_grid_capacity
+    parameters:
+      additional_mw: 100          # V2G fleet providing grid services
+      region: national            # Distributed across all EV locations
+    priority: 75
+
+  # ── CHARGER INFRASTRUCTURE WAVE (steps 25-75) ──────────────────────────────
+  - condition: "step == 25"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 40
+      strategy: demand_heatmap
+    priority: 82
+
+  - condition: "step == 50"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 60
+      strategy: coverage_gaps
+    priority: 78
+
+  # ── RENEWABLE CURTAILMENT REDUCTION (steps 60+) ────────────────────────────
+  # Excess Scottish wind currently curtailed (paid to switch off).
+  # Transmission upgrades allow it to reach English EV demand.
+  # Modelled as grid capacity increase with low-carbon signal.
+  - condition: "step == 65"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.60            # Cheap curtailed renewables passed to EV charging
+    priority: 70
+
+constraints:
+  - type: budget
+    limit: 12000000000           # £12bn — public share of £58bn grid upgrade
+    warning_threshold: 0.82      # (Private sector provides ~£46bn balance)
+    allocation:
+      transmission_upgrade: 0.45  # Eastern + Western HVDC spines
+      distribution_reinforcement: 0.30  # DNO local grid reinforcement
+      smart_grid_technology: 0.15  # Demand response, V2G, OCPP systems
+      hydrogen_electrolyser: 0.10  # Green H2 production as demand flexibility
+
+  - type: grid_capacity
+    limit: 6000                  # MW — representing national grid peak headroom
+    warning_threshold: 0.72      # Warning at 72% — data centre shock hits hard
+
+  - type: deployment_rate
+    limit: 250                   # Chargers + grid interventions per scenario
+    warning_threshold: 0.88
+
+feedback_loops:
+  - name: demand_surge_generation_lag
+    description: |
+      Generation capacity (renewables + nuclear) is being built, but the
+      transmission grid to move power from where it is generated (Scotland,
+      North Sea) to where it is consumed (SE England, Midlands) has a
+      10-15 year planning and construction cycle. The grid is the bottleneck,
+      not the generation. This creates a structural 2027-2033 stress window
+      even if renewable targets are met.
+    variables: [renewable_generation_gw, transmission_capacity_gw, demand_gw, grid_stress]
+    loop_type: positive           # Demand rises faster than transmission capacity
+    strength: 2.2
+
+  - name: smart_charging_demand_response
+    description: |
+      Smart charging (OCPP 2.0+) + price signals shift 60-70% of EV demand
+      to 22:00-06:00, flattening the daily demand curve. This is the
+      cheapest available demand management tool — it requires software,
+      not hardware. At full scale (65% of EVs smart charging), it
+      effectively adds 38GW of flexible demand capacity without building
+      any new firm generation.
+    variables: [smart_charging_adoption, peak_demand_mw, overnight_demand_mw, grid_cost]
+    loop_type: negative           # Dampens peak demand growth
+    strength: 1.9
+
+  - name: data_centre_displacement
+    description: |
+      AI data centres require continuous, high-density power — they cannot
+      time-shift to off-peak. In SE England, where grid connections are
+      most constrained, data centres compete directly with EV charger
+      connections for the same DNO capacity. The 50,000+ project connection
+      queue means EV charging infrastructure gets delayed by AI infrastructure
+      investment — an unintended regulatory arbitrage.
+    variables: [data_centre_demand_twh, grid_connection_queue, ev_charger_delay, adoption_rate]
+    loop_type: negative           # Data centre demand crowds out EV charging
+    strength: 1.5
+
+  - name: north_south_renewable_mismatch
+    description: |
+      Scottish offshore wind (ScotWind, 25GW licensed) generates surplus
+      electricity that is currently curtailed — paid not to generate.
+      The Eastern and Western HVDC corridors resolve this by transmitting
+      cheap Scottish wind to English EV demand. Until they are built
+      (2028-2033), English EV charging runs on more carbon-intensive
+      generation than the national average — reducing the CO2 benefit
+      of EVs in England relative to Scotland.
+    variables: [scottish_wind_gw, hvdc_capacity, curtailment_twh, england_grid_carbon]
+    loop_type: negative           # Transmission investment resolves the mismatch
+    strength: 1.3
+
+expected_outcomes:
+  grid_demand_2030_twh: 290      # +11% from 263 TWh baseline (NESO Clean Power)
+  grid_demand_2035_twh: 380      # +44% — upper end of NESO forecast
+  smart_charging_adoption: 0.62  # 62% of EVs smart charging by 2033
+  v2g_fleet_mw: 8500             # 8.5GW V2G by 2035 (initial deployment)
+  grid_stress_events: 8          # Peak in 2030-2032 data centre + EV coincidence
+  curtailment_reduction_pct: 0.45 # 45% less Scottish wind curtailed post-HVDC
+
+  policy_finding: |
+    The 30-50% demand increase by 2035 is manageable IF: (1) the Great
+    Grid Upgrade HVDC corridors are on time, (2) 60%+ of EVs use smart
+    charging, and (3) data centre connections are rationed in constrained
+    DNO areas. Without all three, grid stress events in 2029-2032 will
+    cause blackout risk — creating a political narrative that EVs are
+    grid-destabilising. That narrative, even if false, is the single
+    greatest threat to the ZEV mandate timeline.
+
+dft_talking_points:
+  - "The grid demand surge is solvable — but only if smart charging, grid
+     upgrades, and V2G are treated as a coordinated programme, not three
+     separate policy silos."
+  - "Data centres are tripling their UK electricity use by 2035. In
+     constrained DNO areas, they are delaying EV charger connections.
+     Ofgem must create connection priority rules that protect transport
+     decarbonisation infrastructure."
+  - "Scottish renewable surplus is being curtailed — paid not to generate —
+     while English EV charging runs on gas. The Eastern HVDC spine is not
+     just a grid project: it is the mechanism that makes Scottish wind
+     power English EVs. It must be treated as transport infrastructure."
+  - "V2G is not science fiction. At 3.5x peak pricing, it is commercially
+     viable today for fleet operators. The barrier is regulatory, not
+     technical: Ofgem network access rules must enable bidirectional charging
+     at scale."
+
+metadata:
+  policy_area: grid_demand_management
+  demand_forecasts_twh:
+    baseline_2024: 263
+    forecast_2030_low: 287
+    forecast_2030_high: 310
+    forecast_2035_low: 370
+    forecast_2035_high: 408
+    forecast_2050_low: 562
+    forecast_2050_high: 692
+  grid_investment_required_bn: 58
+  ev_demand_addition_twh_2030: 50
+  heat_pump_demand_addition_twh_2030: 40
+  data_centre_demand_twh_2035: 41
+  hydrogen_electrolyser_twh_2030: 11
+  data_sources:
+    - "NESO 10-year outlook, July 2025 (370-408 TWh by 2035)"
+    - "ESO Beyond 2030 plan: £58bn grid investment, March 2024"
+    - "CCC 6th Carbon Budget: 562 TWh by 2050"
+    - "National Grid Great Grid Upgrade: demand +50% by 2035"
+    - "Parliament: 50,000+ grid connection queue"
+    - "NESO data centre revision: 33→41 TWh high scenario by 2035"

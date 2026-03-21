@@ -1,8 +1,7 @@
-# scenarios/configs/ - Phase 4.5C: Time-of-Day Pricing Scenarios
+# ============================================================================
+# scenarios/configs/time_of_day__pricing.yaml
+# ============================================================================
 
-# ============================================================================
-# dynamic_electricity_pricing.yaml
-# ============================================================================
 name: Dynamic Electricity Pricing
 description: Implement time-of-day pricing to incentivize off-peak charging
 policies:

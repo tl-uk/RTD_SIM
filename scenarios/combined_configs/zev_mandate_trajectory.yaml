@@ -1,0 +1,287 @@
+# =============================================================================
+# scenarios/combined_configs/zev_mandate_trajectory.yaml
+# =============================================================================
+# UK ZEV Mandate: the single most important decarbonisation lever
+#
+# RESEARCH BASIS (March 2026):
+#   - ZEV Mandate legally in force since 3 January 2024
+#   - Targets: 28% cars / 16% vans in 2025 → 80% cars / 70% vans by 2030
+#              → 100% all by 2035
+#   - April 2025: Labour reinstated 2030 ICE ban, added April 2025 flexibilities:
+#     non-compliance penalty reduced £15k→£12k/car, £18k→£15k/van
+#     borrowing extended to 2029; CO2 credit transfers extended to 2029
+#   - Current (Dec 2025): ~1/3 of new vehicles sold are BEV (new record)
+#   - ChargeUK: 88,000 public chargepoints (up from 40,000 in 2023)
+#   - Target: 300,000 chargepoints by 2030 (needs 2,800/month vs current rate)
+#   - NESO forecast: 11M EVs on road by 2030, 30M by 2040
+#   - Grid demand from EVs: +50 TWh by 2030 (CCC estimate for 10M EVs)
+#   - Charger grid connections: 6-18 month queue at most DNOs
+#
+# EMERGENT BEHAVIOUR HYPOTHESES TO TEST:
+#   H1: Mandate compliance penalty is insufficient to close the demand gap —
+#       manufacturers over-comply on fleet sales, under-deliver to private buyers
+#   H2: Charger rollout bottleneck (grid connection queues) constrains adoption
+#       more than vehicle cost or consumer willingness
+#   H3: Smart charging shifts 50 TWh of demand off peak — avoids grid stress
+#       even without major grid upgrades
+#   H4: Overnight home charging advantage erodes as flat-dwellers remain
+#       underserved — geographic equity problem becomes political constraint
+#
+# SIMULATION MAPPING:
+#   Each RTD_SIM step ≈ 1 simulation timestep. The mandate ramp is represented
+#   as step-triggered subsidy changes and charger deployment waves.
+#   step 0-20   ≈ 2025-2026 (28% cars / 16% vans mandate year)
+#   step 20-50  ≈ 2027-2029 (ramp to ~60% cars)
+#   step 50-70  ≈ 2030 (80% cars / 70% vans — the critical policy cliff)
+#   step 70-100 ≈ 2031-2035 (ramp to 100%, HGV mandate begins)
+
+name: ZEV Mandate Trajectory 2025–2035
+description: |
+  Models the full UK ZEV mandate ramp from 2025 to 2035. Tests whether
+  the mandate trajectory, charger deployment, and grid capacity can all
+  scale in sync — or whether one constraint becomes binding and slows
+  the others. Identifies the lowest-cost path to 100% ZEV sales by 2035.
+
+  Key policy question: Is the mandate sufficient on its own, or does it
+  need complementary charger rollout guarantees and grid priority rules
+  to avoid a 2030 cliff where 80% of new vehicles are ZEV but only 60%
+  of drivers can reliably charge them?
+
+base_scenarios:
+  - depot_based_electrification
+  - dynamic_electricity_pricing
+
+interaction_rules:
+
+  # ── PHASE 1 (steps 0-20): 2025-2026 — Early mandate compliance ──────────
+  # 28% car / 16% van ZEV target. Compliance pressure on manufacturers.
+  # Non-compliance penalty: £12,000/car shortfall — modelled as indirect
+  # subsidy to ZEV buyers (manufacturers absorb and pass through).
+  - condition: "step < 20"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 3500                 # Plug-in Grant proxy: £2,500 small van / £5,000 large
+    priority: 100
+
+  # Charger Wave 1: 88k → 150k (current trajectory)
+  - condition: "step == 10"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 25
+      strategy: demand_heatmap
+    priority: 90
+
+  # ── PHASE 2 (steps 20-50): 2027-2029 — Ramp phase ───────────────────────
+  # ZEV target climbs from ~33% to ~65% for cars. Key test: does the
+  # charger network keep pace? Grid connections take 6-18 months.
+  - condition: "step == 25"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 35            # 2,800/month target rate
+      strategy: coverage_gaps     # Prioritise underserved areas
+    priority: 88
+
+  - condition: "step == 35"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 6               # Motorway service area rapid hubs
+      chargers_per_depot: 8
+      power_kw: 350               # Ultra-rapid (350kW) for en-route charging
+    priority: 85
+
+  # Smart charging to manage growing grid demand
+  - condition: "grid_utilization > 0.50 and step >= 20"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 82
+
+  # Night-rate tariff: Economy 7 style — 65% discount to shift demand
+  - condition: "time_of_day >= 22 or time_of_day <= 7"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 0.35
+    priority: 78
+
+  # ── PHASE 3 (steps 50-70): 2030 — The 80% cliff ─────────────────────────
+  # 80% cars / 70% vans must be ZEV by 2030. This is the policy cliff:
+  # demand spikes sharply. Grid stress peaks. Charger queues are worst.
+  # Test: does smart charging + V2G prevent grid overload?
+  - condition: "step == 50"
+    action: increase_grid_capacity
+    parameters:
+      additional_mw: 50           # Represents £58bn Great Grid Upgrade tranche
+      region: national
+    priority: 100
+
+  - condition: "step == 55"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 50            # Reach toward 300,000 target
+      strategy: demand_heatmap
+    priority: 95
+
+  # V2G: EVs feed back to grid during 17:00-20:00 peak
+  # Modelled as surge pricing making V2G commercially attractive
+  - condition: "grid_utilization > 0.65 and step >= 50"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 2.5             # 2.5x peak → V2G export becomes profitable
+      duration_steps: 5
+    priority: 100
+    cooldown_steps: 6
+
+  # HGV mandate begins: <26t zero emission by 2035 (5 years ahead in sim)
+  # Modelled as first wave of HGV subsidies
+  - condition: "step == 60"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 12000               # ZEHID programme proxy (£200M / ~17k HGVs)
+    priority: 88
+
+  # ── PHASE 4 (steps 70-100): 2031-2035 — Final approach ──────────────────
+  # 100% ZEV by 2035 — petrol/diesel cars exit the new market entirely.
+  # Subsidy phase-out begins (market self-sustaining).
+  - condition: "step >= 70 and ev_adoption > 0.65"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 25   # Market maturing — subsidies less needed
+    priority: 70
+
+  # Cost recovery: early charger infrastructure earns revenue
+  - condition: "charger_utilization > 0.55 and step >= 70"
+    action: increase_charging_cost
+    parameters:
+      reason: infrastructure_cost_recovery
+    priority: 65
+
+  # Grid expansion phase 2 — remaining capacity for HGV and heat pump demand
+  - condition: "step == 80"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.5           # 50% expansion to absorb HGV + heat pump load
+    priority: 75
+
+  # ICE penalty: diesel car/van cost multiplier after 2030 ban
+  # New registrations blocked — remaining diesel is used fleet, ageing out
+  - condition: "step >= 70"
+    action: apply_congestion_charge
+    parameters:
+      amount: 18                  # LEZ-style daily access charge for diesel
+      zone: city_center
+    priority: 72
+
+constraints:
+  - type: budget
+    limit: 8000000000            # £8bn — total public charging + EV subsidy commitment
+    warning_threshold: 0.82
+    allocation:
+      ev_subsidies: 0.35         # Plug-in Grant, salary sacrifice, workplace
+      public_chargers: 0.30      # LEVI + RCF + on-street
+      grid_upgrades: 0.25        # DNO reinforcement for charger connections
+      motorway_hubs: 0.10        # Rapid Charging Fund (finally opened to bids)
+
+  - type: grid_capacity
+    limit: 3000                  # MW — cumulative EV demand peak (50 TWh/yr ÷ peak factor)
+    warning_threshold: 0.75
+
+  - type: deployment_rate
+    limit: 200                   # Chargers per scenario run (proxy for monthly rate)
+    warning_threshold: 0.88
+
+feedback_loops:
+  - name: mandate_market_pull
+    description: |
+      The ZEV mandate creates a supply push (manufacturers must sell ZEVs).
+      As supply increases, prices fall (battery cost curve), which creates
+      demand pull. The virtuous cycle: mandate → supply → lower prices →
+      demand → higher adoption → lower infrastructure cost per vehicle.
+      Research finding: ChargeUK £6bn private investment was directly
+      triggered by the mandate providing demand certainty.
+    variables: [zev_mandate_target, ev_supply, battery_price, ev_adoption]
+    loop_type: positive
+    strength: 1.6
+
+  - name: charger_adoption_co_evolution
+    description: |
+      EV adoption drives charger demand → charger investment → higher
+      adoption. But the co-evolution has a lag: grid connections take
+      6-18 months, creating a critical 2028-2030 window where EV sales
+      ramp faster than charger deployment. Without bridging smart charging
+      and overnight home charging, this lag becomes an anxiety spiral
+      that suppresses adoption below the mandate trajectory.
+    variables: [ev_adoption, charger_availability, range_anxiety, adoption_rate]
+    loop_type: positive
+    strength: 1.4
+
+  - name: grid_demand_surge_2030
+    description: |
+      10M EVs by 2030 add ~50 TWh to grid demand — an 18% increase on
+      2024 consumption. NESO forecasts 370-408 TWh by 2035 (30% above
+      2024). Without smart charging and V2G, the 17:00-20:00 evening
+      peak becomes critically congested by 2029-2030. Smart charging
+      shifts 60-70% of demand to 22:00-06:00, resolving the peak crisis
+      at a fraction of the cost of new generation capacity.
+    variables: [ev_count, smart_charging_rate, evening_peak_demand, grid_stress]
+    loop_type: negative          # Smart charging dampens the loop
+    strength: 1.8
+
+  - name: equity_gap_non_driveway
+    description: |
+      Home charging (driveway) costs ~4p/kWh overnight. Public charging
+      costs 40-80p/kWh. Flat-dwellers and terraced street residents pay
+      10-20x more to charge than suburban homeowners. This equity gap
+      creates a two-tier EV market and concentrates adoption in higher-income
+      areas, where ChargeUK data confirms commercial infrastructure investment
+      is already concentrating. Policy must address equity to hit 80% target.
+    variables: [home_charging_access, public_charging_cost, ev_adoption_by_income]
+    loop_type: negative          # Equity gap suppresses aggregate adoption
+    strength: 1.3
+
+expected_outcomes:
+  # Based on mandate targets and NESO FES stretched net zero scenario
+  ev_adoption_step20: 0.28       # 2025: 28% new car mandate
+  ev_adoption_step50: 0.80       # 2030: 80% new car mandate target
+  ev_adoption_step100: 0.98      # 2035: ~100% (small MVM exemptions remain)
+  grid_stress_events: 5          # Peak in 2029-2030 before smart charging scales
+  smart_charging_adoption: 0.65  # 65% of EV owners smart charging by 2032
+  v2g_participation: 0.18        # 18% of EVs providing V2G by 2035
+
+  policy_finding: |
+    The 2030 cliff (80% mandate target) is the highest-risk point in
+    the trajectory. Charger grid connections take 6-18 months and the
+    DNO connection queue has 50,000+ pending projects. Without advance
+    grid reservation for charger connections — treating charger rollout
+    as critical national infrastructure like hospital power — the
+    adoption rate plateaus below 80% in 2030 even with full manufacturer
+    compliance. Smart charging is necessary but not sufficient: equity
+    of access for non-driveway households is the binding political constraint.
+
+dft_talking_points:
+  - "The ZEV mandate is the right instrument but grid connections are the
+     binding constraint that could prevent it delivering on time."
+  - "Smart charging can absorb 50 TWh of new EV demand without major grid
+     upgrades — but only if 65%+ of EV owners use it. That requires price
+     signals, not mandates."
+  - "The 10-20x public vs home charging cost gap is a political time bomb.
+     Flat-dwellers and renters cannot access the £150/yr running cost savings
+     that are the primary consumer argument for EVs."
+  - "V2G could provide 38GW of flexible capacity by 2050 (NESO FES) —
+     more than the current peak demand of the entire UK grid."
+
+metadata:
+  policy_area: zev_mandate
+  mandate_targets:
+    2025_cars_pct: 28
+    2025_vans_pct: 16
+    2030_cars_pct: 80
+    2030_vans_pct: 70
+    2035_all_pct: 100
+  non_compliance_penalty_gbp_per_car: 12000
+  non_compliance_penalty_gbp_per_van: 15000
+  data_sources:
+    - "DfT: ZEV Mandate consultation response, April 2025"
+    - "ChargeUK written evidence, Parliament Select Committee 2026"
+    - "NESO: Future Energy Scenarios 2024 (11M EVs by 2030)"
+    - "CCC: 6th Carbon Budget Balanced Pathway"
+    - "National Grid: Great Grid Upgrade plan, £58bn to 2035"

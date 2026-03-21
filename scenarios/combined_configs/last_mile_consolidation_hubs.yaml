@@ -1,0 +1,286 @@
+# =============================================================================
+# scenarios/combined_configs/last_mile_consolidation_hubs.yaml
+# =============================================================================
+# Local Authority Last-Mile Consolidation + Fleet Transition
+#
+# RESEARCH BASIS (March 2026):
+#   - DfT Transport Decarbonisation Plan: last-mile consolidation hubs,
+#     promoting local authority fleet EV transition
+#   - Local Electric Vehicle Infrastructure (LEVI) fund: English local
+#     authorities can apply for public charger funding
+#   - Urban logistics: last-mile delivery = 25-30% of urban transport
+#     CO2 emissions despite being only 6% of vehicle-km
+#   - Cargo bikes: viable for deliveries under 5km in dense urban areas
+#     (proven by Gnewt/Hubbub Thames barge + cargo bike model in London)
+#   - Micro-depot model: converted car parks / rail arches within 3-5km
+#     of delivery zone — reduces HGV urban penetration by 60-70%
+#   - Amazon, DPD, DHL, Evri all running micro-depot pilots (2024-2025)
+#   - NHS: largest single UK employer (1.3M staff) — NHS fleet electrification
+#     targets net-zero direct emissions by 2040
+#   - Local authority fleets: ~185,000 vehicles across all councils in England
+#     Most councils targeting 100% ZEV fleet by 2030-2035
+#   - RTFO: Renewable Transport Fuel Obligation expands to cover maritime
+#     and hydrogen from 2028 — supports last-mile fuel diversification
+#   - Failed delivery rate: 5-8% first-attempt failure → costly redelivery
+#   - Urban ZEZ enforcement: London ULEZ, Bath, Birmingham, Oxford CAZ active
+#     Sheffield, Manchester, Newcastle implementing 2025-2027
+#
+# ACTOR TYPES IN RTD_SIM:
+#   fleet_manager_logistics  → logistics_last_mile_urban
+#   fleet_manager_healthcare → nhs_patient_transport, nhs_staff_commute
+#   delivery_driver          → gig_economy_delivery, urban_food_delivery
+#   budget_student           → last_mile_scooter, gig_economy_delivery
+#   concerned_parent         → school_run_then_work (school ZEZ pressure)
+
+name: Last-Mile Consolidation Hubs + Local Authority Fleet Transition
+description: |
+  Models the shift to consolidated urban last-mile delivery via micro-depots
+  and cargo bikes, combined with local authority fleet electrification.
+  Tests whether consolidation hubs reduce urban CO2 more cost-effectively
+  than individual operator electrification, and whether ZEZ enforcement
+  is necessary to drive adoption or whether economics suffice.
+
+base_scenarios:
+  - complete_supply_chain_electrification
+  - urban_freight_consolidation
+
+interaction_rules:
+
+  # ── PHASE 1 (steps 0-20): ZEZ Enforcement ramp ──────────────────────────
+  # Modelled as escalating diesel cost multiplier in urban zones.
+  # Represents London ULEZ, Bath/Birmingham CAZ, and upcoming schemes.
+  - condition: "step < 20"
+    action: apply_congestion_charge
+    parameters:
+      amount: 12                  # £12.50/day ULEZ-style charge (from day 1)
+      zone: city_center
+    priority: 100
+
+  # Night delivery restriction: residential areas ban diesel 22:00-06:00
+  # Modelled as surge pricing overnight for diesel modes only
+  - condition: "time_of_day >= 22 or time_of_day <= 6"
+    action: apply_surge_pricing
+    parameters:
+      multiplier: 4.0             # Diesel uneconomic overnight → electric shift
+      duration_steps: 8
+    priority: 95
+
+  # ── MICRO-DEPOT WAVE 1 (steps 0-25): Urban consolidation infrastructure ──
+  # Converted car parks, rail arches, industrial units within 3-5km
+  - condition: "step == 10"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 20
+      strategy: demand_heatmap    # Co-locate with high-delivery-density areas
+    priority: 92
+
+  # Cargo bike + electric van subsidy — the micro-depot operator's fleet
+  - condition: "step < 25"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.50            # 50% charging cost reduction at micro-depots
+    priority: 88
+
+  # ── LOCAL AUTHORITY FLEET (steps 15-50) ──────────────────────────────────
+  # 185,000 LA vehicles. Most targeting ZEV fleet by 2030-2035.
+  # LEVI fund enables charger deployment at council depots.
+  - condition: "step == 15"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 5               # Council depot clusters
+      chargers_per_depot: 10
+      power_kw: 50                # 50kW AC — van fleet overnight charging
+    priority: 90
+
+  - condition: "step == 15"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 5000                # LEVI + plug-in grant stacked for LA fleets
+    priority: 88
+
+  # ── NHS FLEET (steps 20-45) ──────────────────────────────────────────────
+  # NHS fleet electrification: net-zero direct emissions by 2040.
+  # Patient transport, clinical supply, staff fleet all included.
+  - condition: "step == 20"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 4               # NHS health board depot hubs
+      chargers_per_depot: 8
+      power_kw: 50
+    priority: 90
+
+  - condition: "step == 25"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 9000                # NHS lease subsidy above standard grant
+    priority: 85
+
+  # ── ZEZ ESCALATION (steps 30-60) ─────────────────────────────────────────
+  # More cities implement ZEZ/LEZ. Diesel becomes uneconomic everywhere urban.
+  - condition: "step == 35"
+    action: apply_congestion_charge
+    parameters:
+      amount: 20                  # Manchester/Sheffield ZEZ — higher than London
+      zone: city_center
+    priority: 92
+
+  - condition: "step == 40"
+    action: ban_diesel_vehicles
+    parameters:
+      zone: city_center
+      modes: [van_diesel]         # Van diesel banned from ZEZ — cargo bike/EV only
+    priority: 98
+
+  # ── MICRO-DEPOT WAVE 2 (steps 40-70) ─────────────────────────────────────
+  # Mature micro-depot network — reduced infrastructure cost per hub
+  - condition: "step == 45"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 30
+      strategy: coverage_gaps
+    priority: 82
+
+  # Failed delivery reduction: app-based coordination reduces redelivery
+  # Modelled as cost reduction (fewer wasted trips)
+  - condition: "step == 50"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.80            # 20% operational cost saving from better coordination
+    priority: 75
+
+  # ── SMART GRID INTEGRATION (steps 60+) ───────────────────────────────────
+  # Micro-depots with solar + battery storage become grid-neutral.
+  # Council depot V2G provides grid services during peak demand.
+  - condition: "grid_utilization > 0.60 and step >= 60"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+    priority: 80
+
+  - condition: "step >= 70 and ev_adoption > 0.55"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 20   # Market approaching self-sustaining
+    priority: 68
+
+constraints:
+  - type: budget
+    limit: 350000000             # £350M — LEVI fund + NHS fleet + DfT consolidation
+    warning_threshold: 0.80
+    allocation:
+      levi_fund: 0.35            # Local Electric Vehicle Infrastructure fund (England)
+      nhs_fleet: 0.25            # NHS electrification programme
+      micro_depot_grants: 0.20   # Consolidation hub infrastructure
+      la_fleet_grants: 0.20      # Local authority fleet transition grants
+
+  - type: grid_capacity
+    limit: 300                   # MW — urban local distribution network capacity
+    warning_threshold: 0.75
+
+  - type: deployment_rate
+    limit: 80
+    warning_threshold: 0.85
+
+feedback_loops:
+  - name: micro_depot_density_benefit
+    description: |
+      Each micro-depot established at the 3-5km scale creates a hub for
+      multiple operators. Shared infrastructure reduces per-operator cost
+      by 40-60% vs single-operator private depot. As density increases,
+      cargo bike delivery becomes viable for shorter routes, further
+      reducing van movements. A 10-depot network serving a city reduces
+      urban HGV penetration by ~65% (London Thames barge + cargo bike
+      precedent: Hubbub/Gnewt model).
+    variables: [micro_depot_count, cargo_bike_viability, urban_hgv_movements, co2_per_delivery]
+    loop_type: negative
+    strength: 1.4
+
+  - name: zez_enforcement_tipping_point
+    description: |
+      ZEZ enforcement has a tipping point: below the threshold where
+      most competitors comply, non-compliance is rational (avoid cost,
+      undercut ZEV operators). Above the threshold, compliance becomes
+      the default because non-compliant operators face penalties AND
+      lose business from ZEZ-requiring clients (supermarkets, NHS, Amazon).
+      The ZEZ enforcement rate must reach ~45% penetration to tip to
+      full compliance — enforcement alone cannot achieve this; subsidy
+      must close the cost gap first.
+    variables: [zez_compliance_rate, subsidy_level, competitor_compliance, market_tip]
+    loop_type: positive
+    strength: 1.6
+
+  - name: failed_delivery_cargo_bike_advantage
+    description: |
+      Cargo bikes have a 15-20% lower failed delivery rate than vans
+      in dense urban areas — they can access pedestrian areas, lock
+      up instantly, and deliver to residential buildings more flexibly.
+      Reduced failed deliveries improve operator economics, making
+      cargo bikes more commercially attractive independent of ZEZ
+      enforcement. This economic advantage accelerates adoption beyond
+      what policy alone achieves.
+    variables: [cargo_bike_adoption, failed_delivery_rate, redelivery_cost, operator_economics]
+    loop_type: positive
+    strength: 1.2
+
+expected_outcomes:
+  cargo_bike_adoption: 0.45      # 45% of urban last-mile under 3km
+  van_electric_adoption: 0.80    # 80% of urban van fleet ZEV
+  la_fleet_zev_pct: 0.75         # 75% of council fleets ZEV (below 100% target)
+  nhs_van_ev_pct: 0.85           # 85% NHS fleet electrified
+  micro_depots_operational: 45   # 45 hubs across major UK cities
+  urban_hgv_reduction: 0.55      # 55% fewer diesel HGVs in urban cores
+  failed_delivery_reduction: 0.22  # 22% fewer failed deliveries
+
+  policy_finding: |
+    ZEZ enforcement alone does not tip the market. The sequence matters:
+    subsidy-first brings early adopters (council fleets, NHS) to near-parity,
+    then ZEZ enforcement tips the remainder. Reversing the sequence —
+    enforcement before subsidy — creates a compliance crisis where operators
+    cannot afford to comply and revenue falls short of the mandate.
+    Micro-depots create a shared infrastructure solution that makes
+    cargo bikes economically competitive without subsidy — the network
+    effect does the policy work that grants cannot achieve alone.
+
+dft_talking_points:
+  - "Council fleets and NHS fleets are the fastest EV adopters because they
+     are large, depot-based, and have strong net-zero mandates. They should
+     be the demonstration case, not the afterthought."
+  - "ZEZ enforcement without subsidy creates a compliance crisis.
+     The sequence is: subsidy → early adopters → ZEZ enforcement → market tip."
+  - "Cargo bikes have a 15-20% lower failed delivery rate in dense urban areas.
+     The commercial argument for cargo bikes does not need a subsidy —
+     it needs a ZEZ to remove the competitive advantage of diesel vans."
+  - "Micro-depots are a planning problem as much as a funding problem.
+     Converting a car park to a micro-depot requires planning permission
+     that can take 2-3 years. DfT needs to designate permitted development
+     rights for urban logistics micro-depots."
+
+metadata:
+  policy_area: last_mile_consolidation
+  actor_types_modelled:
+    - fleet_manager_logistics
+    - fleet_manager_healthcare
+    - delivery_driver
+    - budget_student
+    - concerned_parent
+  la_fleet_vehicles_england: 185000
+  nhs_staff_count: 1300000
+  nhs_fleet_net_zero_target: 2040
+  active_zez_schemes_2026:
+    - "London ULEZ (2021)"
+    - "Bath Clean Air Zone (2021)"
+    - "Birmingham Clean Air Zone (2021)"
+    - "Oxford Zero Emission Zone (2022, pilot)"
+    - "Sheffield CAZ (2023)"
+  upcoming_zez_2025_2027:
+    - "Manchester CAZ"
+    - "Newcastle CAZ"
+    - "Bristol CAZ"
+  failed_delivery_rate_van: 0.06     # 6% first-attempt failure
+  failed_delivery_rate_cargo_bike: 0.04  # 4% — 33% lower
+  data_sources:
+    - "DfT Transport Decarbonisation Plan, Jul 2021"
+    - "Hubbub/Gnewt Thames barge + cargo bike model, London"
+    - "NHS Net Zero strategy: direct emissions by 2040"
+    - "LEVI fund: England local authority charging infrastructure"
+    - "RTFO scope expansion: maritime + hydrogen from 2028"

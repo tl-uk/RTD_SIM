@@ -1,3 +1,7 @@
+# =============================================================================
+# scenarios/configs/ev_subsidy_30.yaml
+# =============================================================================
+
 name: EV Subsidy 30%
 description: Government subsidizes EVs by 30% to boost adoption
 policies:

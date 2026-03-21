@@ -1,0 +1,286 @@
+# =============================================================================
+# scenarios/combined_configs/hgv_phase_out_2035_2040.yaml
+# =============================================================================
+# UK HGV Zero Emission Phase-Out: the hardest decarbonisation challenge
+#
+# RESEARCH BASIS (March 2026):
+#   - Phase-out dates: <26t non-ZE HGV banned 2035; all HGV ZE by 2040
+#   - DfT consultation launched 6 January 2026 (open until 17 March 2026)
+#   - £200M Zero Emission HGV and Infrastructure Demonstrator (ZEHID):
+#     4 projects, 370 ZE HGVs, 57 refuelling/charging sites
+#   - GRIDSERVE Project Electric Freightway: 140 battery HGVs, 220 chargers
+#   - BP ZEN Freight: 70 battery + 30 hydrogen HGVs on M4 corridor
+#   - Hydrogen: only 16 refuelling stations in UK (vs 88k EV chargepoints)
+#   - TCO parity: small rigid ZE HGV mid-to-late 2020s; 44t artic early 2030s
+#   - HGV emissions: 16% of GHG + 5% NOx from domestic transport
+#   - Industry concerns: mandate must not echo car ZEV mandate "under any
+#     circumstances" (Forecast Trader, Feb 2026) — different tech, different ops
+#   - Hydrogen stalling: manufacturers not investing at required pace
+#   - Battery viable for <400km/day back-to-base ops; hydrogen for longer
+#
+# EMERGENT BEHAVIOUR HYPOTHESES:
+#   H1: Battery electric dominates <26t by 2030 (depot charging viable);
+#       hydrogen essential for 44t artic long-haul — two-track transition
+#   H2: SME freight operators face existential cost pressure: cannot access
+#       bulk purchasing discounts or fleet finance that large operators get
+#   H3: Megawatt charging (MCS, 1MW+) infrastructure deployment pace
+#       determines whether 2035 target is feasible — not vehicle availability
+#   H4: Motorway service charging (40 sites needed) is the critical
+#       infrastructure gap — more constraining than depot charging
+#
+# POLICY DESIGN QUESTION FOR RTD_SIM:
+#   What subsidy level, deployment timeline, and hydrogen vs electric split
+#   minimises public cost while meeting the 2035/2040 phase-out dates?
+
+name: HGV Zero Emission Phase-Out 2035/2040
+description: |
+  Models the UK HGV decarbonisation trajectory to the 2035 (<26t) and
+  2040 (all HGV) phase-out dates. Tests the two-technology pathway
+  (battery for short-haul/depot, hydrogen for long-haul/artic) and
+  identifies the infrastructure investment sequence that minimises
+  public cost while meeting mandatory timelines.
+
+  Incorporates: ZEHID programme results, MCS deployment, hydrogen
+  corridor development, SME vs large operator differentiation.
+
+base_scenarios:
+  - tiered_freight_transition
+  - depot_based_electrification
+
+interaction_rules:
+
+  # ── PHASE 1 (steps 0-25): 2026-2028 — ZEHID demonstrators running ───────
+  # 370 ZE HGVs on road, 57 infrastructure sites. Operators learning.
+  # Battery viable for depot-return fleets (<400km/day).
+
+  # Depot charging: first priority — back-to-base fleets are the easy win
+  - condition: "step == 5"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 8               # Major logistics DC clusters (DIRFT, Grangemouth etc.)
+      chargers_per_depot: 6
+      power_kw: 150               # CCS Combo 150kW — current best practice
+    priority: 100
+
+  # ZEHID subsidy: large operator subsidy (SMEs excluded, see Phase 2)
+  - condition: "step < 25"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 25000               # Large operator bulk discount proxy
+    priority: 95
+
+  # Diesel HGV carbon tax phase-in — modelled as progressive cost multiplier
+  - condition: "step >= 10"
+    action: apply_congestion_charge
+    parameters:
+      amount: 8                   # Modest initial levy — builds to full cost
+      zone: city_center
+    priority: 85
+
+  # ── PHASE 2 (steps 25-50): 2028-2030 — TCO parity for small HGV ────────
+  # Small rigid (<26t) approaching TCO parity with diesel.
+  # Large artic (44t): still 20-30% premium. Hydrogen R&D scaling up.
+
+  # MCS (Megawatt Charging Standard) deployment — the critical infra gap
+  # 40 motorway service locations needed for en-route HGV charging
+  - condition: "step == 25"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 12              # Motorway service rapid charging hubs
+      chargers_per_depot: 4
+      power_kw: 350               # MCS-capable sites (350kW interim, 1MW target)
+    priority: 98
+
+  # Hydrogen corridor: M4 South Wales (HyHAUL), M6/M1 Northern (ZEN)
+  # Modelled as cost reduction on hgv_hydrogen mode
+  - condition: "step == 30"
+    action: reduce_charging_costs
+    parameters:
+      multiplier: 0.65            # 35% reduction = green H2 subsidy proxy
+    priority: 90
+
+  # SME operator subsidy — ring-fenced to avoid incumbents capturing benefit
+  - condition: "step == 35"
+    action: increase_ev_subsidy
+    parameters:
+      amount: 15000               # SME-targeted grant (lower than large operator)
+    priority: 88
+
+  # Grid upgrade for motorway charging nodes
+  - condition: "step == 40"
+    action: increase_grid_capacity
+    parameters:
+      additional_mw: 80           # 40 MSA sites × 2MW average draw
+      region: motorway_network
+    priority: 92
+
+  # ── PHASE 3 (steps 50-75): 2030-2033 — 2035 mandate year approaching ────
+  # <26t mandate approaching. Manufacturers must confirm order books.
+  # Smart charging at depots becomes economically critical.
+
+  - condition: "grid_utilization > 0.60 and step >= 50"
+    action: enable_smart_charging
+    parameters:
+      urgency_threshold: normal
+      shift_commercial_to_night: true
+    priority: 85
+
+  # Diesel HGV cost multiplier ramps up — policy signal for fleet planning
+  - condition: "step == 55"
+    action: apply_congestion_charge
+    parameters:
+      amount: 20                  # Full LEZ/ULEZ-equivalent daily charge
+      zone: city_center
+    priority: 92
+
+  # Full MCS deployment: 1MW charging standard at all major hubs
+  - condition: "step == 60"
+    action: add_depot_chargers
+    parameters:
+      num_depots: 20              # Full motorway + port + DC network
+      chargers_per_depot: 4
+      power_kw: 1000              # 1MW MCS — 44t artic charging standard
+    priority: 95
+
+  # ── PHASE 4 (steps 75-100): 2033-2040 — 44t artic mandate closing ───────
+  # All HGV must be ZE by 2040. Long-haul hydrogen or MCS battery.
+  # Diesel HGV banned from new sale — remaining fleet ageing out.
+
+  - condition: "step >= 75"
+    action: reduce_ev_subsidy
+    parameters:
+      reduction_percentage: 30   # Subsidy withdrawal as market matures
+    priority: 70
+
+  - condition: "step >= 80"
+    action: expand_grid_capacity
+    parameters:
+      increase_by: 1.4           # Final grid buildout for HGV + ship charging
+    priority: 68
+
+  # Full hydrogen refuelling network
+  - condition: "step == 80"
+    action: add_emergency_chargers
+    parameters:
+      num_chargers: 20            # Hydrogen refuelling stations (proxy)
+      strategy: motorway_network
+    priority: 75
+
+constraints:
+  - type: budget
+    limit: 2500000000            # £2.5bn — ZEHID + CPTF + infrastructure grants
+    warning_threshold: 0.80
+    allocation:
+      zehid_programme: 0.08      # £200M government ZEHID investment
+      mcs_deployment: 0.25       # Megawatt charging sites — biggest single item
+      hydrogen_corridors: 0.20   # HyHAUL, ZEN, M1 corridor H2 stations
+      sme_grants: 0.22           # Ring-fenced SME transition support
+      grid_upgrades: 0.25        # DNO reinforcement for HGV charging nodes
+
+  - type: grid_capacity
+    limit: 5000                  # MW — HGV fleet peak charging demand
+    warning_threshold: 0.78
+
+  - type: deployment_rate
+    limit: 100                   # Infrastructure sites per scenario
+    warning_threshold: 0.90
+
+feedback_loops:
+  - name: two_track_technology_divergence
+    description: |
+      Battery and hydrogen are not competing — they serve different use cases.
+      Battery: depot-return fleets under 400km/day (Tesco DC-to-store, DHL urban)
+      Hydrogen: 44t artic long-haul over 400km/day (port-to-port, M1 corridor)
+      Policy must fund both tracks simultaneously. Backing only one risks
+      stranding either the 2035 (<26t) or 2040 (all HGV) mandate.
+    variables: [battery_range_km, hydrogen_refuelling_stations, route_distance, mode_choice]
+    loop_type: positive
+    strength: 1.2
+
+  - name: sme_cost_exposure
+    description: |
+      Large operators (DHL, Amazon, Tesco) access bulk discounts, fleet
+      finance, and government ZEHID grants first. SME hauliers (~80% of
+      UK freight operators) face full TCO premium without access to cheap
+      capital or bulk procurement. Without ring-fenced SME support, the
+      mandate could concentrate freight in a few large operators —
+      an unintended market structure consequence of the decarbonisation policy.
+    variables: [sme_capital_cost, large_operator_tco, market_concentration, sme_exit_rate]
+    loop_type: negative
+    strength: 1.5
+
+  - name: mcs_deployment_bottleneck
+    description: |
+      Megawatt charging sites require 2-5MW grid connections, planning
+      permission at motorway service areas, and new hardware standards.
+      Current estimate: 40 sites needed by 2035, 0 fully operational now.
+      At 6-18 month grid connection timescales, all sites must be in
+      planning by 2028 to be operational by 2033. The 2035 mandate
+      for <26t requires MCS at scale by 2033. This timeline has no slack.
+    variables: [mcs_sites_operational, grid_connection_queue, mandate_year, feasibility]
+    loop_type: negative
+    strength: 2.0               # Highest-strength bottleneck in this scenario
+
+  - name: hydrogen_chicken_and_egg
+    description: |
+      Only 16 hydrogen refuelling stations exist. Operators won't buy
+      hydrogen HGVs without refuelling network. Manufacturers won't
+      invest in production without orders. Government must break the
+      standoff with anchor demand — analogous to LNG shipping,
+      where the first 5 buyers were government-backed.
+    variables: [h2_stations, h2_hgv_orders, manufacturer_investment, h2_price]
+    loop_type: positive
+    strength: 1.8
+
+expected_outcomes:
+  battery_hgv_adoption_26t: 0.65    # <26t: battery viable by 2035
+  hydrogen_hgv_adoption_44t: 0.25   # 44t: hydrogen emerging but lagging
+  diesel_hgv_reduction: 0.50        # 50% fleet reduction by 2035
+  mcs_sites_deployed: 35            # Near target of 40 (90% delivery)
+  hydrogen_stations_deployed: 18    # Doubled from 16 (still insufficient)
+  sme_operator_exit_rate: 0.12      # 12% SME exit — unintended consequence
+
+  policy_finding: |
+    The 2035 mandate is achievable for <26t battery HGV if MCS deployment
+    starts immediately. The 2040 mandate for 44t artic requires hydrogen
+    refuelling at scale — which needs government anchor demand commitment
+    now, not in 2030. Without ring-fenced SME support, the mandate
+    accelerates market concentration in 3-5 large logistics operators.
+    The lowest public cost path: £2.5bn public investment levering
+    £8bn private sector co-investment (4:1 leverage ratio, based on
+    ZEHID programme precedent).
+
+dft_talking_points:
+  - "Battery and hydrogen are not competing for the same market. Policy
+     must fund both simultaneously — betting on one technology risks
+     the other mandate date."
+  - "Megawatt Charging Standard deployment is the binding constraint on
+     the 2035 mandate. All 40 sites must enter planning by 2028.
+     That is a decision point in 2026."
+  - "80% of UK freight operators are SMEs. The ZEHID programme reaches
+     large operators first. Ring-fencing 22% of the budget for SMEs
+     is not charitable policy — it is market structure policy."
+  - "Hydrogen has a chicken-and-egg problem that government must break.
+     5 anchor government fleet commitments (NHS supply chain, Royal Mail,
+     Network Rail maintenance) would unlock manufacturer investment."
+
+metadata:
+  policy_area: hgv_zero_emission
+  phase_out_dates:
+    sub_26t_year: 2035
+    all_hgv_year: 2040
+  tco_parity_estimates:
+    small_rigid_year: "mid-to-late 2020s"
+    large_artic_year: "early 2030s"
+  zehid_programme:
+    government_investment_gbp: 200000000
+    target_hgvs: 370
+    target_sites: 57
+  hydrogen_refuelling_stations_current: 16
+  ev_chargepoints_current: 88000
+  data_sources:
+    - "DfT HGV CO2 emissions regulatory framework consultation, Jan 2026"
+    - "Oxford Energy: ZEHID programme, Oct 2023"
+    - "HyHAUL: Protium, £31.8M M4 corridor hydrogen project"
+    - "BP ZEN Freight: 100 ZE HGVs, M1/M6 corridor"
+    - "RHA / Forecourt Trader: industry concern on mandate design, Feb 2026"
