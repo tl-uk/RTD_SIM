@@ -1,0 +1,410 @@
+# agent/job_contexts/fleet_operators.yaml
+#
+# Fleet operator job contexts for logistics, retail, and public sector fleets.
+# These stubs support DfT stakeholder demonstrations showing how large fleet
+# operators interact with decarbonisation policy, charging infrastructure,
+# and the grid.
+#
+# Fleet categories:
+#   LOGISTICS:   DHL, Amazon, Hermes-style last-mile and hub operations
+#   RETAIL:      Tesco, Sainsbury's, ASDA distribution to stores
+#   HEALTHCARE:  NHS patient transport, ambulance support, staff fleet
+#
+# TODO Phase 10b: Create FleetOperatorAgent class with:
+#   - Depot-anchored origin (fixed lat/lon from config)
+#   - Fleet-level charging schedule optimisation
+#   - Policy compliance tracking (ZEZ, LEZ, ULEZ)
+#   - Route consolidation across multiple agents of same fleet type
+
+
+# ── LOGISTICS FLEET ──────────────────────────────────────────────────────────
+
+logistics_hub_to_hub:
+  context: When moving consolidated freight between logistics hubs (trunk haul)
+  goal: I want maximum load efficiency on fixed trunk routes between depots
+  outcome: So network utilisation is maximised and cost per unit minimised
+  job_type: freight
+  time_window:
+    start: 0
+    end: 23
+    flexibility: medium
+    overnight_preferred: true
+  destination_type: logistics_hub
+  typical_distance_km:
+    - 100
+    - 500
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: medium
+    operator_type: logistics
+    operator_examples:
+      - DHL
+      - Amazon Logistics
+      - Hermes / Evri
+      - Royal Mail
+      - DPD
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+      - hgv_hydrogen
+    # TODO Phase 10b: add freight_rail for distances > 200km
+  plan_context:
+    - Overnight trunk runs reduce daytime congestion and improve journey times
+    - Electric HGV range (300km) suits many UK trunk routes
+    - Hydrogen becoming viable for longer trunk routes (400–500km)
+    - Driver hours regulations constrain continuous driving to 4.5 hours
+    - Megawatt charging (MCS) at hubs enables 30-minute rapid top-up
+    - ZEZ surcharges increasingly affecting urban delivery legs
+  csv_columns:
+    required:
+      - depot_origin_lat
+      - depot_origin_lon
+      - depot_dest_lat
+      - depot_dest_lon
+    optional:
+      - load_kg
+      - operator_name
+      - driver_id
+      - overnight_flag
+
+
+logistics_last_mile_urban:
+  context: When delivering parcels on urban last-mile routes from a micro-depot
+  goal: I want maximum stops per hour in urban areas within zero-emission zones
+  outcome: So we meet next-day delivery commitments and comply with ZEZ rules
+  job_type: delivery
+  delivery_params:
+    num_stops:
+      - 40
+      - 120
+    stop_duration_min:
+      - 2
+      - 5
+    dynamic_routing: true
+    route_optimization: maximize_deliveries_per_hour
+  time_window:
+    start: 8
+    end: 18
+    flexibility: low
+  destination_type: multiple_urban
+  typical_distance_km:
+    - 20
+    - 80
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: normal
+    recurring: true
+    urgency: medium
+    zero_emission_zone: true
+    operator_type: logistics
+  vehicle_constraints:
+    preferred_modes:
+      - van_electric
+      - cargo_bike
+      - van_diesel    # fallback where ZEZ not yet enforced
+  plan_context:
+    - Urban ZEZ enforcement driving rapid van electrification
+    - Cargo bike viable for <5km dense urban areas (inner Edinburgh, Glasgow city)
+    - Electric van range (150–200km) adequate for most urban last-mile routes
+    - Micro-depots (converted car parks, rail arches) enabling cargo bike hubs
+    - Failed delivery costs are high — first-attempt rate critical
+    - SafeDelivery apps reducing failed deliveries through real-time comms
+  csv_columns:
+    required:
+      - micro_depot_lat
+      - micro_depot_lon
+    optional:
+      - zone_id
+      - stop_count
+      - vehicle_type
+
+
+# ── RETAIL FLEET ─────────────────────────────────────────────────────────────
+
+retail_dc_to_store:
+  context: When delivering ambient and chilled goods from distribution centre to supermarkets
+  goal: I want reliable timed delivery to stores within strict receiving windows
+  outcome: So shelves are stocked, food waste minimised, and penalties avoided
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 1
+      - 5
+    stop_duration_min:
+      - 30
+      - 90
+    temperature_controlled: sometimes
+    delivery_window_enforced: true
+  time_window:
+    start: 5
+    end: 22
+    flexibility: low
+    receiving_window_strict: true
+  destination_type: retail_store
+  typical_distance_km:
+    - 20
+    - 200
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: high
+    operator_type: retail
+    operator_examples:
+      - Tesco
+      - Sainsbury's
+      - ASDA
+      - Morrisons
+      - Waitrose / John Lewis
+      - M&S
+      - Co-op
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+      - truck_electric
+      - truck_diesel
+  plan_context:
+    - UK supermarket chains operate 40,000+ HGV movements per day combined
+    - Tesco alone: 2,500 HGVs, 700+ stores — largest private fleet in UK
+    - Receiving windows often 30 minutes — missed window incurs penalty charges
+    - Refrigerated trailers add significant auxiliary power demand to EV range
+    - Depot-to-store distances typically 50–150km — within electric HGV range
+    - Decarbonisation mandated in retailer scope 3 supply chain reporting
+    - Night deliveries (01:00–06:00) increasingly restricted in residential areas
+  csv_columns:
+    required:
+      - dc_lat
+      - dc_lon
+      - store_lat
+      - store_lon
+    optional:
+      - delivery_window_start
+      - delivery_window_end
+      - refrigerated
+      - load_pallets
+
+
+retail_store_collection:
+  context: When collecting reverse logistics (returns, waste, recycling) from stores
+  goal: I want efficient collection that consolidates return loads across stores
+  outcome: So we minimise empty running and meet circular economy commitments
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 3
+      - 10
+    stop_duration_min:
+      - 20
+      - 45
+  time_window:
+    start: 14
+    end: 23
+    flexibility: medium
+  destination_type: multiple_retail_to_dc
+  typical_distance_km:
+    - 30
+    - 200
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: low
+    operator_type: retail
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+      - truck_electric
+  plan_context:
+    - Empty running on outbound legs historically high in retail — being addressed
+    - Returns consolidation reduces total vehicle movements
+    - Food waste collection increasingly time-sensitive (anaerobic digestion)
+    - Electric HGVs reduce noise on evening store-to-DC runs
+  csv_columns:
+    required:
+      - dc_lat
+      - dc_lon
+    optional:
+      - store_list
+      - waste_type
+
+
+# ── HEALTHCARE FLEET (NHS) ────────────────────────────────────────────────────
+
+nhs_patient_transport:
+  context: When transporting non-emergency patients to and from appointments
+  goal: I want to collect patients on time and arrive at hospital without delays
+  outcome: So appointments are kept, patient anxiety minimised, and no wasted slots
+  job_type: service
+  delivery_params:
+    num_stops:
+      - 1
+      - 4
+    stop_duration_min:
+      - 10
+      - 30
+  time_window:
+    start: 7
+    end: 20
+    flexibility: low
+    patient_appointment_critical: true
+  destination_type: hospital_or_clinic
+  typical_distance_km:
+    - 5
+    - 60
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: normal
+    recurring: false
+    urgency: high
+    accessibility_required: true
+    wheelchair_accessible: true
+    operator_type: healthcare
+    operator_examples:
+      - NHS Scotland
+      - NHS England
+      - Welsh Ambulance Service
+      - Patient Transport Service (PTS)
+  vehicle_constraints:
+    preferred_modes:
+      - van_electric
+      - van_diesel
+      - car
+      - ev
+  plan_context:
+    - NHS runs ~7 million non-emergency patient transport trips per year in England alone
+    - Wheelchair accessibility is a hard constraint for many patients
+    - Appointment times are fixed — late arrival wastes clinical resource
+    - NHS decarbonisation target: net zero direct emissions by 2040
+    - EV van conversion now viable for most PTS routes (under 100km)
+    - Charging infrastructure at hospitals a key enabler/constraint
+    - Route optimisation across multiple patients reduces mileage by 25–40%
+  csv_columns:
+    required:
+      - depot_lat
+      - depot_lon
+      - patient_lat
+      - patient_lon
+      - hospital_lat
+      - hospital_lon
+    optional:
+      - appointment_time
+      - wheelchair_required
+      - patient_count
+
+
+nhs_staff_commute:
+  context: When NHS shift staff travel to and from hospitals at all hours
+  goal: I want reliable transport that works around shift patterns including nights
+  outcome: So I arrive ready to care for patients without transport stress
+  job_type: passenger_commute
+  time_window:
+    start: 5
+    end: 23
+    flexibility: low
+    shift_patterns:
+      - '07:00-19:00'
+      - '19:00-07:00'
+      - '08:00-16:00'
+  destination_type: hospital_or_care_facility
+  typical_distance_km:
+    - 3
+    - 25
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: true
+    urgency: high
+    night_travel: true
+    operator_type: healthcare
+  vehicle_constraints:
+    preferred_modes:
+      - car
+      - ev
+      - bus
+      - bike
+      - walk
+  plan_context:
+    - NHS is the UK's largest single employer — 1.3 million staff
+    - Night shift transport is a safety and retention issue
+    - Many NHS sites have on-site EV charging — staff EV adoption higher than average
+    - Active travel to hospital (bike/walk) strongly promoted for wellbeing
+    - Shift handover timing is non-negotiable — cannot be late
+    - Staff parking is limited and costly at urban hospitals
+  csv_columns:
+    required:
+      - home_lat
+      - home_lon
+      - hospital_lat
+      - hospital_lon
+    optional:
+      - shift_start
+      - shift_end
+      - parking_permit
+
+
+nhs_clinical_supplies:
+  context: When delivering pharmaceuticals, blood products, and clinical supplies
+  goal: I want guaranteed cold-chain integrity and on-time delivery to wards
+  outcome: So treatments are available when needed and no clinical incident occurs
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 1
+      - 5
+    stop_duration_min:
+      - 15
+      - 30
+    temperature_controlled: true
+    chain_of_custody: true
+  time_window:
+    start: 6
+    end: 22
+    flexibility: very_low
+    delivery_deadline_critical: true
+  destination_type: hospital_pharmacy_or_ward
+  typical_distance_km:
+    - 5
+    - 150
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: normal
+    recurring: true
+    urgency: critical
+    special_requirements:
+      - temperature_controlled
+      - tracked_gps
+      - chain_of_custody
+    operator_type: healthcare
+  vehicle_constraints:
+    preferred_modes:
+      - van_electric
+      - van_diesel
+  plan_context:
+    - Blood products: 4–6 hours viability window — delay can be fatal
+    - Pharmaceuticals: controlled drug regulations require GPS tracking
+    - NHS Supply Chain delivers to 1,200+ NHS trusts and GP practices
+    - Electric vans viable for most clinical supply routes (under 150km)
+    - Refrigeration load manageable for van_electric on short routes
+    - Emergency escalation path exists — air taxi for critical items
+  csv_columns:
+    required:
+      - pharmacy_depot_lat
+      - pharmacy_depot_lon
+      - hospital_lat
+      - hospital_lon
+    optional:
+      - product_type
+      - temperature_range
+      - urgency_level

@@ -57,12 +57,12 @@ eco_warrior:
   mode_preferences:
     walk: 0.8
     bike: 0.9
-    ebike: 0.85
+    bike:  # was ebike 0.85
     bus: 0.7
-    train: 0.75
+    local_train:  # was train 0.75
     ev: 0.5
-    car_petrol: 0.1
-    car_diesel: 0.1
+    car:  # was car_petrol 0.1
+    car:  # was car_diesel 0.1
 
   plan_hints:
     - "Willing to combine modes (bike + train)"
@@ -114,9 +114,9 @@ concerned_parent:
   mode_preferences:
     walk: 0.8
     bike: 0.7
-    car_ev: 0.6
+    ev:  # was car_ev 0.6
     bus: 0.5
-    car_petrol: 0.3
+    car:  # was car_petrol 0.3
 
   plan_hints:
     - "Route must avoid busy roads when cycling"
@@ -167,9 +167,9 @@ budget_student:
     walk: 0.95
     bike: 0.9
     bus: 0.7
-    train: 0.6
-    ebike: 0.5
-    car_petrol: 0.1
+    local_train:  # was train 0.6
+    bike:  # was ebike 0.5
+    car:  # was car_petrol 0.1
 
   plan_hints:
     - "Willing to walk long distances to save money"
@@ -218,10 +218,10 @@ business_commuter:
     - "Professional appearance on arrival"
 
   mode_preferences:
-    train_first_class: 0.9
-    car_ev: 0.8
-    taxi: 0.7
-    car_petrol: 0.6
+    intercity_train:  # was train_first_class 0.9
+    ev:  # was car_ev 0.8
+    car:  # was taxi 0.7
+    car:  # was car_petrol 0.6
     bus: 0.3
     bike: 0.1
 
@@ -272,10 +272,10 @@ disabled_commuter:
     - "May need assistance boarding"
 
   mode_preferences:
-    accessible_taxi: 0.9
+    car:  # was accessible_taxi 0.9
     accessible_bus: 0.7
-    community_transport: 0.8
-    train: 0.5
+    bus:  # was community_transport 0.8
+    local_train:  # was train 0.5
     bike: 0.0
     walk: 0.2
 
@@ -326,10 +326,10 @@ rural_resident:
     - "Weather conditions affect travel"
 
   mode_preferences:
-    car_petrol: 0.8
-    car_ev: 0.7
+    car:  # was car_petrol 0.8
+    ev:  # was car_ev 0.7
     bus: 0.4
-    community_transport: 0.6
+    bus:  # was community_transport 0.6
     bike: 0.3
     walk: 0.2
 
@@ -380,9 +380,9 @@ shift_worker:
     - "Safety concerns in dark hours"
 
   mode_preferences:
-    car_petrol: 0.8
-    car_ev: 0.75
-    taxi: 0.6
+    car:  # was car_petrol 0.8
+    ev:  # was car_ev 0.75
+    car:  # was taxi 0.6
     bus: 0.4
     bike: 0.2
     walk: 0.1
@@ -434,12 +434,12 @@ tourist:
     - "Limited local knowledge"
 
   mode_preferences:
-    train: 0.9
+    local_train:  # was train 0.9
     bus: 0.8
     bike: 0.7
     walk: 0.85
-    tour_bus: 0.6
-    rental_ev: 0.5
+    bus:  # was tour_bus 0.6
+    ev:  # was rental_ev 0.5
 
   plan_hints:
     - "Prefers scenic routes over fastest"
@@ -497,10 +497,10 @@ freight_operator:
     - "Driver hours regulations"
 
   mode_preferences:
-    ev_truck: 0.8
-    diesel_truck: 0.4
-    rail_freight: 0.6
-    multimodal: 0.5
+    truck_electric:  # was ev_truck 0.8
+    truck_diesel:  # was diesel_truck 0.4
+    local_train:  # was rail_freight 0.6
+    bus:  # was multimodal 0.5
 
   plan_hints:
     - "Optimize routes for fuel/charge efficiency"
@@ -555,10 +555,10 @@ delivery_driver:
     - "Customer ratings affect future work"
 
   mode_preferences:
-    ebike: 0.8
-    scooter_electric: 0.75
-    car_petrol: 0.6
-    car_ev: 0.5
+    bike:  # was ebike 0.8
+    e_scooter:  # was scooter_electric 0.75
+    car:  # was car_petrol 0.6
+    ev:  # was car_ev 0.5
     bike: 0.4
 
   plan_hints:
@@ -621,12 +621,12 @@ retired_commuter:
     - "May avoid transport at very late hours"
 
   mode_preferences:
-    train: 0.85
+    local_train:  # was train 0.85
     bus: 0.8
     walk: 0.7
-    car_petrol: 0.45
-    car_ev: 0.5
-    taxi: 0.5
+    car:  # was car_petrol 0.45
+    ev:  # was car_ev 0.5
+    car:  # was taxi 0.5
     bike: 0.3
 
   plan_hints:
@@ -682,11 +682,11 @@ frequent_driver:
     - "Needs to carry family and cargo regularly"
 
   mode_preferences:
-    car_petrol: 0.85
-    car_ev: 0.75
-    car_diesel: 0.65
+    car:  # was car_petrol 0.85
+    ev:  # was car_ev 0.75
+    car:  # was car_diesel 0.65
     bus: 0.25
-    train: 0.35
+    local_train:  # was train 0.35
     bike: 0.15
     walk: 0.2
 
@@ -744,12 +744,12 @@ elderly_non_driver:
 
   mode_preferences:
     bus: 0.85
-    community_transport: 0.9
-    accessible_taxi: 0.75
-    train: 0.55
+    bus:  # was community_transport 0.9
+    car:  # was accessible_taxi 0.75
+    local_train:  # was train 0.55
     walk: 0.35
     bike: 0.0
-    car_petrol: 0.0
+    car:  # was car_petrol 0.0
 
   plan_hints:
     - "Relies on concessionary bus pass"
@@ -809,10 +809,10 @@ long_distance_commuter:
     - "Long walking distances at either end are impractical"
 
   mode_preferences:
-    train: 0.95
-    car_ev: 0.5
+    local_train:  # was train 0.95
+    ev:  # was car_ev 0.5
     bus: 0.3
-    car_petrol: 0.2
+    car:  # was car_petrol 0.2
     bike: 0.2
 
   plan_hints:
@@ -867,9 +867,9 @@ island_resident:
     - "Car essential on island — no alternative for local trips"
 
   mode_preferences:
-    ferry: 0.95
-    car_petrol: 0.8
-    car_ev: 0.6
+    ferry_diesel:  # was ferry 0.95
+    car:  # was car_petrol 0.8
+    ev:  # was car_ev 0.6
     bus: 0.3
     walk: 0.4
     bike: 0.35
@@ -926,11 +926,11 @@ business_traveler:
     - "Professional appearance and connectivity required throughout"
 
   mode_preferences:
-    train_first_class: 0.9
+    intercity_train:  # was train_first_class 0.9
     flight: 0.75
-    car_ev: 0.6
-    taxi: 0.7
-    car_petrol: 0.45
+    ev:  # was car_ev 0.6
+    car:  # was taxi 0.7
+    car:  # was car_petrol 0.45
     bus: 0.1
 
   plan_hints:
@@ -987,11 +987,11 @@ accessibility_user:
     - "May require pre-booking of accessible vehicle or space"
 
   mode_preferences:
-    accessible_taxi: 0.88
-    community_transport: 0.85
+    car:  # was accessible_taxi 0.88
+    bus:  # was community_transport 0.85
     tram: 0.9
     accessible_bus: 0.75
-    train: 0.6
+    local_train:  # was train 0.6
     walk: 0.15
     bike: 0.0
 
@@ -1048,13 +1048,13 @@ tourist_visitor:
     - "Language/app barriers may complicate ticketing"
 
   mode_preferences:
-    train: 0.95
+    local_train:  # was train 0.95
     bus: 0.85
-    ferry: 0.8
+    ferry_diesel:  # was ferry 0.8
     walk: 0.8
     bike: 0.6
-    rental_ev: 0.3
-    taxi: 0.4
+    ev:  # was rental_ev 0.3
+    car:  # was taxi 0.4
 
   plan_hints:
     - "Uses rail passes for flexibility and value"

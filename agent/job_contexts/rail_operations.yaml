@@ -1,0 +1,283 @@
+# agent/job_contexts/rail_operations.yaml
+#
+# Rail operator job contexts for freight and passenger operations.
+# Rail is the highest-leverage modal shift intervention for UK decarbonisation:
+#   - Rail freight: 76g CO2/tonne-km vs 89g for HGV
+#   - Passenger rail: 6g CO2/passenger-km vs 171g for car
+#
+# TODO Phase 10b: freight_rail and passenger_rail require new mode strings
+# added to simulation/config/modes.py MODES registry and bdi_planner routes.
+# Until then, these stubs use the closest available proxy modes with a
+# # TODO marker. The stubs run without errors using proxy modes.
+#
+# Rail operators in scope:
+#   FREIGHT:   DB Cargo UK, Freightliner, GB Railfreight, DRS (Direct Rail Services)
+#   PASSENGER: ScotRail, Avanti, LNER, TransPennine, CrossCountry, Network Rail
+#   MULTIMODAL: Rail freight terminals — DIRFT, Daventry, Grangemouth, Mossend
+
+
+# ── RAIL FREIGHT OPERATIONS ──────────────────────────────────────────────────
+
+rail_freight_intermodal:
+  context: When moving intermodal containers by rail between freight terminals
+  goal: I want reliable rail transit times that make rail competitive with road on cost
+  outcome: So shippers choose rail over HGV, reducing emissions and road congestion
+  job_type: rail_freight
+  time_window:
+    start: 0
+    end: 23
+    flexibility: medium
+    path_dependent: true     # train paths allocated by Network Rail
+  destination_type: rail_freight_terminal
+  typical_distance_km:
+    - 100
+    - 800
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight  # proxy until freight_rail type added
+    priority: normal
+    recurring: true
+    urgency: medium
+    modal: rail
+    operator_examples:
+      - DB Cargo UK (largest rail freight operator)
+      - Freightliner (intermodal specialist)
+      - GB Railfreight (energy + intermodal)
+      - DRS (nuclear + intermodal, Network Rail subsidiary)
+    terminal_examples:
+      - DIRFT (Daventry — largest rail freight terminal, 3M sq ft)
+      - Grangemouth (Scotland — Forth Ports rail connection)
+      - Mossend (Euroterminal, Scotland)
+      - Trafford Park (Manchester)
+      - Felixstowe South (rail-connected to port)
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric  # proxy — TODO Phase 10b: replace with freight_rail
+      - hgv_diesel    # fallback proxy
+    # TODO Phase 10b: add freight_rail mode with:
+    #   network: 'rail', emissions_g_km: 35 (electrified), 76 (diesel traction)
+    #   speed: 75km/h average, path_dependent: true
+  plan_context:
+    - UK rail freight: 17B tonne-km/yr, ~8% of freight moved (significantly below EU average)
+    - DfT modal shift target: double rail freight by 2050
+    - Electrification critical: 38% of freight still on diesel traction
+    - HS2 Phase 1 releases Classic mainline capacity for freight
+    - Grangemouth–Daventry corridor: key Scottish–English intermodal route
+    - Network Rail gauge enhancement programme: W12 loading gauge unlocks more routes
+    - Rail freight CO2 advantage erodes if diesel traction remains high
+  csv_columns:
+    required:
+      - origin_terminal_lat
+      - origin_terminal_lon
+      - dest_terminal_lat
+      - dest_terminal_lon
+    optional:
+      - operator
+      - train_path_id
+      - container_count
+      - traction_type
+
+
+rail_freight_bulk:
+  context: When moving bulk commodities (aggregates, biomass, automotive) by rail
+  goal: I want reliable block train services supporting just-in-time industrial supply
+  outcome: So industrial customers receive materials on schedule with low emissions
+  job_type: rail_freight
+  time_window:
+    start: 0
+    end: 23
+    flexibility: medium
+  destination_type: industrial_siding_or_terminal
+  typical_distance_km:
+    - 50
+    - 600
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: medium
+    modal: rail
+    operator_examples:
+      - DB Cargo UK (coal, aggregate, automotive)
+      - GB Railfreight (biomass for Drax, aggregates)
+      - Freightliner Heavy Haul (aggregates, coal)
+    commodity_examples:
+      - Aggregates (Mendip quarries to London)
+      - Biomass (Immingham to Drax Power Station)
+      - Automotive (Southampton to logistics parks)
+      - Nuclear (DRS: fuel and waste movements)
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_diesel    # proxy — TODO Phase 10b: replace with freight_rail
+    # TODO Phase 10b: freight_rail mode
+  plan_context:
+    - Aggregates: rail carries 60% of all construction aggregates in SE England
+    - Biomass: Drax receives 13M tonnes/yr via rail — largest single rail freight flow
+    - Automotive: LENA terminal Southampton handles JLR/BMW vehicle distribution
+    - Nuclear: DRS moves all UK nuclear fuel and waste — zero road alternative
+    - Decarbonisation challenge: bulk rail still largely diesel-hauled
+  csv_columns:
+    required:
+      - loading_point_lat
+      - loading_point_lon
+      - destination_lat
+      - destination_lon
+    optional:
+      - commodity
+      - tonnage
+      - frequency_per_week
+
+
+rail_freight_terminal_drayage:
+  context: When collecting or delivering containers at a rail freight terminal by HGV
+  goal: I want fast turnaround at the terminal to stay within train window
+  outcome: So rail-road transfer is seamless and the supply chain stays on schedule
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 1
+      - 3
+    stop_duration_min:
+      - 30
+      - 60
+    container_handling: true
+  time_window:
+    start: 5
+    end: 22
+    flexibility: low
+    train_window_dependent: true
+  destination_type: rail_terminal_to_warehouse
+  typical_distance_km:
+    - 5
+    - 80
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: high
+    modal: road_rail_multimodal
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+  plan_context:
+    - Terminal drayage is the last mile of the rail intermodal chain
+    - Electric HGVs ideal — short distances, depot return for overnight charging
+    - DIRFT, Grangemouth, and Mossend all within 50km of major DC clusters
+  csv_columns:
+    required:
+      - terminal_lat
+      - terminal_lon
+      - warehouse_lat
+      - warehouse_lon
+    optional:
+      - container_id
+      - train_arrival_time
+
+
+# ── PASSENGER RAIL OPERATIONS ────────────────────────────────────────────────
+
+commuter_rail_journey:
+  context: When using commuter rail for daily work journeys in an urban rail network
+  goal: I want reliable, punctual rail service that replaces car use for commuting
+  outcome: So I arrive on time and contribute to reduced road congestion and emissions
+  job_type: passenger_transit
+  time_window:
+    start: 6
+    end: 10
+    flexibility: low
+    peak_hours: true
+  destination_type: city_centre_station
+  typical_distance_km:
+    - 15
+    - 60
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    priority: normal
+    recurring: true
+    urgency: high
+    modal: rail
+    operator_examples:
+      - ScotRail (Scottish central belt suburban network)
+      - Thameslink (London commuter rail)
+      - TransPennine Express (northern England)
+      - Avanti West Coast (inter-urban)
+      - LNER (East Coast Main Line)
+  vehicle_constraints:
+    preferred_modes:
+      - intercity_train
+      - local_train
+      - bus             # fallback for disruption
+      - car             # car as last resort
+      - ev
+  plan_context:
+    - Scotland: ScotRail carries 96M passengers/yr (pre-pandemic), 87% electrified network
+    - LNER East Coast Main Line: Edinburgh–London in 4h25 — competitive with air <400km
+    - Avanti: Manchester–London — HS2 Phase 1 will reduce to 49 min
+    - Demand management (peak pricing) modelled in PolicyAgent
+    - Disruption modelling: signal failure, weather, infrastructure faults
+    - Demand responsive services for rural stations (DRT)
+  csv_columns:
+    required:
+      - home_station_lat
+      - home_station_lon
+      - dest_station_lat
+      - dest_station_lon
+    optional:
+      - season_ticket
+      - operator
+
+
+rail_multimodal_transfer:
+  context: When passengers transfer between rail and another mode at a major station
+  goal: I want seamless connection between train and bus/tram/bike within station
+  outcome: So the end-to-end journey is completed without missing connections
+  job_type: passenger_transit
+  time_window:
+    start: 6
+    end: 22
+    flexibility: low
+    connection_time_min: 8    # minimum viable transfer time
+  destination_type: station_interchange
+  typical_distance_km:
+    - 0.5
+    - 5     # transfer leg within station/interchange
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    priority: normal
+    recurring: true
+    urgency: high
+    multi_stage: true
+    modal: multimodal
+    station_examples:
+      - Edinburgh Waverley (rail to tram, bus)
+      - Glasgow Central (rail to subway, bus)
+      - Birmingham New Street (rail to metro, bus)
+      - Leeds (rail to bus rapid transit)
+      - Manchester Piccadilly (rail to Metrolink tram)
+  vehicle_constraints:
+    preferred_modes:
+      - walk
+      - tram
+      - bus
+      - bike
+      - e_scooter
+  plan_context:
+    - Interchange quality determines whether multimodal journeys are viable
+    - Edinburgh tram connects Waverley to airport — key modal shift opportunity
+    - Glasgow Subway: 15 stations, 10.5km — connects to Central Station
+    - Active travel integration (bike parking, hire schemes) growing at stations
+    - Real-time connection information critical for passenger confidence
+  csv_columns:
+    required:
+      - arrival_platform_lat
+      - arrival_platform_lon
+      - departure_stop_lat
+      - departure_stop_lon
+    optional:
+      - connection_mode
+      - minimum_connection_minutes

@@ -1,0 +1,426 @@
+# agent/job_contexts/port_operations.yaml
+#
+# Port operator job contexts for the UK's major commercial ports.
+# These stubs model freight and passenger movements at each port type,
+# enabling RTD_SIM to simulate port decarbonisation scenarios for DfT.
+#
+# UK port taxonomy used:
+#   CONTAINER:   Felixstowe, Southampton, Liverpool, London Tilbury, Grangemouth
+#   RO-RO:       Dover, Rosyth, Portsmouth, Pembroke
+#   BULK:        Immingham, Port Talbot, Grimsby
+#   ENERGY:      Aberdeen (energy transition), Leith (renewables), Grangemouth
+#   CRUISE:      Southampton, Dover, Liverpool, Leith
+#   AGRI/BULKS:  Rosyth (Forth Ports), Grangemouth, Liverpool
+#
+# Port operator examples:
+#   Forth Ports: Grangemouth (container), Leith (renewables/urban logistics),
+#                Rosyth (agri-bulks, RoRo), Methil, Burntisland
+#   ABP:         Southampton, Immingham, Hull, King's Lynn
+#   Peel Ports:  Liverpool, Clydeport (Glasgow), Heysham
+#   DP World:    London Gateway, Southampton
+#   Port of Dover Authority: Dover
+#   Port of London Authority: Tilbury, London
+#
+# TODO Phase 10b: Create PortOperatorAgent class with:
+#   - Fixed berth/terminal origin
+#   - Tidal/schedule constraints for ship arrivals
+#   - Shore power availability as infrastructure variable
+#   - Grid capacity as a hard constraint (Ditto live channel)
+
+
+# ── CONTAINER PORT OPERATIONS ─────────────────────────────────────────────────
+
+container_terminal_drayage:
+  context: When moving containers between a container terminal and inland warehouses
+  goal: I want rapid port turnaround to minimise dwell time and avoid storage charges
+  outcome: So containers clear port quickly and supply chain velocity is maintained
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 1
+      - 3
+    stop_duration_min:
+      - 45
+      - 120
+    container_handling: true
+    port_access_permit: true
+  time_window:
+    start: 0
+    end: 23
+    flexibility: low
+    port_window_dependent: true
+  destination_type: port_to_warehouse
+  typical_distance_km:
+    - 5
+    - 300
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: high
+    port_type: container
+    port_examples:
+      - Felixstowe (UK's largest container port, 4M TEU/yr)
+      - Southampton (3M TEU/yr, cruise + container)
+      - Liverpool (0.7M TEU/yr, Irish Sea gateway)
+      - Grangemouth (Forth Ports, Scottish container hub)
+      - Tilbury/London Gateway (Thames estuary)
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+      - hgv_hydrogen
+    # TODO Phase 10b: add freight_rail for rail-connected container terminals
+    # Felixstowe, Grangemouth, and Southampton all have rail connections
+  plan_context:
+    - Port drayage is the first/last mile of global supply chains
+    - Felixstowe handles 36% of UK container throughput
+    - Electric HGV charging at port is viable — shore power infrastructure exists
+    - Clean Air Zones around major ports incentivising electric drayage
+    - Rail modal shift target: 25% of inland container moves by 2030
+    - Stack height regulations limit container stacking near residences
+    - Port community systems (PCS) coordinate arrival windows
+  csv_columns:
+    required:
+      - terminal_gate_lat
+      - terminal_gate_lon
+      - warehouse_lat
+      - warehouse_lon
+    optional:
+      - container_id
+      - booking_reference
+      - weight_tonnes
+
+
+# ── RO-RO PORT OPERATIONS ────────────────────────────────────────────────────
+
+dover_roro_outbound:
+  context: When driving a loaded HGV onto a Dover–Calais/Dunkirk RoRo ferry
+  goal: I want to make my booked sailing without delays at passport control or freight check
+  outcome: So I cross Channel on schedule and maintain continental delivery commitments
+  job_type: multimodal_freight
+  time_window:
+    start: 0
+    end: 23
+    flexibility: very_low
+    ferry_schedule_dependent: true
+    booking_reference_required: true
+  destination_type: roro_terminal
+  typical_distance_km:
+    - 10
+    - 400       # approach leg from UK origin to Dover
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: high
+    ferry_dependent: true
+    port_type: roro
+    port_examples:
+      - Dover (33% of UK-EU RoRo, 10,000+ vehicles/day)
+      - Rosyth (Forth Ports, RoRo to Zeebrugge)
+      - Portsmouth (Continental Ferry Port)
+      - Pembroke (Irish Ferries)
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+      - hgv_hydrogen
+      - ferry_diesel   # the ferry leg itself
+      - ferry_electric # TODO: P&O/DFDS electric ferries coming online 2026–2028
+  plan_context:
+    - Dover is the world's busiest RoRo port — 10,500 freight vehicles/day
+    - Missing a sailing = 1.5–3 hour delay to next available slot
+    - Port electrification: 25MW shore power at berth needed for electric ferries
+    - Post-Brexit customs adds 30–45 minutes average at Dover
+    - Electric HGVs: SoC at Dover must account for ferry crossing (no charging aboard)
+    - DFDS and P&O trialling battery-electric ferries on short-sea routes
+    - IMO 2050 targets driving ferry operator decarbonisation planning
+  csv_columns:
+    required:
+      - origin_depot_lat
+      - origin_depot_lon
+      - dover_terminal_lat
+      - dover_terminal_lon
+    optional:
+      - sailing_time
+      - booking_ref
+      - continental_destination
+
+
+rosyth_roro_freight:
+  context: When loading vehicles and freight onto Rosyth–Zeebrugge RoRo service
+  goal: I want reliable short-sea shipping as an alternative to Dover for Scottish freight
+  outcome: So Scottish exporters access European markets with lower road mileage
+  job_type: multimodal_freight
+  time_window:
+    start: 0
+    end: 23
+    flexibility: very_low
+    ferry_schedule_dependent: true
+  destination_type: roro_terminal
+  typical_distance_km:
+    - 10
+    - 300
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: high
+    ferry_dependent: true
+    port_type: roro
+    coastal_route: true
+    port_examples:
+      - Rosyth (Forth Ports) — RoRo to Zeebrugge, agri-bulks, project cargo
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+      - ferry_diesel
+  plan_context:
+    - Rosyth–Zeebrugge avoids 500km of English road mileage vs Dover routing
+    - Significant CO2 saving for Scottish freight operators — key DfT argument
+    - Port of Rosyth also handles agri-bulk and project cargo (wind turbine components)
+    - Leith (Edinburgh) handles urban logistics and renewable energy components
+    - Grangemouth: Scotland's largest container port — rail-connected to Central Belt
+  csv_columns:
+    required:
+      - origin_lat
+      - origin_lon
+      - rosyth_terminal_lat
+      - rosyth_terminal_lon
+    optional:
+      - cargo_type
+      - sailing_time
+
+
+# ── BULK PORT OPERATIONS ─────────────────────────────────────────────────────
+
+bulk_port_outbound:
+  context: When loading bulk cargo (coal, grain, aggregates, chemicals) onto bulk carriers
+  goal: I want efficient loading within vessel laytime to avoid demurrage penalties
+  outcome: So vessel turns around within contracted window and export schedule is met
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 1
+      - 2
+    stop_duration_min:
+      - 120
+      - 480
+    loading_equipment: continuous_conveyor
+  time_window:
+    start: 0
+    end: 23
+    flexibility: low
+    laytime_critical: true
+  destination_type: bulk_berth
+  typical_distance_km:
+    - 20
+    - 300
+  parameters:
+    vehicle_required: true
+    vehicle_type: heavy_freight
+    priority: normal
+    recurring: true
+    urgency: high
+    port_type: bulk
+    port_examples:
+      - Immingham (ABP — UK's largest port by tonnage, 55M tonnes/yr)
+      - Grangemouth (petrochemicals, bulk)
+      - Port Talbot (iron ore, coal for steelworks)
+      - Aberdeen (energy transition — decommissioning cargo)
+  vehicle_constraints:
+    preferred_modes:
+      - hgv_electric
+      - hgv_diesel
+      - truck_electric
+      - truck_diesel
+    # TODO Phase 10b: freight_rail — Immingham and Grangemouth both rail-connected
+  plan_context:
+    - Immingham handles 55M tonnes/yr — coal, oil products, bulk
+    - Laytime demurrage: £10,000–50,000/day penalty for slow loading
+    - Heavy bulk haulage: many loads exceed standard HGV limits (special permits)
+    - Aberdeen transitioning from oil support to offshore wind and decommissioning
+    - Leith (Edinburgh): urban logistics hub + offshore renewable energy assembly
+    - Net zero transition will reduce coal/oil volumes but increase renewable materials
+  csv_columns:
+    required:
+      - origin_lat
+      - origin_lon
+      - berth_lat
+      - berth_lon
+    optional:
+      - cargo_type
+      - tonnage
+      - laytime_hours
+
+
+# ── ENERGY PORT OPERATIONS ───────────────────────────────────────────────────
+
+offshore_energy_port:
+  context: When moving energy sector equipment and crew from port to offshore installations
+  goal: I want efficient crew transfer and equipment logistics supporting offshore operations
+  outcome: So offshore platforms remain operational and maintenance is completed on schedule
+  job_type: multimodal_freight
+  time_window:
+    start: 4
+    end: 20
+    flexibility: medium
+    weather_dependent: true
+    tidal_dependent: false
+  destination_type: offshore_support_terminal
+  typical_distance_km:
+    - 5
+    - 50     # port-to-vessel transfer leg
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: normal
+    recurring: true
+    urgency: high
+    port_type: energy
+    port_examples:
+      - Aberdeen (North Sea oil/gas + offshore wind transition)
+      - Leith / Forth Ports (ScotWind offshore assembly hub)
+      - Great Yarmouth (East Anglian offshore wind)
+      - Humberside (Hornsea wind farm support)
+  vehicle_constraints:
+    preferred_modes:
+      - van_electric
+      - van_diesel
+      - car
+      - ev
+      - ferry_diesel    # crew transfer vessel leg
+      - ferry_electric  # hybrid crew transfer vessels now operating
+  plan_context:
+    - Aberdeen: 1,500+ energy companies, 100,000+ employees — transitioning to wind
+    - ScotWind awarded 25GW offshore wind licences in Scottish waters (2022)
+    - Leith positioned as ScotWind manufacturing and O&M hub
+    - Crew Transfer Vessel (CTV) electrification underway — major emissions reduction
+    - Port decarbonisation: shore power, hydrogen bunkering, cold ironing
+    - Aberdeen: 30% of UK oil + gas employment — just transition critical for DfT
+  csv_columns:
+    required:
+      - port_lat
+      - port_lon
+    optional:
+      - installation_id
+      - weather_window
+      - crew_count
+
+
+# ── CRUISE PORT OPERATIONS ───────────────────────────────────────────────────
+
+cruise_passenger_turnaround:
+  context: When cruise passengers embark or disembark at a UK cruise terminal
+  goal: I want smooth passenger flow between city and ship within the turnaround window
+  outcome: So the ship departs on schedule and passengers have a positive experience
+  job_type: passenger_transit
+  time_window:
+    start: 8
+    end: 18
+    flexibility: low
+    ship_departure_critical: true
+  destination_type: cruise_terminal
+  typical_distance_km:
+    - 5
+    - 100
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    priority: normal
+    recurring: false
+    urgency: high
+    luggage_present: true
+    port_type: cruise
+    port_examples:
+      - Southampton (UK's largest cruise port, 2.2M passengers/yr)
+      - Dover (0.8M cruise passengers/yr)
+      - Liverpool (0.25M cruise passengers/yr, growing)
+      - Leith (Edinburgh — gateway for Scottish itineraries)
+  vehicle_constraints:
+    preferred_modes:
+      - bus
+      - car
+      - ev
+      - local_train
+      - intercity_train
+  plan_context:
+    - Southampton: home port for P&O, Cunard, MSC — embarkation day is a logistics challenge
+    - Thousands of passengers arriving over 4-hour window — traffic management critical
+    - Rail connection to Southampton Ocean Terminal reduces car traffic
+    - Shore power (cold ironing) at berth eliminates ship auxiliary engine emissions
+    - Electric shuttle buses between city centre and cruise terminal growing
+    - Cruise sector committed to LNG/hydrogen/ammonia propulsion by 2030s
+  csv_columns:
+    required:
+      - passenger_origin_lat
+      - passenger_origin_lon
+      - terminal_lat
+      - terminal_lon
+    optional:
+      - ship_name
+      - embarkation_time
+      - luggage_count
+
+
+# ── PORT OF LONDON ────────────────────────────────────────────────────────────
+
+port_of_london_barge_transfer:
+  context: When moving cargo via river barge on the Thames — avoiding road congestion
+  goal: I want to utilise the Thames as a freight corridor to reduce road lorry movements
+  outcome: So inner-London deliveries are made with lower emissions and congestion impact
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 2
+      - 8
+    stop_duration_min:
+      - 30
+      - 60
+  time_window:
+    start: 6
+    end: 22
+    flexibility: medium
+    tidal_dependent: true
+  destination_type: river_wharf
+  typical_distance_km:
+    - 5
+    - 80
+  parameters:
+    vehicle_required: false
+    vehicle_type: commercial
+    priority: normal
+    recurring: true
+    urgency: low
+    port_type: river_port
+    coastal_route: true
+    port_examples:
+      - Port of London Authority (PLA) — Tilbury to Teddington
+      - Barking, Dagenham, Erith wharves
+      - Wapping, Chelsea wharves (construction materials)
+  vehicle_constraints:
+    preferred_modes:
+      - ferry_diesel    # river barge/lighter — proxy mode until ferry_barge added
+      - van_electric    # last-mile from riverside wharf
+      - cargo_bike      # urban micro-delivery from wharf
+  plan_context:
+    - Thames can carry 1M+ lorry movements/yr if fully utilised for freight
+    - Aggregate barges already supply 50% of London construction aggregate
+    - PLA freight strategy: triple tonnage to 10M tonnes/yr by 2035
+    - Electric river vessels trialling on Thames — Port of London + CMAL
+    - Combined barge + cargo bike model proven by Hubbub/Gnewt
+    - DfT interest: modal shift from road reduces CO2 and improves air quality
+  csv_columns:
+    required:
+      - origin_wharf_lat
+      - origin_wharf_lon
+      - dest_wharf_lat
+      - dest_wharf_lon
+    optional:
+      - cargo_type
+      - tide_window

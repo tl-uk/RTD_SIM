@@ -1,97 +1,20 @@
 # agent/job_contexts/multimodal.yaml
-# Multimodal job contexts for various travel scenarios involving multiple transport modes
+#
+# Multimodal job contexts — UNIQUE entries only.
+#
+# REORGANISATION NOTE (v2):
+#   The following jobs were MOVED to transit_passenger.yaml (authoritative):
+#     intercity_train_commute, island_ferry_trip, accessible_tram_journey,
+#     tourist_scenic_rail, multi_modal_commute
+#
+#   This file retains only jobs that are NOT defined in transit_passenger.yaml:
+#     business_flight  — high-urgency air travel (business_commuter/business_traveler only)
+#     last_mile_scooter — station-to-destination micro-mobility leg
 
-intercity_train_commute:
-  context: When commuting between cities daily by train
-  goal: I want reliable train service that allows productive travel time
-  outcome: So I maintain work-life balance and avoid driving stress
-  job_type: commute
-  time_window:
-    start: 07:00
-    end: 09:00
-    flexibility: low
-    return_trip: true
-    return_start: '17:00'
-  destination_type: city_office
-  typical_distance_km:
-  - 70
-  - 120
-  parameters:
-    vehicle_required: false
-    recurring: true
-    urgency: medium
-    work_while_traveling: true
-  mode_preferences:
-    preferred:
-    - local_train
-    - intercity_train
-    acceptable:
-    - car
-    - ev
-    avoid:
-    - bike
-    - walk
-  plan_context:
-  - Train delays affect arrival time
-  - Can work on laptop during journey
-  - Station parking may be needed
-  - Season ticket offers savings
-  csv_columns:
-    required:
-    - origin_lat
-    - origin_lon
-    - dest_lat
-    - dest_lon
-    optional:
-    - train_preference
-    - season_ticket
-island_ferry_trip:
-  context: When traveling to/from island via ferry
-  goal: I want reliable ferry service despite weather conditions
-  outcome: So I can access mainland services and maintain connections
-  job_type: island_travel
-  time_window:
-    start: 06:00
-    end: '20:00'
-    flexibility: high
-  destination_type: mainland_town
-  typical_distance_km:
-  - 10
-  - 150
-  parameters:
-    vehicle_required: false
-    recurring: true
-    urgency: medium
-    weather_dependent: true
-    ferry_booking_required: true
-    island_destination: true
-  mode_preferences:
-    required_first_leg:
-    - ferry_diesel
-    - ferry_electric
-    - flight_domestic
-    onward_modes:
-    - bus
-    - car
-    - local_train
-  plan_context:
-  - Ferry schedule is fixed (e.g., 3 sailings/day)
-  - Weather can cancel sailings
-  - Vehicle booking costs extra
-  - May need to stay overnight if ferry canceled
-  csv_columns:
-    required:
-    - island_lat
-    - island_lon
-    - mainland_lat
-    - mainland_lon
-    optional:
-    - ferry_operator
-    - sailing_time
 business_flight:
-  context: When flying for urgent business meeting
-  goal: I want fastest possible travel to maximize work time
-  outcome: So I attend meeting and return same day
+  context: When flying for an urgent business meeting requiring same-day return
+  goal: I want the fastest possible travel to maximise face-time at the meeting
+  outcome: So I attend the meeting and return the same day without overnight stays
   job_type: business_travel
   time_window:
     start: 06:00
@@ -101,137 +24,44 @@ business_flight:
     return_by: '20:00'
   destination_type: city_center
   typical_distance_km:
-  - 300
-  - 900
+    - 300
+    - 900
   parameters:
     vehicle_required: false
+    vehicle_type: personal
+    priority: normal
     recurring: false
     urgency: high
     luggage_minimal: true
-  mode_preferences:
-    preferred:
-    - flight_domestic
-    - intercity_train
-    acceptable:
-    - car
-    - ev
-    avoid:
-    - bus
-    - ferry
+  vehicle_constraints:
+    preferred_modes:
+      - flight_domestic
+      - intercity_train
+      - car
+      - ev
   desire_overrides:
     time: 0.95
     cost: 0.2
   plan_context:
-  - Airport security adds 90+ minutes
-  - Flight faster for long distances
-  - Train competitive under 400km
-  - Same-day return required
+    - Airport security adds 90+ minutes — factor into door-to-door comparison
+    - Intercity train competitive for journeys under 400km
+    - Same-day return is a hard requirement
+    - Freight and van modes entirely inappropriate for this context
   csv_columns:
     required:
-    - origin_lat
-    - origin_lon
-    - dest_lat
-    - dest_lon
+      - origin_lat
+      - origin_lon
+      - dest_lat
+      - dest_lon
     optional:
-    - meeting_time
-    - flexibility
-accessible_tram_journey:
-  context: When traveling as wheelchair user using accessible transport
-  goal: I want guaranteed accessible boarding and space
-  outcome: So I travel independently and with dignity
-  job_type: accessible_travel
-  time_window:
-    start: 09:00
-    end: '17:00'
-    flexibility: medium
-  destination_type: urban
-  typical_distance_km:
-  - 2
-  - 20
-  parameters:
-    vehicle_required: false
-    recurring: true
-    urgency: medium
-    accessibility_required: true
-    wheelchair_accessible: true
-  mode_preferences:
-    preferred:
-    - tram
-    - accessible_bus
-    acceptable:
-    - car
-    - accessible_taxi
-    avoid:
-    - bike
-    - walk
-    - e_scooter
-    - ferry
-    - flight
-  accessibility_requirements:
-    level_boarding: true
-    wheelchair_space: true
-    audio_announcements: true
-  plan_context:
-  - Trams have level boarding (ideal)
-  - Not all buses have working ramps
-  - Crowded vehicles may lack space
-  - Apps don't always show accessibility info
-  csv_columns:
-    required:
-    - origin_lat
-    - origin_lon
-    - dest_lat
-    - dest_lon
-    optional:
-    - accessibility_features
-tourist_scenic_rail:
-  context: When exploring Scotland via scenic rail routes
-  goal: I want beautiful journeys that are environmentally friendly
-  outcome: So travel becomes part of the experience, not just transport
-  job_type: tourism
-  time_window:
-    start: 09:00
-    end: '18:00'
-    flexibility: very_high
-  destination_type: scenic_attraction
-  typical_distance_km:
-  - 50
-  - 250
-  parameters:
-    vehicle_required: false
-    recurring: false
-    urgency: low
-    luggage_present: true
-    scenic_preference: 0.95
-  mode_preferences:
-    preferred:
-    - local_train
-    - intercity_train
-    - ferry_diesel
-    acceptable:
-    - bus
-    - e_scooter
-    avoid:
-    - car
-    - flight_domestic
-  plan_context:
-  - Scenic routes like West Highland Line
-  - Time is not critical, views matter
-  - Prefer window seats
-  - Eco-conscious travel choices
-  csv_columns:
-    required:
-    - origin_lat
-    - origin_lon
-    - dest_lat
-    - dest_lon
-    optional:
-    - scenic_route_name
-    - attractions
+      - meeting_time
+      - flexibility
+
+
 last_mile_scooter:
-  context: When covering last mile from train station to destination
-  goal: I want quick, convenient connection from station
-  outcome: So I complete journey efficiently without needing a car
+  context: When covering the final 1-5km from a train station to the destination
+  goal: I want a quick, convenient connection that avoids waiting for a bus
+  outcome: So I complete my journey door-to-door without needing a car
   job_type: last_mile
   time_window:
     start: 07:00
@@ -239,88 +69,32 @@ last_mile_scooter:
     flexibility: medium
   destination_type: urban_office
   typical_distance_km:
-  - 1
-  - 5
+    - 1
+    - 5
   parameters:
     vehicle_required: false
+    vehicle_type: personal
+    priority: normal
     recurring: true
     urgency: medium
     weather_dependent: true
-  mode_preferences:
-    preferred:
-    - e_scooter
-    - bike
-    - walk
-    acceptable:
-    - tram
-    - bus
-    avoid:
-    - car
-    - ev
+  vehicle_constraints:
+    preferred_modes:
+      - e_scooter
+      - bike
+      - walk
+      - bus
+      - tram
   plan_context:
-  - Train station to office ~2km
-  - Scooter rental available at station
-  - Weather affects scooter viability
-  - Bike share alternative
+    - Trip is a short last-mile leg — rarely more than 3km
+    - E-scooter hire available at many Edinburgh/Glasgow stations
+    - Weather strongly affects willingness to use active modes
+    - Freight modes are entirely inappropriate for last-mile passenger travel
   csv_columns:
     required:
-    - station_lat
-    - station_lon
-    - dest_lat
-    - dest_lon
+      - station_lat
+      - station_lon
+      - dest_lat
+      - dest_lon
     optional:
-    - scooter_available
-multi_modal_commute:
-  context: When combining bike + train + walk for commute
-  goal: I want seamless multi-modal journey
-  outcome: So I commute sustainably and enjoy the variety
-  job_type: commute
-  stages:
-  - stage_id: 1
-    mode:
-    - bike
-    - e_scooter
-    destination: train_station
-    typical_distance_km:
-    - 3
-    - 7
-    bike_parking_required: true
-  - stage_id: 2
-    mode:
-    - local_train
-    destination: city_center_station
-    typical_distance_km:
-    - 40
-    - 80
-  - stage_id: 3
-    mode:
-    - walk
-    - tram
-    - e_scooter
-    destination: workplace
-    typical_distance_km:
-    - 0.5
-    - 3
-  time_window:
-    start: 07:30
-    end: 09:00
-    flexibility: low
-  parameters:
-    vehicle_required: false
-    recurring: true
-    urgency: medium
-    multi_stage: true
-  plan_context:
-  - Bike parking must be available at station
-  - Cannot miss train connection
-  - Weather affects first mile choice
-  - Fold-up bike alternative
-  csv_columns:
-    required:
-    - home_lat
-    - home_lon
-    - work_lat
-    - work_lon
-    optional:
-    - station_lat
-    - station_lon
+      - scooter_available

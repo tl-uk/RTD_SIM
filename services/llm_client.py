@@ -113,14 +113,27 @@ class LLMClient:
         Build from a config dict (e.g. parsed from ingestion.yaml).
 
         Missing keys fall back to _DEFAULTS so a partial config is safe.
+        Timeout is enforced to a minimum of 180s regardless of YAML value —
+        CPU inference on a 13B model can spike to 120s+ under memory pressure.
         """
         olmo = {**_DEFAULTS["olmo"], **config.get("olmo", {})}
         anth = {**_DEFAULTS["anthropic_fallback"], **config.get("anthropic_fallback", {})}
+
+        # Enforce minimum timeout — YAML may have a stale lower value
+        raw_timeout = int(olmo["timeout_s"])
+        effective_timeout = max(raw_timeout, _DEFAULTS["olmo"]["timeout_s"])
+        if effective_timeout != raw_timeout:
+            logger.info(
+                "LLMClient: timeout_s=%d in config overridden to minimum %d "
+                "(CPU OLMo inference can exceed %ds under memory pressure)",
+                raw_timeout, effective_timeout, raw_timeout,
+            )
+
         return cls(
             backend         = config.get("primary_backend", _DEFAULTS["primary_backend"]),
             olmo_url        = olmo["url"],
             olmo_model      = olmo["model"],
-            olmo_timeout    = int(olmo["timeout_s"]),
+            olmo_timeout    = effective_timeout,
             anthropic_model = anth["model"],
         )
 

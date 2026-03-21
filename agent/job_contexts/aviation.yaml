@@ -1,0 +1,250 @@
+# agent/job_contexts/aviation.yaml
+#
+# Aviation job contexts for air cargo and passenger air travel.
+# Aviation represents 7% of UK transport CO2 — high per-journey impact,
+# high public salience, and complex decarbonisation pathway.
+#
+# TODO Phase 10b: flight_domestic mode exists in MODE_MAX_DISTANCE_KM (1000km)
+# but is not yet in default_modes. Add to MODES registry:
+#   'flight_domestic': {'network': 'air', 'emissions_g_km': 255}
+#   'flight_electric': {'network': 'air', 'emissions_g_km': 0}
+#   'air_cargo':       {'network': 'air', 'emissions_g_km': 600}  # high per tonne-km
+#
+# UK airports in scope:
+#   LONDON:    Heathrow (ATW: 80M pax/yr), Gatwick (45M), Stansted (25M), City (5M)
+#   REGIONAL:  Manchester (28M), Edinburgh (14M), Glasgow (9M), Birmingham (12M)
+#   FREIGHT:   East Midlands (500k tonnes/yr — UK's 2nd largest cargo airport)
+#   ISLANDS:   Sumburgh (Shetland), Kirkwall (Orkney), Stornoway — lifeline services
+
+
+# ── AIR PASSENGER ────────────────────────────────────────────────────────────
+
+domestic_air_travel:
+  context: When flying domestically between UK cities for business or leisure
+  goal: I want fast point-to-point travel where rail is slower or unavailable
+  outcome: So I reach my destination efficiently with minimal journey stress
+  job_type: business_travel
+  time_window:
+    start: 6
+    end: 22
+    flexibility: low
+    check_in_buffer_min: 60
+  destination_type: domestic_airport
+  typical_distance_km:
+    - 400
+    - 1000
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: false
+    urgency: high
+    modal: air
+    airport_examples:
+      - Edinburgh–London Heathrow (580km — rail increasingly competitive)
+      - Glasgow–London Gatwick (540km)
+      - Manchester–Edinburgh (340km — rail journey 2h20 vs air 1h10)
+      - Aberdeen–London (800km — air dominant, no viable rail alternative)
+  vehicle_constraints:
+    preferred_modes:
+      - flight_domestic   # primary — TODO Phase 10b: confirm in MODES registry
+      - intercity_train   # modal shift target for <500km journeys
+      - car
+      - ev
+  plan_context:
+    - UK domestic aviation: 25M trips/yr, growing pre-pandemic
+    - Rail modal shift: Scottish Government target to shift Edinburgh–London to rail
+    - Edinburgh–London: HS2 will reduce rail to 3h30 — air competitive challenged
+    - SAF (Sustainable Aviation Fuel) mandate: 10% by 2030, 22% by 2040
+    - Zero-emission short-haul: electric/hydrogen aircraft viable for <500km by 2030s
+    - Aberdeen–London: no rail alternative — strategic lifeline for energy sector
+    - Jet Zero Council: aviation net zero by 2050 (UK government target)
+  csv_columns:
+    required:
+      - origin_airport_lat
+      - origin_airport_lon
+      - dest_airport_lat
+      - dest_airport_lon
+    optional:
+      - airline
+      - flight_number
+      - cabin_class
+
+
+island_lifeline_air:
+  context: When flying to/from Scottish islands where air is the primary or only link
+  goal: I want reliable air service that maintains essential connectivity for island communities
+  outcome: So islanders can access healthcare, education, and employment on the mainland
+  job_type: passenger_transit
+  time_window:
+    start: 7
+    end: 19
+    flexibility: low
+    weather_dependent: true
+    lifeline_service: true
+  destination_type: island_airfield
+  typical_distance_km:
+    - 50
+    - 300
+  parameters:
+    vehicle_required: false
+    vehicle_type: transit
+    priority: normal
+    recurring: true
+    urgency: high
+    modal: air
+    island_destination: true
+    airport_examples:
+      - Sumburgh (Shetland — Loganair daily to Aberdeen, Edinburgh)
+      - Kirkwall (Orkney — Loganair, inter-island services)
+      - Stornoway (Western Isles — Loganair to Edinburgh, Glasgow)
+      - Tiree, Islay, Campbeltown (Loganair lifeline services)
+      - Barra (beach landing — world's only scheduled beach airport service)
+  vehicle_constraints:
+    preferred_modes:
+      - flight_domestic   # non-negotiable for island air links
+      - ferry_diesel      # alternative where ferry route exists
+      - ferry_electric
+      - bus               # ground connection at mainland end
+  plan_context:
+    - Lifeline air services are PSO (Public Service Obligation) routes — subsidised
+    - Loganair operates most Scottish island routes — only viable operator
+    - Zero-emission aircraft: Loganair trialling hydrogen aircraft on Orkney route
+    - Orkney: world's first island community with hydrogen-powered aircraft trial
+    - Just transition: island air connectivity is a social equity issue, not just commercial
+    - DfT: ATISN (Air Transport Intervention for Social Needs) policy framework
+    - Ferry alternative: weather disrupts both — resilience requires both modes
+  csv_columns:
+    required:
+      - island_airfield_lat
+      - island_airfield_lon
+      - mainland_airport_lat
+      - mainland_airport_lon
+    optional:
+      - airline
+      - pso_route
+      - alternative_ferry
+
+
+airport_ground_transfer:
+  context: When travelling between city centre and airport terminal
+  goal: I want a reliable ground connection that gets me to departures on time
+  outcome: So I don't miss my flight and the ground journey is stress-free
+  job_type: passenger_transit
+  time_window:
+    start: 4
+    end: 23
+    flexibility: low
+    buffer_for_checkin_min: 90
+  destination_type: airport_terminal
+  typical_distance_km:
+    - 5
+    - 50
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: false
+    urgency: high
+    luggage_present: true
+    modal: multimodal
+    airport_examples:
+      - Edinburgh Airport (tram link from city centre — 30 min)
+      - Glasgow Airport (bus: 15 min; no rail link)
+      - Heathrow (Elizabeth Line, Piccadilly, Heathrow Express)
+      - Manchester (Metrolink tram directly to terminals)
+      - East Midlands (no rail link — bus only)
+  vehicle_constraints:
+    preferred_modes:
+      - local_train
+      - intercity_train
+      - tram
+      - bus
+      - car
+      - ev
+  plan_context:
+    - Edinburgh tram: 30 min city–airport, £7.50 — mode shift success story
+    - Glasgow Airport: no rail link despite campaign — bus only option (gap in modal provision)
+    - Heathrow: 68% of passengers arrive by public transport
+    - Electric taxi/EV fleet growing at major airports (Heathrow: all-electric by 2030)
+    - Ride-share and electric taxi are growth modes for airport access
+    - Luggage limits cycle/walk options for most passengers
+  csv_columns:
+    required:
+      - city_origin_lat
+      - city_origin_lon
+      - airport_terminal_lat
+      - airport_terminal_lon
+    optional:
+      - terminal_number
+      - flight_time
+      - luggage_count
+
+
+# ── AIR CARGO OPERATIONS ────────────────────────────────────────────────────
+
+air_cargo_express:
+  context: When moving time-critical express cargo via air freight
+  goal: I want next-day delivery of high-value or urgent goods internationally
+  outcome: So time-sensitive supply chains are maintained regardless of distance
+  job_type: air_freight
+  delivery_params:
+    num_stops:
+      - 1
+      - 2
+    stop_duration_min:
+      - 60
+      - 120
+    customs_clearance: true
+    airside_access_required: true
+  time_window:
+    start: 0
+    end: 23
+    flexibility: very_low
+    next_day_delivery: true
+  destination_type: air_cargo_terminal
+  typical_distance_km:
+    - 50
+    - 8000
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: normal
+    recurring: true
+    urgency: critical
+    modal: air_road_multimodal
+    operator_examples:
+      - DHL Aviation
+      - FedEx Europe
+      - UPS Airlines
+      - IAG Cargo (British Airways)
+      - Royal Mail / Parcelforce air network
+    airport_examples:
+      - East Midlands Airport (500k tonnes/yr — UK's 2nd cargo airport)
+      - Stansted (DHL hub — 270k tonnes/yr)
+      - Heathrow (belly cargo + dedicated freighters — 1.5M tonnes/yr)
+      - Glasgow Prestwick (maintenance + cargo)
+  vehicle_constraints:
+    preferred_modes:
+      - van_electric    # landside collection/delivery
+      - van_diesel      # fallback
+    # TODO Phase 10b: add air_cargo mode for the airside leg
+  plan_context:
+    - Air freight: 40% of global trade by value (pharmaceuticals, electronics, perishables)
+    - East Midlands: next-day hub for DHL, UPS — operated 24/7
+    - Belly cargo: 50% of air cargo travels in passenger aircraft holds
+    - SAF mandate applies equally to freighter operations
+    - Electric ground vehicles: all-electric ground support at major airports by 2030
+    - Pharmaceutical cold chain: temperature-controlled air freight growing
+    - Last-mile from airport: electric van fleet now standard for express operators
+  csv_columns:
+    required:
+      - cargo_origin_lat
+      - cargo_origin_lon
+      - cargo_terminal_lat
+      - cargo_terminal_lon
+    optional:
+      - cargo_type
+      - weight_kg
+      - customs_status
+      - delivery_deadline

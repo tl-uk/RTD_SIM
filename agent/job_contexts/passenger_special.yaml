@@ -1,0 +1,275 @@
+# agent/job_contexts/passenger_special.yaml
+#
+# Passenger job contexts for demonstrations to DfT and business stakeholders.
+# These five jobs cover life-context scenarios that illustrate RTD_SIM's
+# relevance across the full population of transport users.
+#
+# Jobs in this file:
+#   school_run_then_work  — morning school drop + onward commute
+#   flexible_leisure      — discretionary trip with no time pressure
+#   airport_transfer      — time-critical journey to/from airport
+#   tourist_exploration   — multi-stop leisure exploration of a city or region
+#   night_shift           — unsociable-hours travel for shift workers
+
+
+school_run_then_work:
+  context: When doing the morning school drop-off before continuing to work
+  goal: I want to get the children to school safely and then reach work on time
+  outcome: So both journeys are completed without stress or lateness
+  job_type: passenger_commute
+  time_window:
+    start: 7
+    end: 9
+    flexibility: low
+    school_start: '08:45'
+    preferred_arrival_work: '09:15'
+  destination_type: school_then_workplace
+  typical_distance_km:
+    - 2
+    - 15
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: true
+    urgency: high
+    interruptible: false
+    children_present: true
+    return_journey: true
+  vehicle_constraints:
+    preferred_modes:
+      - walk
+      - bike
+      - bus
+      - car
+      - ev
+    # Children's safety rules out e_scooter and long cycling in traffic.
+    # Freight modes entirely excluded.
+  plan_context:
+    - Children's safety is the overriding constraint
+    - No mode switches with children in transit
+    - Weather heavily affects willingness to walk/cycle with children
+    - School-gate congestion is a real factor — active modes often faster
+    - After drop-off, a second mode choice may be optimal for onward leg
+    - EV/car favoured in poor weather; bike/walk in good conditions
+    - Parking at school is typically very limited
+  csv_columns:
+    required:
+      - home_lat
+      - home_lon
+      - school_lat
+      - school_lon
+      - work_lat
+      - work_lon
+    optional:
+      - num_children
+      - school_start_time
+      - work_start_time
+
+
+flexible_leisure:
+  context: When making a leisure trip with no fixed arrival time or return deadline
+  goal: I want an enjoyable, low-stress journey that fits my preferences
+  outcome: So the travel itself becomes part of the leisure experience
+  job_type: passenger_leisure
+  time_window:
+    start: 9
+    end: 20
+    flexibility: very_high
+  destination_type: leisure_or_social
+  typical_distance_km:
+    - 1
+    - 30
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: false
+    urgency: low
+    interruptible: true
+  vehicle_constraints:
+    preferred_modes:
+      - walk
+      - bike
+      - e_scooter
+      - bus
+      - tram
+      - local_train
+      - car
+      - ev
+    # Full personal mode set — no time pressure means active modes attractive.
+    # Freight modes excluded.
+  plan_context:
+    - No urgency — mode choice driven entirely by preference and weather
+    - Active modes strongly favoured by eco/experience personas
+    - Cost-sensitive personas will walk or cycle longer distances
+    - Car/EV used by comfort-prioritising personas regardless of distance
+    - Return journey timing is also flexible — no rush home
+    - High potential for induced demand discovery (trying new routes)
+  csv_columns:
+    required:
+      - origin_lat
+      - origin_lon
+      - dest_lat
+      - dest_lon
+    optional:
+      - activity_type
+      - group_size
+      - luggage_present
+
+
+airport_transfer:
+  context: When travelling to or from an airport with a flight to catch
+  goal: I want to reach the airport with enough time for check-in and security
+  outcome: So I do not miss my flight and the journey is as stress-free as possible
+  job_type: passenger_transit
+  time_window:
+    start: 4
+    end: 23
+    flexibility: very_low
+    buffer_minutes: 90     # minimum buffer before departure
+    return_trip: false
+  destination_type: airport_terminal
+  typical_distance_km:
+    - 5
+    - 80
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: false
+    urgency: high
+    luggage_present: true
+    time_critical: true
+  vehicle_constraints:
+    preferred_modes:
+      - car
+      - ev
+      - bus
+      - local_train
+      - intercity_train
+    # Reliability over speed — missing a flight is unacceptable.
+    # Active modes (bike, walk) excluded due to luggage.
+    # Freight modes entirely excluded.
+  plan_context:
+    - Missing the flight is the worst-case outcome — reliability trumps cost
+    - Luggage limits active transport; large bags require car/taxi/train
+    - Rail is competitive for airports with direct station links (Edinburgh, Gatwick)
+    - Early morning departures (04:00–06:00) may require car — no public transport
+    - Drop-off vs parking decision affects mode for drivers
+    - Return from airport may allow more flexible mode choice
+  csv_columns:
+    required:
+      - origin_lat
+      - origin_lon
+      - airport_lat
+      - airport_lon
+    optional:
+      - flight_departure_time
+      - luggage_count
+      - terminal
+
+
+tourist_exploration:
+  context: When spending a day exploring a city or region as a tourist
+  goal: I want to visit multiple attractions without the stress of driving
+  outcome: So I experience the place authentically and sustainably
+  job_type: passenger_leisure
+  time_window:
+    start: 9
+    end: 20
+    flexibility: high
+  destination_type: multiple_attraction
+  typical_distance_km:
+    - 1
+    - 60
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: false
+    urgency: low
+    multi_stop: true
+    luggage_present: false
+    scenic_preference: 0.85
+  vehicle_constraints:
+    preferred_modes:
+      - walk
+      - bike
+      - e_scooter
+      - bus
+      - tram
+      - local_train
+      - ferry_diesel
+    # Car/EV excluded as a preference (tourist choosing sustainable exploration).
+    # ferry_diesel included for coastal/island extensions.
+    # Freight modes entirely excluded.
+  plan_context:
+    - Journey IS part of the experience — efficiency matters less than discovery
+    - Multiple stops in sequence: museum → lunch → gallery → viewpoint
+    - Day rover tickets make bus/rail highly cost-effective
+    - Edinburgh tram, Glasgow subway, Caledonian Canal (ferry) all viable legs
+    - Weather affects active mode split significantly
+    - Tourist unfamiliarity with local network is a real barrier
+    - Local app guidance (Citymapper etc.) assists mode discovery
+  csv_columns:
+    required:
+      - origin_lat
+      - origin_lon
+    optional:
+      - attraction_list
+      - day_ticket_available
+      - budget_per_day
+
+
+night_shift:
+  context: When travelling to or from work during unsociable hours (nights/early mornings)
+  goal: I want safe, reliable transport that gets me home or to work at 23:00–06:00
+  outcome: So I can fulfil shift obligations without personal safety risk
+  job_type: passenger_commute
+  time_window:
+    start: 22
+    end: 6      # wraps midnight — parser must handle this
+    flexibility: low
+    night_hours: true
+  destination_type: workplace
+  typical_distance_km:
+    - 2
+    - 20
+  parameters:
+    vehicle_required: false
+    vehicle_type: personal
+    priority: normal
+    recurring: true
+    urgency: high
+    night_travel: true
+    interruptible: false
+    safety_sensitive: true
+  vehicle_constraints:
+    preferred_modes:
+      - car
+      - ev
+      - bus
+      - walk
+    # Night buses exist in major cities but are infrequent.
+    # Bike and e_scooter significantly less safe at night — lower weighting in CPG.
+    # Car/EV strongly preferred for safety and reliability.
+    # Freight modes excluded.
+  plan_context:
+    - Public transport frequency drops sharply after 23:00
+    - Safety is a paramount concern — well-lit routes essential
+    - Night buses/taxis are often the only alternatives to car
+    - Shift workers include NHS staff, hospitality, manufacturing, logistics
+    - Fatigue affects decision-making — familiar routes strongly preferred
+    - Carpooling with colleagues is common for safety and cost
+    - EV range and overnight charging are practical advantages for night workers
+  csv_columns:
+    required:
+      - home_lat
+      - home_lon
+      - work_lat
+      - work_lon
+    optional:
+      - shift_start_time
+      - shift_end_time
+      - carpool_available

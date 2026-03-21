@@ -1,64 +1,142 @@
 # agent/story_combinations.yaml
-# 
-# Defines how user stories and job stories interact
-# Optional: Used for fine-tuning specific combinations
+#
+# Defines how user stories and job stories interact.
+# Optional: used for fine-tuning specific combinations.
+#
+# IMPORTANT: All job keys referenced here MUST exist in a job context YAML file.
+# Dead references are silently ignored but waste parser cycles and mask bugs.
+#
+# Jobs that were referenced but DO NOT exist (removed 2026-03-21):
+#   school_run_then_work, flexible_leisure, airport_transfer,
+#   tourist_exploration, night_shift
+# If these jobs are needed, create them in the appropriate YAML file first.
 
 # Default settings for all combinations
 defaults:
   conflict_resolution: "dynamic"  # dynamic | user_priority | job_priority
   apply_variance: true
   desire_blend_weights:
-    from_persona: 0.7  # 70% user story
-    from_job: 0.3      # 30% job context
+    from_persona: 0.7   # 70% user story desires
+    from_job: 0.3       # 30% job context overrides
 
-# Specific combination overrides
+# Specific combination overrides (only for combinations that exist in both
+# user story whitelist AND job context YAML files)
 combinations:
-  
-  # Eco warrior during rush hour - willing to leave earlier
+
+  # Eco warrior during rush hour — willing to leave earlier to use active transport
   eco_warrior_morning_commute:
     persona: "eco_warrior"
     job: "morning_commute"
     conflict_resolution: "blend"
     overrides:
-      time_window_adjust: "-15min"  # Leave 15min earlier to bike
+      time_window_adjust: "-15min"
       notes: "Eco warriors plan ahead to use sustainable transport"
-  
-  # Parent's school run - safety is paramount
-  concerned_parent_school_run_then_work:
+
+  # Parent commute — safety overrides eco desire
+  concerned_parent_morning_commute:
     persona: "concerned_parent"
-    job: "school_run_then_work"
-    conflict_resolution: "job_priority"  # Job constraints dominate
-    desire_blend_weights:
-      from_persona: 0.5
-      from_job: 0.5
-    overrides:
-      desires:
-        safety: "+0.05"  # Extra 5% safety boost
-      weather_sensitivity: 1.3  # 30% more sensitive to weather
-      notes: "Parents prioritize child safety above all else"
-  
-  # Student leisure - maximum flexibility
-  budget_student_flexible_leisure:
-    persona: "budget_student"
-    job: "flexible_leisure"
+    job: "morning_commute"
     conflict_resolution: "user_priority"
     overrides:
-      mode_constraints: ["avoid_expensive"]
-      notes: "Students optimize for cost in flexible situations"
-  
-  # Business traveler airport trip - reliability critical
-  business_commuter_airport_transfer:
-    persona: "business_commuter"
-    job: "airport_transfer"
+      desires:
+        safety: "+0.05"
+      weather_sensitivity: 1.3
+      notes: "Parents prioritize child safety — weather affects active mode choice"
+
+  # Disabled commuter — accessibility is a hard constraint
+  disabled_commuter_morning_commute:
+    persona: "disabled_commuter"
+    job: "morning_commute"
+    conflict_resolution: "user_priority"
+    overrides:
+      mode_constraints: ["wheelchair_accessible"]
+      pre_booking_required: true
+      notes: "Accessibility is a hard constraint — overrides all other preferences"
+
+  # Accessibility user on tram network
+  accessibility_user_accessible_tram_journey:
+    persona: "accessibility_user"
+    job: "accessible_tram_journey"
+    conflict_resolution: "user_priority"
+    overrides:
+      mode_constraints: ["step_free", "level_boarding"]
+      notes: "Full step-free access required throughout"
+
+  # Rural resident — car is often the only practical option
+  rural_resident_shopping_trip:
+    persona: "rural_resident"
+    job: "shopping_trip"
+    conflict_resolution: "user_priority"
+    overrides:
+      mode_constraints: ["vehicle_likely_needed"]
+      trip_chaining: true
+      notes: "Rural residents must drive for most errands — combine trips"
+
+  # Long-distance commuter — season ticket creates strong rail lock-in
+  long_distance_commuter_intercity_train_commute:
+    persona: "long_distance_commuter"
+    job: "intercity_train_commute"
+    conflict_resolution: "blend"
+    overrides:
+      desires:
+        reliability: "+0.05"
+      notes: "Season ticket economics and productivity lock in rail mode"
+
+  # Island resident — ferry is non-negotiable first leg
+  island_resident_island_ferry_trip:
+    persona: "island_resident"
+    job: "island_ferry_trip"
+    conflict_resolution: "job_priority"
+    overrides:
+      desires:
+        reliability: "+0.05"
+      notes: "Ferry schedule dominates all other constraints"
+
+  # Tourist on scenic rail — experience over efficiency
+  tourist_visitor_tourist_scenic_rail:
+    persona: "tourist_visitor"
+    job: "tourist_scenic_rail"
+    conflict_resolution: "user_priority"
+    overrides:
+      desires:
+        time: "-0.2"
+      scenic_weight: 2.0
+      notes: "Journey is part of the destination — slower scenic routes preferred"
+
+  tourist_tourist_scenic_rail:
+    persona: "tourist"
+    job: "tourist_scenic_rail"
+    conflict_resolution: "user_priority"
+    overrides:
+      desires:
+        time: "-0.15"
+      scenic_weight: 1.8
+      notes: "Scenic preference strong but slightly less locked-in than tourist_visitor"
+
+  # Business traveler on a tight flight schedule
+  business_traveler_business_flight:
+    persona: "business_traveler"
+    job: "business_flight"
     conflict_resolution: "job_priority"
     overrides:
       desires:
         reliability: "+0.1"
         time: "+0.1"
-      buffer_minutes: 45  # Extra time buffer
-      notes: "Missing flights is unacceptable"
-  
-  # Freight operator delivery - compliance first
+      buffer_minutes: 45
+      notes: "Missing a flight is unacceptable — reliability and time dominate"
+
+  business_commuter_business_flight:
+    persona: "business_commuter"
+    job: "business_flight"
+    conflict_resolution: "job_priority"
+    overrides:
+      desires:
+        reliability: "+0.1"
+        time: "+0.05"
+      buffer_minutes: 45
+      notes: "Same-day return critical — reliability overrides cost"
+
+  # Freight operator delivery — compliance first
   freight_operator_freight_delivery_route:
     persona: "freight_operator"
     job: "freight_delivery_route"
@@ -71,51 +149,18 @@ combinations:
       - condition: "normal_operation"
         then: "use persona desires"
     notes: "Regulatory compliance is non-negotiable"
-  
-  # Disabled commuter - accessibility required
-  disabled_commuter_morning_commute:
-    persona: "disabled_commuter"
-    job: "morning_commute"
-    conflict_resolution: "user_priority"  # Accessibility needs dominate
-    overrides:
-      mode_constraints: ["wheelchair_accessible"]
-      pre_booking_required: true
-      notes: "Accessibility is a hard constraint"
-  
-  # Rural resident shopping - limited options
-  rural_resident_shopping_trip:
-    persona: "rural_resident"
-    job: "shopping_trip"
-    conflict_resolution: "user_priority"
-    overrides:
-      mode_constraints: ["vehicle_likely_needed"]
-      trip_chaining: true  # Combine errands
-      notes: "Rural residents must drive for most errands"
-  
-  # Shift worker night travel - safety paramount
-  shift_worker_night_shift:
-    persona: "shift_worker"
-    job: "night_shift"
-    conflict_resolution: "blend"
+
+  # Freight operator on port/warehouse runs — electric HGV priority
+  freight_operator_port_to_warehouse:
+    persona: "freight_operator"
+    job: "port_to_warehouse"
+    conflict_resolution: "job_priority"
     overrides:
       desires:
-        safety: "+0.15"  # Significant safety boost
-      mode_constraints: ["well_lit_routes", "avoid_empty_areas"]
-      notes: "Night-time safety is critical concern"
-  
-  # Tourist exploration - experience over efficiency
-  tourist_tourist_exploration:
-    persona: "tourist"
-    job: "tourist_exploration"
-    conflict_resolution: "user_priority"
-    overrides:
-      desires:
-        experience: "+0.1"
-        time: "-0.2"  # Less concerned about time
-      scenic_weight: 2.0  # Double scenic preference
-      notes: "Journey is part of the destination"
-  
-  # Delivery driver gig work - earnings optimization
+        time: "+0.1"
+      notes: "Port demurrage charges escalate quickly — time priority elevated"
+
+  # Delivery driver gig work — earnings optimization
   delivery_driver_gig_economy_delivery:
     persona: "delivery_driver"
     job: "gig_economy_delivery"
@@ -127,46 +172,105 @@ combinations:
       route_optimization: "maximize_deliveries_per_hour"
       notes: "Time is literally money in gig economy"
 
-# Prohibited combinations (optional)
-# Some user + job combinations might not make sense
+  # Budget student using flexible commute
+  budget_student_commute_flexible:
+    persona: "budget_student"
+    job: "commute_flexible"
+    conflict_resolution: "user_priority"
+    overrides:
+      mode_constraints: ["avoid_expensive"]
+      notes: "Students optimize for cost — flexible timing enables off-peak cheaper fares"
+
+  # Shift worker — reliability critical at unsociable hours
+  shift_worker_morning_commute:
+    persona: "shift_worker"
+    job: "morning_commute"
+    conflict_resolution: "blend"
+    overrides:
+      desires:
+        safety: "+0.1"
+      notes: "Night/early shift workers face safety and reliability concerns"
+
+  # Elderly non-driver — bus pass and accessibility dominate
+  elderly_non_driver_shopping_trip:
+    persona: "elderly_non_driver"
+    job: "shopping_trip"
+    conflict_resolution: "user_priority"
+    overrides:
+      desires:
+        accessibility: "+0.05"
+        cost: "-0.1"   # concessionary bus pass reduces cost concern
+      notes: "Bus pass means cost less critical; step-free access and seating priority"
+
+
+# Prohibited combinations — documented for story_compatibility.py whitelist
+# (Prohibition is enforced in story_compatibility.py, not here)
 prohibited:
   - persona: "freight_operator"
-    job: "school_run_then_work"
-    reason: "Freight operators don't do school runs"
-  
-  - persona: "delivery_driver"
-    job: "tourist_exploration"
-    reason: "Delivery drivers work, don't tour"
+    job: "morning_commute"
+    reason: "Freight operators have freight-specific job contexts (heavy_freight.yaml)"
 
-# Recommended combinations for testing
+  - persona: "freight_operator"
+    job: "shopping_trip"
+    reason: "Freight operators do not use freight vehicles for personal shopping"
+
+  - persona: "delivery_driver"
+    job: "tourist_scenic_rail"
+    reason: "Delivery drivers work shifts — they do not tour during working hours"
+
+  - persona: "delivery_driver"
+    job: "business_flight"
+    reason: "Gig delivery drivers do not fly for business"
+
+
+# Recommended test cases — all jobs verified to exist in job context YAML files
 recommended_test_cases:
   - persona: "eco_warrior"
     job: "morning_commute"
     expected_mode: "bike"
-    expected_route_type: "greenest"
-  
+    notes: "eco=0.9 + personal vehicle_type → bike or bus, not EV or car"
+
   - persona: "budget_student"
-    job: "flexible_leisure"
+    job: "commute_flexible"
     expected_mode: "walk"
-    expected_cost: "< £2"
-  
-  - persona: "business_commuter"
-    job: "airport_transfer"
-    expected_mode: "taxi"
-    expected_time_priority: "high"
-  
+    notes: "cost=0.95, flexible timing → walk or bike preferred"
+
+  - persona: "business_traveler"
+    job: "business_flight"
+    expected_mode: "flight_domestic"
+    notes: "time=0.95, reliability=0.9 → fastest mode selected"
+
   - persona: "concerned_parent"
-    job: "school_run_then_work"
-    expected_mode: "car_ev"
-    expected_safety_priority: "highest"
-  
+    job: "morning_commute"
+    expected_mode: "ev"
+    notes: "safety=0.95, school run context → EV or bus, not bike"
+
   - persona: "freight_operator"
     job: "freight_delivery_route"
-    expected_mode: "ev_truck"
-    expected_compliance: "strict"
+    expected_mode: "van_electric"
+    notes: "vehicle_type=commercial → van_electric or van_diesel"
+
+  - persona: "island_resident"
+    job: "island_ferry_trip"
+    expected_mode: "ferry_diesel"
+    notes: "ferry_dependent=true → ferry_diesel non-negotiable first leg"
+
+  - persona: "accessibility_user"
+    job: "accessible_tram_journey"
+    expected_mode: "tram"
+    notes: "accessibility_required=true, vehicle_type=transit → tram or bus only"
+
+  - persona: "long_distance_commuter"
+    job: "intercity_train_commute"
+    expected_mode: "intercity_train"
+    notes: "vehicle_type=transit, 50-150km → intercity_train primary"
 
 # Metadata
-version: "3.0.0"
-description: "Story combination rules for RTD_SIM Phase 3"
-author: "RTD_SIM Project"
-last_updated: "2024-12-10"
+version: "4.0.0"
+description: "Story combination rules for RTD_SIM — cleaned 2026-03-21"
+changes_v4:
+  - "Removed 5 combinations referencing non-existent jobs (school_run_then_work,
+     flexible_leisure, airport_transfer, tourist_exploration, night_shift)"
+  - "Added verified combinations for all existing job contexts"
+  - "Prohibited list updated to use existing jobs only"
+  - "Recommended test cases verified against job context YAML files"

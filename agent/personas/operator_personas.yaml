@@ -1,0 +1,402 @@
+# agent/personas/operator_personas.yaml
+#
+# Operator personas for fleet, port, rail, and aviation stakeholders.
+# These extend the base 18 personas in personas.yaml to cover commercial
+# and public-sector operators — the institutional actors whose decisions
+# shape the UK transport decarbonisation landscape.
+#
+# For DfT demonstrations: these personas model the decision-makers
+# that policy interventions need to reach and persuade.
+#
+# TODO Phase 10b: Create specialised agent classes:
+#   FleetOperatorAgent(StoryDrivenAgent) — depot-anchored, fleet-level optimisation
+#   PortOperatorAgent(StoryDrivenAgent)  — schedule-constrained, grid-constrained
+#   RailOperatorAgent(StoryDrivenAgent)  — path-dependent, multi-leg
+#   PolicyAgent (base class)             — acts on environment, not routes
+
+
+# ============================================================================
+# FLEET OPERATOR PERSONAS
+# ============================================================================
+
+fleet_manager_logistics:
+  narrative: |
+    As a logistics fleet manager at a major parcel carrier, I need to
+    transition my HGV and van fleet to zero emission within mandate timelines
+    while keeping operational costs competitive. I make decisions about
+    vehicle procurement, depot charging infrastructure, and route planning
+    that affect thousands of daily movements across the UK.
+
+  persona_type: "freight"
+
+  desires:
+    compliance: 0.9
+    cost: 0.85
+    reliability: 0.9
+    time: 0.75
+    eco: 0.65
+    flexibility: 0.55
+    safety: 0.8
+
+  desire_variance: 0.08
+
+  beliefs:
+    - text: "Electric vans are already cost-competitive on urban routes"
+      strength: 0.8
+      updateable: true
+    - text: "Electric HGV range is insufficient for long-haul trunk routes"
+      strength: 0.75
+      updateable: true
+    - text: "Charging infrastructure at depots is the critical bottleneck"
+      strength: 0.9
+      updateable: true
+    - text: "ZEZ fines will exceed the cost of fleet transition within 5 years"
+      strength: 0.7
+      updateable: true
+
+  constraints:
+    - "ZEZ compliance deadlines are non-negotiable"
+    - "Depot charging capacity limited by grid connection size"
+    - "Driver range anxiety limits EV acceptance without training"
+
+  mode_preferences:
+    truck_electric: 0.75
+    van_electric: 0.8
+    truck_diesel: 0.5
+    van_diesel: 0.45
+    cargo_bike: 0.4
+
+  plan_hints:
+    - "Prioritises lowest total cost of ownership over purchase price"
+    - "Interested in green tariffs and government transition grants"
+    - "Influenced by peer fleet managers' real-world EV experience"
+
+  fleet_params:
+    fleet_size_range: [200, 10000]
+    vehicle_mix: ["van_electric", "van_diesel", "hgv_electric", "hgv_diesel"]
+    annual_mileage_per_vehicle_km: [30000, 80000]
+    operator_examples: ["DHL", "Amazon Logistics", "Evri", "DPD", "Royal Mail"]
+
+  social_profile:
+    influence_susceptibility: 0.5
+    influence_strength: 0.65
+    network_size_range: [10, 30]
+
+
+fleet_manager_healthcare:
+  narrative: |
+    As an NHS transport manager, I coordinate patient transport, staff fleet,
+    and clinical supply vehicles across a health board. I balance patient
+    safety and service continuity with the NHS net-zero 2040 commitment.
+    Budget constraints are severe and every vehicle must justify its cost
+    through patient outcomes and service availability.
+
+  persona_type: "freight"
+
+  desires:
+    safety: 0.98
+    reliability: 0.95
+    accessibility: 0.9
+    compliance: 0.85
+    cost: 0.75
+    eco: 0.7
+    flexibility: 0.4
+
+  desire_variance: 0.05
+
+  beliefs:
+    - text: "Patient safety is non-negotiable — reliability of transport is clinical"
+      strength: 1.0
+      updateable: false
+    - text: "Electric vehicles are viable for planned patient transport routes"
+      strength: 0.7
+      updateable: true
+    - text: "NHS net-zero commitment requires fleet transition by 2040"
+      strength: 0.85
+      updateable: false
+    - text: "Charging at hospitals is currently inadequate for full fleet electrification"
+      strength: 0.8
+      updateable: true
+
+  constraints:
+    - "All vehicles must be operational 24/7 — no planned downtime for charging"
+    - "Wheelchair accessible vehicles required for 40% of patient transport"
+    - "Budget controlled centrally — limited autonomy for capital investment"
+
+  mode_preferences:
+    van_electric: 0.75
+    van_diesel: 0.6
+    car: 0.5
+    ev: 0.55
+
+  plan_hints:
+    - "Prioritises vehicle availability over emissions"
+    - "Lease arrangements preferred over capital purchase"
+    - "Influenced by other NHS board EV adoption evidence"
+
+  fleet_params:
+    fleet_size_range: [50, 500]
+    vehicle_mix: ["van_electric", "van_diesel", "car", "ev"]
+    operator_examples: ["NHS Scotland", "NHS England", "Welsh Ambulance", "NIAS"]
+
+  social_profile:
+    influence_susceptibility: 0.55
+    influence_strength: 0.6
+    network_size_range: [8, 25]
+
+
+fleet_manager_retail:
+  narrative: |
+    As a retail logistics director at a major UK supermarket chain, I manage
+    a fleet of 2,000+ HGVs delivering to 1,000+ stores daily. I face strict
+    store receiving windows, scope 3 emission reporting requirements, and
+    the challenge of electrifying a fleet that depends on refrigeration.
+
+  persona_type: "freight"
+
+  desires:
+    reliability: 0.95
+    compliance: 0.85
+    cost: 0.8
+    time: 0.85
+    eco: 0.7
+    flexibility: 0.45
+    safety: 0.8
+
+  desire_variance: 0.07
+
+  beliefs:
+    - text: "Store receiving windows are non-negotiable — missed deliveries cost more than fuel"
+      strength: 0.95
+      updateable: false
+    - text: "Electric HGVs are viable for depot-to-store routes under 150km"
+      strength: 0.7
+      updateable: true
+    - text: "Refrigeration units significantly reduce electric HGV range"
+      strength: 0.85
+      updateable: true
+    - text: "Scope 3 reporting will make fleet emissions a competitive differentiator"
+      strength: 0.8
+      updateable: true
+
+  constraints:
+    - "Store receiving windows: typically ±30 minutes — missed = penalty charge"
+    - "Temperature-controlled loads require refrigeration auxiliary power"
+    - "Night delivery restrictions increasingly applied in residential areas"
+
+  mode_preferences:
+    hgv_electric: 0.7
+    hgv_diesel: 0.55
+    truck_electric: 0.65
+    truck_diesel: 0.5
+
+  plan_hints:
+    - "Route consolidation reduces empty running — core optimisation"
+    - "Night deliveries to stores reduce congestion but face noise restrictions"
+    - "Rail freight for trunk haul being evaluated (50% of ambient goods)"
+
+  fleet_params:
+    fleet_size_range: [500, 5000]
+    vehicle_mix: ["hgv_electric", "hgv_diesel", "truck_electric", "truck_diesel"]
+    operator_examples: ["Tesco", "Sainsbury's", "ASDA", "Morrisons", "Co-op"]
+
+  social_profile:
+    influence_susceptibility: 0.4
+    influence_strength: 0.7
+    network_size_range: [5, 20]
+
+
+# ============================================================================
+# PORT OPERATOR PERSONAS
+# ============================================================================
+
+port_terminal_operator:
+  narrative: |
+    As a container terminal operator at a major UK port, I manage the
+    movement of thousands of containers daily across berths, stacks, and
+    gate operations. I must decarbonise terminal equipment (cranes, straddle
+    carriers, tractors) while managing grid capacity constraints and
+    maintaining throughput competitiveness.
+
+  persona_type: "freight"
+
+  desires:
+    reliability: 0.95
+    compliance: 0.85
+    cost: 0.8
+    time: 0.9
+    eco: 0.65
+    flexibility: 0.4
+    safety: 0.85
+
+  desire_variance: 0.07
+
+  beliefs:
+    - text: "Shore power electrification is the largest single emissions reduction available"
+      strength: 0.85
+      updateable: true
+    - text: "Grid capacity at port is the binding constraint on electrification speed"
+      strength: 0.9
+      updateable: true
+    - text: "Hydrogen will be needed for vessels that can't be electrified"
+      strength: 0.7
+      updateable: true
+    - text: "Port decarbonisation requires coordinated investment across operators, grid, and government"
+      strength: 0.9
+      updateable: false
+
+  constraints:
+    - "Throughput targets cannot be compromised during transition"
+    - "Grid connection upgrades take 3-7 years — planning must start now"
+    - "International shipping customers choose ports on cost and reliability"
+
+  mode_preferences:
+    hgv_electric: 0.75
+    hgv_diesel: 0.5
+    truck_electric: 0.7
+    van_electric: 0.65
+
+  plan_hints:
+    - "Influenced by competing port investments in Rotterdam, Antwerp, Hamburg"
+    - "Shore power adoption driven by IMO and UK government incentives"
+    - "Zero emission port certification becoming a customer procurement requirement"
+
+  port_params:
+    port_type_examples: ["container", "roro", "bulk", "energy", "cruise"]
+    operator_examples: ["Forth Ports", "ABP", "Peel Ports", "DP World", "Dover Harbour Board"]
+    throughput_range_teu: [50000, 4000000]
+
+  social_profile:
+    influence_susceptibility: 0.4
+    influence_strength: 0.7
+    network_size_range: [5, 20]
+
+
+# ============================================================================
+# RAIL OPERATOR PERSONAS
+# ============================================================================
+
+rail_freight_operator:
+  narrative: |
+    As a rail freight operator, I run block trains and intermodal services
+    across the UK rail network. I compete with road haulage on cost and
+    reliability while navigating Network Rail path allocation, electrification
+    gaps, and the challenge of decarbonising diesel traction on non-electrified
+    routes.
+
+  persona_type: "freight"
+
+  desires:
+    reliability: 0.9
+    compliance: 0.8
+    cost: 0.85
+    time: 0.75
+    eco: 0.7
+    flexibility: 0.45
+    safety: 0.85
+
+  desire_variance: 0.08
+
+  beliefs:
+    - text: "Rail freight is 76% lower carbon than HGV per tonne-km"
+      strength: 0.95
+      updateable: false
+    - text: "Path allocation by Network Rail is the biggest operational constraint"
+      strength: 0.9
+      updateable: true
+    - text: "Electrification gaps (38% diesel traction) undermines our carbon story"
+      strength: 0.85
+      updateable: true
+    - text: "Modal shift targets require Government commitment to rail infrastructure investment"
+      strength: 0.8
+      updateable: true
+
+  constraints:
+    - "Train paths allocated months in advance — limited operational flexibility"
+    - "Gauge and weight restrictions limit some routes"
+    - "Driver hours and fatigue regulations strictly enforced"
+
+  mode_preferences:
+    hgv_electric: 0.5  # proxy for freight_rail — TODO Phase 10b
+    hgv_diesel: 0.35
+    truck_electric: 0.45
+
+  plan_hints:
+    - "Advocates for infrastructure investment to unlock new rail freight corridors"
+    - "Interested in battery/hydrogen traction for non-electrified routes"
+    - "Collaborates with port operators on intermodal terminal investment"
+
+  rail_params:
+    operator_examples: ["DB Cargo UK", "Freightliner", "GB Railfreight", "DRS"]
+    traction_types: ["electric_25kV", "diesel_class66", "bi-mode_class88"]
+    annual_tonne_km_range: [500000000, 5000000000]
+
+  social_profile:
+    influence_susceptibility: 0.45
+    influence_strength: 0.7
+    network_size_range: [5, 20]
+
+
+# ============================================================================
+# AVIATION PERSONAS
+# ============================================================================
+
+air_freight_operator:
+  narrative: |
+    As an air cargo operator, I move express freight at speed across
+    global networks. My customers depend on next-day delivery of
+    high-value goods. I face the most challenging decarbonisation pathway
+    in transport — SAF costs 3-5x conventional jet fuel and zero-emission
+    aircraft are 10+ years away for cargo operations.
+
+  persona_type: "freight"
+
+  desires:
+    time: 0.95
+    reliability: 0.9
+    compliance: 0.8
+    cost: 0.75
+    eco: 0.45
+    flexibility: 0.5
+    safety: 0.9
+
+  desire_variance: 0.07
+
+  beliefs:
+    - text: "SAF is the only viable near-term decarbonisation pathway for aviation"
+      strength: 0.85
+      updateable: true
+    - text: "Electric ground vehicles can be implemented immediately at all depots"
+      strength: 0.9
+      updateable: true
+    - text: "10% SAF mandate will add 5-8% to operating costs by 2030"
+      strength: 0.75
+      updateable: true
+    - text: "Modal shift to rail is viable for some consignments under 500km"
+      strength: 0.6
+      updateable: true
+
+  constraints:
+    - "Next-day delivery guarantee is core commercial proposition — cannot compromise"
+    - "SAF supply is currently insufficient to meet full demand"
+    - "Zero-emission aircraft not commercially available for cargo until 2035+"
+
+  mode_preferences:
+    van_electric: 0.8   # landside operations
+    van_diesel: 0.6
+    truck_electric: 0.5
+
+  plan_hints:
+    - "Investing in electric ground handling equipment ahead of regulation"
+    - "Evaluating SAF offtake agreements for long-term supply security"
+    - "Modal shift programme for parcels under 5kg on routes under 400km"
+
+  aviation_params:
+    operator_examples: ["DHL Aviation", "FedEx Europe", "UPS Airlines", "IAG Cargo"]
+    annual_cargo_tonnes_range: [50000, 1500000]
+    saf_target_pct_2030: 10
+
+  social_profile:
+    influence_susceptibility: 0.4
+    influence_strength: 0.6
+    network_size_range: [5, 15]
