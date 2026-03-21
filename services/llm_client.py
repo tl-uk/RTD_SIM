@@ -68,7 +68,7 @@ _DEFAULTS: Dict[str, Any] = {
     "olmo": {
         "model":       "olmo2:13b",
         "url":         "http://localhost:11434",
-        "timeout_s":   60,
+        "timeout_s":   180,   # CPU inference: cold=21s, warm=30-60s, spike=120s+
         "temperature": 0.1,
     },
     "anthropic_fallback": {
@@ -220,6 +220,120 @@ class LLMClient:
             f"All LLM backends failed. "
             f"Details: {'; '.join(errors)}"
         )
+
+    # ── Service lifecycle ─────────────────────────────────────────────────────
+
+    @classmethod
+    def ensure_ollama_running(cls, url: str = "http://localhost:11434") -> bool:
+        """
+        Check if Ollama is running; auto-start it if not.
+
+        Called once at application startup — not per-request.
+        Returns True if Ollama is reachable after the attempt.
+
+        On macOS/Linux, `ollama serve` is launched as a background
+        subprocess and given 8 seconds to become available.
+        On Windows, logs a warning and returns False (manual start required).
+        """
+        import platform, subprocess, time
+
+        # Quick check first
+        try:
+            req = urllib.request.Request(f"{url}/api/tags", method="GET")
+            with urllib.request.urlopen(req, timeout=3):
+                logger.info("LLMClient: Ollama already running at %s", url)
+                return True
+        except Exception:
+            pass
+
+        if platform.system() == "Windows":
+            logger.warning(
+                "LLMClient: Ollama not running. On Windows, start it manually: "
+                "open the Ollama app or run 'ollama serve' in a terminal."
+            )
+            return False
+
+        # macOS / Linux — start as background process
+        logger.info("LLMClient: Ollama not running — starting automatically…")
+        try:
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,   # detach from Python process group
+            )
+        except FileNotFoundError:
+            logger.error(
+                "LLMClient: 'ollama' not found on PATH. "
+                "Install with: brew install ollama"
+            )
+            return False
+
+        # Wait up to 8 seconds for Ollama to become available
+        for attempt in range(8):
+            time.sleep(1)
+            try:
+                req = urllib.request.Request(f"{url}/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=2):
+                    logger.info(
+                        "LLMClient: Ollama started successfully (took %ds)", attempt + 1
+                    )
+                    return True
+            except Exception:
+                continue
+
+        logger.warning("LLMClient: Ollama did not respond within 8s after auto-start")
+        return False
+
+    def ensure_model_pulled(self) -> bool:
+        """
+        Verify the configured model is pulled; pull it if not.
+
+        Checks /api/tags for the model name. If absent, runs
+        `ollama pull <model>` synchronously (may take minutes for 13B).
+        Returns True if the model is available after the attempt.
+        """
+        import subprocess
+
+        try:
+            req = urllib.request.Request(
+                f"{self.olmo_url}/api/tags", method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                tags = json.loads(resp.read())
+            model_names = [m.get("name", "") for m in tags.get("models", [])]
+            # Match on base name — Ollama tags can be 'olmo2:13b' or 'olmo2:13b-...'
+            base = self.olmo_model.split(":")[0]
+            if any(base in n for n in model_names):
+                logger.info("LLMClient: model '%s' already available", self.olmo_model)
+                return True
+        except Exception as exc:
+            logger.warning("LLMClient: could not check model list: %s", exc)
+            return False
+
+        # Model not found — pull it
+        logger.info(
+            "LLMClient: model '%s' not found — pulling now (~8GB, may take several minutes)…",
+            self.olmo_model,
+        )
+        try:
+            result = subprocess.run(
+                ["ollama", "pull", self.olmo_model],
+                capture_output=False,   # show progress in terminal
+                timeout=1800,           # 30 min hard limit
+            )
+            if result.returncode == 0:
+                logger.info("LLMClient: model '%s' pulled successfully", self.olmo_model)
+                return True
+            else:
+                logger.error("LLMClient: 'ollama pull' exited with code %d", result.returncode)
+                return False
+        except subprocess.TimeoutExpired:
+            logger.error("LLMClient: model pull timed out after 30 minutes")
+            return False
+        except FileNotFoundError:
+            logger.error("LLMClient: 'ollama' not found on PATH")
+            return False
 
     def is_available(self) -> bool:
         """

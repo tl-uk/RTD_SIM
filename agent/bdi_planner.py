@@ -403,17 +403,36 @@ class BDIPlanner:
 
             logger.debug(f"🔍 Before STEP 3.5: modes={modes}, vehicle_required={vehicle_required}")
 
-        # STEP 3.5 - Remove non-vehicle modes if vehicle required
+        # STEP 3.5 — Remove non-vehicle modes if vehicle_required
         if vehicle_required:
             non_vehicle_modes = ['walk', 'bike', 'e_scooter']
             before = len(modes)
             modes = [m for m in modes if m not in non_vehicle_modes]
             removed = before - len(modes)
-            
-            logger.debug(f"🔍 After STEP 3.5: modes={modes}, removed={removed}")
-            
             if removed > 0:
                 logger.debug(f"Removed {removed} non-vehicle modes (vehicle_required=True)")
+
+        # STEP 3.6 — Remove freight modes for personal agents
+        # personal + vehicle_required=False agents should never be offered
+        # HGV, truck, or van modes.  Without this guard, default_modes bleeds
+        # freight options into personal mode choice: eco_warriors arrive by
+        # hgv_electric because the cost function scores it cheaply.
+        # FreightOperatorAgent / commercial contexts are unaffected —
+        # they have vehicle_type != 'personal'.
+        _FREIGHT_MODES = {
+            'van_electric', 'van_diesel',
+            'truck_electric', 'truck_diesel',
+            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+        }
+        if vehicle_type == 'personal' and not vehicle_required:
+            before_set = set(modes)
+            modes = [m for m in modes if m not in _FREIGHT_MODES]
+            removed_freight = before_set - set(modes)
+            if removed_freight:
+                logger.debug(
+                    "Personal agent filter: removed freight modes %s",
+                    removed_freight,
+                )
        
         # STEP 4: Intelligent fallback (NEVER RETURN EMPTY!)
         if not modes:
@@ -444,7 +463,10 @@ class BDIPlanner:
                     modes = ['car', 'bike', 'walk']
                 logger.warning(f"Fallback: Using {modes} for {trip_distance_km:.1f}km trip")
         
-        logger.debug(f"  Final modes for vehicle_type={vehicle_type}, distance={trip_distance_km:.1f}km: {modes}")
+        logger.debug(
+            "Final modes for vehicle_type=%s, distance=%.1fkm: %s",
+            vehicle_type, trip_distance_km, modes,
+        )
         return modes
     
     def _is_mode_feasible(

@@ -3,8 +3,15 @@ simulation/simulation_runner.py
 
 Main simulation orchestrator - delegates to specialized modules.
 
+Phase logging for development tracking - DO NOT REMOVE UNTIL PRODUCTION
+
 Added dynamic policy engine support for combined scenarios
 Added support for default policies and restored missing Phases 5 & 6
+
+OLMo is viable for FreightOperatorAgent and FerryPassengerAgent plan generation in 
+Phase 10b — the reasoning quality is high enough to generate contextually appropriate 
+freight job plans. But it needs two fixes first: increase the timeout to 180s, and 
+add a per-agent timeout that skips gracefully rather than blocking for 2 full minutes.
 """
 
 from __future__ import annotations
@@ -94,7 +101,10 @@ def run_simulation(
         
         # Phase 4: Create planner
         logger.info("🧠 Phase 4: BDI planner creation")
-        planner = create_planner(infrastructure)
+        planner = create_planner(
+            infrastructure,
+            llm_backend=getattr(config, 'llm_backend', 'rule_based'),
+        )
         
         # ====================================================================
         # Phase 4.5: Apply policies (simple, combined, or default)

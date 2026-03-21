@@ -43,27 +43,27 @@ except ImportError:
     logger.warning("Story-driven agents not available")
 
 
-def create_planner(infrastructure: Optional[InfrastructureManager]) -> BDIPlanner:
+def create_planner(
+    infrastructure: Optional[InfrastructureManager],
+    llm_backend: str = 'rule_based',
+) -> BDIPlanner:
     """
     Create BDI planner (with or without infrastructure).
 
-    Automatically attaches a ContextualPlanGenerator (rule-based) so BDI agents
-    benefit from Phase 1 contextual plan extraction without any code changes
-    elsewhere. Falls back gracefully if the module isn't available.
-
     Args:
         infrastructure: Optional InfrastructureManager
+        llm_backend: 'rule_based' | 'olmo' | 'claude'
+            rule_based — deterministic, fast, default for normal runs
+            olmo       — OLMo 2 13B via Ollama (~30-60s/agent on CPU, ≤10 agents)
+            claude     — Anthropic API fallback (requires ANTHROPIC_API_KEY)
 
     Returns:
         BDI planner instance
     """
     try:
         from agent.contextual_plan_generator import ContextualPlanGenerator
-        plan_generator = ContextualPlanGenerator(llm_backend="rule_based")
-        # For research/small runs — expose via sidebar or env var
-        # LLM_BACKEND = olmo  (10 agents max, expect ~5 min agent creation)
-        # plan_generator = ContextualPlanGenerator(llm_backend="olmo")
-        logger.info("✅ ContextualPlanGenerator attached to BDI planner")
+        plan_generator = ContextualPlanGenerator(llm_backend=llm_backend)
+        logger.info(f"✅ ContextualPlanGenerator attached (backend={llm_backend})")
     except Exception as _e:
         plan_generator = None
         logger.warning(f"ContextualPlanGenerator not available: {_e}")

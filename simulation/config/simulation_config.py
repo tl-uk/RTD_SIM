@@ -76,6 +76,9 @@ class SimulationConfig:
         habit_weight: float = 0.4,
         cross_persona_prob: float = 0.25,  # Fraction of ties crossing persona boundary
         
+        # Agent plan generation
+        llm_backend: str = 'rule_based',  # 'rule_based' | 'olmo' | 'claude'
+        
         # Analytics (old style)
         enable_analytics: bool = True,
         track_journeys: bool = True,
@@ -140,6 +143,7 @@ class SimulationConfig:
         self.enable_route_diversity = enable_route_diversity
         self.route_diversity_mode = route_diversity_mode
         self.cross_persona_prob = cross_persona_prob
+        self.llm_backend = llm_backend
         
         # Phase 7.1: Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling

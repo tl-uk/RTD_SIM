@@ -1,6 +1,13 @@
 # RTD_SIM Requirements
 # ─────────────────────────────────────────────────────────────────────────────
 # Install: pip install -r requirements.txt
+#
+# External services (not pip — install separately):
+#   Ollama:    brew install ollama   → ollama pull olmo2:13b
+#   Redis:     brew install redis    → brew services start redis
+#   Mosquitto: brew install mosquitto (Phase 13 MQTT broker)
+#   Eclipse Ditto: docker-compose up (Phase 13 digital twin layer)
+#     https://github.com/eclipse/ditto/tree/main/deployment/docker
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Core simulation (Phases 1–3) ─────────────────────────────────────────────
@@ -15,13 +22,17 @@ requests>=2.31.0
 streamlit>=1.40.0
 plotly>=5.0
 pydeck>=0.9.0
+pyvis>=0.3.2              # social network graph rendering (cognition tab)
 
 # ── Analytics and Signal Processing (Phases 5–7) ─────────────────────────────
-scipy>=1.11.0         # mode_share_analyzer.py: scipy.signal, scipy.stats
+scipy>=1.11.0             # mode_share_analyzer.py: scipy.signal, scipy.stats
+scikit-learn>=1.3.0       # SHAP preprocessing, clustering
+shap>=0.44.0              # SHAP explainability for BDI + SD features
 
 # ── Event Bus and Policy Engine (Phases 7–8) ─────────────────────────────────
 # event_bus_safe.py core uses stdlib only (urllib, threading, queue, json).
 # redis is a hard dependency — policies.py imports from redis._parsers directly.
+# RTD_SIM auto-detects Redis availability and falls back to in-memory if absent.
 redis>=5.0
 
 # ── Story Ingestion Service (Phase 9) ────────────────────────────────────────
@@ -34,16 +45,35 @@ httpx>=0.27.0             # required by FastAPI TestClient
 pypdf>=4.0.0
 
 # ── LLM Backends ─────────────────────────────────────────────────────────────
-# Tier 1 — OLMo 2 via Ollama
+# Tier 1 — OLMo 2 via Ollama (primary, open source, Apache 2.0)
 # No Python package required — uses stdlib urllib only.
-# Install Ollama separately: https://ollama.com
+# RTD_SIM auto-starts Ollama via services/startup_manager.py.
+# Manual install if auto-start fails:
 #   brew install ollama
 #   ollama pull olmo2:13b
 
 # Tier 3 — Anthropic fallback (optional — only needed if ANTHROPIC_API_KEY set)
 anthropic>=0.25.0
 
+# ── Real-Time Integration (Phase 13) ─────────────────────────────────────────
+# MQTT client for EV charger occupancy, traffic counts, ferry capacity feeds.
+# Paho is the de-facto Python MQTT client (Eclipse Foundation, EPL 2.0).
+paho-mqtt>=2.0.0
+
+# Eclipse Ditto HTTP/WebSocket client — no dedicated pip package.
+# Ditto uses standard REST + WebSocket; communicate via requests + websockets.
+websockets>=12.0          # async WebSocket client for Ditto live channel
+# Eclipse Ditto server itself runs as Docker containers — see deployment/docker
+# in the Ditto repo: https://github.com/eclipse/ditto
+
+# ── ODTP Containerisation (Phase 10b) ────────────────────────────────────────
+# ODTP component client is a git submodule — no pip package.
+# See: https://github.com/odtp-org/odtp-component-template
+# The ODTP orchestrator uses S3 + MongoDB — add when containerising:
+# boto3>=1.34.0            # S3 snapshot uploads
+# pymongo>=4.6.0           # ODTP metadata store
+
 # ── Future phases (not yet active) ───────────────────────────────────────────
-# paho-mqtt>=1.6.0      # Phase 13: MQTT / IoT real-time data ingestion
-# asyncio-mqtt>=0.16.0  # Phase 13: async MQTT wrapper
-# influxdb-client>=3.0  # Phase 14: time-series storage
+# asyncio-mqtt>=0.16.0    # Phase 13: async MQTT wrapper (alternative to paho)
+# influxdb-client>=3.0    # Phase 14: time-series storage for sensor streams
+# fmpy>=0.3.20            # Phase 13: FMI model wrapper for OpenTwins integration

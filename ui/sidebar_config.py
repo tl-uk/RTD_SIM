@@ -1,7 +1,7 @@
 """
 ui/sidebar_config.py
 
-Sidebar configuration with advanced settings.
+Sidebar configuration with Phase 5.1 combined scenarios.
 
 """
 
@@ -36,9 +36,9 @@ from ui.widgets.policy_parameter_controls import (
 # DEBUG: Extended Temporal Simulation testing
 logger = logging.getLogger(__name__)
 
-# Extended Temporal Simulation testing
+# Phase 7.1 - Extended Temporal Simulation testing
 from ui.components.temporal_settings import render_temporal_settings
-# Synthetic Events
+# Phase 7.2 - Synthetic Events
 from ui.components.synthetic_events_settings import render_synthetic_events_settings
 
 def render_sidebar_config():
@@ -210,12 +210,12 @@ def render_sidebar_config():
     
     st.sidebar.markdown("---")
 
-    # === TEMPORAL SETTINGS (BEFORE FORM) ===
+    # === PHASE 7.1: TEMPORAL SETTINGS (BEFORE FORM) ===
     temporal_config = render_temporal_settings()
     
     st.sidebar.markdown("---")
     
-    # === SYNTHETIC EVENTS (BEFORE FORM) ===  
+    # === PHASE 7.2: SYNTHETIC EVENTS (BEFORE FORM) ===  
     synthetic_config = render_synthetic_events_settings()
     
     st.sidebar.markdown("---")
@@ -276,6 +276,7 @@ def render_sidebar_config():
         decay_rate=advanced_config['decay_rate'],
         habit_weight=advanced_config['habit_weight'],
         cross_persona_prob=advanced_config['cross_persona_prob'],
+        llm_backend=advanced_config['llm_backend'],
         enable_infrastructure=advanced_config['enable_infrastructure'],
         num_chargers=advanced_config['num_chargers'],
         num_depots=advanced_config['num_depots'],
@@ -951,7 +952,6 @@ def _render_story_selection():
                 st.rerun()
  
             job_stories = st.session_state.get("_job_ms", default_jobs)
-            # ── User Stories ───────────────────────────────────────────────
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it
@@ -1024,6 +1024,8 @@ def _render_story_selection():
             job_stories  = ['morning_commute', 'shopping_trip']
 
     return user_stories, job_stories
+
+
 
 
 def _render_weather_configuration():
@@ -1121,11 +1123,6 @@ def _render_advanced_features():
         st.info("💡 Enable 'Advanced Parameter Tuning' above to customize infrastructure settings")
     
     # Social networks
-    # The slider only appears when both "Enable Social Networks" and "Use Realistic Influence" 
-    # are on — which is correct, since without realistic influence the cross-persona 
-    # wiring has no downstream effect on Bayesian belief updating. If social is off, 
-    # cross_persona_prob stays at its default 0.25 in SimulationConfig and is simply 
-    # not used.
     enable_social = False
     use_realistic = False
     decay_rate = 0.0
@@ -1144,8 +1141,6 @@ def _render_advanced_features():
                 with st.expander("⚙️ Influence Parameters"):
                     decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05)
                     habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1)
-                    # The slider ceiling is 0.6 not 1.0. At p=0.75+, the cross-pool 
-                    # draw dominates and the network loses meaningful homophily
                     cross_persona_prob = st.slider(
                         "Cross-Persona Tie Probability",
                         min_value=0.0,
@@ -1184,6 +1179,29 @@ def _render_advanced_features():
                             "k_shortest: top-k paths, ~0.15s/route."
                         ),
                     )
+
+    # Agent plan generation — outside social block so it's always visible
+    st.markdown("#### 🧠 Agent Plan Generation")
+    llm_backend = st.radio(
+        "BDI Plan Backend",
+        options=["rule_based", "olmo", "claude"],
+        index=0,
+        horizontal=True,
+        key="llm_backend_radio",
+        help=(
+            "rule_based: deterministic, fast (~0ms/agent). "
+            "olmo: OLMo 2 13B via Ollama — richer contextual plans, "
+            "~30-60s/agent on CPU (keep agents ≤ 10). "
+            "claude: Anthropic API fallback — requires ANTHROPIC_API_KEY."
+        ),
+    )
+    if llm_backend == "olmo":
+        st.warning(
+            "⚠️ OLMo runs CPU-only (~30–60s per agent). "
+            "Keep agents ≤ 10 and steps ≤ 50 for a usable run time."
+        )
+    elif llm_backend == "claude":
+        st.info("ℹ️ Requires ANTHROPIC_API_KEY environment variable.")
     
     return {
         'use_congestion': use_congestion,
@@ -1192,6 +1210,7 @@ def _render_advanced_features():
         'decay_rate': decay_rate,
         'habit_weight': habit_weight,
         'cross_persona_prob': cross_persona_prob,
+        'llm_backend': llm_backend,
         'enable_route_diversity': enable_route_diversity,   # ← NEW
         'route_diversity_mode': route_diversity_mode,       # ← NEW
         'enable_infrastructure': enable_infrastructure,
