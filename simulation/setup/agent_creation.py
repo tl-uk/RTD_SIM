@@ -60,6 +60,9 @@ def create_planner(infrastructure: Optional[InfrastructureManager]) -> BDIPlanne
     try:
         from agent.contextual_plan_generator import ContextualPlanGenerator
         plan_generator = ContextualPlanGenerator(llm_backend="rule_based")
+        # For research/small runs — expose via sidebar or env var
+        # LLM_BACKEND = olmo  (10 agents max, expect ~5 min agent creation)
+        # plan_generator = ContextualPlanGenerator(llm_backend="olmo")
         logger.info("✅ ContextualPlanGenerator attached to BDI planner")
     except Exception as _e:
         plan_generator = None
