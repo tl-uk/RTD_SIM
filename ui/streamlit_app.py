@@ -5,10 +5,7 @@ RTD_SIM Unified Visualization
 Main entry point with policy diagnostics properly integrated
 
 FIXES:
-- Policy Diagnostics tab no longer duplicated
-- Config properly stored in session state
-- Tab always shows (handles both policy/no-policy cases)
-- Proper parameter passing to diagnostics tab
+- Wiring in OLLMA
 
 To run: streamlit run ui/streamlit_app.py
 """
@@ -34,6 +31,9 @@ from ui.welcome_screen import render_welcome_screen
 from ui.status_footer import render_status_footer
 # Import log capture (ADD THIS LINE)
 from ui.log_capture import init_log_capture
+
+# Import startup manager — auto-starts Ollama and checks Redis
+from services.startup_manager import get_startup_manager
 
 # Import individual tab modules
 from ui.tabs import (
@@ -65,7 +65,7 @@ from ui.tabs.system_dynamics_tab import render_system_dynamics_tab
 from ui.tabs.sensitivity_analysis_tab import render_sensitivity_analysis_tab
 from ui.report_generator import render_report_generator_button
 
-# Import SHAP Analysis tab (Phase 5.4)
+# Import SHAP Analysis tab
 from ui.tabs.shap_analysis_tab import render_shap_analysis_tab
 
 # Import Combination Report tab (Agent validation)
@@ -92,8 +92,6 @@ def init_session_state():
     """Initialize session state variables."""
 
     # Initialize log capture first so every subsequent log line is captured.
-    # LogCapture resolves the directory relative to the project root, so logs
-    # always land in RTD_SIM/logs/ regardless of where `streamlit run` is called.
     if 'log_capture' not in st.session_state:
         st.session_state.log_capture = init_log_capture()
         import logging
@@ -103,6 +101,11 @@ def init_session_state():
         logger.info(f"Log file : {st.session_state.log_capture.get_log_path()}")
         logger.info(f"Log dir  : {st.session_state.log_capture.log_dir}")
         logger.info("=" * 80)
+
+    # Service startup — auto-starts Ollama if not running, checks Redis.
+    # Runs once per session; idempotent on reruns.
+    if 'startup_manager' not in st.session_state:
+        get_startup_manager()  # creates, checks services, stores in session_state
 
     defaults = {
         'simulation_run': False,
@@ -142,6 +145,9 @@ if st.session_state.simulation_run and st.session_state.current_region:
 
 # Sidebar configuration
 with st.sidebar:
+    # Show service status (Ollama, Redis) — collapsed by default
+    if 'startup_manager' in st.session_state:
+        st.session_state.startup_manager.render_status_sidebar()
     config, run_btn = render_sidebar_config()
 
 # Run simulation
@@ -165,7 +171,7 @@ if run_btn:
         st.session_state.animation_controller = AnimationController(
             total_steps=config.steps, fps=5
         )
-        # Phase 7.1: Reset animation step when starting new simulation
+        # Reset animation step when starting new simulation
         st.session_state.current_animation_step = 0
         
         # Store region name
@@ -238,7 +244,7 @@ if anim and 'current_animation_step' in st.session_state:
 with st.sidebar:
     render_diagnostics_panel(results)
     
-    # === PHASE 7.1: TEMPORAL PROGRESS DISPLAY ===
+    # ======== TEMPORAL PROGRESS DISPLAY =========
     if hasattr(results, 'temporal_engine') and results.temporal_engine:
         st.markdown("---")
         st.markdown("### ⏰ Simulation Time")
@@ -267,7 +273,7 @@ with st.sidebar:
         progress_str = results.temporal_engine.get_progress_string(anim.current_step)
         st.caption(f"📊 {progress_str}")
     
-    # === PHASE 7.2: ACTIVE EVENTS DISPLAY ===
+    # ======== ACTIVE EVENTS DISPLAY ========
     if hasattr(results, 'event_generator') and results.event_generator:
         active_events = results.event_generator.get_active_events()
         if active_events:
@@ -343,11 +349,11 @@ if config.weather_enabled or config.track_air_quality:
 if config.enable_analytics:
     tab_configs.append(("📊 Analytics", render_analytics_tab))
 
-# Phase 5.3: System Dynamics tab (show if attribute exists - tab handles empty data internally)
+# System Dynamics tab (show if attribute exists - tab handles empty data internally)
 if hasattr(results, 'system_dynamics_history'):
     tab_configs.append(("🔬 System Dynamics", render_system_dynamics_tab))
 
-# Phase 5.4: Sensitivity Analysis tab (show if SD data and derivative module available)
+# Sensitivity Analysis tab (show if SD data and derivative module available)
 if hasattr(results, 'system_dynamics_history') and results.system_dynamics_history:
     try:
         from analytics.sd_derivative_analysis import compute_sensitivity_metrics
@@ -355,7 +361,7 @@ if hasattr(results, 'system_dynamics_history') and results.system_dynamics_histo
     except ImportError:
         pass  # Module not available, skip tab
 
-# SHAP Analysis tab  ← ADD THIS BLOCK
+# SHAP Analysis tab 
 if hasattr(results, 'system_dynamics_history') and results.system_dynamics_history:
     try:
         from analytics.shap_analysis import run_shap_analysis_for_ui
@@ -373,7 +379,7 @@ if COMBINATION_REPORT_AVAILABLE:
 # Create and render tabs
 tab_names = [name for name, _ in tab_configs]
 
-# WORKAROUND: Hidden marker forces tab refresh when display options change
+# HACK: Hidden marker forces tab refresh when display options change
 # This invisible HTML comment triggers Streamlit's change detection
 st.markdown(
     f"<!-- refresh:{st.session_state.show_agents}:{st.session_state.show_routes}:{st.session_state.show_infrastructure}:{anim.current_step} -->", 

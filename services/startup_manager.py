@@ -338,10 +338,17 @@ def get_startup_manager() -> StartupManager:
     try:
         import streamlit as st
         if "startup_manager" not in st.session_state:
+            logger.info("StartupManager: initialising service checks…")
             st.session_state.startup_manager = StartupManager()
             st.session_state.startup_manager.ensure_all(
                 check_ollama=True,
                 check_redis=True,
+            )
+            ollama_status = st.session_state.startup_manager.services["ollama"].status
+            redis_status  = st.session_state.startup_manager.services["redis"].status
+            logger.info(
+                "StartupManager: checks complete — Ollama=%s, Redis=%s",
+                ollama_status, redis_status,
             )
         return st.session_state.startup_manager
     except ImportError:
@@ -349,3 +356,4 @@ def get_startup_manager() -> StartupManager:
         manager = StartupManager()
         manager.ensure_all()
         return manager
+    

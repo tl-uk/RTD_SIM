@@ -3,15 +3,11 @@ simulation/simulation_runner.py
 
 Main simulation orchestrator - delegates to specialized modules.
 
-Phase logging for development tracking - DO NOT REMOVE UNTIL PRODUCTION
+FIXES:
+- Added llm backend directly to create planner (Phase 10). If Ollama is still 
+unavailable after that, effective_llm_backend is silently downgraded to rule_based 
+with a single warning log line
 
-Added dynamic policy engine support for combined scenarios
-Added support for default policies and restored missing Phases 5 & 6
-
-OLMo is viable for FreightOperatorAgent and FerryPassengerAgent plan generation in 
-Phase 10b — the reasoning quality is high enough to generate contextually appropriate 
-freight job plans. But it needs two fixes first: increase the timeout to 180s, and 
-add a per-agent timeout that skips gracefully rather than blocking for 2 full minutes.
 """
 
 from __future__ import annotations
@@ -101,9 +97,35 @@ def run_simulation(
         
         # Phase 4: Create planner
         logger.info("🧠 Phase 4: BDI planner creation")
+
+        # If olmo backend selected, ensure Ollama is running before creating agents.
+        # If unavailable after auto-start attempt, fall back to rule_based and warn —
+        # never let a missing service silently cause 50+ Connection refused errors.
+        effective_llm_backend = getattr(config, 'llm_backend', 'rule_based')
+        if effective_llm_backend == 'olmo':
+            try:
+                from services.startup_manager import get_startup_manager
+                manager = get_startup_manager()
+                ollama_ready = manager.ensure_ollama_for_llm()
+                if not ollama_ready:
+                    logger.warning(
+                        "⚠️  Ollama unavailable after auto-start attempt — "
+                        "falling back to rule_based plan generation. "
+                        "Install Ollama: brew install ollama"
+                    )
+                    effective_llm_backend = 'rule_based'
+                else:
+                    logger.info("✅ Ollama ready for OLMo plan generation")
+            except Exception as _sm_err:
+                logger.warning(
+                    "StartupManager check failed (%s) — falling back to rule_based",
+                    _sm_err,
+                )
+                effective_llm_backend = 'rule_based'
+
         planner = create_planner(
             infrastructure,
-            llm_backend=getattr(config, 'llm_backend', 'rule_based'),
+            llm_backend=effective_llm_backend,
         )
         
         # ====================================================================
