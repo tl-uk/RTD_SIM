@@ -1,3 +1,6 @@
+# Workflow
+git add -A && git commit -m "... comments ..." && git push https://github.com/tl-uk/RTD_SIM.git main 
+
 # Terminal tracking for ollama BDI-agent user/job stories generation
 tail -f /Users/theolim/AppDev/RTD_SIM/logs/simulation_*.log | grep -E "(LLM|CPG|OLMo|olmo|extraction|fallback|plan|backend)"
 
@@ -11,4 +14,3 @@ find /Users/theolim/AppDev/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
 I'm thinking about the ASI framework combined with complex contagion and small-world network effects. The ASI (Avoid-Shift-Improve) hierarchy as a BDI plan priority structure is genuinely novel for transport ABMs—current models use cost minimisation without this structured approach. Complex contagion requiring multiple neighbours to adopt before influencing behaviour is well-established in social science but rarely applied to transport simulations. Adding small-world network properties with long-range policy links creates an interesting combination that hasn't been explored in this context.
 
 
-git add -A && git commit -m "Phase 10a:  " && git push https://github.com/tl-uk/RTD_SIM.git main 

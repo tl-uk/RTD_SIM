@@ -670,24 +670,31 @@ def run_simulation_loop(
         
         # UPDATE SYSTEM DYNAMICS
         if system_dynamics:
-            # Derive real infrastructure capacity from the current charger count.
-            # infrastructure_capacity_stock defaults to 100.0 if not updated,
-            # which made infrastructure_effect constant and got removed as a
-            # SHAP feature. Passing the actual count here keeps it time-varying
-            # so policy-triggered charger expansions show up in the SD flow.
-            _infra_capacity = 100.0  # baseline
-            if infrastructure is not None:
-                try:
+            # Derive real infrastructure capacity from the current charger count and
+            # write it directly onto the SD state BEFORE calling update_system_dynamics.
+            #
+            # Why direct assignment rather than a kwarg:
+            #   update_system_dynamics() (defined in system_dynamics_integration.py)
+            #   has the signature (sd, step, agents, infra, dt=1.0) — it does not accept
+            #   infrastructure_capacity as a parameter.  Bypassing the wrapper and setting
+            #   the stock directly on the StreamingSDState dataclass is the correct
+            #   approach: it matches what sd.update() does internally at line 259, keeps
+            #   the value time-varying so SHAP sees a non-constant infrastructure_effect,
+            #   and doesn't require changes to the integration module.
+            try:
+                if infrastructure is not None:
                     _infra_capacity = float(len(infrastructure.charging_stations))
-                except Exception:
-                    pass
+                else:
+                    _infra_capacity = 100.0   # baseline — no infrastructure manager
+                system_dynamics.state.infrastructure_capacity_stock = _infra_capacity
+            except Exception as _infra_err:
+                logger.debug("Could not update infrastructure_capacity_stock: %s", _infra_err)
 
             sd_events = update_system_dynamics(
                 system_dynamics=system_dynamics,
                 step=step,
                 agents=agents,
                 infrastructure=infrastructure,
-                infrastructure_capacity=_infra_capacity,
                 dt=1.0,
             )
             
