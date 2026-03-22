@@ -111,18 +111,26 @@ class RealisticSocialInfluence:
         experience_weight: float = 0.4,
         peer_weight: float = 0.2,
         saturation_threshold: int = 5,
-        recency_window: int = 10
+        recency_window: int = 10,
+        influence_strength: float = 0.2,
+        conformity_pressure: float = 0.3,
     ):
         """
         Initialize realistic influence system.
-        
+
         Args:
-            decay_rate: How fast influence memories fade (0-1)
-            habit_weight: Weight of habit inertia (0-1)
-            experience_weight: Weight of personal experience (0-1)
-            peer_weight: Weight of peer influence (0-1)
+            decay_rate:           How fast influence memories fade (0-1)
+            habit_weight:         Weight of habit inertia (0-1)
+            experience_weight:    Weight of personal experience (0-1)
+            peer_weight:          Weight of peer influence (0-1)
             saturation_threshold: Max peer events to consider
-            recency_window: How many recent steps matter most
+            recency_window:       How many recent steps matter most
+            influence_strength:   Peer→mode cost reduction factor (sidebar-controllable).
+                                  0.2 = calibrated default; 0.5 = strong.
+                                  Applied as: adjusted_cost *= (1 - influence_strength * bonus)
+            conformity_pressure:  Extra cost reduction when >50% of peers use a mode.
+                                  Models herd behaviour in fleet procurement.
+                                  0.0 = no majority effect; 0.6 = strong bandwagon.
         """
         self.decay_rate = decay_rate
         self.habit_weight = habit_weight
@@ -130,14 +138,20 @@ class RealisticSocialInfluence:
         self.peer_weight = peer_weight
         self.saturation_threshold = saturation_threshold
         self.recency_window = recency_window
+        self.influence_strength = influence_strength
+        self.conformity_pressure = conformity_pressure
         
         # Agent state tracking
         self._influence_memories: Dict[str, List[InfluenceMemory]] = {}
         self._habit_states: Dict[str, Dict[str, HabitState]] = {}
         self._current_time: int = 0
         
-        logger.info(f"RealisticSocialInfluence: decay={decay_rate}, "
-                   f"habit={habit_weight}, exp={experience_weight}, peer={peer_weight}")
+        logger.info(
+            "RealisticSocialInfluence: decay=%.2f, habit=%.2f, exp=%.2f, "
+            "peer=%.2f, influence_strength=%.2f, conformity_pressure=%.2f",
+            decay_rate, habit_weight, experience_weight, peer_weight,
+            influence_strength, conformity_pressure,
+        )
     
     def advance_time(self, steps: int = 1) -> None:
         """Advance simulation time (for decay calculations)."""
@@ -260,10 +274,25 @@ class RealisticSocialInfluence:
             self.experience_weight * experience_bonus +
             self.peer_weight * peer_bonus
         )
-        
-        # Apply bonus (cap at 50% reduction)
-        adjusted_cost *= (1.0 - min(0.5, total_bonus))
-        
+
+        # Apply influence_strength as a scaling factor on the peer/social component.
+        # This makes the sidebar slider directly control how much peers move costs.
+        # influence_strength=0.2 (default) → moderate peer pull
+        # influence_strength=0.5 → strong peer pull (herd industries)
+        scaled_bonus = total_bonus * self.influence_strength / 0.2  # normalise to default
+
+        # Conformity pressure: extra reduction when majority (>50%) of peers use this mode.
+        # Models herd behaviour in fleet procurement — once most peers have adopted,
+        # the remaining holdouts feel additional institutional pressure.
+        majority_bonus = 0.0
+        peer_share = peer_mode_share.get(mode, 0.0)
+        if peer_share > 0.5:
+            majority_bonus = (peer_share - 0.5) * self.conformity_pressure
+
+        # Apply combined bonus (cap at 60% total reduction to preserve agent autonomy)
+        total_reduction = min(0.6, scaled_bonus + majority_bonus)
+        adjusted_cost *= (1.0 - total_reduction)
+
         return adjusted_cost
     
     def _calculate_habit_bonus(self, agent_id: str, mode: str) -> float:

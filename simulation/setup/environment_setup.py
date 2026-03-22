@@ -202,29 +202,39 @@ def setup_infrastructure(
                 charger_power_kw=50.0
             )
     else:
-        # City scale — derive bbox from graph extent and populate generically.
+        # City scale — derive bbox from the loaded graph extent.
         # The former call to populate_edinburgh_chargers() was a hardcoded
-        # Edinburgh-only fallback that caused incorrect charger placement for
-        # any other city. Phase 10a fix: derive bounds from the loaded graph
-        # and place chargers uniformly across the actual region.
+        # Edinburgh-only fallback. Phase 10a fix: always derive from the
+        # actual loaded graph so any city works correctly.
         if env is not None and env.graph_loaded:
             try:
                 stats = env.get_graph_stats()
-                # get_graph_stats returns bounds in the graph's coordinate space
-                west  = stats.get('west',  -3.35)
-                south = stats.get('south', 55.85)
-                east  = stats.get('east',  -3.05)
-                north = stats.get('north', 56.00)
-            except Exception:
-                west, south, east, north = -3.35, 55.85, -3.05, 56.00
+                # get_graph_stats returns the graph's spatial envelope
+                west  = stats.get('west')
+                south = stats.get('south')
+                east  = stats.get('east')
+                north = stats.get('north')
+                if None in (west, south, east, north):
+                    raise ValueError("get_graph_stats missing bbox keys")
+            except Exception as exc:
+                logger.error(
+                    "setup_infrastructure: could not derive bbox from graph — %s. "
+                    "Infrastructure placement skipped. "
+                    "Check that get_graph_stats() returns 'west','south','east','north'.",
+                    exc,
+                )
+                return infrastructure   # safe exit — no chargers rather than wrong city
         else:
-            # No graph — cannot derive bounds; use a neutral placeholder bbox.
-            # This will be snapped to roads below if env is provided later.
-            logger.warning(
-                "setup_infrastructure: no graph loaded and no extended_bbox — "
-                "using graph-derived bounds after snap. Charger positions may be imprecise."
+            # No graph loaded at all — cannot place chargers at all without coords.
+            # Raise clearly so the developer knows what to fix, rather than
+            # silently placing chargers in the wrong city.
+            logger.error(
+                "setup_infrastructure: no graph loaded and no extended_bbox. "
+                "Cannot derive charger positions. "
+                "Ensure setup_environment() is called before setup_infrastructure(), "
+                "or provide config.extended_bbox explicitly."
             )
-            west, south, east, north = -3.35, 55.85, -3.05, 56.00
+            return infrastructure   # safe exit — empty infra is better than Edinburgh
 
         for i in range(config.num_chargers):
             lon = random.uniform(west, east)

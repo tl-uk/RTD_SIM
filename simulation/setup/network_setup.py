@@ -64,7 +64,7 @@ def setup_social_network(
         influence_enabled=True,
         strong_tie_threshold=getattr(config, 'strong_tie_threshold', 0.6),
     )
-    
+
     cross_persona_prob = getattr(config, 'cross_persona_prob', 0.25)
     network_k          = getattr(config, 'network_k', 5)
 
@@ -81,23 +81,23 @@ def setup_social_network(
             decay_rate=config.decay_rate,
             habit_weight=config.habit_weight,
             experience_weight=0.4,
-            peer_weight=0.2
+            peer_weight=0.2,
+            influence_strength=getattr(config, 'influence_strength', 0.2),
+            conformity_pressure=getattr(config, 'conformity_pressure', 0.3),
         )
         enhance_social_network_with_realism(network, influence_system)
         logger.info(
-            "✅ Realistic influence enabled "
-            "(k=%d, cross_persona_prob=%.2f, influence_strength=%.2f, "
-            "conformity_pressure=%.2f, strong_tie_threshold=%.2f)",
-            network_k,
-            cross_persona_prob,
+            "✅ Realistic influence enabled — "
+            "k=%d, cross_persona=%.2f, influence_strength=%.2f, "
+            "conformity_pressure=%.2f, strong_tie_threshold=%.2f",
+            network_k, cross_persona_prob,
             getattr(config, 'influence_strength', 0.2),
             getattr(config, 'conformity_pressure', 0.3),
             getattr(config, 'strong_tie_threshold', 0.6),
         )
     else:
         logger.info(
-            "✅ Deterministic influence enabled "
-            "(k=%d, cross_persona_prob=%.2f)",
+            "✅ Deterministic influence enabled — k=%d, cross_persona=%.2f",
             network_k, cross_persona_prob,
         )
     

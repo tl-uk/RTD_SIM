@@ -32,7 +32,7 @@ class SimulationConfig:
         # ===== CORE SETTINGS =====
         steps: int = 100,
         num_agents: int = 50,
-        place: str = "Edinburgh, UK",
+        place: Optional[str] = None,        # Phase 10a: no silent Edinburgh default
         extended_bbox: Optional[Tuple[float, float, float, float]] = None,
         use_osm: bool = True,
         region_name: Optional[str] = None,
@@ -75,6 +75,12 @@ class SimulationConfig:
         decay_rate: float = 0.15,
         habit_weight: float = 0.4,
         cross_persona_prob: float = 0.25,  # Fraction of ties crossing persona boundary
+
+        # ── Neighbourhood influence (Phase 10a — sidebar-controllable) ──────
+        network_k: int = 5,              # avg ties per agent; sidebar slider 2–12
+        influence_strength: float = 0.2, # peer→mode cost reduction factor
+        conformity_pressure: float = 0.3,# extra reduction when >50% peers use mode
+        strong_tie_threshold: float = 0.6,# similarity for strong vs weak tie
         
         # Agent plan generation
         llm_backend: str = 'rule_based',  # 'rule_based' | 'olmo' | 'claude'
@@ -96,8 +102,8 @@ class SimulationConfig:
         weather_wind_multiplier: float = 1.0,
         use_historical_weather: bool = False,
         weather_start_date: Optional[str] = None,
-        latitude: float = 55.9533,
-        longitude: float = -3.1883,
+        latitude: Optional[float] = None,   # Phase 10a: derive from active region centroid
+        longitude: Optional[float] = None,   # Phase 10a: derive from active region centroid
         
         # Air quality (old style)
         track_air_quality: bool = False,
@@ -143,9 +149,13 @@ class SimulationConfig:
         self.enable_route_diversity = enable_route_diversity
         self.route_diversity_mode = route_diversity_mode
         self.cross_persona_prob = cross_persona_prob
+        self.network_k = network_k
+        self.influence_strength = influence_strength
+        self.conformity_pressure = conformity_pressure
+        self.strong_tie_threshold = strong_tie_threshold
         self.llm_backend = llm_backend
         
-        # Temporal scaling
+        # Phase 7.1: Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling
         self.time_scale = time_scale
         self.start_datetime = start_datetime
@@ -242,7 +252,7 @@ class SimulationConfig:
             self.policy_thresholds = policy_thresholds
     
     # ========================================
-    # Event System
+    # Phase 6.2b: Event System
     # ========================================
     enable_event_bus: bool = False
     """Enable real-time event bus (auto-falls back to in-memory if Redis unavailable)"""

@@ -663,23 +663,57 @@ def _render_location_map_picker() -> list:
 def _render_location_settings():
     """Render location configuration section."""
     st.markdown("### 🗺️ Location")
+
+    # ── User default location (persistent across sessions) ─────────────────
+    # Stored in session_state so it survives page interactions.
+    # Used as the pre-fill value and as the selectbox default.
+    if 'user_default_location' not in st.session_state:
+        st.session_state.user_default_location = ""
+
+    with st.expander("🏠 Your default location", expanded=not st.session_state.user_default_location):
+        default_loc = st.text_input(
+            "Default location",
+            value=st.session_state.user_default_location,
+            placeholder="e.g. Manchester, UK  or  London, UK  or  Birmingham, UK",
+            key="user_default_location_input",
+            help=(
+                "Set once and it becomes your starting point every session. "
+                "Accepts any OSMnx-compatible place name. "
+                "Leave blank to always start from 'Custom Place'."
+            ),
+        )
+        if default_loc != st.session_state.user_default_location:
+            st.session_state.user_default_location = default_loc
+            st.rerun()
+        if default_loc:
+            st.caption(f"✅ Default set to: **{default_loc}**")
+        else:
+            st.caption("💡 No default set — you'll need to choose a region each run.")
+
     use_osm = st.checkbox("Use Real Street Network", value=True)
 
     place = None
     extended_bbox = None
-    region_name = "Synthetic Network"
+    region_name = "Synthetic Network (OSM disabled)"
 
     if use_osm:
+        # Preset options — Edinburgh/Scotland presets kept for DfT demos.
+        # The DEFAULT is now Custom Place (index=3) so no city is forced.
+        # If the user has set a personal default, we pre-fill Custom Place with it.
+        preset_options = [
+            'Custom Place',
+            'Edinburgh City',
+            'Central Scotland (Edinburgh-Glasgow)',
+            'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',
+        ]
         region_choice = st.selectbox(
-            "Region",
-            options=[
-                'Edinburgh City',
-                'Central Scotland (Edinburgh-Glasgow)',
-                'Scotland 3-City Corridor (Aberdeen-Edinburgh-Glasgow)',
-                'Custom Place',
-            ],
-            index=0,
-            help="Select spatial extent for simulation",
+            "Region preset",
+            options=preset_options,
+            index=0,       # Default: Custom Place — user must choose or type
+            help=(
+                "Choose a preset region or select 'Custom Place' to type any UK location. "
+                "Set a personal default in '🏠 Your default location' above."
+            ),
         )
 
         if region_choice == 'Edinburgh City':
@@ -721,7 +755,10 @@ def _render_location_settings():
             # ----------------------------------------------------------------
             if input_method == "📝 Type locations":
                 if "custom_text_locations" not in st.session_state:
-                    st.session_state.custom_text_locations = "Edinburgh, UK"
+                    # Use the user's saved default, not Edinburgh
+                    st.session_state.custom_text_locations = st.session_state.get(
+                        'user_default_location', ""
+                    )
 
                 text_input = st.text_input(
                     "Place names (separate multiple with `;`)",
@@ -783,15 +820,21 @@ def _render_location_settings():
             # ----------------------------------------------------------------
             if len(locations_resolved) == 0:
                 # No locations resolved — do NOT silently default to Edinburgh.
-                # Show an actionable warning so the user knows they need to act.
-                place = None
-                extended_bbox = None
-                region_name = "Not yet configured"
-                st.warning(
-                    "⚠️ No locations resolved. "
-                    "Click the map to place a pin, or type a city name above, "
-                    "before running the simulation."
-                )
+                # Block the run with an actionable warning.
+                user_default = st.session_state.get('user_default_location', '')
+                if user_default:
+                    place = user_default
+                    extended_bbox = None
+                    region_name = user_default.split(',')[0].strip()
+                    st.info(f"📍 Using your saved default: **{user_default}**")
+                else:
+                    place = None
+                    extended_bbox = None
+                    region_name = "Not yet configured"
+                    st.warning(
+                        "⚠️ No location set. Type a place name above, click the map, "
+                        "or set a default in '🏠 Your default location'."
+                    )
 
             elif len(locations_resolved) == 1:
                 # Single location: use as place name if we have a display name,
@@ -824,6 +867,8 @@ def _render_location_settings():
                 )
 
     else:
+        # OSM disabled — synthetic network, no real geography.
+        # Still apply user_default_location as the region label if set.
         place = None
         extended_bbox = None
         region_name = "Synthetic Network (OSM disabled)"
@@ -1141,76 +1186,76 @@ def _render_advanced_features():
     use_realistic = False
     decay_rate = 0.0
     habit_weight = 0.0
-    cross_persona_prob = 0.25   # default — overridden by slider when social is on
-    network_k = 5               # average ties per agent
-    influence_strength = 0.2    # peer influence on mode costs
-    conformity_pressure = 0.3   # majority-mode extra pressure
-    strong_tie_threshold = 0.6  # similarity threshold for strong vs weak tie
+    cross_persona_prob = 0.25
+    network_k = 5
+    influence_strength = 0.2
+    conformity_pressure = 0.3
+    strong_tie_threshold = 0.6
     enable_route_diversity = True
     route_diversity_mode = 'ultra_fast'
-    
+
     if STORIES_AVAILABLE:
         enable_social = st.checkbox("Enable Social Networks", value=True)
-        
+
         if enable_social:
             use_realistic = st.checkbox("Use Realistic Influence", value=True)
-            
+
             if use_realistic:
                 with st.expander("⚙️ Influence Parameters"):
-                    decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05,
-                        help="Rate at which old social influence fades each step.")
-                    habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1,
-                        help="How strongly past mode choices lock in future behaviour.")
+                    decay_rate = st.slider(
+                        "Decay Rate", 0.05, 0.30, 0.15, 0.05,
+                        help="Rate at which old social influence fades each step."
+                    )
+                    habit_weight = st.slider(
+                        "Habit Weight", 0.0, 0.6, 0.4, 0.1,
+                        help="How strongly past mode choices lock in future behaviour."
+                    )
                     cross_persona_prob = st.slider(
                         "Cross-Persona Tie Probability",
-                        min_value=0.0,
-                        max_value=0.6,
-                        value=0.25,
-                        step=0.05,
+                        min_value=0.0, max_value=0.6, value=0.25, step=0.05,
                         key="cross_persona_prob_slider",
                         help=(
                             "Fraction of each agent's social ties that cross persona "
-                            "boundaries. 0.0 = pure echo chambers (same-persona only). "
-                            "0.25 = realistic bridging ties — EV adoption can diffuse "
-                            "across groups. 0.5+ = near-random mixing."
+                            "boundaries. 0.0 = pure echo chambers. "
+                            "0.25 = realistic bridging (Granovetter default). "
+                            "0.5+ = near-random mixing."
                         ),
                     )
                     st.caption(
-                        "💡 Higher values let eco-warrior influence reach business "
-                        "commuters and freight operators — faster cross-group cascade."
+                        "💡 Higher values let eco-warrior influence reach "
+                        "freight operators — faster cross-group cascade."
                     )
 
                 with st.expander("🕸️ Neighbourhood Influence", expanded=False):
                     st.markdown(
                         "Control the **structure** and **strength** of peer influence. "
-                        "These settings are independent of persona type — they apply "
-                        "equally to NHS managers, freight operators, and commuters."
+                        "These settings apply equally to NHS managers, "
+                        "Tesco drivers, paramedics, and commuters."
                     )
                     network_k = st.slider(
                         "Average ties per agent (k)",
                         min_value=2, max_value=12, value=5, step=1,
                         key="network_k_slider",
                         help=(
-                            "How many social connections each agent has on average. "
+                            "How many social connections each agent has. "
                             "k=3 → sparse, slow diffusion. "
-                            "k=5 → balanced (Granovetter empirical default). "
-                            "k=8 → dense, fast cascade — models high-connectivity "
-                            "industries like logistics or healthcare where operators "
-                            "know many peers through professional networks."
+                            "k=5 → balanced (empirical default). "
+                            "k=8 → dense, fast cascade — models trade-association "
+                            "connectivity (logistics, NHS procurement networks)."
                         ),
                     )
                     st.caption(
-                        "💡 Raise k to test 'what if freight operators joined a "
-                        "trade association?' More ties accelerate EV adoption cascades."
+                        "💡 'What if freight operators joined a trade association?' "
+                        "Raise k to simulate denser professional networks."
                     )
                     influence_strength = st.slider(
                         "Peer influence strength",
                         min_value=0.0, max_value=0.5, value=0.2, step=0.05,
                         key="influence_strength_slider",
                         help=(
-                            "How much a peer's mode choice reduces the perceived cost "
-                            "of that mode. 0 = no peer effect. 0.2 = calibrated default. "
-                            "0.5 = strong — one peer using EV reduces your EV cost by 50%."
+                            "How much a peer's mode choice reduces your perceived "
+                            "cost of that mode. 0.2 = calibrated default. "
+                            "0.5 = strong — one peer using EV halves your EV cost."
                         ),
                     )
                     conformity_pressure = st.slider(
@@ -1218,9 +1263,9 @@ def _render_advanced_features():
                         min_value=0.0, max_value=0.6, value=0.3, step=0.05,
                         key="conformity_pressure_slider",
                         help=(
-                            "Extra cost reduction when >50% of an agent's peers use a mode. "
-                            "Models herd behaviour in fleet procurement decisions. "
-                            "0.6 = strong bandwagon — useful for testing tipping points."
+                            "Extra cost reduction when >50% of peers use a mode. "
+                            "Models herd behaviour in fleet procurement. "
+                            "0.6 = strong bandwagon — useful for tipping point tests."
                         ),
                     )
                     strong_tie_threshold = st.slider(
@@ -1229,9 +1274,8 @@ def _render_advanced_features():
                         key="strong_tie_threshold_slider",
                         help=(
                             "Desire-similarity score above which a tie is 'strong' "
-                            "(high influence weight) vs 'weak' (low influence weight). "
-                            "Lower = more strong ties. Higher = only very similar "
-                            "agents strongly influence each other."
+                            "(high influence weight) vs 'weak' (low weight). "
+                            "Lower = more strong ties across the network."
                         ),
                     )
 
@@ -1277,7 +1321,7 @@ def _render_advanced_features():
         )
     elif llm_backend == "claude":
         st.info("ℹ️ Requires ANTHROPIC_API_KEY environment variable.")
-    
+
     return {
         'use_congestion': use_congestion,
         'enable_social': enable_social,
@@ -1290,8 +1334,8 @@ def _render_advanced_features():
         'conformity_pressure': conformity_pressure,
         'strong_tie_threshold': strong_tie_threshold,
         'llm_backend': llm_backend,
-        'enable_route_diversity': enable_route_diversity,   # ← NEW
-        'route_diversity_mode': route_diversity_mode,       # ← NEW
+        'enable_route_diversity': enable_route_diversity,
+        'route_diversity_mode': route_diversity_mode,
         'enable_infrastructure': enable_infrastructure,
         'num_chargers': num_chargers,
         'num_depots': num_depots,
