@@ -1,0 +1,352 @@
+# agent/personas/nhs_extended_personas.yaml
+#
+# NHS Extended Personas — Phase 10b additions
+#
+# WHY THESE PERSONAS EXIST:
+#   The NHS simulation produces 4 isolated clusters because all healthcare
+#   agents share the same fleet_manager_healthcare persona, doing only 4 jobs
+#   (nhs_staff_commute, nhs_patient_transport, nhs_clinical_supplies, night_shift).
+#   This creates structural isolation: healthcare agents only form ties with
+#   each other, with no reason to connect to logistics or commute clusters.
+#
+#   These 5 extended personas create genuine cross-cluster bridging:
+#   - paramedic:            HEALTHCARE × LOGISTICS (depot charging competition)
+#   - community_health_worker: HEALTHCARE × COMMUTE (multi-stop urban routing)
+#   - nhs_ward_manager:     HEALTHCARE × COMMUTE (staff commute + patient oversight)
+#   - clinical_waste_driver: HEALTHCARE × LOGISTICS × NIGHT_OPS (waste collection crossover)
+#   - nhs_supply_chain:     HEALTHCARE_FREIGHT × LOGISTICS (NHS Supply Chain operator)
+#
+# MARKOV DIAGONAL VALUES (add to markov_mode_switching.py _PERSONA_BASE_DIAGONAL):
+#   paramedic:               0.80  # blue-light habit: always same route, always same vehicle
+#   community_health_worker: 0.55  # multi-stop flexibility, moderate switching
+#   nhs_ward_manager:        0.65  # schedule-driven, moderate habit
+#   clinical_waste_driver:   0.68  # regulated routes, moderate habit
+#   nhs_supply_chain:        0.65  # schedule-driven logistics
+#
+# DEPLOYMENT: Place in agent/personas/nhs_extended_personas.yaml
+# The UserStoryParser._load_stories() will NOT auto-load this file —
+# it only auto-merges operator_personas.yaml. Either:
+#   a) Merge manually into operator_personas.yaml, OR
+#   b) Extend _load_stories() to load all YAML files in the personas/ directory.
+# Option (b) is recommended for Phase 10b.
+
+# ============================================================================
+# PARAMEDIC
+# ============================================================================
+
+paramedic:
+  narrative: |
+    As a paramedic working 12-hour shift patterns across a health board area,
+    I need a reliable, always-available vehicle that can respond to emergencies
+    regardless of time, weather, or vehicle battery state. My response time
+    is measured in minutes. Charging anxiety is a patient safety issue — an
+    ambulance that cannot respond because it is charging is clinically
+    unacceptable.
+
+  persona_type: "freight"     # Uses commercial van/specialist vehicle
+
+  desires:
+    reliability: 1.0           # Non-negotiable: patient lives depend on it
+    safety: 0.98
+    time: 0.95                 # Response time is the primary clinical metric
+    compliance: 0.90           # CQC and NHS operational standards
+    cost: 0.25                 # Lowest priority: NHS procures vehicles centrally
+    eco: 0.40
+    flexibility: 0.20          # Blue-light dispatch — no flexibility
+
+  desire_variance: 0.04        # Tight: training and protocols minimise variation
+
+  beliefs:
+    - text: "Vehicle range and reliability are life-safety requirements"
+      strength: 1.0
+      updateable: false
+    - text: "Electric ambulances are viable for planned patient transport but not blue-light"
+      strength: 0.80
+      updateable: true
+    - text: "Rapid charging at hospital is essential for EV adoption in emergency services"
+      strength: 0.85
+      updateable: true
+    - text: "Diesel ambulance is a proven, known quantity — risk of switching is high"
+      strength: 0.75
+      updateable: true
+
+  constraints:
+    - "Must be able to respond within 8 minutes (Category 1 call)"
+    - "Cannot be out of service for routine charging during shift"
+    - "Vehicle must carry life-support equipment and medications"
+    - "Crew rest between calls — vehicle at station, not en route to charger"
+
+  mode_preferences:
+    van_diesel: 0.90           # Current operational standard
+    van_electric: 0.50         # Viable for planned transport; anxiety for blue-light
+    car: 0.40                  # Rapid response car (first responder)
+    ev: 0.45
+
+  plan_hints:
+    - "Priority charging slot at station and hospital — cannot queue"
+    - "Must return to station between calls — depot charging pattern"
+    - "Weather and traffic must not affect response capability"
+    - "EV adoption requires guaranteed charging at all response stations"
+
+  social_profile:
+    influence_susceptibility: 0.35   # Slow to change: safety culture + protocols
+    influence_strength: 0.80         # High authority: peers trust clinical experience
+    network_size_range: [8, 20]
+
+  fleet_params:
+    vehicle_types: ["ambulance_diesel", "rapid_response_car", "van_electric_pta"]
+    max_range_km: 400
+    typical_shift_km: 150
+
+
+# ============================================================================
+# COMMUNITY HEALTH WORKER
+# ============================================================================
+
+community_health_worker:
+  narrative: |
+    As a community health worker doing multi-stop home visits across an urban
+    or rural patch, I need flexible, reliable transport that lets me carry
+    equipment to patients who cannot travel to clinic. My route changes daily
+    based on patient needs. I am often the only healthcare contact for
+    isolated or elderly patients — missing a visit has real clinical consequences.
+
+  persona_type: "passenger"    # Personal/community vehicle, not fleet HGV
+
+  desires:
+    reliability: 0.92
+    safety: 0.88
+    flexibility: 0.80          # Routes change daily — high flexibility need
+    eco: 0.60                  # NHS net-zero commitment matters to staff
+    time: 0.65
+    cost: 0.55                 # Mileage reimbursement — cost matters personally
+    comfort: 0.50
+
+  desire_variance: 0.08
+
+  beliefs:
+    - text: "My patients cannot come to me — I must be able to reach them reliably"
+      strength: 0.95
+      updateable: false
+    - text: "EV mileage reimbursement rates are lower than petrol — unfair financial burden"
+      strength: 0.75
+      updateable: true
+    - text: "Charging infrastructure in rural areas is inadequate for community nursing"
+      strength: 0.80
+      updateable: true
+    - text: "An electric car would reduce my fuel costs if home charging was supported"
+      strength: 0.65
+      updateable: true
+
+  constraints:
+    - "Multi-stop route: typically 8-15 patient visits per shift"
+    - "Must carry medical equipment — weight and access constraints"
+    - "Rural and urban patches: varies by health board"
+    - "Mileage reimbursement creates personal cost incentive for low-running-cost vehicle"
+
+  mode_preferences:
+    car: 0.85                  # Own vehicle most common — NHS mileage reimbursement
+    ev: 0.65                   # Growing adoption with home charger support
+    van_electric: 0.45         # Larger equipment loads
+    van_diesel: 0.55
+    bus: 0.20                  # Impractical with equipment
+
+  plan_hints:
+    - "Home charging support (£350 OHME grant) is the key adoption lever"
+    - "Mileage reimbursement parity between EV and petrol must be resolved"
+    - "Rural visit routes: range matters more than urban routes"
+    - "Connects healthcare cluster to commute cluster — same infrastructure, different role"
+
+  social_profile:
+    influence_susceptibility: 0.65   # Open to peer experience on EV
+    influence_strength: 0.60
+    network_size_range: [10, 25]
+
+
+# ============================================================================
+# NHS WARD MANAGER
+# ============================================================================
+
+nhs_ward_manager:
+  narrative: |
+    As an NHS ward manager, I coordinate staff rotas, patient flows, and
+    supply logistics. I commute on shift patterns and influence the fleet
+    and commuting decisions of 20-40 ward staff. My personal EV adoption
+    sends a visible signal to my team about the NHS net-zero commitment.
+
+  persona_type: "passenger"
+
+  desires:
+    reliability: 0.90
+    compliance: 0.85           # NHS net-zero mandate is policy, not choice
+    eco: 0.72                  # Personal commitment to NHS net-zero
+    safety: 0.80
+    time: 0.70
+    cost: 0.60
+    comfort: 0.55
+    flexibility: 0.40
+
+  desire_variance: 0.07
+
+  beliefs:
+    - text: "NHS net-zero requires staff to lead by example — I should drive EV"
+      strength: 0.80
+      updateable: true
+    - text: "Hospital charging is inadequate — I cannot rely on it for my commute"
+      strength: 0.75
+      updateable: true
+    - text: "My team watches what I drive — my choices influence their adoption"
+      strength: 0.85
+      updateable: false
+    - text: "Salary sacrifice makes EV financially viable on NHS wages"
+      strength: 0.70
+      updateable: true
+
+  constraints:
+    - "Shift start times vary (7am, 12pm, 7pm) — charging timing must flex"
+    - "Hospital car park EV charging limited and competitive"
+    - "Must be visible to staff — commute mode is observed and discussed"
+
+  mode_preferences:
+    ev: 0.80                   # Strong commitment to EV as NHS leader signal
+    car: 0.55
+    bus: 0.45
+    local_train: 0.50
+    walk: 0.35
+
+  plan_hints:
+    - "High social influence: adoption triggers peer adoption among ward staff"
+    - "Salary sacrifice scheme awareness is the policy lever"
+    - "Bridges healthcare cluster to commute cluster via shift pattern"
+
+  social_profile:
+    influence_susceptibility: 0.45
+    influence_strength: 0.85   # High: manager role amplifies social influence
+    network_size_range: [15, 35]
+
+
+# ============================================================================
+# CLINICAL WASTE DRIVER
+# ============================================================================
+
+clinical_waste_driver:
+  narrative: |
+    As a clinical and pharmaceutical waste collection driver, I run scheduled
+    routes collecting hazardous and controlled waste from hospitals, GP
+    surgeries, and care homes. My routes are tightly regulated (chain of
+    custody, GPS tracking, temperature monitoring). I work early mornings
+    and evenings to minimise disruption to clinical operations.
+
+  persona_type: "freight"
+
+  desires:
+    compliance: 0.98           # Controlled waste regulations: non-negotiable
+    safety: 0.95               # Hazardous materials handling
+    reliability: 0.90          # Clinical operations cannot wait for waste collection
+    time: 0.70
+    eco: 0.55                  # NHS net-zero but compliance trumps eco
+    cost: 0.60
+    flexibility: 0.35          # Regulated routes, fixed collection windows
+
+  desire_variance: 0.05
+
+  beliefs:
+    - text: "Clinical waste must be collected on schedule — patient safety depends on it"
+      strength: 1.0
+      updateable: false
+    - text: "Electric vans are viable for urban clinical waste routes under 150km"
+      strength: 0.70
+      updateable: true
+    - text: "Refrigeration for pharmaceutical waste challenges EV range"
+      strength: 0.80
+      updateable: true
+    - text: "GPS tracking and chain of custody are compatible with EV operation"
+      strength: 0.90
+      updateable: false
+
+  constraints:
+    - "GPS tracking and chain of custody required for all loads"
+    - "Temperature-controlled compartment for pharmaceutical waste"
+    - "Early morning / late evening collection windows — overnight charging viable"
+    - "Special permits for hazardous goods transport"
+
+  mode_preferences:
+    van_electric: 0.70         # Urban routes under 150km — EV viable
+    van_diesel: 0.75           # Current standard
+    truck_electric: 0.50
+    truck_diesel: 0.55
+
+  plan_hints:
+    - "Depot return pattern: ideal for EV overnight charging"
+    - "Bridges HEALTHCARE_FREIGHT to LOGISTICS cluster — shares waste_collection job"
+    - "Connects to shift_worker via early morning starts"
+    - "Route overlap with logistics last-mile creates shared infrastructure opportunity"
+
+  social_profile:
+    influence_susceptibility: 0.50
+    influence_strength: 0.55
+    network_size_range: [8, 20]
+
+
+# ============================================================================
+# NHS SUPPLY CHAIN OPERATOR
+# ============================================================================
+
+nhs_supply_chain:
+  narrative: |
+    As an NHS Supply Chain logistics operator, I manage the movement of
+    pharmaceuticals, medical devices, and consumables from national
+    distribution centres to 1,200+ NHS trusts and GP practices. I operate
+    fleet vehicles on depot-to-hospital routes ranging from 20 to 200km.
+    My deliveries are time-critical (blood products: 4-6 hour viability
+    window) and compliance-intensive (controlled drug tracking).
+
+  persona_type: "freight"
+
+  desires:
+    compliance: 0.98
+    reliability: 0.95
+    time: 0.85                 # Blood products: 4-6 hour window
+    safety: 0.88
+    cost: 0.70                 # NHS Supply Chain tracks cost per delivery
+    eco: 0.65                  # NHS net-zero supply chain mandate
+    flexibility: 0.30          # Fixed routes, timed delivery slots
+
+  desire_variance: 0.06
+
+  beliefs:
+    - text: "Blood product delivery delays can be fatal — EV range anxiety is a patient risk"
+      strength: 0.90
+      updateable: true
+    - text: "Electric vans are viable for depot-to-hospital routes under 150km"
+      strength: 0.75
+      updateable: true
+    - text: "NHS net-zero 2040 target applies to supply chain operations"
+      strength: 0.88
+      updateable: false
+    - text: "Depot charging plus 150kW DC chargers at major hospitals resolves range anxiety"
+      strength: 0.70
+      updateable: true
+
+  constraints:
+    - "Blood products: must deliver within 4-6 hour viability window"
+    - "Controlled drugs: GPS tracking, dual signatory, chain of custody"
+    - "Cold chain integrity: temperature monitoring throughout"
+    - "1,200+ delivery points: route optimisation critical"
+
+  mode_preferences:
+    van_electric: 0.75         # Under 150km: EV viable, lower running cost
+    van_diesel: 0.80           # Current fleet standard
+    truck_electric: 0.55       # Larger loads to major hospitals
+    truck_diesel: 0.65
+
+  plan_hints:
+    - "Bridges HEALTHCARE_FREIGHT and LOGISTICS clusters"
+    - "NHS Supply Chain = largest logistics operator most people have never heard of"
+    - "Shares depot infrastructure with commercial logistics (DIRFT, Grangemouth)"
+    - "EV adoption here directly improves DfT scope 3 NHS supply chain metrics"
+
+  social_profile:
+    influence_susceptibility: 0.45
+    influence_strength: 0.65
+    network_size_range: [5, 18]

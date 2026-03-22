@@ -498,6 +498,9 @@ COMPATIBLE_USERS_FOR_JOB = {
     'nhs_patient_transport': [
         'fleet_manager_healthcare',
         'shift_worker',             # PTS drivers are shift workers
+        'paramedic',                # paramedics do planned transport between blue-light calls
+        'nhs_supply_chain',         # contracted PTS uses logistics company fleet
+        'freight_operator',         # contracted patient transport
     ],
 
     'nhs_staff_commute': [
@@ -505,11 +508,61 @@ COMPATIBLE_USERS_FOR_JOB = {
         'fleet_manager_healthcare',
         'disabled_commuter',        # NHS staff with accessibility needs
         'frequent_driver',          # staff who drive to hospital sites
+        'nhs_ward_manager',         # ward managers on shift commute
+        'community_health_worker',  # community nurses commuting to health centre base
     ],
 
     'nhs_clinical_supplies': [
         'freight_operator',
         'fleet_manager_healthcare',
+        'fleet_manager_logistics',  # NHS Supply Chain uses same DC infrastructure as commercial logistics
+        'delivery_driver',          # contracted clinical supply delivery
+        'nhs_supply_chain',         # dedicated NHS supply chain operator persona
+    ],
+
+    # ── BRIDGING: night_shift cross-cluster fix ────────────────────────────
+    # shift_worker already in night_shift; add logistics persona that does
+    # overnight hub-to-hub runs — creates logistics ↔ healthcare bridge via
+    # shared infrastructure at hospital-adjacent distribution centres.
+    # (night_shift entry is in the NIGHT_OPS section above — adding here only
+    #  ensures the NHS operator types are also in scope)
+
+    # ========================================================================
+    # NHS OPERATIONS — nhs_operations.yaml
+    # New jobs creating cross-cluster bridges
+    # ========================================================================
+
+    'ambulance_emergency_response': [
+        'paramedic',
+        'shift_worker',             # paramedic-grade shift workers
+        'fleet_manager_healthcare', # ambulance trust fleet management
+    ],
+
+    'community_nursing_rounds': [
+        'community_health_worker',
+        'shift_worker',             # district nurses on early/late shift
+        'nhs_ward_manager',         # ward managers covering community outreach
+    ],
+
+    'nhs_supply_chain_delivery': [
+        'nhs_supply_chain',
+        'freight_operator',         # contracted NHS Supply Chain logistics
+        'fleet_manager_healthcare',
+        'fleet_manager_logistics',  # NHS Supply Chain shares DC with commercial logistics
+        'delivery_driver',          # contracted delivery on NHS routes
+    ],
+
+    'clinical_waste_collection': [
+        'clinical_waste_driver',
+        'shift_worker',             # clinical waste runs overlap with waste_collection job
+        'freight_operator',         # Veolia, SRCL, Stericycle are commercial operators
+    ],
+
+    'gp_surgery_supply_run': [
+        'nhs_supply_chain',
+        'delivery_driver',          # GP supply uses same last-mile infrastructure
+        'fleet_manager_healthcare',
+        'fleet_manager_logistics',  # NHS Supply Chain logistics
     ],
 
     # ========================================================================

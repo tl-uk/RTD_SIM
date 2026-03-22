@@ -1,0 +1,323 @@
+# agent/job_contexts/nhs_operations.yaml
+#
+# NHS Operations — extended job contexts for detailed healthcare simulation
+#
+# WHY THIS FILE EXISTS:
+#   The 4-cluster isolation in the NHS simulation arises because fleet_operators.yaml
+#   only provides 3 NHS jobs (nhs_patient_transport, nhs_staff_commute,
+#   nhs_clinical_supplies). All fleet_manager_healthcare agents draw from this
+#   narrow pool, creating a tightly-clustered healthcare sub-graph with no
+#   structural reason to connect to logistics or commute clusters.
+#
+#   This file adds 5 jobs that create genuine cross-cluster bridges:
+#   - ambulance_emergency_response: blue-light ops sharing depot charging with logistics
+#   - community_nursing_rounds:     multi-stop urban/rural, overlapping with last-mile
+#   - nhs_supply_chain_delivery:    NHS Supply Chain = de facto logistics operator
+#   - clinical_waste_collection:    shares infrastructure with waste_collection (shift_worker)
+#   - gp_surgery_supply_run:        short-haul, overlapping with service_engineer routes
+#
+# WHITELIST ADDITIONS REQUIRED (story_compatibility.py):
+#   'ambulance_emergency_response':  ['paramedic', 'shift_worker', 'fleet_manager_healthcare']
+#   'community_nursing_rounds':      ['community_health_worker', 'shift_worker', 'nhs_ward_manager']
+#   'nhs_supply_chain_delivery':     ['nhs_supply_chain', 'freight_operator', 'fleet_manager_healthcare', 'fleet_manager_logistics']
+#   'clinical_waste_collection':     ['clinical_waste_driver', 'shift_worker', 'freight_operator']
+#   'gp_surgery_supply_run':         ['nhs_supply_chain', 'delivery_driver', 'fleet_manager_healthcare']
+
+ambulance_emergency_response:
+  context: When responding to emergency calls and transporting critical patients to hospital
+  goal: I want guaranteed vehicle availability and response capability at all times
+  outcome: So patients receive life-saving care within response time targets
+  job_type: service
+  time_window:
+    start: 0
+    end: 23
+    flexibility: none          # Blue-light dispatch — zero scheduling flexibility
+  destination_type: hospital_emergency
+  typical_distance_km:
+    - 2
+    - 40                       # Cat 1 response: median 6km; max patient transport: 40km
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true       # Life support, medications, defibrillator
+    vehicle_type: commercial
+    recurring: true
+    urgency: critical
+    special_requirements:
+      - always_available
+      - tracked_gps
+      - temperature_controlled  # Medications
+      - blue_light_exempt
+  vehicle_constraints:
+    type: commercial
+    capacity_kg:
+      - 500
+      - 2000
+    preferred_modes:
+      - van_diesel              # Current operational standard
+      - van_electric            # Future: zero-emission ambulance trial in London/Edinburgh
+  desire_overrides:
+    reliability: 1.0
+    time: 0.98
+  plan_context:
+    - Category 1 response: 7-minute target (life-threatening)
+    - Category 2 response: 18-minute target (emergency)
+    - Fleet returns to station between calls — depot charging pattern viable
+    - NHS ambulance trusts: 13 in England, Scottish Ambulance Service, NIAS
+    - ZeroCarbon Ambulance pilot: 2022 trial showed EV viable for Cat 2+
+    - Overnight charging: 85%+ of shifts end at base — ideal EV charging window
+    - Critical constraint: cannot be at charger when emergency call received
+    - MiCar (Modular iCar): purpose-built EV ambulance trialled from 2023
+    - Battery degradation in blue-light mode: higher discharge rate than standard EV
+  csv_columns:
+    required:
+      - station_lat
+      - station_lon
+      - hospital_lat
+      - hospital_lon
+    optional:
+      - call_category
+      - patient_condition
+      - response_time_target_min
+
+
+community_nursing_rounds:
+  context: When visiting patients at home or in care settings for routine and urgent nursing care
+  goal: I want flexible, reliable transport that lets me reach all patients on my caseload
+  outcome: So patients who cannot attend clinic receive timely, consistent care
+  job_type: service
+  delivery_params:
+    num_stops:
+      - 6
+      - 16                     # Community nurses: 8-12 visits typical shift
+    stop_duration_min:
+      - 15
+      - 60
+    dynamic_routing: true      # Patient urgent calls can re-order the route
+  time_window:
+    start: 7
+    end: 20
+    flexibility: medium        # Some flexibility but patient appointments matter
+  destination_type: residential_and_care
+  typical_distance_km:
+    - 15
+    - 80                       # Urban: 15-30km; rural: 40-80km per shift
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true       # Nursing bag, wound care, medications, equipment
+    vehicle_type: commercial
+    recurring: true
+    urgency: high
+    special_requirements:
+      - tracked_gps
+      - accessible_vehicle_entry  # Patients may need assistance at door
+  vehicle_constraints:
+    type: commercial
+    capacity_kg:
+      - 50
+      - 200
+    preferred_modes:
+      - car                    # Own vehicle with mileage reimbursement (most common)
+      - ev                     # Growing: home charger + salary sacrifice
+      - van_electric           # Larger equipment loads
+      - van_diesel
+  plan_context:
+    - Community nurses: 50,000+ in England; largest outreach healthcare workforce
+    - 75% use own vehicle — mileage reimbursement parity (EV vs petrol) is critical lever
+    - NHSE target: 50% zero-emission community nursing fleet by 2030
+    - Route overlap with last-mile delivery — same urban streets, same time windows
+    - Infrastructure competition — community nurse and delivery van both want driveway charging
+    - Rural nurses face range anxiety as primary barrier; urban nurses face charging access gaps
+    - NHS salary sacrifice scheme — median nurse salary (£35k) makes EV financially viable
+  csv_columns:
+    required:
+      - base_lat
+      - base_lon              # Health centre or trust base
+    optional:
+      - patient_list          # Anonymised list of visit coordinates
+      - urgent_flag
+      - equipment_kg
+
+
+nhs_supply_chain_delivery:
+  context: When delivering pharmaceuticals, blood products, and medical devices to NHS facilities
+  goal: I want guaranteed on-time delivery with cold chain and chain of custody integrity
+  outcome: So treatments are available when needed and no clinical incident occurs
+  job_type: freight
+  delivery_params:
+    num_stops:
+      - 2
+      - 8
+    stop_duration_min:
+      - 15
+      - 45
+    temperature_controlled: true
+    chain_of_custody: true
+    dynamic_routing: false     # Fixed route compliance for controlled drugs
+  time_window:
+    start: 5
+    end: 22
+    flexibility: very_low      # Delivery windows are clinically scheduled
+    delivery_deadline_critical: true
+  destination_type: hospital_pharmacy_gp_surgery
+  typical_distance_km:
+    - 20
+    - 200                      # NHS Supply Chain DC to hospital: 20-200km typical
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: commercial
+    recurring: true
+    urgency: critical
+    special_requirements:
+      - temperature_controlled
+      - tracked_gps
+      - chain_of_custody
+      - dual_signatory_required  # Controlled drugs
+  vehicle_constraints:
+    type: commercial
+    capacity_kg:
+      - 100
+      - 2000
+    temperature_control: true
+    temperature_range:
+      - 2
+      - 8                      # Pharmaceutical cold chain standard
+    preferred_modes:
+      - van_electric            # Under 150km: viable with depot charging
+      - van_diesel              # Longer routes or high-load
+      - truck_electric
+  plan_context:
+    - NHS Supply Chain: delivers to 1,200+ NHS trusts and GP practices
+    - Blood products: 4-6 hour viability window — time critical above all
+    - Controlled drugs: GPS tracking, chain of custody, dual signatory
+    - Overlap with commercial logistics: shares DC infrastructure at DIRFT, Mossend
+    - Electric van viable for 85% of NHS Supply Chain routes (under 150km)
+    - NHS net-zero supply chain target 2040: this fleet is in scope
+    - 2025-2026: 40% of NHS Supply Chain fleet transitioning to EV
+    - Cross-cluster bridge: NHS Supply Chain uses same logistics DCs as Amazon, DHL
+  csv_columns:
+    required:
+      - dc_lat
+      - dc_lon                 # NHS Supply Chain DC
+      - hospital_lat
+      - hospital_lon
+    optional:
+      - product_type
+      - temperature_range
+      - urgency_level
+      - delivery_window
+
+
+clinical_waste_collection:
+  context: When collecting clinical, pharmaceutical, and hazardous waste from NHS facilities
+  goal: I want regulated, scheduled collection that keeps clinical areas safe
+  outcome: So waste is removed on schedule and no infection control incident occurs
+  job_type: service
+  delivery_params:
+    num_stops:
+      - 4
+      - 12
+    stop_duration_min:
+      - 10
+      - 30
+    temperature_controlled: true  # Pharmaceutical waste requires cold chain
+    chain_of_custody: true
+    route_optimization: minimize_distance
+  time_window:
+    start: 5
+    end: 14                    # Early morning to minimise disruption to clinical ops
+    flexibility: low
+  destination_type: hospital_gp_care_home
+  typical_distance_km:
+    - 30
+    - 120
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: commercial
+    recurring: true
+    urgency: medium            # Scheduled, not emergency
+    special_requirements:
+      - tracked_gps
+      - temperature_controlled  # Pharmaceutical waste
+      - chain_of_custody
+      - hazmat_permit
+  vehicle_constraints:
+    type: commercial
+    capacity_kg:
+      - 200
+      - 1500
+    preferred_modes:
+      - van_electric            # Urban routes: early morning off-peak charging
+      - van_diesel
+      - truck_electric
+  plan_context:
+    - Clinical waste: ~100,000 tonnes/yr in NHS England (2022/23)
+    - Regulated under Environmental Permitting Regulations
+    - Early morning collection: avoids disruption to clinical and patient areas
+    - Cross-cluster bridge: overlaps with waste_collection (shift_worker job)
+    - Depot return pattern: ideal for overnight EV charging
+    - Shares urban routes with last-mile logistics (same streets, different load)
+    - NHS net-zero: clinical waste fleet = scope 3 emissions, target 2040
+    - SRCL, Veolia, Stericycle: major NHS clinical waste contractors
+  csv_columns:
+    required:
+      - depot_lat
+      - depot_lon
+    optional:
+      - facility_list
+      - waste_type              # clinical / pharmaceutical / cytotoxic
+      - collection_window
+
+
+gp_surgery_supply_run:
+  context: When delivering medical supplies, equipment, and medications to GP surgeries and clinics
+  goal: I want reliable same-day and next-day delivery to primary care settings
+  outcome: So GP surgeries have the supplies needed to see patients without administrative disruption
+  job_type: delivery
+  delivery_params:
+    num_stops:
+      - 4
+      - 10
+    stop_duration_min:
+      - 10
+      - 20
+    route_optimization: time_then_cost
+  time_window:
+    start: 8
+    end: 17
+    flexibility: medium
+  destination_type: gp_surgery_clinic
+  typical_distance_km:
+    - 10
+    - 60                       # Local area supply hub to GP cluster
+  parameters:
+    vehicle_required: true
+    cargo_capacity: true
+    vehicle_type: commercial
+    recurring: true
+    urgency: medium
+  vehicle_constraints:
+    type: commercial
+    capacity_kg:
+      - 50
+      - 500
+    preferred_modes:
+      - van_electric            # Short-haul: ideal for EV
+      - van_diesel
+      - cargo_bike              # Dense urban GP clusters (central London, Manchester)
+  plan_context:
+    - 6,500+ GP practices in England — distributed across urban and rural areas
+    - GP supply consolidation: 1 van serving 5-10 practices vs 5 individual runs
+    - Cargo bike viable for GP clusters in dense urban cores
+    - Cross-cluster bridge: shares routes with service_engineer_call and last_mile
+    - Short routes (10-60km): best match for current EV van range
+    - Green lease requirements: NHS England mandating EV preference from 2025
+  csv_columns:
+    required:
+      - hub_lat
+      - hub_lon
+    optional:
+      - surgery_list
+      - supply_category
+      - delivery_window

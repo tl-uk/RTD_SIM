@@ -60,7 +60,21 @@ _PERSONA_BASE_DIAGONAL: Dict[str, float] = {
     'freight_operator':     0.60,
     'last_mile_delivery':   0.55,
     'gig_worker':           0.50,
-    'default':              0.60,
+    # ── Operator personas (operator_personas.yaml) ────────────────────────
+    # Previously fell through to 'default': 0.60, understating diesel lock-in.
+    'fleet_manager_logistics':  0.65,  # schedule-driven; moderate habit
+    'fleet_manager_healthcare': 0.70,  # compliance + reliability lock-in
+    'fleet_manager_retail':     0.65,  # delivery-window driven
+    'port_terminal_operator':   0.65,  # schedule + throughput driven
+    'rail_freight_operator':    0.62,  # path-dependent; moderate lock-in
+    'air_freight_operator':     0.62,
+    # ── NHS extended personas (nhs_extended_personas.yaml) ───────────────
+    'paramedic':                0.80,  # blue-light: always same route, same vehicle
+    'community_health_worker':  0.55,  # multi-stop flexibility, moderate switching
+    'nhs_ward_manager':         0.65,  # schedule-driven, moderate habit
+    'clinical_waste_driver':    0.68,  # regulated routes, moderate lock-in
+    'nhs_supply_chain':         0.65,  # scheduled logistics
+    'default':                  0.60,
 }
 
 # Persona → green bias: extra P(current → green_mode) added on init
@@ -74,7 +88,20 @@ _PERSONA_GREEN_BIAS: Dict[str, float] = {
     'budget_commuter':   0.02,
     'business_commuter': 0.01,
     'freight_operator':  0.02,
-    'default':           0.03,
+    # ── Operator personas ─────────────────────────────────────────────────
+    'fleet_manager_logistics':  0.04,  # ZEV mandate compliance pressure
+    'fleet_manager_healthcare': 0.06,  # NHS net-zero 2040 mandate
+    'fleet_manager_retail':     0.04,
+    'port_terminal_operator':   0.03,
+    'rail_freight_operator':    0.05,  # rail is already low-carbon
+    'air_freight_operator':     0.02,
+    # ── NHS extended personas ─────────────────────────────────────────────
+    'nhs_ward_manager':         0.08,  # leadership signal: high green bias
+    'community_health_worker':  0.05,
+    'nhs_supply_chain':         0.05,  # NHS net-zero supply chain mandate
+    'clinical_waste_driver':    0.03,
+    'paramedic':                0.02,  # safety-first: low green switching bias
+    'default':                  0.03,
 }
 
 
