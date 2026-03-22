@@ -41,7 +41,7 @@ def render_mode_adoption_tab(results, anim, current_data):
     
     # Render adoption chart
     fig = render_mode_adoption_chart(results.adoption_history, anim.current_step)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Two-column layout
     col1, col2 = st.columns(2)

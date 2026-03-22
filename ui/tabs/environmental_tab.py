@@ -140,7 +140,7 @@ def render_environmental_tab(results, anim, current_data):
             fig.update_xaxes(title_text="Simulation Step", row=3, col=1)
             fig.update_layout(height=700, showlegend=False, hovermode='x unified')
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             
             # Show legend for synthetic events if present
             if hasattr(results, 'event_generator') and results.event_generator:
@@ -275,7 +275,7 @@ def render_environmental_tab(results, anim, current_data):
                 height=400
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             
             # Summary table
             st.markdown("**Emissions Summary**")

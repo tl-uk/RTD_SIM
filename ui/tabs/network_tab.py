@@ -40,6 +40,6 @@ def render_network_tab(results, anim, current_data):
             st.markdown("### 🌊 Cascade Events")
             fig = render_cascade_chart(results.cascade_events)
             if fig:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')  # TODO: width='stretch' after Streamlit ≥ 1.44
     else:
         st.info("Social network not enabled")

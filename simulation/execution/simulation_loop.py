@@ -670,12 +670,25 @@ def run_simulation_loop(
         
         # UPDATE SYSTEM DYNAMICS
         if system_dynamics:
+            # Derive real infrastructure capacity from the current charger count.
+            # infrastructure_capacity_stock defaults to 100.0 if not updated,
+            # which made infrastructure_effect constant and got removed as a
+            # SHAP feature. Passing the actual count here keeps it time-varying
+            # so policy-triggered charger expansions show up in the SD flow.
+            _infra_capacity = 100.0  # baseline
+            if infrastructure is not None:
+                try:
+                    _infra_capacity = float(len(infrastructure.charging_stations))
+                except Exception:
+                    pass
+
             sd_events = update_system_dynamics(
                 system_dynamics=system_dynamics,
                 step=step,
                 agents=agents,
                 infrastructure=infrastructure,
-                dt=1.0
+                infrastructure_capacity=_infra_capacity,
+                dt=1.0,
             )
             
             # Log significant SD events
@@ -926,8 +939,8 @@ def run_simulation_loop(
                     adjusted = network.apply_social_influence(
                         agent.state.agent_id,
                         mode_costs,
-                        influence_strength=0.10,
-                        conformity_pressure=0.10
+                        influence_strength=getattr(config, 'influence_strength', 0.2),
+                        conformity_pressure=getattr(config, 'conformity_pressure', 0.3),
                     )
                     # Apply influence 50% of time to preserve diversity
                     if random.random() < 0.5:

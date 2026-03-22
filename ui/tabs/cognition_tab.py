@@ -372,7 +372,7 @@ def _render_influence_network(results, agents):
             df['target_eco'] = df['target'].map(
                 lambda x: f"{node_meta.get(x, {}).get('eco', 0):.2f}"
             )
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width='stretch')
 
     except Exception as e:
         st.error(f"Influence network render failed: {e}")
@@ -494,7 +494,7 @@ def _render_belief_drift(agents):
                     'vs prior 0.5': f"{arrow} {delta:+.2f}",
                 })
             df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
         else:
             st.caption("No beliefs recorded for this agent.")
 
@@ -561,7 +561,7 @@ def _render_markov_habits(agents):
                 })
         if rows:
             df = pd.DataFrame(rows).sort_values('P(stay)', ascending=False)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
         else:
             st.info(
                 "No habits formed yet — agents need 3+ consecutive steps "
@@ -589,7 +589,7 @@ def _render_markov_habits(agents):
         if rows:
             import pandas as pd
             df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
 
     st.markdown("---")
 
@@ -671,8 +671,8 @@ def _render_markov_habits(agents):
                 return ''
 
             st.dataframe(
-                df_matrix.style.applymap(highlight_diag),
-                use_container_width=True
+                df_matrix.style.map(highlight_diag),
+                width='stretch'
             )
             st.caption(
                 "Rows = from-mode, columns = to-mode. "

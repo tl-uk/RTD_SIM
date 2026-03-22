@@ -96,7 +96,7 @@ def render_journey_insights(results):
             yaxis_title="Time (minutes)",
             height=300
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         
         # Show statistics
         col1, col2, col3 = st.columns(3)
@@ -121,7 +121,7 @@ def render_journey_insights(results):
             title="What Drives Mode Choice?",
             labels={'Importance': 'Importance (%)'}
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     
     # Weather impact
     st.subheader("🌤️ Weather Impact")
@@ -158,7 +158,7 @@ def render_journey_insights(results):
                     'Ice': '#B0C4DE'
                 }
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
     else:
         st.info("No weather impact data available yet.")
 
@@ -228,7 +228,7 @@ def render_adoption_dynamics(results):
         ),
         margin=dict(r=120)  # Extra space for legend
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Tipping point details
     if 'tipping_points' in results.analytics_summary:
@@ -337,7 +337,7 @@ def render_adoption_dynamics(results):
         fig.update_xaxes(fixedrange=True)
         fig.update_yaxes(fixedrange=True)
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("No mode transitions recorded yet. Transitions appear when agents switch modes during the simulation.")
 
@@ -380,7 +380,7 @@ def render_policy_roi(results):
         
         policy_data.append(row)
     
-    st.dataframe(pd.DataFrame(policy_data), use_container_width=True)
+    st.dataframe(pd.DataFrame(policy_data), width='stretch')
     
     # Individual policy details
     st.subheader("🔍 Policy Details")
@@ -449,7 +449,7 @@ def render_network_efficiency(results):
                 y='VKT',
                 title="VKT by Mode"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.caption("No per-mode VKT data available.")
 
@@ -468,7 +468,7 @@ def render_network_efficiency(results):
                 names='Type',
                 title="VKT by Vehicle Type"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.caption("No per-vehicle-type VKT data available.")
     

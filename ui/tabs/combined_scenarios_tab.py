@@ -234,7 +234,7 @@ def render_combined_scenarios_tab(results, anim, current_data):
                 hovermode='x unified'
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
     
     else:
         st.info("Cost recovery tracking not enabled for this scenario.")
@@ -431,7 +431,7 @@ def render_combined_scenario_builder():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("💾 Save to File", use_container_width=True):
+        if st.button("💾 Save to File", width='stretch'):
             save_path = Path(__file__).parent.parent.parent / 'scenarios' / 'combined_configs' / f"{custom_name.lower().replace(' ', '_')}.yaml"
             save_path.parent.mkdir(parents=True, exist_ok=True)
             
@@ -441,7 +441,7 @@ def render_combined_scenario_builder():
             st.success(f"✅ Saved to {save_path.name}")
     
     with col2:
-        if st.button("✅ Use This Scenario", type="primary", use_container_width=True):
+        if st.button("✅ Use This Scenario", type="primary", width='stretch'):
             st.session_state.selected_combined_scenario = custom_name
             st.session_state.combined_scenario_data = custom_scenario
             st.success(f"✅ Selected: {custom_name}")

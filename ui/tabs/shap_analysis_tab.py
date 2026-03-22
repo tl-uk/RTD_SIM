@@ -163,7 +163,7 @@ def render_shap_analysis_tab(results, anim, current_data):
         )
     )
     
-    st.plotly_chart(fig_importance, use_container_width=True)
+    st.plotly_chart(fig_importance, width='stretch')
     
     # Top 3 features callout
     top_3 = shap_results.top_features[:3]
@@ -204,7 +204,7 @@ def render_shap_analysis_tab(results, anim, current_data):
         hovermode='x unified'
     )
     
-    st.plotly_chart(fig_timeseries, use_container_width=True)
+    st.plotly_chart(fig_timeseries, width='stretch')
     
     st.markdown("---")
     
@@ -225,7 +225,7 @@ def render_shap_analysis_tab(results, anim, current_data):
         prediction=waterfall_data['prediction']
     )
     
-    st.plotly_chart(fig_waterfall, use_container_width=True)
+    st.plotly_chart(fig_waterfall, width='stretch')
     
     st.info(f"""
     📊 **Waterfall Interpretation:**
@@ -345,7 +345,7 @@ def render_shap_analysis_tab(results, anim, current_data):
         showlegend=False
     )
 
-    st.plotly_chart(fig_dependence, use_container_width=True)
+    st.plotly_chart(fig_dependence, width='stretch')
 
     # Interpretation guide
     with st.expander("📖 How to Read Dependence Plots", expanded=False):
@@ -543,7 +543,7 @@ def render_shap_analysis_tab(results, anim, current_data):
                 height=500
             )
             
-            st.plotly_chart(fig_interaction, use_container_width=True)
+            st.plotly_chart(fig_interaction, width='stretch')
             
             st.info(f"""
             📊 **SHAP Correlation**: {interaction_data['shap_correlation']:.3f}

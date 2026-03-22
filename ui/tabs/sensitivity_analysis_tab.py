@@ -246,7 +246,7 @@ def render_sensitivity_analysis_tab(results, anim, current_data):
     fig.add_hline(y=1.0, line_dash="dash", line_color="gray",
                   annotation_text="Proportional (1:1)")
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Elasticity metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -320,7 +320,7 @@ def render_sensitivity_analysis_tab(results, anim, current_data):
             height=300
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     
     with col2:
         st.markdown("**Contribution Breakdown:**")
@@ -394,7 +394,7 @@ def render_sensitivity_analysis_tab(results, anim, current_data):
                 height=400
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.info("ℹ️ No mode switches detected in this simulation")
     

@@ -31,4 +31,4 @@ def render_impact_tab(results, anim, current_data):  # FIXED: Added anim, curren
     st.subheader("🎯 Environmental Impact")
     
     fig = render_emissions_chart(results.time_series)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')

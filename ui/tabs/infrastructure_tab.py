@@ -61,7 +61,7 @@ def render_infrastructure_tab(results, anim, current_data):  # FIXED: Added anim
     # Grid utilization over time
     if infra_data['grid_figure']:
         st.markdown("### ⚡ Grid Utilization Over Time")
-        st.plotly_chart(infra_data['grid_figure'], use_container_width=True)
+        st.plotly_chart(infra_data['grid_figure'], width='stretch')
         
         # Add capacity info (generally capcity is static, but we can show it here for context)
         st.info(f"📊 **Grid Capacity**: {metrics['grid_capacity_mw']:.0f} MW | "

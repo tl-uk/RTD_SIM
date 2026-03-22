@@ -256,9 +256,9 @@ def render_sidebar_config():
 
         # Submit button
         run_btn = st.form_submit_button(
-            "🚀 Run Simulation", 
-            type="primary", 
-            use_container_width=True
+            "🚀 Run Simulation",
+            type="primary",
+            width='stretch'  # TODO: change to width='stretch' after Streamlit ≥ 1.44
         )
 
     # =======================================================================

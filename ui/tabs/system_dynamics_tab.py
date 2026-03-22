@@ -198,7 +198,7 @@ def _render_adoption_trajectory(sd_history, current_step):
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Prediction accuracy metrics - ENHANCED with MAE + RMSE
     if len(actual_adoption) > 10:
@@ -390,7 +390,7 @@ def _render_system_flows(sd_history, current_step):
         hovermode='closest'
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Flow decomposition
     st.markdown("#### Flow Components")
@@ -480,7 +480,7 @@ def _render_threshold_events(sd_history, current_step):
             height=350
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         
     else:
         st.info("ℹ️ No threshold events detected yet. Events trigger at:")
@@ -628,7 +628,7 @@ def _render_parameters(sd_history):
             showlegend=False
         )
         
-        st.plotly_chart(fig_r, use_container_width=True)
+        st.plotly_chart(fig_r, width='stretch')
     
     with col2:
         # Vary K
@@ -669,7 +669,7 @@ def _render_parameters(sd_history):
             showlegend=False
         )
         
-        st.plotly_chart(fig_K, use_container_width=True)
+        st.plotly_chart(fig_K, width='stretch')
     
     # Summary
     st.info("""

@@ -38,21 +38,21 @@ def render_animation_controls(anim):
     # Playback buttons
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("⏮️", help="Reset to Start", use_container_width=True, key='reset_btn'):
+        if st.button("⏮️", help="Reset to Start", width='stretch', key='reset_btn'):
             st.session_state.current_animation_step = 0
             st.rerun()
     with col2:
-        if st.button("◀️", help="Step Back", use_container_width=True, key='back_btn'):
+        if st.button("◀️", help="Step Back", width='stretch', key='back_btn'):
             if st.session_state.current_animation_step > 0:
                 st.session_state.current_animation_step -= 1
                 st.rerun()
     with col3:
-        if st.button("▶️", help="Step Forward", use_container_width=True, key='fwd_btn'):
+        if st.button("▶️", help="Step Forward", width='stretch', key='fwd_btn'):
             if st.session_state.current_animation_step < anim.total_steps - 1:
                 st.session_state.current_animation_step += 1
                 st.rerun()
     with col4:
-        if st.button("⏭️", help="Jump to End", use_container_width=True, key='end_btn'):
+        if st.button("⏭️", help="Jump to End", width='stretch', key='end_btn'):
             st.session_state.current_animation_step = anim.total_steps - 1
             st.rerun()
     

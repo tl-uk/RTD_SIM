@@ -74,7 +74,7 @@ def _render_mode_distribution(results):
             })
     
     df = pd.DataFrame(mode_data)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
     
     # Freight highlight (Phase 4.5F)
     freight_modes = ['van_electric', 'van_diesel', 'truck_electric', 'truck_diesel', 

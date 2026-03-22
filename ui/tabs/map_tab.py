@@ -82,4 +82,4 @@ def render_map_fragment(agent_states, infrastructure_manager):
         infrastructure_manager=infrastructure_manager,
     )
     
-    st.pydeck_chart(deck, use_container_width=True)
+    st.pydeck_chart(deck, width='stretch')
