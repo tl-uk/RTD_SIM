@@ -281,6 +281,10 @@ def render_sidebar_config():
         decay_rate=advanced_config['decay_rate'],
         habit_weight=advanced_config['habit_weight'],
         cross_persona_prob=advanced_config['cross_persona_prob'],
+        network_k=advanced_config.get('network_k', 5),
+        influence_strength=advanced_config.get('influence_strength', 0.2),
+        conformity_pressure=advanced_config.get('conformity_pressure', 0.3),
+        strong_tie_threshold=advanced_config.get('strong_tie_threshold', 0.6),
         llm_backend=advanced_config['llm_backend'],
         enable_infrastructure=advanced_config['enable_infrastructure'],
         num_chargers=advanced_config['num_chargers'],
@@ -778,11 +782,16 @@ def _render_location_settings():
             # Convert resolved locations → place / extended_bbox
             # ----------------------------------------------------------------
             if len(locations_resolved) == 0:
-                # Nothing resolved yet — fall back to Edinburgh to avoid crash
-                place = "Edinburgh, UK"
+                # No locations resolved — do NOT silently default to Edinburgh.
+                # Show an actionable warning so the user knows they need to act.
+                place = None
                 extended_bbox = None
-                region_name = "Custom (not yet resolved)"
-                st.warning("⚠️ No locations resolved — defaulting to Edinburgh.")
+                region_name = "Not yet configured"
+                st.warning(
+                    "⚠️ No locations resolved. "
+                    "Click the map to place a pin, or type a city name above, "
+                    "before running the simulation."
+                )
 
             elif len(locations_resolved) == 1:
                 # Single location: use as place name if we have a display name,
@@ -815,9 +824,9 @@ def _render_location_settings():
                 )
 
     else:
-        place = "Edinburgh, UK"
+        place = None
         extended_bbox = None
-        region_name = "Synthetic Network"
+        region_name = "Synthetic Network (OSM disabled)"
 
     return {
         'use_osm': use_osm,
@@ -1133,6 +1142,10 @@ def _render_advanced_features():
     decay_rate = 0.0
     habit_weight = 0.0
     cross_persona_prob = 0.25   # default — overridden by slider when social is on
+    network_k = 5               # average ties per agent
+    influence_strength = 0.2    # peer influence on mode costs
+    conformity_pressure = 0.3   # majority-mode extra pressure
+    strong_tie_threshold = 0.6  # similarity threshold for strong vs weak tie
     enable_route_diversity = True
     route_diversity_mode = 'ultra_fast'
     
@@ -1144,8 +1157,10 @@ def _render_advanced_features():
             
             if use_realistic:
                 with st.expander("⚙️ Influence Parameters"):
-                    decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05)
-                    habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1)
+                    decay_rate = st.slider("Decay Rate", 0.05, 0.30, 0.15, 0.05,
+                        help="Rate at which old social influence fades each step.")
+                    habit_weight = st.slider("Habit Weight", 0.0, 0.6, 0.4, 0.1,
+                        help="How strongly past mode choices lock in future behaviour.")
                     cross_persona_prob = st.slider(
                         "Cross-Persona Tie Probability",
                         min_value=0.0,
@@ -1163,6 +1178,61 @@ def _render_advanced_features():
                     st.caption(
                         "💡 Higher values let eco-warrior influence reach business "
                         "commuters and freight operators — faster cross-group cascade."
+                    )
+
+                with st.expander("🕸️ Neighbourhood Influence", expanded=False):
+                    st.markdown(
+                        "Control the **structure** and **strength** of peer influence. "
+                        "These settings are independent of persona type — they apply "
+                        "equally to NHS managers, freight operators, and commuters."
+                    )
+                    network_k = st.slider(
+                        "Average ties per agent (k)",
+                        min_value=2, max_value=12, value=5, step=1,
+                        key="network_k_slider",
+                        help=(
+                            "How many social connections each agent has on average. "
+                            "k=3 → sparse, slow diffusion. "
+                            "k=5 → balanced (Granovetter empirical default). "
+                            "k=8 → dense, fast cascade — models high-connectivity "
+                            "industries like logistics or healthcare where operators "
+                            "know many peers through professional networks."
+                        ),
+                    )
+                    st.caption(
+                        "💡 Raise k to test 'what if freight operators joined a "
+                        "trade association?' More ties accelerate EV adoption cascades."
+                    )
+                    influence_strength = st.slider(
+                        "Peer influence strength",
+                        min_value=0.0, max_value=0.5, value=0.2, step=0.05,
+                        key="influence_strength_slider",
+                        help=(
+                            "How much a peer's mode choice reduces the perceived cost "
+                            "of that mode. 0 = no peer effect. 0.2 = calibrated default. "
+                            "0.5 = strong — one peer using EV reduces your EV cost by 50%."
+                        ),
+                    )
+                    conformity_pressure = st.slider(
+                        "Majority conformity pressure",
+                        min_value=0.0, max_value=0.6, value=0.3, step=0.05,
+                        key="conformity_pressure_slider",
+                        help=(
+                            "Extra cost reduction when >50% of an agent's peers use a mode. "
+                            "Models herd behaviour in fleet procurement decisions. "
+                            "0.6 = strong bandwagon — useful for testing tipping points."
+                        ),
+                    )
+                    strong_tie_threshold = st.slider(
+                        "Strong tie threshold",
+                        min_value=0.4, max_value=0.9, value=0.6, step=0.05,
+                        key="strong_tie_threshold_slider",
+                        help=(
+                            "Desire-similarity score above which a tie is 'strong' "
+                            "(high influence weight) vs 'weak' (low influence weight). "
+                            "Lower = more strong ties. Higher = only very similar "
+                            "agents strongly influence each other."
+                        ),
                     )
 
                 # Route diversity
@@ -1215,6 +1285,10 @@ def _render_advanced_features():
         'decay_rate': decay_rate,
         'habit_weight': habit_weight,
         'cross_persona_prob': cross_persona_prob,
+        'network_k': network_k,
+        'influence_strength': influence_strength,
+        'conformity_pressure': conformity_pressure,
+        'strong_tie_threshold': strong_tie_threshold,
         'llm_backend': llm_backend,
         'enable_route_diversity': enable_route_diversity,   # ← NEW
         'route_diversity_mode': route_diversity_mode,       # ← NEW

@@ -145,7 +145,7 @@ class SimulationConfig:
         self.cross_persona_prob = cross_persona_prob
         self.llm_backend = llm_backend
         
-        # Phase 7.1: Temporal scaling
+        # Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling
         self.time_scale = time_scale
         self.start_datetime = start_datetime
@@ -242,7 +242,7 @@ class SimulationConfig:
             self.policy_thresholds = policy_thresholds
     
     # ========================================
-    # Phase 6.2b: Event System
+    # Event System
     # ========================================
     enable_event_bus: bool = False
     """Enable real-time event bus (auto-falls back to in-memory if Redis unavailable)"""

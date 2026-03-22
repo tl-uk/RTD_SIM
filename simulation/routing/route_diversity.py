@@ -98,11 +98,16 @@ def add_route_diversity_perturbed(env):
         """Compute route with agent-specific perturbation."""
         agent_seed = hash(agent_id) % (2**32)
         rng = random.Random(agent_seed)
-        # Map modes to network types
+        # Map modes to network types — canonical list matches router.py
         network_type = {
-            'walk': 'walk', 'bike': 'bike', 'bus': 'drive',
+            'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
+            'bus': 'drive', 'tram': 'drive',
             'car': 'drive', 'ev': 'drive',
-            'van_electric': 'drive', 'van_diesel': 'drive'
+            'van_electric': 'drive', 'van_diesel': 'drive',
+            'truck_electric': 'drive', 'truck_diesel': 'drive',
+            'hgv_electric': 'drive', 'hgv_diesel': 'drive', 'hgv_hydrogen': 'drive',
+            'local_train': 'drive', 'intercity_train': 'drive',  # proxy until Phase 10b
+            'ferry_diesel': 'drive', 'ferry_electric': 'drive',  # proxy
         }.get(mode, 'drive')
         
         graph = env.graph_manager.get_graph(network_type)
@@ -155,7 +160,9 @@ def add_route_diversity_k_shortest(env, k=3):
         agent_seed = hash(agent_id) % (2**32)
         rng = random.Random(agent_seed)
         
-        network_type = {'walk': 'walk', 'bike': 'bike'}.get(mode, 'drive')
+        network_type = {
+            'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
+        }.get(mode, 'drive')
         
         graph = env.graph_manager.get_graph(network_type)
         if graph is None:
@@ -235,7 +242,9 @@ def add_route_diversity_ultra_fast(env):
         """Route with hash-based agent-specific bias."""
         agent_seed = hash(agent_id) % (2**32)
         
-        network_type = {'walk': 'walk', 'bike': 'bike'}.get(mode, 'drive')
+        network_type = {
+            'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
+        }.get(mode, 'drive')
         
         graph = env.graph_manager.get_graph(network_type)
         if graph is None:

@@ -24,9 +24,11 @@ class WeatherConfig:
     use_historical: bool = False
     start_date: Optional[str] = None  # "2024-01-15"
     
-    # Location (default Edinburgh)
-    latitude: float = 55.9533
-    longitude: float = -3.1883
+    # Location — set to None so the weather module derives coordinates
+    # from SimulationConfig.place or extended_bbox centroid at runtime.
+    # Hardcoded Edinburgh defaults (55.9533, -3.1883) removed in Phase 10a.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     
     # Seasonal forcing
     force_season_month: Optional[int] = None  # Force specific month

@@ -478,16 +478,82 @@ class InfrastructureManager:
         return self.stations.get_hotspots(threshold)
     
     # ========================================================================
+    # Generic Infrastructure Population (Phase 10a)
+    # ========================================================================
+
+    def populate_chargers_from_bbox(
+        self,
+        bbox: tuple,
+        num_public: int = 50,
+        num_depot: int = 5,
+        depot_power_kw: float = 150.0,
+    ) -> None:
+        """
+        Populate charging stations and depots uniformly across any bounding box.
+
+        Replaces `populate_edinburgh_chargers()` as the primary population
+        method. Charger coordinates are raw random samples within the bbox;
+        call `_snap_stations_to_roads()` afterwards to ensure every marker
+        sits on an actual road node.
+
+        Args:
+            bbox:          (west, south, east, north) in WGS-84 decimal degrees.
+            num_public:    Number of public chargers to place.
+            num_depot:     Number of depot chargers to place.
+            depot_power_kw: Power rating for depot chargers (kW).
+        """
+        west, south, east, north = bbox
+
+        import random as _random
+
+        for i in range(num_public):
+            lon = _random.uniform(west, east)
+            lat = _random.uniform(south, north)
+            self.add_charging_station(
+                station_id=f"public_{i:03d}",
+                location=(lon, lat),
+                charger_type='dcfast' if i % 5 == 0 else 'level2',
+                num_ports=_random.choice([2, 4, 6]),
+                power_kw=50.0 if i % 5 == 0 else 7.0,
+                cost_per_kwh=0.25 if i % 5 == 0 else 0.15,
+                owner_type='public',
+            )
+
+        for i in range(num_depot):
+            lon = west + (east - west) * (i + 0.5) / max(num_depot, 1)
+            lat = south + (north - south) * 0.5
+            self.add_depot(
+                depot_id=f"depot_{i:02d}",
+                location=(lon, lat),
+                depot_type='delivery',
+                num_chargers=10,
+                charger_power_kw=depot_power_kw,
+            )
+
+        logger.info(
+            "populate_chargers_from_bbox: %d public chargers, %d depots "
+            "in bbox (%.3f, %.3f, %.3f, %.3f)",
+            num_public, num_depot, west, south, east, north,
+        )
+
+    # ========================================================================
     # Convenience Methods (Backward Compatibility)
     # ========================================================================
-    
+
     def populate_edinburgh_chargers(
         self,
         num_public: int = 50,
         num_depot: int = 5
     ) -> None:
-        """Quick setup for Edinburgh testing."""
-        self.stations.populate_edinburgh(num_public)
-        self.depots.populate_edinburgh(num_depot)
-        
-        logger.info(f"Populated Edinburgh: {num_public} chargers, {num_depot} depots")
+        """
+        Backward-compatible wrapper — now delegates to populate_chargers_from_bbox.
+
+        Retained so that any code still calling this method continues to work.
+        Edinburgh bbox: west=-3.30, south=55.88, east=-3.05, north=56.01.
+        """
+        self.populate_chargers_from_bbox(
+            bbox=(-3.30, 55.88, -3.05, 56.01),
+            num_public=num_public,
+            num_depot=num_depot,
+        )
+        logger.info("populate_edinburgh_chargers: delegated to populate_chargers_from_bbox")

@@ -59,19 +59,18 @@ def setup_social_network(
     if progress_callback:
         progress_callback(0.45, "🌐 Building social network...")
 
-    network = SocialNetwork(topology='homophily', influence_enabled=True)
+    network = SocialNetwork(
+        topology='homophily',
+        influence_enabled=True,
+        strong_tie_threshold=getattr(config, 'strong_tie_threshold', 0.6),
+    )
     
-    # cross_persona_prob controls what fraction of each agent's k ties are
-    # forced to cross persona boundaries.  Default 0.25 produces realistic
-    # bridging ties (Granovetter 1973) and ensures EV adoption can diffuse
-    # across persona groups rather than staying siloed within them.
-    # Expose via config.cross_persona_prob (add to SimulationConfig + sidebar
-    # slider: 0.0 = pure homophily, 1.0 = random network).
     cross_persona_prob = getattr(config, 'cross_persona_prob', 0.25)
+    network_k          = getattr(config, 'network_k', 5)
 
     network.build_network(
         agents,
-        k=5,
+        k=network_k,
         seed=42,
         cross_persona_prob=cross_persona_prob,
     )
@@ -86,13 +85,20 @@ def setup_social_network(
         )
         enhance_social_network_with_realism(network, influence_system)
         logger.info(
-            f"✅ Realistic influence enabled "
-            f"(cross_persona_prob={cross_persona_prob:.2f})"
+            "✅ Realistic influence enabled "
+            "(k=%d, cross_persona_prob=%.2f, influence_strength=%.2f, "
+            "conformity_pressure=%.2f, strong_tie_threshold=%.2f)",
+            network_k,
+            cross_persona_prob,
+            getattr(config, 'influence_strength', 0.2),
+            getattr(config, 'conformity_pressure', 0.3),
+            getattr(config, 'strong_tie_threshold', 0.6),
         )
     else:
         logger.info(
-            f"✅ Deterministic influence enabled "
-            f"(cross_persona_prob={cross_persona_prob:.2f})"
+            "✅ Deterministic influence enabled "
+            "(k=%d, cross_persona_prob=%.2f)",
+            network_k, cross_persona_prob,
         )
     
     if progress_callback:

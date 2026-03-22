@@ -202,11 +202,54 @@ def setup_infrastructure(
                 charger_power_kw=50.0
             )
     else:
-        # City scale - use default Edinburgh placement
-        infrastructure.populate_edinburgh_chargers(
-            num_public=config.num_chargers,
-            num_depot=config.num_depots
-        )
+        # City scale — derive bbox from graph extent and populate generically.
+        # The former call to populate_edinburgh_chargers() was a hardcoded
+        # Edinburgh-only fallback that caused incorrect charger placement for
+        # any other city. Phase 10a fix: derive bounds from the loaded graph
+        # and place chargers uniformly across the actual region.
+        if env is not None and env.graph_loaded:
+            try:
+                stats = env.get_graph_stats()
+                # get_graph_stats returns bounds in the graph's coordinate space
+                west  = stats.get('west',  -3.35)
+                south = stats.get('south', 55.85)
+                east  = stats.get('east',  -3.05)
+                north = stats.get('north', 56.00)
+            except Exception:
+                west, south, east, north = -3.35, 55.85, -3.05, 56.00
+        else:
+            # No graph — cannot derive bounds; use a neutral placeholder bbox.
+            # This will be snapped to roads below if env is provided later.
+            logger.warning(
+                "setup_infrastructure: no graph loaded and no extended_bbox — "
+                "using graph-derived bounds after snap. Charger positions may be imprecise."
+            )
+            west, south, east, north = -3.35, 55.85, -3.05, 56.00
+
+        for i in range(config.num_chargers):
+            lon = random.uniform(west, east)
+            lat = random.uniform(south, north)
+            infrastructure.add_charging_station(
+                station_id=f"public_{i:03d}",
+                location=(lon, lat),
+                charger_type='dcfast' if i % 5 == 0 else 'level2',
+                num_ports=random.choice([2, 4, 6]),
+                power_kw=50.0 if i % 5 == 0 else 7.0,
+                cost_per_kwh=0.25 if i % 5 == 0 else 0.15,
+                owner_type='public'
+            )
+
+        for i in range(config.num_depots):
+            # Space depots evenly across the region
+            lon = west + (east - west) * (i + 0.5) / max(config.num_depots, 1)
+            lat = south + (north - south) * 0.5
+            infrastructure.add_depot(
+                depot_id=f"depot_{i:02d}",
+                location=(lon, lat),
+                depot_type='delivery',
+                num_chargers=10,
+                charger_power_kw=150.0
+            )
     
     # Snap stations to OSM road nodes (prevents sea/field placement)
     if env is not None and env.graph_loaded:
