@@ -89,6 +89,39 @@ class ExtractedPlan:
     # OPERATIONAL REQUIREMENTS
     # ========================================================================
     reliability_critical: bool = False
+    """Is this trip safety/reliability-critical? (e.g., ambulance, blue-light)
+    When True, BDI planner hard-blocks EV modes if charger availability cannot
+    be guaranteed — no subsidy can override this constraint."""
+
+    # ── Phase 10c: ASI intent tier ────────────────────────────────────────
+    asi_tier: str = 'improve'
+    """
+    Avoid-Shift-Improve intent tier for this trip context.
+    
+    'avoid':  Trip can potentially be eliminated or consolidated.
+              Set when: job_type='delivery' with route consolidation opportunity,
+              or schedule_fixed=False and congestion signal is high.
+    'shift':  Trip is necessary but mode can shift to lower-carbon.
+              Set when: primary_objective='minimize_carbon' OR
+              job allows rail/EV alternatives.
+    'improve': Default — optimise current mode; no avoidance/shift feasible.
+    
+    The BDI planner reads this via context['asi_tier_hint'] to initialise
+    its own tier evaluation. The planner may override the hint based on
+    live congestion and charger_occupancy_nearby signals.
+    """
+
+    ev_viability_belief_hint: float = 0.5
+    """
+    Hint to BDI planner for the Tier 2 (Shift) belief threshold.
+    
+    For high-risk personas (freight_operator, paramedic) this should be
+    raised to 0.6–0.8, implementing Complex Contagion: more peer adoption
+    is required before the agent believes EV is viable and will shift.
+    
+    Set by CPG based on persona type and job risk profile.
+    Default 0.5 — moderate evidence required (standard contagion).
+    """
     """Is reliability paramount? (e.g., children present, time-critical delivery)"""
     
     flexibility_allowed: bool = True
@@ -489,7 +522,44 @@ class ContextualPlanGenerator:
                         # Prefer public transport
                         if plan.primary_objective not in ['minimize_time']:
                             plan.primary_objective = 'minimize_carbon'
-        
+
+        # ── Phase 10c: ASI tier and Complex Contagion threshold ───────────
+        # Compute the asi_tier hint from the fully-resolved plan state.
+        # The BDI planner uses this as a starting point and may override based
+        # on live congestion and charger_occupancy_nearby signals.
+        #
+        # ev_viability_belief_hint implements the Complex Contagion insight:
+        # freight and safety-critical personas require more peer adoption
+        # evidence before they believe EV is viable and will enter Tier 2 (shift).
+        persona_type = getattr(user_story, 'persona_type', 'passenger')
+
+        if plan.reliability_critical:
+            # Reliability-critical: never try to avoid or shift — always improve
+            plan.asi_tier = 'improve'
+            # Highest threshold: near-universal peer adoption required
+            plan.ev_viability_belief_hint = 0.85
+        elif plan.primary_objective == 'minimize_carbon':
+            # Carbon-first objective: actively seek shift opportunities
+            plan.asi_tier = 'shift'
+            plan.ev_viability_belief_hint = 0.35   # early adopter — low threshold
+        elif persona_type == 'freight' and not plan.schedule_fixed:
+            # Flexible freight: can try Tier 1 (avoid) via consolidation
+            plan.asi_tier = 'avoid'
+            plan.ev_viability_belief_hint = 0.65   # high risk — needs strong peer signal
+        elif persona_type == 'freight':
+            # Fixed-schedule freight: consolidation not possible; shift if proven
+            plan.asi_tier = 'shift'
+            plan.ev_viability_belief_hint = 0.70
+        else:
+            # Default: improve current mode
+            plan.asi_tier = 'improve'
+            plan.ev_viability_belief_hint = 0.50
+
+        logger.debug(
+            "ASI tier resolved: %s | ev_belief_hint=%.2f | persona=%s | objective=%s",
+            plan.asi_tier, plan.ev_viability_belief_hint, persona_type, plan.primary_objective,
+        )
+
         return plan
     
     def _apply_csv_data(

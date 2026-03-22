@@ -188,6 +188,13 @@ class BDIPlanner:
                     _extracted_plan.reliability_critical,
                     _extracted_plan.reasoning,
                 )
+                # Push CPG-derived ASI hints into context so the tier selection
+                # block below reads the persona-calibrated values rather than
+                # generic defaults. Context is a dict reference; writing to it
+                # here is safe — it's local to this call.
+                context.setdefault('reliability_critical', _extracted_plan.reliability_critical)
+                context.setdefault('asi_tier_hint',        _extracted_plan.asi_tier)
+                context.setdefault('ev_viability_threshold', _extracted_plan.ev_viability_belief_hint)
             except Exception as _cpg_err:
                 logger.debug("CPG extraction failed for %s: %s", agent_id, _cpg_err)
         
@@ -206,6 +213,77 @@ class BDIPlanner:
         
         # Track routing attempts
         routing_results = {}
+
+        # ── Phase 10c: ASI Intent Tier Selection ─────────────────────────
+        # Avoid-Shift-Improve (ASI) is the DfT/ITF framework for transport
+        # decarbonisation. Here it becomes the agent's internal Plan Library
+        # priority order: agents try to AVOID trips first, SHIFT to a lower-
+        # carbon mode second, and only IMPROVE the current mode as a fallback.
+        #
+        # This replaces the flat cost-minimisation which evaluated all modes
+        # simultaneously. The tier gates which modes enter the loop at all —
+        # modes outside the selected tier are excluded from evaluation.
+        # The BDI cost function still decides among the remaining candidates.
+        #
+        # Tier 1 — AVOID: eliminate/consolidate the trip
+        #   Condition: perceived congestion > 0.7 OR charger occupancy > 0.7
+        #              AND eco desire > 0.6 (agent motivated to reduce demand)
+        #   Modes:     cargo_bike, walk (consolidation / avoidance proxies)
+        #
+        # Tier 2 — SHIFT: switch to a lower-carbon mode
+        #   Condition: Tier 1 not feasible AND ev_viability_belief > threshold
+        #   Modes:     ev, van_electric, local_train, bus, tram, bike (shift set)
+        #
+        # Tier 3 — IMPROVE: optimise the current/preferred mode
+        #   Condition: Tiers 1 and 2 both failed (always available as fallback)
+        #   Modes:     full available_modes set (current approach)
+        #
+        # Threshold for Tier 2 shift: default 0.5 — agent believes EV viable.
+        # This is the hook for Complex Contagion (Phase 10c part 2): the belief
+        # threshold rises to 0.6–0.8 for freight personas, requiring more peer
+        # adoption before the agent will shift to EV.
+
+        _congestion     = context.get('congestion', 0.0)
+        _charger_occ    = context.get('charger_occupancy_nearby', 0.0)
+        _eco_desire     = context.get('desires', {}).get('eco', 0.5) if isinstance(context.get('desires'), dict) else 0.5
+        _ev_belief      = context.get('ev_viability_belief', 0.5)
+        _ev_threshold   = context.get('ev_viability_threshold', 0.5)  # persona-calibrated by CPG
+        _asi_hint       = context.get('asi_tier_hint', 'improve')     # CPG suggestion
+
+        _AVOID_MODES  = {'cargo_bike', 'walk', 'e_scooter', 'bike'}
+        _SHIFT_MODES  = {'ev', 'van_electric', 'truck_electric', 'hgv_electric',
+                         'local_train', 'intercity_train', 'bus', 'tram', 'bike'}
+
+        _tier1_feasible = (
+            # Either live signals or CPG hint suggests avoidance is appropriate
+            ((_congestion > 0.7 or _charger_occ > 0.7) or _asi_hint == 'avoid')
+            and _eco_desire > 0.6
+            and bool(_AVOID_MODES & set(available_modes))
+        )
+        _tier2_feasible = (
+            not _tier1_feasible
+            # CPG hint or live EV belief clears the threshold
+            and (_ev_belief >= _ev_threshold or _asi_hint == 'shift')
+            and bool(_SHIFT_MODES & set(available_modes))
+        )
+
+        if _tier1_feasible:
+            _asi_tier = 'avoid'
+            available_modes = [m for m in available_modes if m in _AVOID_MODES] or available_modes
+        elif _tier2_feasible:
+            _asi_tier = 'shift'
+            available_modes = [m for m in available_modes if m in _SHIFT_MODES] or available_modes
+        else:
+            _asi_tier = 'improve'
+            # keep full available_modes — no restriction
+
+        if _asi_tier != 'improve':
+            logger.debug(
+                "ASI %s tier selected for %s: congestion=%.2f, eco=%.2f, "
+                "ev_belief=%.2f, modes=%s",
+                _asi_tier.upper(), agent_id, _congestion, _eco_desire,
+                _ev_belief, available_modes,
+            )
         
         for mode in available_modes:
             logger.debug(f"   Testing mode: {mode}")
@@ -480,8 +558,41 @@ class BDIPlanner:
         """
         Check if mode is feasible (infrastructure check for EVs).
         
-        Cargo bikes and e-scooters don't need charging stations
+        Cargo bikes and e-scooters don't need charging stations.
+
+        Phase 10c — Hard reliability constraint:
+        Agents with reliability_critical=True (paramedic, blue-light, ambulance)
+        are HARD-BLOCKED from EV modes when charger availability cannot be
+        guaranteed. This is a hard infeasibility, not a cost penalty — no
+        subsidy can override it. Only policy changes that guarantee a charger
+        slot at every response station will change this outcome.
         """
+        # ── Phase 10c: Hard block for reliability-critical agents ─────────
+        # reliability_critical is set by the CPG for ambulance_emergency_response
+        # and any agent whose reliability desire ≥ 1.0 (paramedic persona).
+        # charger_occupancy_nearby > 0.1 means no guaranteed slot is available.
+        if context.get('reliability_critical', False) and mode in self.EV_RANGE_KM:
+            charger_occ = context.get('charger_occupancy_nearby', 1.0)
+            if charger_occ > 0.1:
+                logger.debug(
+                    "%s HARD BLOCKED from %s: reliability_critical=True, "
+                    "charger_occupancy_nearby=%.2f (>0.1 threshold)",
+                    getattr(state, 'agent_id', '?'), mode, charger_occ,
+                )
+                return False
+            # Even with low occupancy, enforce range buffer of 70% (not 90%)
+            # to preserve emergency response headroom.
+            from simulation.spatial.coordinate_utils import haversine_km
+            trip_distance = haversine_km(origin, dest)
+            max_range = self.EV_RANGE_KM.get(mode, 350.0)
+            if trip_distance > max_range * 0.7:
+                logger.debug(
+                    "%s HARD BLOCKED from %s: reliability_critical=True, "
+                    "%.1fkm > %.1fkm (70%% range buffer)",
+                    getattr(state, 'agent_id', '?'), mode,
+                    trip_distance, max_range * 0.7,
+                )
+                return False
         # Only check infrastructure for VEHICLE EVs
         # Cargo bikes and e-scooters don't use charging infrastructure
         non_infrastructure_evs = ['cargo_bike', 'e_scooter', 'bike']
