@@ -8,6 +8,26 @@ The planner has been enhanced to include a wider range of freight vehicle types,
 such as cargo bikes for urban micro-delivery, medium freight trucks (both electric 
 and diesel), and heavy goods vehicles (including hydrogen-powered options).
 
+Implementation Logic for BDI Agents
+To implement these in a BDI system for transport/freight decarbonisation, we would 
+map them as follows:
+- ASI as the "Intention Selection" Logic:
+    * Avoid: If the agent perceives high congestion (Belief), its primary Desire is to 
+    reduce trips. It selects the "Avoid" Plan first (e.g., Urban Freight Consolidation).
+    * Shift: If "Avoid" is not feasible, the agent shifts to a Desire for 
+    low-carbon modes (e.g., Rail/Water instead of Road).
+    * Improve: As a final tier, the agent Intends to improve current tech (e.g., 
+    Zero-emission vehicles (ZEV)).
+- Complex Contagion as the "Belief Update" Function:
+  The agent does not update its belief that "Electric Trucks are viable" until 
+  number of its neighbors (in its Small-World Network) have already adopted them. 
+  This models the high financial risk inherent in freight logistics.
+- Small-World as the "Social Environment":
+  A multi-agent system (MAS) should be structured so that local haulier agents are 
+  clustered, but also have "long-range" links to policy-maker agents or tech-innovator 
+  agents. This prevents the "homophily trap" and accelerates the "Shift" and 
+  "Improve" tiers of the ASI framework. 
+
 How to extend the planner with new modes:
 1. Add new modes to the default mode list and distance constraints, e.g. 'cargo_bike', 
    'truck_electric', 'hgv_hydrogen'.
