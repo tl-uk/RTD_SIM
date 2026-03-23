@@ -63,6 +63,7 @@ class StoryDrivenAgent(CognitiveAgent):
         
         self.user_story = user_parser.load_from_yaml(user_story_id)
         self.job_story = job_parser.load_from_yaml(job_story_id)
+        self.csv_data = csv_data  # <- persist for _extract_agent_context()
         
         # Generate task context FIRST (needed for agent_context extraction)
         self.task_context = self.job_story.to_task_context(origin, dest, csv_data)
