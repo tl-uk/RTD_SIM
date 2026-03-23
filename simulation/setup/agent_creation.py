@@ -231,6 +231,11 @@ def create_agents(
                 user_stories_path=_PERSONAS_PATH,
                 job_stories_path=_JOB_CONTEXTS_DIR,
             )
+
+            # --- Inject story objects into agent_context (Bug Fix #2) ---
+            agent.agent_context["user_story"] = user_story
+            agent.agent_context["job_story"] = job_story
+
             # Thread simulation_results so CognitiveAgent._maybe_plan
             # can increment routing_fallback_count on failure.
             agent._simulation_results = simulation_results
