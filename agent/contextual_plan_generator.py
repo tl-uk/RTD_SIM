@@ -377,10 +377,13 @@ class ContextualPlanGenerator:
                 plan.reliability_critical = True
                 plan.flexibility_allowed = False
             elif urgency == 'high':
-                # High urgency (e.g. school run, tight delivery): set reliability flag
-                # but keep flexibility_allowed=True so eco/cost persona values still apply
+                # High urgency (school run, tight delivery window): time priority but NOT
+                # reliability_critical=True — that flag is for operational-critical freight
+                # (ambulance, blue-light) which triggers the BDI hard EV block.
+                # Passenger jobs with urgency='high' get strong time preference but can
+                # still consider EV — the cost function handles the time weighting.
                 plan.primary_objective = 'minimize_time'
-                plan.reliability_critical = True
+                plan.time_sensitive = True  # weaker flag: influences cost weights only
         
         # ====================================================================
         # REGULATORY CONSTRAINTS FROM PLAN CONTEXT
@@ -454,14 +457,17 @@ class ContextualPlanGenerator:
         # ====================================================================
         
         # Safety-conscious users (children, elderly, disabled)
+        # Phase 10c fix: narrative safety keywords indicate a PREFERENCE, not a hard
+        # operational constraint. reliability_critical=True is reserved for freight/
+        # blue-light agents where the BDI hard EV block must fire. Passenger agents
+        # with safety concerns get maximize_safety as a secondary objective and
+        # weather_sensitive=True, which influences cost weighting without blocking EV.
         if any(word in narrative for word in ['safety', 'safe', 'children', 'child', 'kids', 'elderly', 'disabled']):
-            plan.reliability_critical = True
             plan.weather_sensitive = True
-            
+            plan.time_sensitive = True   # prefer reliable services without hard block
             if 'safety' not in [obj.lower() for obj in plan.secondary_objectives]:
                 plan.secondary_objectives.append('maximize_safety')
-            
-            logger.debug("Safety-conscious user: reliability critical")
+            logger.debug("Safety-conscious user: maximize_safety preference set")
         
         # ====================================================================
         # WEATHER SENSITIVITY
