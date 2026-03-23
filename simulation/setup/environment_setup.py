@@ -202,39 +202,40 @@ def setup_infrastructure(
                 charger_power_kw=50.0
             )
     else:
-        # City scale — derive bbox from the loaded graph extent.
-        # The former call to populate_edinburgh_chargers() was a hardcoded
-        # Edinburgh-only fallback. Phase 10a fix: always derive from the
-        # actual loaded graph so any city works correctly.
+        # City scale — derive bbox from the OSMnx graph node coordinates.
+        # Phase 10a originally called get_graph_stats() expecting west/south/east/north
+        # keys, but graph_manager.get_stats() only returns loaded/nodes/edges/etc.
+        # Fix: extract min/max of x (longitude) and y (latitude) from the graph nodes.
         if env is not None and env.graph_loaded:
             try:
-                stats = env.get_graph_stats()
-                # get_graph_stats returns the graph's spatial envelope
-                west  = stats.get('west')
-                south = stats.get('south')
-                east  = stats.get('east')
-                north = stats.get('north')
-                if None in (west, south, east, north):
-                    raise ValueError("get_graph_stats missing bbox keys")
+                drive_graph = env.graph_manager.get_graph('drive')
+                if drive_graph is not None and len(drive_graph.nodes) > 0:
+                    lons = [data['x'] for _, data in drive_graph.nodes(data=True)]
+                    lats = [data['y'] for _, data in drive_graph.nodes(data=True)]
+                    west  = min(lons)
+                    east  = max(lons)
+                    south = min(lats)
+                    north = max(lats)
+                    logger.info(
+                        "setup_infrastructure: bbox from graph nodes "
+                        "(%.4f, %.4f, %.4f, %.4f)",
+                        west, south, east, north,
+                    )
+                else:
+                    raise ValueError("No drive graph nodes available")
             except Exception as exc:
                 logger.error(
                     "setup_infrastructure: could not derive bbox from graph — %s. "
-                    "Infrastructure placement skipped. "
-                    "Check that get_graph_stats() returns 'west','south','east','north'.",
+                    "Infrastructure placement skipped.",
                     exc,
                 )
-                return infrastructure   # safe exit — no chargers rather than wrong city
+                return infrastructure
         else:
-            # No graph loaded at all — cannot place chargers at all without coords.
-            # Raise clearly so the developer knows what to fix, rather than
-            # silently placing chargers in the wrong city.
             logger.error(
                 "setup_infrastructure: no graph loaded and no extended_bbox. "
-                "Cannot derive charger positions. "
-                "Ensure setup_environment() is called before setup_infrastructure(), "
-                "or provide config.extended_bbox explicitly."
+                "Cannot derive charger positions — infrastructure placement skipped."
             )
-            return infrastructure   # safe exit — empty infra is better than Edinburgh
+            return infrastructure
 
         for i in range(config.num_chargers):
             lon = random.uniform(west, east)

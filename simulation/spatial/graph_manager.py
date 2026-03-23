@@ -432,11 +432,11 @@ class GraphManager:
         return self.primary_graph is not None
     
     def get_stats(self) -> dict:
-        """Get graph statistics."""
+        """Get graph statistics including spatial bounds."""
         if not self.is_loaded():
             return {"loaded": False}
-        
-        return {
+
+        stats = {
             "loaded": True,
             "nodes": len(self.primary_graph.nodes),
             "edges": len(self.primary_graph.edges),
@@ -444,6 +444,20 @@ class GraphManager:
             "num_graphs": len(self.graphs),
             "cache_size": sum(len(c) for c in self._nearest_node_cache.values()),
         }
+
+        # Spatial bounds — extracted from node coordinates so environment_setup.py
+        # can derive bbox for charger placement without hardcoding any city.
+        try:
+            lons = [d['x'] for _, d in self.primary_graph.nodes(data=True)]
+            lats = [d['y'] for _, d in self.primary_graph.nodes(data=True)]
+            stats['west']  = min(lons)
+            stats['east']  = max(lons)
+            stats['south'] = min(lats)
+            stats['north'] = max(lats)
+        except Exception:
+            pass  # bounds absent — callers that need them will fall back gracefully
+
+        return stats
     
     def clear_cache(self) -> None:
         """Clear disk cache."""

@@ -55,18 +55,41 @@ class BayesianBeliefUpdater:
         prior_weight: float = 0.50,
         experience_weight: float = 0.35,
         peer_weight: float = 0.15,
-        update_interval: int = 5,   # steps between full belief updates
-        saturation_history: int = 8, # how many recent satisfaction scores to use
+        update_interval: int = 5,
+        saturation_history: int = 8,
     ):
         self.w_prior  = prior_weight
         self.w_exp    = experience_weight
         self.w_peer   = peer_weight
         self.interval = update_interval
         self.history  = saturation_history
-        self._agent_index: dict = {}   # populated on first update call
+        self._agent_index: dict = {}
 
         assert abs(prior_weight + experience_weight + peer_weight - 1.0) < 1e-6, \
             "Weights must sum to 1.0"
+
+    # ── Complex Contagion thresholds ──────────────────────────────────────
+    # Phase 10c: minimum fraction of neighbours that must have adopted a mode
+    # before that mode's belief becomes updateable this step.
+    # Freight operators require stronger peer evidence (high financial risk);
+    # eco-warriors update with minimal social proof (early adopters).
+    _COMPLEX_CONTAGION_THRESHOLDS: Dict[str, float] = {
+        'paramedic':               0.60,  # blue-light: near-universal proof required
+        'fleet_manager_healthcare':0.50,
+        'fleet_manager_logistics': 0.35,
+        'fleet_manager_retail':    0.35,
+        'port_terminal_operator':  0.40,
+        'rail_freight_operator':   0.38,
+        'air_freight_operator':    0.38,
+        'freight_operator':        0.40,  # high financial risk
+        'delivery_driver':         0.20,  # gig: lower barrier
+        'shift_worker':            0.25,
+        'eco_warrior':             0.10,  # early adopter: minimal proof
+        'budget_student':          0.15,
+        'business_commuter':       0.30,
+        'concerned_parent':        0.25,
+        'default':                 0.30,
+    }
 
     # ── Public API ────────────────────────────────────────────────────────
     
@@ -124,13 +147,19 @@ class BayesianBeliefUpdater:
         agent.agent_context['peer_ev_rate'] = peer_ev_rate
         agent.agent_context['peer_modes']   = peer_modes
 
-        # ── 3. Update beliefs ─────────────────────────────────────────────
+        # ── 3. Update beliefs (with Complex Contagion gate) ──────────────
         self._update_beliefs(agent, satisfaction_by_mode, peer_ev_rate)
 
         # ── 4. Re-weight desires from peer observations ───────────────────
-        # This replaces the direct agent.state.mode overwrite in the loop,
-        # letting social influence flow through the BDI desire weights instead.
         self._reweight_desires_from_peers(agent, peer_ev_rate)
+
+        # ── 5. Write ev_viability_belief to agent_context ─────────────────
+        # The BDI planner reads context['ev_viability_belief'] for the ASI
+        # Tier 2 (Shift) check. Without this write the value was always the
+        # default 0.5, making the ev_viability_threshold in the CPG have no
+        # effect on actual tier selection.
+        ev_belief = self._compute_ev_viability_belief(agent, peer_ev_rate)
+        agent.agent_context['ev_viability_belief'] = ev_belief
 
     # ── Signal collection ─────────────────────────────────────────────────
 
@@ -221,56 +250,76 @@ class BayesianBeliefUpdater:
         peer_ev_rate: float,
     ) -> None:
         """
-        Update belief strengths for all updateable beliefs.
+        Update belief strengths with Complex Contagion gate for EV beliefs.
 
-        Belief text is matched to transport modes by keyword. The matched
-        mode's recent satisfaction history forms the likelihood term.
+        Phase 10c — Complex Contagion:
+        EV beliefs only update if the fraction of the agent's neighbours
+        already using EV modes meets or exceeds the persona-specific threshold.
+        This models the high financial risk of freight operators who require
+        strong peer evidence before believing EV is viable, vs eco-warriors
+        who update with minimal social proof (early adopter behaviour).
+
+        Non-EV beliefs update unconditionally (simple contagion).
         """
         beliefs = getattr(agent.user_story, 'beliefs', [])
+        ev_modes = {'ev', 'van_electric', 'truck_electric', 'hgv_electric'}
+
+        # Persona-calibrated threshold for EV belief updates
+        persona_id = getattr(agent.user_story, 'id', 'default')
+        contagion_threshold = self._COMPLEX_CONTAGION_THRESHOLDS.get(
+            persona_id, self._COMPLEX_CONTAGION_THRESHOLDS['default']
+        )
 
         for belief in beliefs:
             if not getattr(belief, 'updateable', True):
                 continue
 
-            # Map belief to a mode bucket
             relevant_mode = self._belief_to_mode(belief)
             if relevant_mode is None:
                 continue
 
             prior = float(getattr(belief, 'strength', 0.5))
 
-            # Personal experience likelihood
-            scores = satisfaction_by_mode.get(relevant_mode, [])
-            if scores:
-                recent = scores[-self.history:]
-                exp_likelihood = sum(recent) / len(recent)
-            else:
-                exp_likelihood = prior  # No experience → no pull away from prior
-
-            # Peer likelihood (EV beliefs shift with peer EV adoption)
-            ev_modes = {'ev', 'van_electric', 'truck_electric', 'hgv_electric'}
+            # ── Complex Contagion gate for EV beliefs ─────────────────────
+            # EV belief only updates if peer adoption rate >= threshold.
+            # This gates the update entirely — the prior is preserved unchanged
+            # rather than nudged, modelling the "I'll wait and see" behaviour
+            # of risk-averse operators who need multiple peer examples.
             if relevant_mode in ev_modes:
+                if peer_ev_rate < contagion_threshold:
+                    logger.debug(
+                        "Contagion gate CLOSED for %s belief '%s': "
+                        "peer_ev=%.2f < threshold=%.2f (persona=%s)",
+                        agent.state.agent_id,
+                        getattr(belief, 'text', '?')[:30],
+                        peer_ev_rate, contagion_threshold, persona_id,
+                    )
+                    continue  # belief frozen this step
                 peer_likelihood = peer_ev_rate
             else:
-                peer_likelihood = prior  # Non-EV beliefs unaffected by EV peer signal
+                peer_likelihood = prior   # non-EV beliefs unaffected by EV peer signal
+
+            # Personal experience likelihood
+            scores = satisfaction_by_mode.get(relevant_mode, [])
+            exp_likelihood = (
+                sum(scores[-self.history:]) / len(scores[-self.history:])
+                if scores else prior
+            )
 
             # Bayesian posterior
-            posterior = (
+            posterior = max(0.0, min(1.0,
                 self.w_prior * prior
                 + self.w_exp  * exp_likelihood
                 + self.w_peer * peer_likelihood
-            )
-            posterior = max(0.0, min(1.0, posterior))
+            ))
 
-            # Only log meaningful shifts
             delta = abs(posterior - prior)
             if delta > 0.05:
                 logger.debug(
                     "Belief update %s '%s': %.2f → %.2f (exp=%.2f, peer=%.2f)",
                     agent.state.agent_id,
                     getattr(belief, 'text', '?')[:40],
-                    prior, posterior,
-                    exp_likelihood, peer_likelihood,
+                    prior, posterior, exp_likelihood, peer_likelihood,
                 )
 
             belief.strength = posterior
@@ -278,23 +327,12 @@ class BayesianBeliefUpdater:
     def _reweight_desires_from_peers(
         self, agent, peer_ev_rate: float
     ) -> None:
-        """
-        Nudge agent's eco desire toward peer EV adoption rate.
-
-        This replaces the direct agent.state.mode = best_mode overwrite
-        in the simulation loop's social influence block. Instead of forcing
-        a mode switch, we shift the desire weight so the BDI planner
-        naturally gravitates toward what peers are doing.
-
-        The nudge is small (≤ 0.03 per update) to preserve individuality.
-        """
+        """Nudge agent's eco desire toward peer EV adoption rate (max ±0.03)."""
         if not hasattr(agent, 'desires'):
             return
 
         eco = agent.desires.get('eco', 0.5)
-
-        # Peer EV rate above 0.5 nudges eco up; below 0.5 nudges it down
-        delta = (peer_ev_rate - 0.5) * 0.06   # max ±0.03 per update
+        delta = (peer_ev_rate - 0.5) * 0.06
         new_eco = max(0.0, min(1.0, eco + delta))
 
         if abs(new_eco - eco) > 0.001:
@@ -303,6 +341,40 @@ class BayesianBeliefUpdater:
                 "Desire re-weight %s: eco %.3f → %.3f (peer_ev=%.2f)",
                 agent.state.agent_id, eco, new_eco, peer_ev_rate,
             )
+
+    def _compute_ev_viability_belief(
+        self, agent, peer_ev_rate: float
+    ) -> float:
+        """
+        Compute a scalar ev_viability_belief [0,1] from EV-related belief strengths.
+
+        This value is written to agent_context['ev_viability_belief'] so the
+        BDI planner's ASI Tier 2 (Shift) check reads a real belief signal
+        rather than the default 0.5.
+
+        Formula: weighted average of EV-related belief strengths, boosted by
+        the peer_ev_rate and capped at 1.0. If no EV beliefs exist, returns
+        the peer_ev_rate as a pure social signal.
+        """
+        ev_keywords = {'ev', 'electric vehicle', 'electric car', 'battery',
+                       'cargo', 'freight', 'van', 'truck', 'hgv'}
+        ev_strengths = []
+
+        beliefs = getattr(getattr(agent, 'user_story', None), 'beliefs', [])
+        for belief in beliefs:
+            text = getattr(belief, 'text', '').lower()
+            if any(kw in text for kw in ev_keywords):
+                ev_strengths.append(float(getattr(belief, 'strength', 0.5)))
+
+        if ev_strengths:
+            belief_signal = sum(ev_strengths) / len(ev_strengths)
+        else:
+            belief_signal = 0.5  # neutral prior when no EV beliefs present
+
+        # Blend belief strength with peer signal — peer evidence matters more
+        # at low belief levels (early adoption) and less once belief is strong.
+        blended = 0.6 * belief_signal + 0.4 * peer_ev_rate
+        return max(0.0, min(1.0, blended))
 
     # ── Belief → mode mapping ─────────────────────────────────────────────
 
