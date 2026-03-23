@@ -254,7 +254,18 @@ class BDIPlanner:
         )
         _tier2 = (
             not _tier1
-            and (_ev_belief >= _ev_threshold or _asi_hint == 'shift')
+            and (
+                # Live EV belief must strictly exceed the persona threshold
+                # (>= caused every agent to shift at startup when ev_belief==threshold==0.5)
+                _ev_belief > _ev_threshold
+                or (
+                    # CPG hint alone is not enough — also require some eco motivation
+                    # to prevent non-eco personas (budget_student, shift_worker) from
+                    # being forced into Tier 2 when their CPG returns asi_hint='shift'
+                    _asi_hint == 'shift'
+                    and _eco_desire >= 0.45
+                )
+            )
             and bool(_SHIFT_MODES & set(available_modes))
         )
 
