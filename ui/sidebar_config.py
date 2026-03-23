@@ -258,7 +258,7 @@ def render_sidebar_config():
         run_btn = st.form_submit_button(
             "🚀 Run Simulation",
             type="primary",
-            width='stretch'  # TODO: change to width='stretch' after Streamlit ≥ 1.44
+            use_container_width=True  # TODO: change to width='stretch' after Streamlit ≥ 1.44
         )
 
     # =======================================================================
@@ -991,13 +991,17 @@ def _render_story_selection():
             if _SENTINEL in st.session_state.get("_user_ms", []):
                 st.session_state["_select_all_users_pending"] = True
                 st.rerun()
- 
-            user_stories = st.session_state.get("_user_ms", default_users)
- 
+
+            # Strip sentinel in case the pending rerun has not fired yet
+            # (race condition: sentinel is in the widget value on the same
+            # run that sets the flag, before st.rerun() clears it).
+            _raw_users = st.session_state.get("_user_ms", default_users)
+            user_stories = [u for u in _raw_users if u != _SENTINEL] or list(available_users)
+
             # ── Job Stories ────────────────────────────────────────────────
             if st.session_state.pop("_select_all_jobs_pending", False):
                 st.session_state["_job_ms"] = list(available_jobs)
- 
+
             st.multiselect(
                 "Job Stories",
                 options=[_SENTINEL] + available_jobs,
@@ -1005,12 +1009,14 @@ def _render_story_selection():
                 help="Select which job contexts to include. Choose '── Select All ──' "
                      "to include every available job context.",
             )
- 
+
             if _SENTINEL in st.session_state.get("_job_ms", []):
                 st.session_state["_select_all_jobs_pending"] = True
                 st.rerun()
- 
-            job_stories = st.session_state.get("_job_ms", default_jobs)
+
+            # Same sentinel-strip fix for jobs.
+            _raw_jobs = st.session_state.get("_job_ms", default_jobs)
+            job_stories = [j for j in _raw_jobs if j != _SENTINEL] or list(available_jobs)
 
             # ── Live compatibility counter ─────────────────────────────────────
             # Compute this here (outside the form submit) so the user sees it

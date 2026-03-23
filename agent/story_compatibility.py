@@ -811,6 +811,19 @@ def create_realistic_agent_pool(
 
     NOTE: No 'strategy' parameter — this was removed in Phase 7.2.
 
+    Phase 10a fix: the previous implementation assigned agents in strict
+    iteration order (alphabetical by user then job). With 293 combinations
+    and 150 agents, floor(150/293)=0 so only the first 150 combinations
+    received one agent each — producing eco_warrior-dominated runs because
+    eco_warrior sorts before freight_operator alphabetically.
+
+    Fixed approach:
+      1. Shuffle combinations so alphabetical bias is eliminated.
+      2. Distribute using round-robin over the shuffled list so every
+         combination gets at least one agent if num_agents >= len(combinations).
+      3. If num_agents < len(combinations), sample without replacement so
+         all persona/job types have an equal chance of appearing.
+
     Args:
         num_agents: Number of agents needed
         user_story_ids: Available user personas
@@ -819,24 +832,35 @@ def create_realistic_agent_pool(
     Returns:
         List of (user, job) tuples, length == num_agents
     """
+    import random as _random
+
     combinations = filter_compatible_combinations(user_story_ids, job_story_ids)
 
     if not combinations:
         logger.error("❌ No compatible combinations — check whitelists!")
         return []
 
-    # Distribute evenly across combinations
-    agents_per_combo = max(1, num_agents // len(combinations))
-    remainder = num_agents % len(combinations)
+    # Shuffle once with a stable seed derived from num_agents so repeated
+    # calls with the same inputs are reproducible but not alphabetical.
+    rng = _random.Random(num_agents ^ len(combinations))
+    shuffled = list(combinations)
+    rng.shuffle(shuffled)
 
-    pool = []
-    for i, (user, job) in enumerate(combinations):
-        count = agents_per_combo + (1 if i < remainder else 0)
-        pool.extend([(user, job)] * count)
+    if num_agents <= len(shuffled):
+        # Fewer agents than combinations: sample without replacement so every
+        # agent gets a unique combination (no persona dominance from repetition).
+        pool = shuffled[:num_agents]
+    else:
+        # More agents than combinations: round-robin fill so every combination
+        # is represented at least floor(num_agents/len) times before any gets
+        # an extra agent.  This is bias-free and predictable.
+        repeats, remainder = divmod(num_agents, len(shuffled))
+        pool = shuffled * repeats + shuffled[:remainder]
 
     logger.info(
-        f"✅ Created agent pool: {len(pool)} agents from "
-        f"{len(combinations)} compatible combinations"
+        "✅ Created agent pool: %d agents from %d compatible combinations "
+        "(%.1f agents/combo avg)",
+        len(pool), len(combinations), len(pool) / max(len(combinations), 1),
     )
 
-    return pool[:num_agents]
+    return pool

@@ -148,11 +148,61 @@ class BDIPlanner:
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
         ]
         self.infrastructure = infrastructure_manager
-        
+
+        # mode_cost_factors: multipliers applied to the final cost of each mode.
+        # Set via apply_scenario_cost_factors() when a scenario YAML declares
+        # parameter: cost_reduction / cost_increase for a specific mode.
+        # Example: {'ev': 0.70, 'van_electric': 0.70} for EV Subsidy 30%.
+        # Default 1.0 (no adjustment) for all modes.
+        self.mode_cost_factors: Dict[str, float] = {}
+
         if self.infrastructure:
             logger.info("BDI planner: infrastructure-aware (Phase 4.5F - Expanded Freight)")
         else:
             logger.info("BDI planner: basic mode (Phase 4.5F - Expanded Freight)")
+
+    def apply_scenario_cost_factors(self, scenario_policies: list) -> None:
+        """
+        Parse scenario YAML policies and store mode cost multipliers.
+
+        Called by simulation_runner or apply_scenario_policies() after the
+        scenario is loaded. Translates YAML cost_reduction / cost_increase
+        parameters into multipliers stored in self.mode_cost_factors so the
+        BDI cost function applies them at decision time.
+
+        Example YAML policy:
+            parameter: cost_reduction
+            value: 30.0
+            target: mode
+            mode: ev
+        → stores {'ev': 0.70}
+
+        Args:
+            scenario_policies: list of policy dicts from the YAML 'policies' key
+        """
+        for policy in (scenario_policies or []):
+            if policy.get('target') != 'mode':
+                continue
+            mode = policy.get('mode')
+            param = policy.get('parameter', '')
+            value = float(policy.get('value', 0.0))
+            if not mode:
+                continue
+
+            if param == 'cost_reduction':
+                factor = 1.0 - (value / 100.0)          # 30% off → 0.70
+            elif param == 'cost_increase':
+                factor = 1.0 + (value / 100.0)          # 20% on  → 1.20
+            elif param == 'cost_factor':
+                factor = value                            # direct multiplier
+            else:
+                continue
+
+            self.mode_cost_factors[mode] = max(0.05, factor)  # floor at 5%
+            logger.info(
+                "BDI cost factor set: %s × %.2f (from %s %.1f%%)",
+                mode, self.mode_cost_factors[mode], param, value,
+            )
     
     @property
     def has_infrastructure(self) -> bool:
@@ -850,6 +900,19 @@ class BDIPlanner:
                 logger.debug("Markov discount failed: %s", _me)
             # ── End Phase 3 Markov ───────────────────────────────────────────────────────
  
+        # Apply scenario cost factor (e.g. EV Subsidy 30% → factor=0.70)
+        # mode_cost_factors is populated by apply_scenario_cost_factors() when a
+        # scenario YAML declares cost_reduction/cost_increase for a specific mode.
+        # Without this, scenario YAML policies targeting mode costs had no effect
+        # on the BDI decision — the subsidy was loaded but silently ignored.
+        scenario_factor = self.mode_cost_factors.get(mode, 1.0)
+        if scenario_factor != 1.0:
+            total_cost *= scenario_factor
+            logger.debug(
+                "Scenario factor %.2f applied to %s: cost %.3f → %.3f",
+                scenario_factor, mode, total_cost / scenario_factor, total_cost,
+            )
+
         # Add stochastic noise (±15%)
         total_cost += random.uniform(-0.15, 0.15)
         

@@ -270,7 +270,29 @@ def apply_scenario_policies(
             logger.info(f"📊 Infrastructure changes: {len(infrastructure_changes)} types applied")
         else:
             report['infrastructure_changes'] = None
-        
+
+        # Collect mode-level cost policies so the BDI planner can apply them.
+        # The scenario YAML declares cost_reduction/cost_increase with target:mode
+        # but apply_to_environment() only touches the road network — not the BDI
+        # cost function. We surface the raw policies so simulation_runner.py can
+        # call planner.apply_scenario_cost_factors(report['mode_cost_policies']).
+        mode_cost_policies = []
+        if manager.active_scenario:
+            for policy in manager.active_scenario.get('policies', []):
+                if policy.get('target') == 'mode' and policy.get('parameter') in (
+                    'cost_reduction', 'cost_increase', 'cost_factor'
+                ):
+                    mode_cost_policies.append(policy)
+        report['mode_cost_policies'] = mode_cost_policies
+        if mode_cost_policies:
+            logger.info(
+                "📋 Mode cost policies surfaced for BDI planner: %s",
+                [(p.get('mode'), p.get('parameter'), p.get('value')) for p in mode_cost_policies],
+            )
+            # Store on config so run_simulation_loop can wire them to agent planners
+            # without needing simulation_runner.py to be modified.
+            config._scenario_mode_policies = mode_cost_policies
+
         return report
         
     except Exception as e:
@@ -500,6 +522,28 @@ def run_simulation_loop(
     # Fix 2: build agent index so peer signal lookup works
     if belief_updater and agents:
         belief_updater.rebuild_agent_index(agents)
+
+    # Wire scenario mode-cost factors to every agent's BDI planner.
+    # apply_scenario_policies() surfaces mode-level cost_reduction policies
+    # via config's scenario_report. Without this, EV Subsidy 30% (and any
+    # other YAML cost policy targeting a mode) was loaded but never applied —
+    # the BDI cost function saw no multiplier and chose modes purely on the
+    # unmodified cost weights.
+    _scenario_mode_policies = getattr(config, '_scenario_mode_policies', [])
+    if _scenario_mode_policies:
+        _planners_updated = 0
+        for _agent in agents:
+            _planner = getattr(_agent, 'planner', None)
+            if _planner and hasattr(_planner, 'apply_scenario_cost_factors'):
+                _planner.apply_scenario_cost_factors(_scenario_mode_policies)
+                _planners_updated += 1
+        if _planners_updated:
+            logger.info(
+                "💰 Scenario cost factors applied to %d agent planners: %s",
+                _planners_updated,
+                [(p.get('mode'), p.get('parameter'), p.get('value'))
+                 for p in _scenario_mode_policies],
+            )
 
     for step in range(config.steps):
         # Initialize agent states for this step

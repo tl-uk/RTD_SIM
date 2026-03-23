@@ -9,7 +9,8 @@ find /Users/theolim/AppDev/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
   grep -v __pycache__ | grep -v .git | sort > project_structure_current.txt && \
   echo "Done: $(wc -l < project_structure_current.txt) files"
 
-
+# clear OSM cache
+rm -rf ~/.rtd_sim_cache/osm_graphs/
 
 I'm thinking about the ASI framework combined with complex contagion and small-world network effects. The ASI (Avoid-Shift-Improve) hierarchy as a BDI plan priority structure is genuinely novel for transport ABMs—current models use cost minimisation without this structured approach. Complex contagion requiring multiple neighbours to adopt before influencing behaviour is well-established in social science but rarely applied to transport simulations. Adding small-world network properties with long-range policy links creates an interesting combination that hasn't been explored in this context.
 

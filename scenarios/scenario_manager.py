@@ -1,6 +1,6 @@
 # scenarios/scenario_manager.py
 """
-Phase 4.5B: Policy Scenario Framework
+Policy Scenario Framework
 
 Enables YAML-based policy configurations with runtime injection.
 Supports what-if analysis and automated policy testing.
