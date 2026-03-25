@@ -651,7 +651,8 @@ class PersonaFusion:
             FusedIdentity with all fields populated.
         """
         persona_id = self._get_attr(user_story, 'story_id', '')
-        job_id     = self._get_attr(job_story,  'job_id',   '')
+        # Fallback to story_id if job_id is empty
+        job_id = self._get_attr(job_story, 'job_id') or self._get_attr(job_story, 'story_id', '')
         label      = f"{persona_id}_{job_id}"
 
         logger.debug("PersonaFusion: fusing %s", label)

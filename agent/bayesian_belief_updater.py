@@ -243,6 +243,18 @@ class BayesianBeliefUpdater:
 
     # ── Bayesian update ───────────────────────────────────────────────────
 
+    # Helper to map text back to fused_belief keys (Add this above _update_beliefs)
+    def _map_belief_text_to_fused_key(self, text: str) -> Optional[str]:
+        t = text.lower()
+        if any(w in t for w in ('ev', 'electric', 'battery')): return 'ev_is_viable'
+        if any(w in t for w in ('transit', 'public transport', 'bus', 'train')): return 'public_transport_reliable'
+        if any(w in t for w in ('congestion', 'traffic', 'jam')): return 'congestion_likely'
+        if any(w in t for w in ('cost', 'afford', 'price', 'expensive')): return 'cost_pressure_high'
+        if any(w in t for w in ('climate', 'carbon', 'emission', 'environment')): return 'climate_urgency'
+        if any(w in t for w in ('range', 'anxiety', 'mileage')): return 'range_anxiety'
+        if any(w in t for w in ('charger', 'charging', 'infrastructure')): return 'charger_availability'
+        return None
+
     def _update_beliefs(
         self,
         agent,
@@ -270,6 +282,9 @@ class BayesianBeliefUpdater:
             persona_id, self._COMPLEX_CONTAGION_THRESHOLDS['default']
         )
 
+        # Pull fused_beliefs from context
+        fused_beliefs = agent.agent_context.get('fused_beliefs', {})
+
         for belief in beliefs:
             if not getattr(belief, 'updateable', True):
                 continue
@@ -278,7 +293,11 @@ class BayesianBeliefUpdater:
             if relevant_mode is None:
                 continue
 
+            # Use fused belief as the calibrated prior seed if available
             prior = float(getattr(belief, 'strength', 0.5))
+            fused_key = self._map_belief_text_to_fused_key(getattr(belief, 'text', ''))
+            if fused_key and fused_key in fused_beliefs:
+                prior = float(fused_beliefs[fused_key])
 
             # ── Complex Contagion gate for EV beliefs ─────────────────────
             # EV belief only updates if peer adoption rate >= threshold.

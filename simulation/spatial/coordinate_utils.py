@@ -14,18 +14,51 @@ import math
 from typing import List, Tuple
 
 
-def is_valid_lonlat(coord: Tuple[float, float]) -> bool:
+def is_valid_lonlat(coord) -> bool:
     """
     Check if coordinates are valid (lon, lat) format.
-    
+
+    Robust to dict-type abstract route nodes (returns False for non-2-tuples
+    so segment_distance_km falls back to Euclidean rather than crashing).
+
     Args:
-        coord: Tuple of (longitude, latitude)
-    
+        coord: Expected Tuple of (longitude, latitude); tolerates dicts/other types.
+
     Returns:
-        True if valid, False otherwise
+        True if valid (lon, lat) pair, False otherwise.
     """
-    lon, lat = coord
-    return (-180.0 <= lon <= 180.0) and (-90.0 <= lat <= 90.0)
+    try:
+        if isinstance(coord, dict):
+            return False
+        if len(coord) != 2:
+            return False
+        lon = float(coord[0])
+        lat = float(coord[1])
+        return (-180.0 <= lon <= 180.0) and (-90.0 <= lat <= 90.0)
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _extract_coord(pt) -> tuple:
+    """
+    Extract a (lon, lat) 2-tuple from a route point.
+
+    Handles three formats:
+      - Normal (lon, lat) tuples / lists       → direct use
+      - Abstract route dicts {'pos': (lon,lat)}→ use 'pos' field
+      - OSMnx integer node IDs                 → returns None (caller skips)
+    """
+    if isinstance(pt, dict):
+        pos = pt.get('pos')
+        if pos is not None and len(pos) == 2:
+            return (float(pos[0]), float(pos[1]))
+        return None
+    try:
+        if len(pt) == 2:
+            return (float(pt[0]), float(pt[1]))
+    except (TypeError, ValueError):
+        pass
+    return None
 
 
 def haversine_km(coord1: Tuple[float, float], coord2: Tuple[float, float]) -> float:

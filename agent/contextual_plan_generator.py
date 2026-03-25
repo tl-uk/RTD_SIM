@@ -576,9 +576,12 @@ class ContextualPlanGenerator:
                 f"({user_story.story_id})"
             )
         elif plan.primary_objective == 'minimize_time':
+            # Safely extract urgency from parameters dict
+            params = getattr(job_story, 'parameters', {})
+            urgency = params.get('urgency', 'medium') if isinstance(params, dict) else 'medium'
             reasoning_parts.append(
                 f"Minimizing time because task is time-critical "
-                f"({job_story.job_type}, urgency={getattr(job_story.parameters, 'urgency', 'medium')})"
+                f"({getattr(job_story, 'job_type', 'unknown')}, urgency={urgency})"
             )
         elif plan.primary_objective == 'minimize_cost':
             reasoning_parts.append(

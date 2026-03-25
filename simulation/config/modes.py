@@ -238,8 +238,9 @@ def abstract_distance_km(
     Returns:
         Estimated route distance in km.
     """
-    lat1, lon1 = origin
-    lat2, lon2 = dest
+    # NOTE: coordinate order is (lon, lat)
+    lon1, lat1 = origin
+    lon2, lat2 = dest
     # Haversine
     R = 6371.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
@@ -266,11 +267,9 @@ def make_synthetic_route(
     Compatible with the existing route list convention used in
     BDIPlanner.actions_for() and visualiser/visualization.py.
     """
-    dist = abstract_distance_km(origin, dest, mode)
-    return [
-        {'node': 'origin',      'pos': origin, 'distance_km': 0.0},
-        {'node': 'destination', 'pos': dest,   'distance_km': dist},
-    ]
+    # NOTE: always return a list of standard 2-tuples so is_valid_lonlat() and 
+    # route_distance_km() can parse them without unpacking errors.
+    return [tuple(origin), tuple(dest)]
 
 
 def emissions_g_km(mode: str) -> float:

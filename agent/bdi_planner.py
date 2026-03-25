@@ -86,8 +86,9 @@ except ImportError:
     def abstract_distance_km(o, d, m) -> float:
         import math
         try:
-            lat1, lon1 = float(o[0]), float(o[1])
-            lat2, lon2 = float(d[0]), float(d[1])
+            # NOTE: (lon, lat) order
+            lon1, lat1 = float(o[0]), float(o[1])
+            lon2, lat2 = float(d[0]), float(d[1])
         except Exception:
             return 0.0
         R = 6371.0
@@ -99,11 +100,8 @@ except ImportError:
              * math.sin(dl / 2) ** 2)
         return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1.1
     def make_synthetic_route(o, d, m) -> list:
-        dist = abstract_distance_km(o, d, m)
-        return [
-            {'node': 'origin',      'pos': o, 'distance_km': 0.0},
-            {'node': 'destination', 'pos': d, 'distance_km': dist},
-        ]
+        # NOTE: return 2-tuples
+        return [tuple(o), tuple(d)]
 
 # ----- Metrics (CPG instrumentation) -----
 try:
@@ -314,52 +312,6 @@ class BDIPlanner:
         # user/job story objects, extract a plan and narrow the mode list.
         # Falls back to unfiltered available_modes if extraction fails.
         if self.plan_generator and context.get("user_story") and context.get("job_story"):
-            # try:
-            #     _extracted_plan = self.plan_generator.extract_plan_from_context(
-            #         user_story=context["user_story"],
-            #         job_story=context["job_story"],
-            #         origin=origin,
-            #         dest=dest,
-            #         csv_data=context.get("csv_data"),
-            #     )
-
-            #     available_modes = self.plan_generator.get_candidate_modes(
-            #         plan=_extracted_plan,
-            #         available_modes=available_modes,
-            #         distance_km=straight_line_distance,
-            #         weather_conditions=context.get("weather"),
-            #     )
-            #     # Instrumentation: did CPG empty the candidate set?
-            #     try:
-            #         if cpg_pre_modes_len > 0 and not available_modes:
-            #             total = inc('cpg_empty_count')
-            #             agent_key = agent_id
-            #             try:
-            #                 job_obj = context.get('job_story')
-            #                 job_key = getattr(job_obj, 'job_type', getattr(job_obj, 'name', 'unknown_job'))
-            #             except Exception:
-            #                 job_key = 'unknown_job'
-            #             inc(f'cpg_empty_by_agent:{agent_key}')
-            #             inc(f'cpg_empty_by_job:{job_key}')
-            #             logger.debug('CPG empty (count=%d) — agent=%s job=%s', total, agent_key, job_key)
-            #     except Exception as _metric_err:
-            #         logger.debug('CPG metrics failed: %s', _metric_err)
-
-            #     logger.debug(
-            #         "CPG: %s → %s (objective=%s, critical=%s, reasoning=%s)",
-            #         agent_id, available_modes,
-            #         _extracted_plan.primary_objective,
-            #         _extracted_plan.reliability_critical,
-            #         _extracted_plan.reasoning,
-            #     )
-            # except Exception as _cpg_err:
-            #     logger.debug("CPG extraction failed for %s: %s", agent_id, _cpg_err)
-            #     # Conservative defaults — do not assume _extracted_plan exists here
-            #     context.setdefault('reliability_critical', False)
-            #     context.setdefault('asi_tier_hint', 'improve')
-            #     context.setdefault('ev_viability_threshold', 0.5)
-
-            # ── Contextual Plan Extraction (Phase 1 Core Innovation) ──────────
             try:
                 _extracted_plan = self.plan_generator.extract_plan_from_context(
                     user_story=context["user_story"],
@@ -373,7 +325,13 @@ class BDIPlanner:
                 if _extracted_plan is None:
                     raise ValueError("CPG returned None plan")
 
-                # CPG metrics snapshot (right before narrowing) — KEEP THIS
+                # NOTE: Write the extracted ASI and EV hints back to context
+                if hasattr(_extracted_plan, 'asi_tier'):
+                    context['asi_tier_hint'] = _extracted_plan.asi_tier
+                if hasattr(_extracted_plan, 'ev_viability_belief_hint'):
+                    context['ev_viability_threshold'] = _extracted_plan.ev_viability_belief_hint
+
+                # CPG metrics snapshot
                 cpg_pre_modes_len = len(available_modes)
 
                 available_modes = self.plan_generator.get_candidate_modes(
@@ -998,6 +956,10 @@ class BDIPlanner:
         
         distance = route_distance_km(route)
         params = {'trip_distance_km': distance}
+
+        # Guard against None infrastructure
+        if not self.has_infrastructure:
+            return params
         
         nearest = self.infrastructure.find_nearest_charger(
             dest, charger_type='any', max_distance_km=2.0
