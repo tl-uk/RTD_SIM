@@ -957,13 +957,22 @@ class BDIPlanner:
         distance = route_distance_km(route)
         params = {'trip_distance_km': distance}
 
-        # Guard against None infrastructure
-        if not self.has_infrastructure:
+        # BUG FIX 1: Defensive guard against None infrastructure
+        if not getattr(self, 'has_infrastructure', False) or self.infrastructure is None:
             return params
         
+        # BUG FIX 2: Utilize 'context' to make the search dynamic rather than a hardcoded 2.0km.
+        search_radius = float(context.get('dest_nearby_radius_km', 2.0))
         nearest = self.infrastructure.find_nearest_charger(
-            dest, charger_type='any', max_distance_km=2.0
+            dest, charger_type='any', max_distance_km=search_radius
         )
+
+        # Implement the intended logic: Freight modes may be more tolerant of detours
+        if not nearest and context.get('vehicle_type') in ['commercial', 'medium_freight', 'heavy_freight']:
+            nearest = self.infrastructure.find_nearest_charger(
+                dest, charger_type='any', max_distance_km=search_radius * 3.0  # Expand to 6km for freight
+            )
+
         # If no charger found within 2km, try a wider search for freight modes, which may be more tolerant of detours
         if nearest:
             station_id, distance_to_charger = nearest
