@@ -23,6 +23,16 @@ from agent.user_stories import UserStoryParser, UserStory
 from agent.job_stories import JobStoryParser, JobStory
 
 logger = logging.getLogger(__name__)
+ 
+# PersonaFusion — synthesises FusedIdentity from user+job story
+try:
+    from agent.persona_fusion import PersonaFusion, FusedIdentity
+    _FUSION_AVAILABLE = True
+    _FUSION = PersonaFusion()
+except ImportError:
+    _FUSION_AVAILABLE = False
+    FusedIdentity = None
+    logger.warning("PersonaFusion not available — fused identity disabled")
 
 
 class StoryDrivenAgent(CognitiveAgent):
@@ -70,7 +80,43 @@ class StoryDrivenAgent(CognitiveAgent):
         
         # NOW extract agent_context (uses self.task_context and self.job_story)
         agent_context = self._extract_agent_context()
-        
+
+        # ── Fused Identity ─────────────────────────────────────────────────
+        # Compute the combined persona-profession profile from both story
+        # sources.  The result is stored in agent_context so BDIPlanner can
+        # read it through the context dict it already receives in actions_for()
+        # and _filter_modes_by_context() — no constructor signature changes.
+        #
+        # FusedIdentity provides:
+        #   .allowed_modes          → hard mode constraint (replaces vehicle_type
+        #                             branching for all abstract rail/ferry/air jobs)
+        #   .abstract_modes         → modes that need synthetic routing
+        #   .beliefs                → calibrated BDI priors
+        #   .desires                → merged desire weights
+        #   .asi_tier               → 'avoid'|'shift'|'improve'
+        #   .ev_viability_threshold → Complex Contagion gate
+        if _FUSION_AVAILABLE:
+            self.fused_identity = _FUSION.fuse(self.user_story, self.job_story)
+            agent_context['fused_identity']          = self.fused_identity
+            agent_context['fused_beliefs']           = self.fused_identity.beliefs
+            # Seed the ASI and EV keys already read by existing bdi_planner logic
+            # (lines ~404-405 of actions_for).  FusedIdentity values override the
+            # CPG defaults; CPG values from _extracted_plan will refine further.
+            agent_context.setdefault('asi_tier_hint', self.fused_identity.asi_tier)
+            agent_context.setdefault(
+                'ev_viability_threshold',
+                self.fused_identity.ev_viability_threshold,
+            )
+            logger.debug(
+                "FusedIdentity: %s → asi=%s ev_thr=%.2f modes=%s",
+                self.fused_identity.agent_label,
+                self.fused_identity.asi_tier,
+                self.fused_identity.ev_viability_threshold,
+                self.fused_identity.allowed_modes,
+            )
+        else:
+            self.fused_identity = None
+
         # Resolve desires (combine user + job)
         desires = self._resolve_desires()
         

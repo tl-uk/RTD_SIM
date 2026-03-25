@@ -59,6 +59,61 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ── Modes registry — abstract routing guard ───────────────────────────────────
+# is_routeable() → False for rail/ferry/air; those modes must use
+# make_synthetic_route() instead of env.compute_route() (OSMnx drive graph).
+try:
+    from simulation.config.modes import (
+        is_routeable, get_network,
+        abstract_distance_km, make_synthetic_route,
+        ABSTRACT_MODES,
+    )
+    _MODES_REGISTRY = True
+except ImportError:
+    _MODES_REGISTRY = False
+    ABSTRACT_MODES = frozenset({
+        'local_train', 'intercity_train',
+        'ferry_diesel', 'ferry_electric',
+        'flight_domestic', 'flight_electric',
+    })
+    def is_routeable(m: str) -> bool:
+        return m not in ABSTRACT_MODES
+    def get_network(m: str) -> str:
+        if m in ('local_train', 'intercity_train'):     return 'rail'
+        if m in ('ferry_diesel', 'ferry_electric'):     return 'ferry'
+        if m in ('flight_domestic', 'flight_electric'): return 'air'
+        return 'drive'
+    def abstract_distance_km(o, d, m) -> float:
+        import math
+        try:
+            lat1, lon1 = float(o[0]), float(o[1])
+            lat2, lon2 = float(d[0]), float(d[1])
+        except Exception:
+            return 0.0
+        R = 6371.0
+        dp = math.radians(lat2 - lat1)
+        dl = math.radians(lon2 - lon1)
+        a = (math.sin(dp / 2) ** 2
+             + math.cos(math.radians(lat1))
+             * math.cos(math.radians(lat2))
+             * math.sin(dl / 2) ** 2)
+        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1.1
+    def make_synthetic_route(o, d, m) -> list:
+        dist = abstract_distance_km(o, d, m)
+        return [
+            {'node': 'origin',      'pos': o, 'distance_km': 0.0},
+            {'node': 'destination', 'pos': d, 'distance_km': dist},
+        ]
+
+# ----- Metrics (CPG instrumentation) -----
+try:
+    from telemetry_metrics import inc, get
+except Exception:  # fallback if module not available
+    def inc(*args, **kwargs):
+        return 0
+    def get(*args, **kwargs):
+        return 0
+
 
 @dataclass
 class Action:
@@ -136,6 +191,7 @@ class BDIPlanner:
         self,
         infrastructure_manager: Optional[Any] = None,
         plan_generator=None,  # ContextualPlanGenerator — optional
+        ev_feasibility=None,
     ) -> None:
         """Initialize planner with expanded freight modes."""
         self.plan_generator = plan_generator
@@ -148,6 +204,24 @@ class BDIPlanner:
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
         ]
         self.infrastructure = infrastructure_manager
+
+        # --- EV feasibility tuning (optional; override via ev_feasibility dict) ---
+        self.ev_params = {
+            "default_charger_occupancy": 0.0,      # realistic default when unknown
+            "occ_threshold_block": 0.85,           # block if area appears saturated
+            "route_factor": 1.35,                  # straight-line → likely route multiplier
+            "short_trip_km": 8.0,                  # short trips rarely need en-route charging
+            "dest_nearby_radius_km": 2.0,          # "near" radius around destination for charger
+            "require_dest_nearby_if_long": True,   # enforce nearby charger for long trips
+            "nominal_ranges_km": {                 # conservative nominal ranges
+                "ev": 280.0,
+                "van_electric": 200.0,
+                "truck_electric": 220.0,
+                "hgv_electric": 300.0,
+            },
+        }
+        if isinstance(ev_feasibility, dict):
+            self.ev_params.update(ev_feasibility)
 
         # mode_cost_factors: multipliers applied to the final cost of each mode.
         # Set via apply_scenario_cost_factors() when a scenario YAML declares
@@ -228,6 +302,9 @@ class BDIPlanner:
         
         # Get candidate modes from context filter
         available_modes = self._filter_modes_by_context(context, straight_line_distance)
+        
+        # CPG metrics snapshot (before contextual narrowing)
+        cpg_pre_modes_len = len(available_modes)
 
         # Define agent_id here so it's available in CPG block AND debug logging below
         agent_id = getattr(state, 'agent_id', 'unknown')
@@ -237,6 +314,52 @@ class BDIPlanner:
         # user/job story objects, extract a plan and narrow the mode list.
         # Falls back to unfiltered available_modes if extraction fails.
         if self.plan_generator and context.get("user_story") and context.get("job_story"):
+            # try:
+            #     _extracted_plan = self.plan_generator.extract_plan_from_context(
+            #         user_story=context["user_story"],
+            #         job_story=context["job_story"],
+            #         origin=origin,
+            #         dest=dest,
+            #         csv_data=context.get("csv_data"),
+            #     )
+
+            #     available_modes = self.plan_generator.get_candidate_modes(
+            #         plan=_extracted_plan,
+            #         available_modes=available_modes,
+            #         distance_km=straight_line_distance,
+            #         weather_conditions=context.get("weather"),
+            #     )
+            #     # Instrumentation: did CPG empty the candidate set?
+            #     try:
+            #         if cpg_pre_modes_len > 0 and not available_modes:
+            #             total = inc('cpg_empty_count')
+            #             agent_key = agent_id
+            #             try:
+            #                 job_obj = context.get('job_story')
+            #                 job_key = getattr(job_obj, 'job_type', getattr(job_obj, 'name', 'unknown_job'))
+            #             except Exception:
+            #                 job_key = 'unknown_job'
+            #             inc(f'cpg_empty_by_agent:{agent_key}')
+            #             inc(f'cpg_empty_by_job:{job_key}')
+            #             logger.debug('CPG empty (count=%d) — agent=%s job=%s', total, agent_key, job_key)
+            #     except Exception as _metric_err:
+            #         logger.debug('CPG metrics failed: %s', _metric_err)
+
+            #     logger.debug(
+            #         "CPG: %s → %s (objective=%s, critical=%s, reasoning=%s)",
+            #         agent_id, available_modes,
+            #         _extracted_plan.primary_objective,
+            #         _extracted_plan.reliability_critical,
+            #         _extracted_plan.reasoning,
+            #     )
+            # except Exception as _cpg_err:
+            #     logger.debug("CPG extraction failed for %s: %s", agent_id, _cpg_err)
+            #     # Conservative defaults — do not assume _extracted_plan exists here
+            #     context.setdefault('reliability_critical', False)
+            #     context.setdefault('asi_tier_hint', 'improve')
+            #     context.setdefault('ev_viability_threshold', 0.5)
+
+            # ── Contextual Plan Extraction (Phase 1 Core Innovation) ──────────
             try:
                 _extracted_plan = self.plan_generator.extract_plan_from_context(
                     user_story=context["user_story"],
@@ -245,25 +368,59 @@ class BDIPlanner:
                     dest=dest,
                     csv_data=context.get("csv_data"),
                 )
+
+                # Guard against None returns from CPG (avoids later NoneType errors)
+                if _extracted_plan is None:
+                    raise ValueError("CPG returned None plan")
+
+                # CPG metrics snapshot (right before narrowing) — KEEP THIS
+                cpg_pre_modes_len = len(available_modes)
+
                 available_modes = self.plan_generator.get_candidate_modes(
                     plan=_extracted_plan,
                     available_modes=available_modes,
                     distance_km=straight_line_distance,
                     weather_conditions=context.get("weather"),
                 )
+
+                # Instrumentation: did CPG empty the candidate set? — KEEP THIS
+                try:
+                    if cpg_pre_modes_len > 0 and not available_modes:
+                        total = inc('cpg_empty_count')
+                        agent_key = agent_id
+                        try:
+                            job_obj = context.get('job_story')
+                            job_key = getattr(job_obj, 'job_type', getattr(job_obj, 'name', 'unknown_job'))
+                        except Exception:
+                            job_key = 'unknown_job'
+                        inc(f'cpg_empty_by_agent:{agent_key}')
+                        inc(f'cpg_empty_by_job:{job_key}')
+                        logger.debug('CPG empty (count=%d) — agent=%s job=%s', total, agent_key, job_key)
+                except Exception as _metric_err:
+                    logger.debug('CPG metrics failed: %s', _metric_err)
+
+                # Hardened CPG summary: avoid AttributeError on missing plan fields
                 logger.debug(
                     "CPG: %s → %s (objective=%s, critical=%s, reasoning=%s)",
                     agent_id, available_modes,
-                    _extracted_plan.primary_objective,
-                    _extracted_plan.reliability_critical,
-                    _extracted_plan.reasoning,
+                    getattr(_extracted_plan, 'primary_objective', '?'),
+                    getattr(_extracted_plan, 'reliability_critical', '?'),
+                    getattr(_extracted_plan, 'reasoning', '?'),
                 )
+
             except Exception as _cpg_err:
                 logger.debug("CPG extraction failed for %s: %s", agent_id, _cpg_err)
-        
-                context.setdefault('reliability_critical', _extracted_plan.reliability_critical)
-                context.setdefault('asi_tier_hint',        getattr(_extracted_plan, 'asi_tier', 'improve'))
-                context.setdefault('ev_viability_threshold', getattr(_extracted_plan, 'ev_viability_belief_hint', 0.5))
+                # Conservative defaults — only set on failure
+                context.setdefault('reliability_critical', False)
+                context.setdefault('asi_tier_hint', 'improve')
+                context.setdefault('ev_viability_threshold', 0.5)
+                try:
+                    inc('cpg_error_count')
+                    inc(f'cpg_error_by_agent:{agent_id}')
+                except Exception:
+                    pass
+
+                
         # Debug logging — agent_id already defined above
         vehicle_required = context.get('vehicle_required', False)
         vehicle_type = context.get('vehicle_type', 'personal')
@@ -337,7 +494,37 @@ class BDIPlanner:
 
         for mode in available_modes:
             logger.debug(f"   Testing mode: {mode}")
-            
+
+            # ── Abstract mode guard ─────────────────────────────────────────
+            # Modes like local_train, ferry_electric, flight_domestic cannot be
+            # routed via OSMnx.  Generate a synthetic straight-line route so they
+            # appear on the map with a realistic distance for cost/emissions
+            # calculations and are never sent through env.compute_route().
+            if not is_routeable(mode):
+                try:
+                    origin_pos = (float(origin[0]), float(origin[1]))
+                    dest_pos   = (float(dest[0]),   float(dest[1]))
+                except Exception:
+                    origin_pos, dest_pos = (0.0, 0.0), (0.0, 0.0)
+                dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
+                route   = make_synthetic_route(origin_pos, dest_pos, mode)
+                logger.debug(
+                    "   Abstract route: %s (%s) %.1fkm synthetic",
+                    mode, get_network(mode), dist_km,
+                )
+                routing_results[mode] = f"abstract: {dist_km:.1f}km"
+                actions.append(Action(
+                    mode=mode,
+                    route=route,
+                    params={
+                        'trip_distance_km': dist_km,
+                        'abstract':         True,
+                        'network':          get_network(mode),
+                    },
+                ))
+                continue
+            # ── End abstract mode guard ──────────────────────────────────────
+
             # Infrastructure feasibility check
             if not self._is_mode_feasible(mode, origin, dest, state, context):
                 logger.debug(f"      âŒ Not feasible (infrastructure)")
@@ -430,8 +617,12 @@ class BDIPlanner:
         else:
             logger.info(f"âœ… Generated {len(actions)} viable actions for {agent_id}")
             for action in actions:
-                from simulation.spatial.coordinate_utils import route_distance_km
-                dist = route_distance_km(action.route)
+                # Abstract routes store distance in params; OSMnx routes need calculation
+                if action.params.get('abstract'):
+                    dist = action.params.get('trip_distance_km', 0.0)
+                else:
+                    from simulation.spatial.coordinate_utils import route_distance_km
+                    dist = route_distance_km(action.route)
                 logger.info(f"     - {action.mode}: {dist:.1f}km")
         
         return actions
@@ -452,59 +643,81 @@ class BDIPlanner:
         logger.debug(f"   trip_distance_km={trip_distance_km:.1f}")
         
         modes = []
-        
-        # STEP 1: Initial mode selection
-        if vehicle_type == 'micro_mobility':
-            if trip_distance_km > 20:
-                # Long delivery - allow vans as backup
-                modes = ['cargo_bike', 'van_electric', 'van_diesel']
-                logger.warning(
-                    f"Micro-mobility trip {trip_distance_km:.1f}km > 20km → "
-                    f"allowing van backup: {modes}"
-                )
-            else:
-                # Normal urban delivery - prefer cargo bike
-                modes = ['cargo_bike', 'bike', 'ebike']
-                logger.debug(f"Micro-mobility context: initial modes {modes}")
-        
-        elif vehicle_type == 'heavy_freight':
-            modes = ['hgv_diesel', 'hgv_electric', 'hgv_hydrogen', 'truck_diesel', 'truck_electric']
-            logger.debug(f"Heavy freight context: initial modes {modes}")
-        
-        elif vehicle_type == 'medium_freight':
-            modes = ['truck_electric', 'truck_diesel', 'van_diesel', 'van_electric']
-            logger.debug(f"Medium freight context: initial modes {modes}")
-        
-        elif vehicle_type == 'commercial':
-            modes = ['van_electric', 'van_diesel', 'cargo_bike']
-            logger.debug(f"Commercial context: initial modes {modes}")
-        
-        elif vehicle_type == 'transit':
-            # ALL freight modes excluded: van_electric, van_diesel, truck_*, hgv_*, cargo_bike
-            modes = ['train', 'tram', 'bus', 'ferry', 'walk', 'bike', 'ebike', 'ev', 'car']
-            logger.debug(f"Transit context: initial modes {modes}")
-        
-        elif priority == 'emergency':
-            modes = ['car', 'ev', 'bus']
-        elif context.get('luggage_present') or context.get('wheelchair_accessible'):
-            modes = ['car', 'ev', 'bus', 'tram']
+
+        # ── FusedIdentity override (Phase 10) ────────────────────────────────
+        # If agent_context carries a FusedIdentity (set by StoryDrivenAgent via
+        # PersonaFusion.fuse()), its allowed_modes is the authoritative hard
+        # constraint — encodes persona + job mode restrictions including abstract
+        # rail/ferry/air modes.  We bypass STEP 1 vehicle_type branching and
+        # STEP 2 multi-modal extension.  STEP 3 distance filter and STEP 3.5
+        # non-vehicle removal still apply.
+        _fused = context.get('fused_identity')
+        _fused_override = _fused is not None and bool(
+            getattr(_fused, 'allowed_modes', None)
+        )
+
+        if _fused_override:
+            modes = list(dict.fromkeys(_fused.allowed_modes))  # ordered, no dups
+            logger.debug(
+                "FusedIdentity mode override for %s: %s",
+                getattr(_fused, 'agent_label', '?'), modes,
+            )
+            original_modes = modes.copy()
+
         else:
-            modes = self.default_modes.copy()
-        
-        original_modes = modes.copy()
-        
-        # STEP 2: Multi-modal options
-        if trip_distance_km > 0 and not vehicle_required:
-            if trip_distance_km > 80:
-                modes.extend(['intercity_train', 'flight_domestic'])
-            elif trip_distance_km > 30:
-                modes.extend(['local_train', 'tram'])
-            
-            if context.get('coastal_route') or context.get('island_destination'):
-                modes.extend(['ferry_diesel', 'ferry_electric'])
-            
-            if trip_distance_km < 15 and not cargo_capacity:
-                modes.append('e_scooter')
+            # STEP 1: Initial mode selection (legacy path — no FusedIdentity)
+            if vehicle_type == 'micro_mobility':
+                if trip_distance_km > 20:
+                    modes = ['cargo_bike', 'van_electric', 'van_diesel']
+                    logger.warning(
+                        f"Micro-mobility trip {trip_distance_km:.1f}km > 20km → "
+                        f"allowing van backup: {modes}"
+                    )
+                else:
+                    modes = ['cargo_bike', 'bike', 'ebike']
+                    logger.debug(f"Micro-mobility context: initial modes {modes}")
+
+            elif vehicle_type == 'heavy_freight':
+                modes = ['hgv_diesel', 'hgv_electric', 'hgv_hydrogen', 'truck_diesel', 'truck_electric']
+                logger.debug(f"Heavy freight context: initial modes {modes}")
+
+            elif vehicle_type == 'medium_freight':
+                modes = ['truck_electric', 'truck_diesel', 'van_diesel', 'van_electric']
+                logger.debug(f"Medium freight context: initial modes {modes}")
+
+            elif vehicle_type == 'commercial':
+                modes = ['van_electric', 'van_diesel', 'cargo_bike']
+                logger.debug(f"Commercial context: initial modes {modes}")
+
+            elif vehicle_type == 'transit':
+                modes = [
+                    'local_train', 'intercity_train', 'tram', 'bus',
+                    'ferry_diesel', 'ferry_electric',
+                    'walk', 'bike', 'e_scooter', 'ev', 'car'
+                ]
+                logger.debug(f"Transit context: initial modes {modes}")
+
+            elif priority == 'emergency':
+                modes = ['car', 'ev', 'bus']
+            elif context.get('luggage_present') or context.get('wheelchair_accessible'):
+                modes = ['car', 'ev', 'bus', 'tram']
+            else:
+                modes = self.default_modes.copy()
+
+            original_modes = modes.copy()
+
+            # STEP 2: Multi-modal options (legacy path only)
+            if trip_distance_km > 0 and not vehicle_required:
+                if trip_distance_km > 80:
+                    modes.extend(['intercity_train', 'flight_domestic'])
+                elif trip_distance_km > 30:
+                    modes.extend(['local_train', 'tram'])
+
+                if context.get('coastal_route') or context.get('island_destination'):
+                    modes.extend(['ferry_diesel', 'ferry_electric'])
+
+                if trip_distance_km < 15 and not cargo_capacity:
+                    modes.append('e_scooter')
         
         # STEP 3: Distance filtering with RELAXED safety margin for cargo_bike
         if trip_distance_km > 0:
@@ -541,18 +754,13 @@ class BDIPlanner:
                 logger.debug(f"Removed {removed} non-vehicle modes (vehicle_required=True)")
 
         # STEP 3.6 — Remove freight modes for personal agents
-        # personal + vehicle_required=False agents should never be offered
-        # HGV, truck, or van modes.  Without this guard, default_modes bleeds
-        # freight options into personal mode choice: eco_warriors arrive by
-        # hgv_electric because the cost function scores it cheaply.
-        # FreightOperatorAgent / commercial contexts are unaffected —
-        # they have vehicle_type != 'personal'.
+        # SKIP when FusedIdentity override is active — it already made this call.
         _FREIGHT_MODES = {
             'van_electric', 'van_diesel',
             'truck_electric', 'truck_diesel',
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
         }
-        if vehicle_type == 'personal' and not vehicle_required:
+        if not _fused_override and vehicle_type == 'personal' and not vehicle_required:
             before_set = set(modes)
             modes = [m for m in modes if m not in _FREIGHT_MODES]
             removed_freight = before_set - set(modes)
@@ -648,6 +856,12 @@ class BDIPlanner:
             # Enforce 70% range buffer for operational-critical agents
             from simulation.spatial.coordinate_utils import haversine_km
             trip_distance = haversine_km(origin, dest)
+            # Route realism: multiply straight-line by a route factor (default 1.35)
+            route_factor = float(context.get('route_factor', 1.35))
+            trip_distance *= route_factor
+            # Effect: operationally critical agents (freight/ambulance) evaluate a more realistic 
+            # trip length before the 70% buffer check.
+
             max_range = self.EV_RANGE_KM.get(mode, 350.0)
             if trip_distance > max_range * 0.7:
                 logger.debug(
@@ -672,6 +886,53 @@ class BDIPlanner:
         # Calculate trip distance
         from simulation.spatial.coordinate_utils import haversine_km
         trip_distance = haversine_km(origin, dest)
+
+        # Estimate route length (straight-line × route_factor)
+        route_factor = float(context.get('route_factor', 1.35))
+        est_trip_km = trip_distance * route_factor
+
+        # Local saturation realism for EVs (soft feasibility)
+        # Prefer infrastructure signals; fallback to context; unknown => 0.0 (available)
+        occ_threshold = float(context.get('occ_threshold_block', 0.85))    # block if ≥ 85% utilized
+        short_trip_km = float(context.get('short_trip_km', 8.0))           # short trips ignore saturation
+        radius_km     = float(context.get('dest_nearby_radius_km', 2.0))   # also used later for near-range check
+
+        occ = context.get('charger_occupancy_nearby', None)
+        if occ is None:
+            # Try to read live utilization from the charging registry via InfrastructureManager
+            reg = getattr(self.infrastructure, 'charging_registry', None) \
+                or getattr(self.infrastructure, 'charging_station_registry', None)
+            if reg is not None and hasattr(reg, 'average_utilization_near'):
+                try:
+                    occ = float(reg.average_utilization_near(origin, radius_km=radius_km))
+                except Exception:
+                    occ = 0.0
+        if occ is None:
+            occ = 0.0
+
+        # Local saturation realism (soft feasibility)
+        if mode in self.EV_RANGE_KM and occ >= occ_threshold and est_trip_km > short_trip_km:
+            logger.debug(
+                "%s not feasible: local charger utilization=%.2f >= %.2f and "
+                "est_trip=%.1fkm > short_trip_km=%.1f",
+                mode, occ, occ_threshold, est_trip_km, short_trip_km
+            )
+            return False
+        #  Effect: even when context doesn’t set charger_occupancy_nearby, planner can block EV 
+        # in locally saturated areas based on the live registry.
+
+        # Local saturation realism for EVs (soft feasibility)
+        # Defaults are conservative and can be overridden from `context`.
+        charger_occ = float(context.get('charger_occupancy_nearby', 0.0))  # unknown => 0.0 (available)
+        occ_threshold = float(context.get('occ_threshold_block', 0.85))    # block if ≥ 85% utilized
+        short_trip_km = float(context.get('short_trip_km', 8.0))           # short trips can ignore saturation
+
+        if mode in self.EV_RANGE_KM and charger_occ >= occ_threshold and trip_distance > short_trip_km:
+            logger.debug(
+                "%s not feasible: local charger utilization=%.2f ≥ %.2f and trip=%.1fkm > short_trip_km=%.1f",
+                mode, charger_occ, occ_threshold, trip_distance, short_trip_km
+            )
+            return False
         
         # Get range for this EV type
         max_range = self.EV_RANGE_KM.get(mode, 350.0)
@@ -680,6 +941,33 @@ class BDIPlanner:
         if trip_distance > max_range * 0.9:
             logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
+
+        # Near‑range realism: if close to range limit, require a charger very near destination (stricter than 5km)
+        if mode in self.EV_RANGE_KM:
+            dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
+            # Use estimated route km for this threshold
+            if est_trip_km > max_range * 0.8:
+                nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
+                if nearest is None:
+                    logger.debug(
+                        f"{mode} not feasible: near-range (est_trip {est_trip_km:.1f}km ≈ {max_range:.1f}km) "
+                        f"and no charger within {dest_nearby_km:.1f}km of destination"
+                    )
+                    return False
+        # Effect: trips approaching the EV’s range require a closer charger at the destination, adding realism without 
+        # removing your existing 5 km rule for long trips.
+        
+        # Near‑range realism: if close to range limit, require a charger very near destination.
+        # This complements (does not replace) your existing 5km check for long trips.
+        if trip_distance > max_range * 0.8:
+            dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))  # stricter than 5km for near-range
+            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
+            if nearest is None:
+                logger.debug(
+                    f"{mode} not feasible: near-range ({trip_distance:.1f}km ≈ {max_range:.1f}km) "
+                    f"and no charger within {dest_nearby_km:.1f}km of destination"
+                )
+                return False
         
         # Check charger availability for long trips (ONLY for vehicles)
         if trip_distance > max_range * 0.5:
