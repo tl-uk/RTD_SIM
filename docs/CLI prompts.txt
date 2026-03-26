@@ -1,4 +1,8 @@
 # Workflow
+git pull --rebase origin main
+
+then after
+
 git add -A && git commit -m "... comments ..." && git push https://github.com/tl-uk/RTD_SIM.git main 
 
 # Terminal tracking for ollama BDI-agent user/job stories generation
