@@ -10,6 +10,7 @@ Handles map rendering, charts, infrastructure visualization, and animation contr
 from __future__ import annotations
 from typing import List, Dict, Optional, Any
 from collections import Counter
+from ui.components.rail_visualizer import create_rail_layer
 
 import logging
 
@@ -104,6 +105,7 @@ def render_map(
     show_agents: bool = True,
     show_routes: bool = False,
     show_infrastructure: bool = False,
+    show_rail: bool = False,
     infrastructure_manager: Optional[Any] = None,
     center_lon: float = -3.19,
     center_lat: float = 55.95,
