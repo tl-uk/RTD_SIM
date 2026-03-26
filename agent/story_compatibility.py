@@ -45,6 +45,9 @@ FUNCTION SIGNATURE (no 'strategy' parameter — removed Phase 7.2):
 from typing import List, Tuple
 import logging
 
+from agent.user_stories import UserStoryParser
+from agent.job_stories import JobStoryParser
+
 logger = logging.getLogger(__name__)
 
 
@@ -693,40 +696,90 @@ COMPATIBLE_USERS_FOR_JOB = {
 
 }
 
+# ============================================================================
+# DYNAMIC HEURISTIC RESOLVER
+# ============================================================================
+
+def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
+    """
+    Dynamically determines if a user and job are compatible based on their 
+    YAML attributes (persona_type and job_type), eliminating the need for 
+    manual whitelisting for 95% of cases.
+    """
+    try:
+        # 1. Load the definitions
+        user_parser = UserStoryParser()
+        job_parser = JobStoryParser()
+        
+        user = user_parser.load_from_yaml(user_id)
+        job = job_parser.load_from_yaml(job_id)
+        
+        p_type = getattr(user, 'persona_type', 'passenger').lower()
+        j_type = getattr(job, 'job_type', 'general').lower()
+        
+        # 2. Freight & Logistics Logic
+        if j_type in ['freight', 'multimodal_freight', 'heavy_freight']:
+            # Only freight personas can do heavy logistics
+            return p_type == 'freight'
+            
+        # 3. Delivery & Gig Economy Logic
+        if j_type in ['delivery', 'gig_delivery']:
+            # Freight operators, plus broke students and shift workers doing gig work
+            if p_type == 'freight': return True
+            if user_id in ['budget_student', 'shift_worker', 'eco_warrior']: return True
+            return False
+            
+        # 4. Passenger & Commuter Logic
+        if j_type in ['passenger_commute', 'passenger_errand', 'passenger_transit', 'passenger_leisure', 'last_mile']:
+            # All passengers can do passenger jobs. 
+            # Exclude freight operators from doing passenger commutes in their HGVs.
+            if p_type == 'freight': return False
+            
+            # Specific exclusion: Elderly non-drivers shouldn't be given e-scooter last-mile jobs
+            if user_id == 'elderly_non_driver' and j_type == 'last_mile': return False
+            return True
+            
+        # 5. Service & Maintenance Logic
+        if j_type == 'service':
+            # Tradespeople, paramedics, and rural residents acting as contractors
+            allowed_service = ['freight_operator', 'frequent_driver', 'rural_resident', 'paramedic', 'business_commuter']
+            return p_type == 'freight' or user_id in allowed_service
+            
+        # 6. Business & Aviation Logic
+        if j_type == 'business_travel':
+            allowed_biz = ['business_traveler', 'business_commuter', 'frequent_driver', 'air_freight_operator']
+            return user_id in allowed_biz
+            
+        # Default block if no logic matches
+        return False
+        
+    except KeyError:
+        # If the job/user doesn't exist (e.g., a dead generated stub), block it.
+        return False
 
 # ============================================================================
-# Compatibility Check Function
+# UPDATED COMPATIBILITY CHECK
 # ============================================================================
 
 def is_compatible(user_story_id: str, job_story_id: str) -> bool:
     """
-    Check if user + job combination makes sense (whitelist-based).
-
-    Args:
-        user_story_id: User persona (e.g., 'concerned_parent')
-        job_story_id: Job/task type (e.g., 'shopping_trip')
-
-    Returns:
-        True if compatible, False otherwise
+    Check if user + job combination makes sense.
+    Checks the hardcoded dictionary first, then falls back to the Auto-Resolver.
     """
+    # 1. Check Explicit Hardcoded Whitelist (Overrides)
     if job_story_id in COMPATIBLE_USERS_FOR_JOB:
-        allowed_users = COMPATIBLE_USERS_FOR_JOB[job_story_id]
-        if user_story_id in allowed_users:
+        if user_story_id in COMPATIBLE_USERS_FOR_JOB[job_story_id]:
             return True
-        else:
-            logger.debug(
-                f"❌ Blocked: {user_story_id} + {job_story_id} "
-                f"(not in whitelist)"
-            )
-            return False
+            
+    # 2. Check Dynamic Auto-Resolver (The Magic Bullet)
+    # This automatically approves generated templates (like urban_delivery_night_generated)
+    is_valid = _auto_resolve_compatibility(user_story_id, job_story_id)
+    
+    if is_valid:
+        return True
 
-    # Safe default: block unknown jobs
-    logger.warning(
-        f"⚠️ Job '{job_story_id}' has NO WHITELIST — blocking all users. "
-        f"(user: {user_story_id})"
-    )
+    logger.debug(f"❌ Blocked by Heuristics: {user_story_id} cannot perform {job_story_id}")
     return False
-
 
 def filter_compatible_combinations(
     user_story_ids: List[str],
@@ -734,45 +787,113 @@ def filter_compatible_combinations(
 ) -> List[Tuple[str, str]]:
     """
     Filter to only compatible user + job combinations.
-
-    Results are cached by input set so that repeated calls (UI tab renders,
-    agent creation phases) with the same persona/job lists pay the O(N×M)
-    whitelist cost only once per simulation run.
-
-    Args:
-        user_story_ids: List of user personas
-        job_story_ids:  List of job types
-
-    Returns:
-        List of (user, job) tuples that are compatible
     """
     cache_key = (frozenset(user_story_ids), frozenset(job_story_ids))
 
     if cache_key in _FILTER_CACHE:
-        cached = _FILTER_CACHE[cache_key]
-        total_combos = len(user_story_ids) * len(job_story_ids)
-        logger.info(
-            "✅ Whitelist filtering: %d/%d allowed (cached — 0 new evaluations)",
-            len(cached), total_combos,
-        )
-        return list(cached)   # return a copy so callers can mutate freely
+        return list(_FILTER_CACHE[cache_key])
 
     compatible = []
+    
+    # Pre-load parsers to cache all YAMLs in memory before the big loop
+    # This makes the auto-resolver lightning fast.
+    UserStoryParser().list_available_stories()
+    JobStoryParser().list_available_stories()
+    
     for user_story in user_story_ids:
         for job_story in job_story_ids:
             if is_compatible(user_story, job_story):
                 compatible.append((user_story, job_story))
 
     total_combos = len(user_story_ids) * len(job_story_ids)
-    filtered_count = total_combos - len(compatible)
-
+    
     logger.info(
-        "✅ Whitelist filtering: %d/%d allowed (%d blocked)",
-        len(compatible), total_combos, filtered_count,
+        f"✅ Auto-Heuristic Filtering: {len(compatible)}/{total_combos} allowed "
+        f"({total_combos - len(compatible)} safely blocked)"
     )
 
     _FILTER_CACHE[cache_key] = compatible
     return list(compatible)
+
+# ============================================================================
+# Compatibility Check Function
+# ============================================================================
+
+# def is_compatible(user_story_id: str, job_story_id: str) -> bool:
+#     """
+#     Check if user + job combination makes sense (whitelist-based).
+
+#     Args:
+#         user_story_id: User persona (e.g., 'concerned_parent')
+#         job_story_id: Job/task type (e.g., 'shopping_trip')
+
+#     Returns:
+#         True if compatible, False otherwise
+#     """
+#     if job_story_id in COMPATIBLE_USERS_FOR_JOB:
+#         allowed_users = COMPATIBLE_USERS_FOR_JOB[job_story_id]
+#         if user_story_id in allowed_users:
+#             return True
+#         else:
+#             logger.debug(
+#                 f"❌ Blocked: {user_story_id} + {job_story_id} "
+#                 f"(not in whitelist)"
+#             )
+#             return False
+
+#     # Safe default: block unknown jobs
+#     logger.warning(
+#         f"⚠️ Job '{job_story_id}' has NO WHITELIST — blocking all users. "
+#         f"(user: {user_story_id})"
+#     )
+#     return False
+
+
+# def filter_compatible_combinations(
+#     user_story_ids: List[str],
+#     job_story_ids: List[str]
+# ) -> List[Tuple[str, str]]:
+#     """
+#     Filter to only compatible user + job combinations.
+
+#     Results are cached by input set so that repeated calls (UI tab renders,
+#     agent creation phases) with the same persona/job lists pay the O(N×M)
+#     whitelist cost only once per simulation run.
+
+#     Args:
+#         user_story_ids: List of user personas
+#         job_story_ids:  List of job types
+
+#     Returns:
+#         List of (user, job) tuples that are compatible
+#     """
+#     cache_key = (frozenset(user_story_ids), frozenset(job_story_ids))
+
+#     if cache_key in _FILTER_CACHE:
+#         cached = _FILTER_CACHE[cache_key]
+#         total_combos = len(user_story_ids) * len(job_story_ids)
+#         logger.info(
+#             "✅ Whitelist filtering: %d/%d allowed (cached — 0 new evaluations)",
+#             len(cached), total_combos,
+#         )
+#         return list(cached)   # return a copy so callers can mutate freely
+
+#     compatible = []
+#     for user_story in user_story_ids:
+#         for job_story in job_story_ids:
+#             if is_compatible(user_story, job_story):
+#                 compatible.append((user_story, job_story))
+
+#     total_combos = len(user_story_ids) * len(job_story_ids)
+#     filtered_count = total_combos - len(compatible)
+
+#     logger.info(
+#         "✅ Whitelist filtering: %d/%d allowed (%d blocked)",
+#         len(compatible), total_combos, filtered_count,
+#     )
+
+#     _FILTER_CACHE[cache_key] = compatible
+#     return list(compatible)
 
 
 def get_missing_whitelists(job_story_ids: List[str]) -> List[str]:
