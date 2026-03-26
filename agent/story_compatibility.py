@@ -702,59 +702,109 @@ COMPATIBLE_USERS_FOR_JOB = {
 
 def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
     """
-    Dynamically determines if a user and job are compatible based on their 
-    YAML attributes (persona_type and job_type), eliminating the need for 
-    manual whitelisting for 95% of cases.
+    Ontology-driven dynamic resolver. 
+    Refined to handle rail operations, implicit healthcare, and cross-domain commuting.
     """
     try:
-        # 1. Load the definitions
-        user_parser = UserStoryParser()
-        job_parser = JobStoryParser()
+        from agent.user_stories import UserStoryParser
+        from agent.job_stories import JobStoryParser
         
-        user = user_parser.load_from_yaml(user_id)
-        job = job_parser.load_from_yaml(job_id)
+        user = UserStoryParser().load_from_yaml(user_id)
+        job = JobStoryParser().load_from_yaml(job_id)
         
         p_type = getattr(user, 'persona_type', 'passenger').lower()
         j_type = getattr(job, 'job_type', 'general').lower()
+        params = getattr(job, 'parameters', {})
+        operator_type = params.get('operator_type', '').lower()
         
-        # 2. Freight & Logistics Logic
-        if j_type in ['freight', 'multimodal_freight', 'heavy_freight']:
-            # Only freight personas can do heavy logistics
-            return p_type == 'freight'
+        # ====================================================================
+        # 1. Healthcare & Medical Transport Ontology
+        # ====================================================================
+        hc_keywords = ['nhs', 'clinical', 'patient', 'ambulance', 'nursing', 'gp_', 'surgery', 'health', 'ward']
+        if operator_type == 'healthcare' or any(kw in job_id for kw in hc_keywords):
+            healthcare_core = [
+                'fleet_manager_healthcare', 'paramedic', 'community_health_worker', 
+                'nhs_ward_manager', 'clinical_waste_driver', 'nhs_supply_chain'
+            ]
+            if user_id in healthcare_core: return True
             
-        # 3. Delivery & Gig Economy Logic
-        if j_type in ['delivery', 'gig_delivery']:
-            # Freight operators, plus broke students and shift workers doing gig work
-            if p_type == 'freight': return True
-            if user_id in ['budget_student', 'shift_worker', 'eco_warrior']: return True
+            # Allow shift workers and delivery drivers for gig/contracted health logistics
+            if user_id in ['shift_worker', 'delivery_driver'] and j_type in ['passenger_commute', 'service', 'delivery']: return True
+            if p_type == 'freight' and any(kw in job_id for kw in ['supply', 'waste']): return True
+            
+            # Allow specific passenger types to commute to NHS jobs
+            if user_id in ['disabled_commuter', 'frequent_driver'] and 'commute' in job_id: return True
             return False
+
+        # ====================================================================
+        # 2. Heavy Freight, Port, Rail, & Aviation Ontology
+        # ====================================================================
+        if j_type in ['freight', 'multimodal_freight', 'rail_freight'] or operator_type in ['logistics', 'retail']:
+            heavy_freight_personas = [
+                'freight_operator', 'rail_freight_operator', 'port_terminal_operator', 
+                'air_freight_operator', 'fleet_manager_logistics', 'fleet_manager_retail'
+            ]
+            if user_id in heavy_freight_personas: return True
+            if user_id == 'delivery_driver' and 'heavy' not in params.get('vehicle_type', ''): return True
             
-        # 4. Passenger & Commuter Logic
-        if j_type in ['passenger_commute', 'passenger_errand', 'passenger_transit', 'passenger_leisure', 'last_mile']:
-            # All passengers can do passenger jobs. 
-            # Exclude freight operators from doing passenger commutes in their HGVs.
-            if p_type == 'freight': return False
+            # Specific exception: Eco-warriors support barge/river transfers
+            if user_id == 'eco_warrior' and 'barge' in job_id: return True
+            # Specific exception: Shift workers staff offshore energy ports
+            if user_id == 'shift_worker' and 'offshore' in job_id: return True
+            return False
+
+        # ====================================================================
+        # 3. Urban Delivery & Gig Economy Ontology
+        # ====================================================================
+        if j_type in ['delivery', 'gig_delivery'] or 'last_mile' in job_id:
+            if 'passenger' in j_type or 'scooter' in job_id:
+                return p_type == 'passenger' and user_id != 'elderly_non_driver'
+
+            delivery_personas = [
+                'delivery_driver', 'fleet_manager_logistics', 'budget_student', 
+                'shift_worker', 'eco_warrior', 'freight_operator'
+            ]
+            return user_id in delivery_personas
+
+        # ====================================================================
+        # 4. Mobility of Care & Transit Ontology (Cruises/Ferries)
+        # ====================================================================
+        if job_id in ['school_run_then_work', 'shopping_trip'] or 'cruise' in job_id or 'island_ferry' in job_id:
+            # Freight operators don't do personal errands/cruises in work vehicles
+            if p_type == 'freight' and 'operator' not in user_id: return False
+            if user_id == 'port_terminal_operator' and 'cruise' in job_id: return True
+            return p_type == 'passenger'
+
+        # ====================================================================
+        # 5. General Passenger Transit & Commuting Ontology
+        # ====================================================================
+        if j_type in ['passenger_commute', 'passenger_errand', 'passenger_transit', 'passenger_leisure', 'business_travel']:
             
-            # Specific exclusion: Elderly non-drivers shouldn't be given e-scooter last-mile jobs
-            if user_id == 'elderly_non_driver' and j_type == 'last_mile': return False
+            # Allow freight operators to commute (e.g., night_shift), but block them from leisure/tourism
+            if p_type == 'freight':
+                return j_type == 'passenger_commute'
+                
+            if j_type == 'business_travel':
+                return user_id in ['business_commuter', 'business_traveler', 'air_freight_operator']
+                
             return True
-            
-        # 5. Service & Maintenance Logic
+
+        # ====================================================================
+        # 6. Service & Trades Ontology
+        # ====================================================================
         if j_type == 'service':
-            # Tradespeople, paramedics, and rural residents acting as contractors
-            allowed_service = ['freight_operator', 'frequent_driver', 'rural_resident', 'paramedic', 'business_commuter']
-            return p_type == 'freight' or user_id in allowed_service
-            
-        # 6. Business & Aviation Logic
-        if j_type == 'business_travel':
-            allowed_biz = ['business_traveler', 'business_commuter', 'frequent_driver', 'air_freight_operator']
-            return user_id in allowed_biz
-            
-        # Default block if no logic matches
+            trades_personas = [
+                'freight_operator', 'frequent_driver', 'rural_resident', 
+                'business_commuter', 'delivery_driver', 'island_resident',
+                'shift_worker'
+            ]
+            return user_id in trades_personas
+
         return False
         
-    except KeyError:
-        # If the job/user doesn't exist (e.g., a dead generated stub), block it.
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug(f"Ontology resolver failed for {user_id}_{job_id}: {e}")
         return False
 
 # ============================================================================
