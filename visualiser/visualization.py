@@ -107,9 +107,11 @@ def render_map(
     show_infrastructure: bool = False,
     show_rail: bool = False,
     infrastructure_manager: Optional[Any] = None,
+    env: Optional[Any] = None,                   # SpatialEnvironment (for rail graph)
     center_lon: float = -3.19,
     center_lat: float = 55.95,
-    zoom: int = 13
+    zoom: int = 13,
+    **kwargs,                                     # absorb legacy positional extras
 ) -> pdk.Deck:
     """
     Render interactive map with agents, routes, and infrastructure.
@@ -130,16 +132,31 @@ def render_map(
     layers = []
     
     # Add the Rail Infrastructure Layer
-    if show_rail and infrastructure_manager:
-        # Fetch the rail graph from the graph manager
+    # The rail graph lives on the SpatialEnvironment (passed as env kwarg),
+    # not on InfrastructureManager.  Accept either so callers can pass what
+    # they have.
+    if show_rail:
         G_rail = None
-        if hasattr(infrastructure_manager, 'graph_manager'):
-            G_rail = infrastructure_manager.graph_manager.get_graph('rail')
-        
-        if G_rail:
-            rail_layer = create_rail_layer(G_rail) # From rail_visualizer.py
-            if rail_layer:
-                layers.append(rail_layer)
+        # Prefer an explicit env / spatial_environment argument
+        env_arg = kwargs.get('env') or kwargs.get('spatial_environment')
+        if env_arg is not None and hasattr(env_arg, 'get_rail_graph'):
+            G_rail = env_arg.get_rail_graph()
+        # Fallback: infrastructure_manager may carry a graph_manager reference
+        elif infrastructure_manager is not None:
+            gm = getattr(infrastructure_manager, 'graph_manager', None)
+            if gm is not None:
+                G_rail = gm.get_graph('rail')
+
+        if G_rail is not None:
+            try:
+                rail_layer = create_rail_layer(G_rail)
+                if rail_layer:
+                    layers.insert(0, rail_layer)   # under all other layers
+                    logger.info("✅ Rail layer added (%d nodes)", len(G_rail.nodes))
+            except Exception as exc:
+                logger.warning("Rail layer failed: %s", exc)
+        elif show_rail:
+            logger.debug("show_rail=True but rail graph not yet loaded")
                 
     # ========================================================================
     # Agents Layer

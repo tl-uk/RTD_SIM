@@ -1,28 +1,57 @@
 """
 simulation/spatial/router.py
 
-This module implements the Router class which computes routes and route alternatives 
-using OSM graphs. It provides methods for basic routing (shortest path) as well as 
-generating route alternatives based on different objectives (fastest, safest, greenest, 
-scenic) by applying different weight functions to the graph edges. The Router integrates 
-with the GraphManager to access the appropriate graph for the transport mode and can also
-optionally use a CongestionManager to adjust travel time weights based on current congestion
-levels.
+Route computation with generalised cost and intermodal rail transfers.
 
-Route computation and alternatives generation.
+Architecture
+────────────
+Two parallel graphs, never merged:
+  • Road graph  (OSMnx 'drive')  — existing, unchanged
+  • Rail graph  (OpenRailMap)    — sparse, kept in memory as a NetworkX object
+                                    loaded once on first rail request
 
-Handles:
-- Basic routing (shortest path)
-- Route alternatives (fastest, safest, greenest, scenic)
-- Weight functions for different routing objectives
+Generalised Cost Formula (per edge)
+─────────────────────────────────────
+  cost = (time_h × VoT)  +  (dist_km × energy_price)  +  (emissions_kg × carbon_tax)
 
+Where VoT / energy_price / carbon_tax are read from scenario policy context
+so that a policy event (carbon tax hike, fuel price spike) immediately shifts
+agent route choices without any code change.
+
+Intermodal Transfer Logic
+─────────────────────────
+For modes that use the rail graph (local_train, intercity_train, freight_rail):
+  1. Find nearest Transfer Node on rail graph to agent origin (road→rail snap).
+  2. Route agent on drive graph to that Transfer Node (access leg).
+  3. Route on rail graph from Transfer Node to nearest station to destination.
+  4. Route agent on drive graph from egress station to destination (egress leg).
+  5. Concatenate access + rail + egress with a configurable boarding penalty.
+
+The returned route is a flat list of (lon,lat) 2-tuples compatible with all
+downstream code — coordinate_utils, visualization, agent state.
+
+For non-rail routeable modes (drive/walk/bike) the existing single-graph
+shortest-path logic is preserved unchanged.
+
+Policy integration
+──────────────────
+Pass a `policy_context` dict to compute_route() with any of:
+  value_of_time_gbp_h:  float   (default 10.0)
+  energy_price_gbp_km:  float   (default 0.12)
+  carbon_tax_gbp_tco2:  float   (default 0.0)
+  boarding_penalty_min: float   (default 15.0)
+
+These are populated by the dynamic policy engine when scenarios run.
 """
 
 from __future__ import annotations
-import logging
-from typing import List, Tuple, Optional, Any, TYPE_CHECKING
 
-from simulation.spatial.coordinate_utils import is_valid_lonlat
+import logging
+from typing import List, Tuple, Optional, Dict, Any, TYPE_CHECKING
+
+from simulation.spatial.coordinate_utils import (
+    is_valid_lonlat, haversine_km, route_distance_km,
+)
 from simulation.spatial.rail_network import fetch_rail_graph
 
 if TYPE_CHECKING:
@@ -43,536 +72,641 @@ try:
 except ImportError:
     ROUTE_ALTERNATIVE_AVAILABLE = False
 
-# ============================================================
-# Router Class
-# ============================================================
-# This class is responsible for computing routes and route alternatives using OSM graphs.
+# ── Modes that route on the rail graph (not drive) ───────────────────────────
+_RAIL_MODES = frozenset({'local_train', 'intercity_train', 'freight_rail'})
+
+# ── Default policy parameters (overridden per-call by scenario context) ───────
+_DEFAULT_POLICY: Dict[str, float] = {
+    'value_of_time_gbp_h':  10.0,   # £10/h UK average
+    'energy_price_gbp_km':   0.12,   # ~12p/km petrol equivalent
+    'carbon_tax_gbp_tco2':   0.0,    # £0 — no carbon tax by default
+    'boarding_penalty_min':  15.0,   # 15 min transfer penalty at station
+}
+
+# ── Emissions factors (g CO₂/km) — mirrors modes.py for cost weighting ───────
+_EMISSIONS_G_KM: Dict[str, float] = {
+    'walk': 0, 'bike': 0, 'e_scooter': 0, 'cargo_bike': 0,
+    'car': 170, 'ev': 0, 'bus': 82, 'tram': 35,
+    'van_electric': 0, 'van_diesel': 150,
+    'truck_electric': 0, 'truck_diesel': 200,
+    'hgv_electric': 0, 'hgv_diesel': 900, 'hgv_hydrogen': 0,
+    'local_train': 41, 'intercity_train': 41, 'freight_rail': 35,
+    'ferry_diesel': 115, 'ferry_electric': 0,
+    'flight_domestic': 255, 'flight_electric': 0,
+}
+
+
 class Router:
     """
-    Computes routes and route alternatives using OSM graphs.
+    Computes routes and route alternatives using parallel road + rail graphs.
+
+    Strategy:
+      • Road agents  → single-graph generalised-cost route on drive/walk/bike.
+      • Rail agents  → access leg (drive) + rail leg + egress leg (drive).
+      • Abstract modes (ferry/air, per modes.py routeable=False) are handled
+        upstream in bdi_planner before compute_route() is called.
     """
-    
+
     def __init__(self, graph_manager: 'GraphManager', congestion_manager=None):
-        """
-        Initialize router.
-        
-        Args:
-            graph_manager: GraphManager instance with loaded graphs
-            congestion_manager: Optional CongestionManager for dynamic routing
-        """
-        self.graph_manager = graph_manager
+        self.graph_manager    = graph_manager
         self.congestion_manager = congestion_manager
-        
-        # Complete mode to network type mapping for ALL modes
-        self.mode_network_types = {
-            # Active mobility
-            'walk': 'walk',
-            'bike': 'bike',
-            'cargo_bike': 'bike',
-            'e_scooter': 'bike',
-            
-            # Passenger vehicles
-            'bus': 'drive',
-            'car': 'drive',
-            'ev': 'drive',
-            
-            # Light commercial
-            'van_electric': 'drive',
-            'van_diesel': 'drive',
-            
-            # Medium freight
-            'truck_electric': 'drive',
-            'truck_diesel': 'drive',
-            
-            # Heavy freight
-            'hgv_electric': 'drive',
-            'hgv_diesel': 'drive',
-            'hgv_hydrogen': 'drive',
-            
-            # Public transport
-            'tram': 'rail',
-            'local_train': 'rail',
+
+        # Rail graph loaded lazily on first rail request
+        self._rail_graph: Optional[Any] = None
+        self._rail_graph_attempted: bool = False
+
+        # ── Mode → OSMnx network type ─────────────────────────────────────────
+        self.mode_network_types: Dict[str, str] = {
+            'walk':            'walk',
+            'bike':            'bike',
+            'cargo_bike':      'bike',
+            'e_scooter':       'bike',
+            'bus':             'drive',
+            'car':             'drive',
+            'ev':              'drive',
+            'van_electric':    'drive',
+            'van_diesel':      'drive',
+            'truck_electric':  'drive',
+            'truck_diesel':    'drive',
+            'hgv_electric':    'drive',
+            'hgv_diesel':      'drive',
+            'hgv_hydrogen':    'drive',
+            'tram':            'drive',    # drive proxy until GTFS
+            'local_train':     'rail',
             'intercity_train': 'rail',
-            
-            # Maritime
-            'ferry_diesel': 'drive',
-            'ferry_electric': 'drive',
-            
-            # Aviation
+            'freight_rail':    'rail',
+            'ferry_diesel':    'drive',    # drive proxy (abstract in modes.py)
+            'ferry_electric':  'drive',
             'flight_domestic': 'drive',
             'flight_electric': 'drive',
         }
-        
-        # Complete speed mapping for ALL modes (in km per minute)
-        self.speeds_km_min = {
-            # Active mobility
-            'walk': 0.083,       # 5 km/h
-            'bike': 0.25,        # 15 km/h
-            'cargo_bike': 0.20,  # 12 km/h (heavier)
-            'e_scooter': 0.33,   # 20 km/h
-            
-            # Passenger vehicles
-            'bus': 0.33,    # 20 km/h city average
-            'car': 0.5,     # 30 km/h city average
-            'ev': 0.5,
-            
-            # Light commercial (Phase 4.5F)
-            'van_electric': 0.45,  # 27 km/h
-            'van_diesel': 0.45,
-            
-            # Medium freight (Phase 4.5F)
-            'truck_electric': 0.40,  # 24 km/h
-            'truck_diesel': 0.40,
-            
-            # Heavy freight (Phase 4.5F)
-            'hgv_electric': 0.35,  # 21 km/h
-            'hgv_diesel': 0.42,    # 25 km/h
-            'hgv_hydrogen': 0.42,
-            
-            # Public transport (Phase 4.5G)
-            'tram': 0.42,           # 25 km/h
-            'local_train': 1.0,     # 60 km/h
-            'intercity_train': 2.0, # 120 km/h
-            
-            # Maritime (Phase 4.5G)
-            'ferry_diesel': 0.58,   # 35 km/h
-            'ferry_electric': 0.50, # 30 km/h
-            
-            # Aviation (Phase 4.5G)
-            'flight_domestic': 7.5,    # 450 km/h
-            'flight_electric': 5.83,   # 350 km/h
+
+        # ── Speed in km/min (used for cost and travel-time estimation) ─────────
+        self.speeds_km_min: Dict[str, float] = {
+            'walk':            0.083,
+            'bike':            0.25,
+            'cargo_bike':      0.20,
+            'e_scooter':       0.33,
+            'bus':             0.33,
+            'car':             0.50,
+            'ev':              0.50,
+            'van_electric':    0.45,
+            'van_diesel':      0.45,
+            'truck_electric':  0.40,
+            'truck_diesel':    0.40,
+            'hgv_electric':    0.35,
+            'hgv_diesel':      0.42,
+            'hgv_hydrogen':    0.42,
+            'tram':            0.42,
+            'local_train':     1.33,    # 80 km/h
+            'intercity_train': 2.50,    # 150 km/h
+            'freight_rail':    1.33,
+            'ferry_diesel':    0.58,
+            'ferry_electric':  0.50,
+            'flight_domestic': 11.67,
+            'flight_electric': 6.67,
         }
-    
-    # Interpolation function for smoother routes (optional, can be called in compute_route if needed)
-    def _interpolate_route_geometry(
-        self,
-        coords: List[Tuple[float, float]],
-        max_segment_km: float = 0.05
-    ) -> List[Tuple[float, float]]:
-        """
-        Add intermediate points for smoother visualization.
-        
-        Args:
-            coords: Original route coordinates  
-            max_segment_km: Maximum distance between points (default 50m)
-        
-        Returns:
-            Interpolated route with additional points
-        """
-        if not coords or len(coords) < 2:
-            return coords
-        
-        from simulation.spatial.coordinate_utils import haversine_km
-        
-        interpolated = [coords[0]]
-        
-        for i in range(len(coords) - 1):
-            p1 = coords[i]
-            p2 = coords[i + 1]
-            
-            # Calculate distance
-            dist_km = haversine_km(p1, p2)
-            
-            # If segment is long, add intermediate points
-            if dist_km > max_segment_km:
-                num_segments = int(dist_km / max_segment_km) + 1
-                
-                for j in range(1, num_segments):
-                    t = j / num_segments
-                    interp_lon = p1[0] + t * (p2[0] - p1[0])
-                    interp_lat = p1[1] + t * (p2[1] - p1[1])
-                    interpolated.append((interp_lon, interp_lat))
-            
-            interpolated.append(p2)
-        
-        return interpolated
 
-    # def compute_route(
-    #     self,
-    #     agent_id: str,
-    #     origin: Tuple[float, float],
-    #     dest: Tuple[float, float],
-    #     mode: str
-    # ) -> List[Tuple[float, float]]:
-    #     """
-    #     Compute shortest path route with detailed geometry.
-    #     """
-    #     if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
-    #         logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
-    #         return []
-        
-    #     # Handle very short trips (< 100m)
-    #     from simulation.spatial.coordinate_utils import haversine_km
-    #     distance_km = haversine_km(origin, dest)
-        
-    #     if distance_km < 0.1:  # Less than 100m
-    #         logger.info(f"✅ {agent_id}: Very short trip ({distance_km*1000:.0f}m), returning direct route")
-    #         return [origin, dest]
-        
-    #     network_type = self.mode_network_types.get(mode, 'drive')
-    #     graph = self.graph_manager.get_graph(network_type)
-        
-    #     if graph is None:
-    #         logger.error(f"❌ {agent_id}: No graph for {mode}")
-    #         return []
-        
-    #     try:
-    #         orig_node = self.graph_manager.get_nearest_node(origin, network_type)
-    #         dest_node = self.graph_manager.get_nearest_node(dest, network_type)
-            
-    #         if orig_node is None or dest_node is None:
-    #             logger.error(f"❌ {agent_id}: Could not find nodes for {mode} (network: {network_type})")
-    #             logger.error(f"   Origin: {origin}, Dest: {dest}")
-    #             logger.error(f"   Trying fallback to 'drive' network...")
-                
-    #             # Try fallback to 'drive' network
-    #             if network_type != 'drive':
-    #                 graph = self.graph_manager.get_graph('drive')
-    #                 if graph:
-    #                     orig_node = self.graph_manager.get_nearest_node(origin, 'drive')
-    #                     dest_node = self.graph_manager.get_nearest_node(dest, 'drive')
-                        
-    #                     if orig_node and dest_node:
-    #                         logger.info(f"   ✅ Fallback successful using 'drive' network")
-    #                         network_type = 'drive'
-    #                     else:
-    #                         logger.error(f"   ❌ Fallback failed")
-    #                         return []
-    #                 else:
-    #                     logger.error(f"   ❌ 'drive' network not available")
-    #                     return []
-    #             else:
-    #                 return []
-            
-    #         # Get node route
-    #         route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
-            
-    #         # Extract detailed geometry
-    #         detailed_coords = []
-            
-    #         for i in range(len(route_nodes) - 1):
-    #             u = route_nodes[i]
-    #             v = route_nodes[i + 1]
-                
-    #             # Get edge data
-    #             edge_data = graph.get_edge_data(u, v)
-                
-    #             if edge_data and isinstance(edge_data, dict) and 0 in edge_data:
-    #                 edge_data = edge_data[0]
-                
-    #             # Add node coordinate if first iteration
-    #             if i == 0:
-    #                 detailed_coords.append((float(graph.nodes[u]['x']), float(graph.nodes[u]['y'])))
-                
-    #             # Extract edge geometry
-    #             if edge_data and 'geometry' in edge_data:
-    #                 geom = edge_data['geometry']
-    #                 if hasattr(geom, 'coords'):
-    #                     edge_coords = [(float(x), float(y)) for (x, y) in geom.coords]
-    #                     # Add geometry points (skip first as it's the same as last point added)
-    #                     detailed_coords.extend(edge_coords[1:])
-    #                 else:
-    #                     # No geometry: add destination node
-    #                     detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
-    #             else:
-    #                 # No geometry: add destination node
-    #                 detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
-            
-    #         # INTERPOLATION: Add intermediate points since geometry data is missing
-    #         detailed_coords = self._interpolate_route_geometry(detailed_coords, max_segment_km=0.05)
-            
-    #         logger.info(f"✅ {agent_id}: {mode} route with {len(detailed_coords)} points (from {len(route_nodes)} nodes)")
-    #         return detailed_coords
-        
-    #     except nx.NetworkXNoPath:
-    #         logger.error(f"❌ {agent_id}: No path exists")
-    #         return []
-    #     except Exception as e:
-    #         logger.error(f"❌ {agent_id}: Routing failed: {e}")
-    #         return []
+    # =========================================================================
+    # PUBLIC API
+    # =========================================================================
 
-    # ================= NEW: Testing Road/Rail/Tram ===================
     def compute_route(
         self,
         agent_id: str,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
-        mode: str
+        mode: str,
+        policy_context: Optional[Dict] = None,
     ) -> List[Tuple[float, float]]:
         """
-        Compute path following either Road or Rail/Tram tracks.
+        Compute shortest generalised-cost route.
+
+        Rail modes → intermodal (access + rail + egress).
+        All other routeable modes → single-graph road route.
+
+        Returns a flat list of (lon, lat) 2-tuples.
+        Falls back to [origin, dest] on any failure.
         """
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
-            logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
+            logger.error("❌ %s: invalid coords %s → %s", agent_id, origin, dest)
             return []
-        
-        from simulation.spatial.coordinate_utils import haversine_km
-        distance_km = haversine_km(origin, dest)
-        if distance_km < 0.1:
+
+        if haversine_km(origin, dest) < 0.1:
             return [origin, dest]
 
-        # 1. Identify Network
-        from simulation.config.modes import MODES
-        network_type = MODES.get(mode, {}).get('network', 'drive')
-        
-        # 2. Get Graph
-        graph = self.graph_manager.get_graph(network_type)
-        
-        # 3. RAIL LOGIC: If rail graph isn't loaded, try to fetch/load it
-        if network_type == 'rail' and graph is None:
-            # This assumes your GraphManager handles 'rail' in its load logic
-            # If not, it will fall back to 'drive' below
-            logger.warning(f"⚠️ {agent_id}: Rail graph not in memory, attempting fallback.")
+        policy = {**_DEFAULT_POLICY, **(policy_context or {})}
 
-        if graph is None:
-            logger.error(f"❌ {agent_id}: No graph for {mode}, falling back to 'drive'")
-            network_type = 'drive'
-            graph = self.graph_manager.get_graph('drive')
+        if mode in _RAIL_MODES:
+            return self._compute_intermodal_route(
+                agent_id, origin, dest, mode, policy
+            )
 
-        try:
-            # 4. Snap to Nodes
-            orig_node = self.graph_manager.get_nearest_node(origin, network_type)
-            dest_node = self.graph_manager.get_nearest_node(dest, network_type)
-            
-            # 5. Pathfinding
-            # We use 'length' for rail as well to follow tracks accurately
-            route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
-            
-            # 6. Geometry Extraction (Reuse your existing logic)
-            detailed_coords = []
-            for i in range(len(route_nodes) - 1):
-                u, v = route_nodes[i], route_nodes[i+1]
-                edge_data = graph.get_edge_data(u, v)
-                if edge_data and 0 in edge_data: edge_data = edge_data[0]
-                
-                if i == 0:
-                    detailed_coords.append((float(graph.nodes[u]['x']), float(graph.nodes[u]['y'])))
-                
-                if edge_data and 'geometry' in edge_data:
-                    geom = edge_data['geometry']
-                    detailed_coords.extend([(float(x), float(y)) for (x, y) in geom.coords][1:])
-                else:
-                    detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
-            
-            # Apply your interpolation
-            detailed_coords = self._interpolate_route_geometry(detailed_coords, max_segment_km=0.05)
-            
-            logger.info(f"✅ {agent_id}: {mode} ({network_type}) route successful.")
-            return detailed_coords
+        return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
-        except (nx.NetworkXNoPath, Exception) as e:
-            logger.error(f"❌ {agent_id}: Routing failed on {network_type}: {e}")
-            # Final emergency fallback: Straight line for the demo
-            return [origin, dest]
-        
-    # ===============================================
-    
     def compute_alternatives(
         self,
         agent_id: str,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
-        variants: List[str] = None
-    ) -> List['RouteAlternative']:
-        """
-        Compute multiple route alternatives.
-        
-        Args:
-            agent_id: Agent identifier
-            origin: Starting coordinate (lon, lat)
-            dest: Destination coordinate (lon, lat)
-            mode: Transport mode
-            variants: Route types to compute
-                     Options: 'shortest', 'fastest', 'safest', 'greenest', 'scenic'
-                     Default: ['shortest', 'fastest']
-        
-        Returns:
-            List of RouteAlternative objects
-        """
+        variants: List[str] = None,
+        policy_context: Optional[Dict] = None,
+    ) -> list:
+        """Compute multiple route alternatives."""
         if not ROUTE_ALTERNATIVE_AVAILABLE:
-            logger.warning("RouteAlternative not available, using basic routing")
-            route = self.compute_route(agent_id, origin, dest, mode)
+            route = self.compute_route(
+                agent_id, origin, dest, mode, policy_context
+            )
             return [{'route': route, 'mode': mode, 'variant': 'shortest'}]
-        
+
         variants = variants or ['shortest', 'fastest']
+        policy   = {**_DEFAULT_POLICY, **(policy_context or {})}
         alternatives = []
-        
+
         for variant in variants:
-            route = self._compute_route_variant(origin, dest, mode, variant)
+            route = self._compute_route_variant(
+                origin, dest, mode, variant, agent_id, policy
+            )
             if route and len(route) >= 2:
-                alt = RouteAlternative(route, mode, variant)
-                alternatives.append(alt)
-                logger.debug(f"Computed {variant} route: {len(route)} waypoints")
-        
+                alternatives.append(RouteAlternative(route, mode, variant))
+
         if not alternatives:
-            logger.warning(f"No alternatives generated for {agent_id}, using basic route")
-            basic_route = self.compute_route(agent_id, origin, dest, mode)
-            if basic_route and len(basic_route) >= 2:
-                alt = RouteAlternative(basic_route, mode, 'shortest')
-                alternatives.append(alt)
-        
+            basic = self.compute_route(
+                agent_id, origin, dest, mode, policy_context
+            )
+            if basic and len(basic) >= 2:
+                alternatives.append(RouteAlternative(basic, mode, 'shortest'))
+
         return alternatives
-    
+
+    # =========================================================================
+    # ROAD ROUTING — single-graph, generalised cost
+    # =========================================================================
+
+    def _compute_road_route(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> List[Tuple[float, float]]:
+        """Route on a single OSMnx graph using generalised edge weights."""
+        network_type = self.mode_network_types.get(mode, 'drive')
+        graph = self.graph_manager.get_graph(network_type)
+
+        if graph is None:
+            logger.error(
+                "❌ %s: no graph for mode=%s network=%s; falling back to drive",
+                agent_id, mode, network_type,
+            )
+            network_type = 'drive'
+            graph = self.graph_manager.get_graph('drive')
+            if graph is None:
+                return [origin, dest]
+
+        try:
+            orig_node = self.graph_manager.get_nearest_node(origin, network_type)
+            dest_node = self.graph_manager.get_nearest_node(dest,   network_type)
+            if orig_node is None or dest_node is None:
+                return [origin, dest]
+            if orig_node == dest_node:
+                return [origin, dest]
+
+            weight_key = self._apply_generalised_weights(graph, mode, policy)
+            route_nodes = nx.shortest_path(
+                graph, orig_node, dest_node, weight=weight_key
+            )
+            coords = self._extract_geometry(graph, route_nodes)
+            coords = self._interpolate(coords, max_segment_km=0.05)
+            logger.info(
+                "✅ %s: %s (%s) %.1fkm, %d pts",
+                agent_id, mode, network_type,
+                route_distance_km(coords), len(coords),
+            )
+            return coords
+
+        except nx.NetworkXNoPath:
+            logger.warning("❌ %s: no road path for %s", agent_id, mode)
+            return [origin, dest]
+        except Exception as exc:
+            logger.error("❌ %s: road routing failed: %s", agent_id, exc)
+            return [origin, dest]
+
+    # =========================================================================
+    # RAIL INTERMODAL ROUTING
+    # =========================================================================
+
+    def _get_rail_graph(self) -> Optional[Any]:
+        """
+        Return the rail graph, loading it lazily on first call.
+
+        Priority:
+          1. graph_manager already has 'rail' (e.g. loaded by environment_setup)
+          2. self._rail_graph cached from previous call
+          3. Fetch from OpenRailMap using drive-graph bbox
+        """
+        cached = self.graph_manager.get_graph('rail')
+        if cached is not None:
+            return cached
+
+        if self._rail_graph is not None:
+            return self._rail_graph
+
+        if self._rail_graph_attempted:
+            return None
+
+        self._rail_graph_attempted = True
+        logger.info("Loading OpenRailMap graph (first rail request)…")
+        try:
+            drive = self.graph_manager.get_graph('drive')
+            if drive is not None:
+                xs = [d['x'] for _, d in drive.nodes(data=True)]
+                ys = [d['y'] for _, d in drive.nodes(data=True)]
+                # fetch_rail_graph expects (north, south, east, west)
+                bbox = (max(ys), min(ys), max(xs), min(xs))
+            else:
+                bbox = (56.0, 55.85, -3.05, -3.40)   # Edinburgh fallback
+
+            self._rail_graph = fetch_rail_graph(bbox)
+
+            if self._rail_graph is not None:
+                logger.info(
+                    "✅ Rail graph: %d nodes, %d edges",
+                    len(self._rail_graph.nodes), len(self._rail_graph.edges),
+                )
+                # Register with graph_manager so visualization can access it
+                try:
+                    self.graph_manager.graphs['rail'] = self._rail_graph
+                except Exception:
+                    pass
+            else:
+                logger.warning(
+                    "⚠️  Rail graph fetch returned None — "
+                    "rail agents will use straight-line synthetic routes"
+                )
+        except Exception as exc:
+            logger.error("Rail graph load failed: %s", exc)
+            self._rail_graph = None
+
+        return self._rail_graph
+
+    def _nearest_rail_node(
+        self,
+        coord: Tuple[float, float],
+        rail_graph: Any,
+    ) -> Optional[int]:
+        """Brute-force nearest node on the rail graph to (lon, lat) coord."""
+        if rail_graph is None:
+            return None
+        lon, lat = coord
+        best_node = None
+        best_dist = float('inf')
+        for node, data in rail_graph.nodes(data=True):
+            nlon = float(data.get('x', data.get('lon', 0)))
+            nlat = float(data.get('y', data.get('lat', 0)))
+            d = haversine_km((lon, lat), (nlon, nlat))
+            if d < best_dist:
+                best_dist = d
+                best_node = node
+        return best_node
+
+    def _compute_intermodal_route(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> List[Tuple[float, float]]:
+        """
+        Three-leg intermodal route: access (road) → rail → egress (road).
+
+        Transfer penalty is encoded in policy['boarding_penalty_min'].
+        The penalty inflates the effective distance of the access leg so the
+        cost function discourages rail for very short trips where boarding
+        overhead makes it non-competitive.  It does NOT insert fake waypoints.
+
+        Falls back to synthetic straight-line route if rail graph unavailable.
+        """
+        rail_graph = self._get_rail_graph()
+
+        if rail_graph is None:
+            logger.debug(
+                "%s: rail graph unavailable — synthetic route for %s",
+                agent_id, mode,
+            )
+            return [origin, dest]
+
+        # ── Snap to rail transfer nodes ───────────────────────────────────────
+        orig_rail_node = self._nearest_rail_node(origin, rail_graph)
+        dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
+
+        if orig_rail_node is None or dest_rail_node is None:
+            logger.warning(
+                "%s: rail snap failed for %s — synthetic fallback",
+                agent_id, mode,
+            )
+            return [origin, dest]
+
+        orig_rail_coord = (
+            float(rail_graph.nodes[orig_rail_node].get('x', 0)),
+            float(rail_graph.nodes[orig_rail_node].get('y', 0)),
+        )
+        dest_rail_coord = (
+            float(rail_graph.nodes[dest_rail_node].get('x', 0)),
+            float(rail_graph.nodes[dest_rail_node].get('y', 0)),
+        )
+
+        # ── Access leg: origin → origin rail station (drive) ──────────────────
+        access_leg = self._compute_road_route(
+            agent_id + '_access', origin, orig_rail_coord, 'car', policy
+        )
+
+        # ── Rail leg: origin station → destination station ────────────────────
+        try:
+            if orig_rail_node == dest_rail_node:
+                rail_coords = [orig_rail_coord, dest_rail_coord]
+            else:
+                rail_weight_key = self._apply_generalised_weights(
+                    rail_graph, mode, policy
+                )
+                rail_nodes = nx.shortest_path(
+                    rail_graph,
+                    orig_rail_node,
+                    dest_rail_node,
+                    weight=rail_weight_key,
+                )
+                rail_coords = self._extract_geometry(rail_graph, rail_nodes)
+                rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+        except nx.NetworkXNoPath:
+            logger.warning(
+                "%s: no rail path %s→%s, straight-line leg",
+                agent_id, orig_rail_node, dest_rail_node,
+            )
+            rail_coords = [orig_rail_coord, dest_rail_coord]
+        except Exception as exc:
+            logger.error("%s: rail leg failed: %s", agent_id, exc)
+            rail_coords = [orig_rail_coord, dest_rail_coord]
+
+        # ── Egress leg: destination station → destination (drive) ─────────────
+        egress_leg = self._compute_road_route(
+            agent_id + '_egress', dest_rail_coord, dest, 'car', policy
+        )
+
+        # ── Stitch legs (remove duplicated boundary points) ───────────────────
+        full_route: List[Tuple[float, float]] = (
+            (access_leg[:-1] if access_leg else [])
+            + rail_coords
+            + (egress_leg[1:] if len(egress_leg) > 1 else [])
+        )
+
+        if len(full_route) < 2:
+            full_route = [origin, dest]
+
+        access_km = route_distance_km(access_leg)
+        rail_km   = route_distance_km(rail_coords)
+        egress_km = route_distance_km(egress_leg)
+        board_km  = (
+            policy['boarding_penalty_min'] / 60.0
+            * self.speeds_km_min.get(mode, 1.33)
+        )
+
+        logger.info(
+            "✅ %s: %s intermodal %.1fkm "
+            "(access %.1f + board-penalty %.1f + rail %.1f + egress %.1f)",
+            agent_id, mode,
+            access_km + board_km + rail_km + egress_km,
+            access_km, board_km, rail_km, egress_km,
+        )
+        return full_route
+
+    # =========================================================================
+    # GENERALISED COST EDGE WEIGHTS
+    # =========================================================================
+
+    def _apply_generalised_weights(
+        self,
+        graph: Any,
+        mode: str,
+        policy: Dict,
+    ) -> str:
+        """
+        Write a 'gen_cost' attribute to every edge:
+
+            cost = (time_h × VoT)
+                 + (dist_km × energy_price)
+                 + (dist_km × emit_kg_km × carbon_tax)
+
+        Recomputed every call so policy changes take effect immediately.
+        Returns the edge attribute name used for nx.shortest_path weight.
+        """
+        vot     = float(policy.get('value_of_time_gbp_h',  10.0))
+        e_price = float(policy.get('energy_price_gbp_km',   0.12))
+        c_tax   = float(policy.get('carbon_tax_gbp_tco2',   0.0))
+
+        speed_km_h  = self.speeds_km_min.get(mode, 0.5) * 60.0
+        emit_kg_km  = _EMISSIONS_G_KM.get(mode, 100) / 1000.0
+
+        for u, v, key, data in graph.edges(keys=True, data=True):
+            dist_km = data.get('length', 0.0) / 1000.0
+
+            # Congestion multiplier on travel time
+            if self.congestion_manager is not None:
+                try:
+                    cong = self.congestion_manager.get_congestion_factor(u, v, key)
+                except Exception:
+                    cong = 1.0
+            else:
+                cong = 1.0
+
+            time_h = (dist_km / max(speed_km_h, 0.1)) * cong
+
+            data['gen_cost'] = (
+                time_h  * vot
+                + dist_km * e_price
+                + dist_km * emit_kg_km * c_tax
+            )
+
+        return 'gen_cost'
+
+    # =========================================================================
+    # GEOMETRY EXTRACTION & INTERPOLATION
+    # =========================================================================
+
+    def _extract_geometry(
+        self,
+        graph: Any,
+        route_nodes: List,
+    ) -> List[Tuple[float, float]]:
+        """Extract (lon, lat) 2-tuples from an ordered list of graph nodes."""
+        coords: List[Tuple[float, float]] = []
+        for i in range(len(route_nodes) - 1):
+            u, v = route_nodes[i], route_nodes[i + 1]
+            if i == 0:
+                coords.append(
+                    (float(graph.nodes[u]['x']), float(graph.nodes[u]['y']))
+                )
+            edge_data = graph.get_edge_data(u, v)
+            if edge_data and isinstance(edge_data, dict) and 0 in edge_data:
+                edge_data = edge_data[0]
+            if edge_data and 'geometry' in edge_data:
+                geom = edge_data['geometry']
+                if hasattr(geom, 'coords'):
+                    coords.extend(
+                        (float(x), float(y))
+                        for x, y in list(geom.coords)[1:]
+                    )
+                else:
+                    coords.append(
+                        (float(graph.nodes[v]['x']), float(graph.nodes[v]['y']))
+                    )
+            else:
+                coords.append(
+                    (float(graph.nodes[v]['x']), float(graph.nodes[v]['y']))
+                )
+
+        if not coords and len(route_nodes) >= 2:
+            first, last = route_nodes[0], route_nodes[-1]
+            coords = [
+                (float(graph.nodes[first]['x']), float(graph.nodes[first]['y'])),
+                (float(graph.nodes[last]['x']),  float(graph.nodes[last]['y'])),
+            ]
+        return coords
+
+    def _interpolate(
+        self,
+        coords: List[Tuple[float, float]],
+        max_segment_km: float = 0.05,
+    ) -> List[Tuple[float, float]]:
+        """Insert intermediate points for smooth visualization."""
+        if len(coords) < 2:
+            return coords
+        out = [coords[0]]
+        for i in range(len(coords) - 1):
+            p1, p2 = coords[i], coords[i + 1]
+            dist = haversine_km(p1, p2)
+            if dist > max_segment_km:
+                steps = max(1, int(dist / max_segment_km))
+                for j in range(1, steps):
+                    t = j / steps
+                    out.append((
+                        p1[0] + t * (p2[0] - p1[0]),
+                        p1[1] + t * (p2[1] - p1[1]),
+                    ))
+            out.append(p2)
+        return out
+
+    # =========================================================================
+    # ROUTE VARIANTS (for compute_alternatives)
+    # =========================================================================
+
     def _compute_route_variant(
         self,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
         variant: str,
-        agent_id: str = "unknown"
-    ) -> Optional[List[Tuple[float, float]]]:
-        """Compute specific route variant."""
+        agent_id: str = 'unknown',
+        policy: Optional[Dict] = None,
+    ) -> List[Tuple[float, float]]:
+        """Compute a named route variant."""
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
-            return []  # ← Changed from None
-        
+            return []
+        policy = policy or dict(_DEFAULT_POLICY)
+
+        if mode in _RAIL_MODES:
+            return self._compute_intermodal_route(
+                agent_id, origin, dest, mode, policy
+            )
+
         network_type = self.mode_network_types.get(mode, 'drive')
         graph = self.graph_manager.get_graph(network_type)
-        
         if graph is None:
-            return []  # ← Changed from None
-        
+            return []
+
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
-            dest_node = self.graph_manager.get_nearest_node(dest, network_type)
-            
+            dest_node = self.graph_manager.get_nearest_node(dest,   network_type)
             if orig_node is None or dest_node is None:
-                return []  # ← Changed from None
-            
-            weight_attr = self._get_weight_attribute(graph, mode, variant)
-            
-            if weight_attr is None:
-                return []  # ← Changed from None
-            
-            route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight=weight_attr)
-            coords = [
-                (float(graph.nodes[n]['x']), float(graph.nodes[n]['y'])) 
-                for n in route_nodes
-            ]
-            
-            # Interpolate for smoother visualization
-            coords = self._interpolate_route_geometry(coords, max_segment_km=0.05)
-            
-            logger.info(f"✅ {agent_id}: {mode} route with {len(coords)} points (from {len(route_nodes)} nodes)")
+                return []
 
-            return coords
-        
+            weight_key = {
+                'generalised': lambda: self._apply_generalised_weights(graph, mode, policy),
+                'shortest':    lambda: self._apply_generalised_weights(graph, mode, policy),
+                'fastest':     lambda: self._add_time_weights(graph, mode),
+                'safest':      lambda: self._add_safety_weights(graph, mode),
+                'greenest':    lambda: self._add_emission_weights(graph, mode),
+                'scenic':      lambda: self._add_scenic_weights(graph, mode),
+            }.get(variant, lambda: 'length')()
+
+            route_nodes = nx.shortest_path(
+                graph, orig_node, dest_node, weight=weight_key
+            )
+            coords = self._extract_geometry(graph, route_nodes)
+            return self._interpolate(coords, max_segment_km=0.05)
+
         except nx.NetworkXNoPath:
-            logger.debug(f"No path found for {variant} variant")
-            return []  # ← Changed from None
-        except Exception as e:
-            logger.warning(f"Route variant {variant} failed: {e}")
-            return []  # ← Changed from None
-    
-    # Weight attribute functions for different routing variants
-    def _get_weight_attribute(
-        self,
-        graph: Any,
-        mode: str,
-        variant: str
-    ) -> Optional[str]:
-        """Get or create edge weight attribute for routing variant."""
-        
-        if variant == 'shortest':
-            return 'length'
-        elif variant == 'fastest':
-            return self._add_time_weights(graph, mode)
-        elif variant == 'safest':
-            return self._add_safety_weights(graph, mode)
-        elif variant == 'greenest':
-            return self._add_emission_weights(graph, mode)
-        elif variant == 'scenic':
-            return self._add_scenic_weights(graph, mode)
-        else:
-            logger.warning(f"Unknown variant: {variant}, using 'length'")
-            return 'length'
-    
+            return []
+        except Exception as exc:
+            logger.warning("%s: variant %s failed: %s", agent_id, variant, exc)
+            return []
+
+    # =========================================================================
+    # LEGACY WEIGHT HELPERS (preserved for backwards-compat)
+    # =========================================================================
+
     def _add_time_weights(self, graph: Any, mode: str) -> str:
-        """Add travel time as edge weights with optional congestion."""
-        speed_km_min = self.speeds_km_min.get(mode, 0.1)
-        speed_m_per_min = speed_km_min * 1000
-        
+        speed_m_min = self.speeds_km_min.get(mode, 0.5) * 1000
         for u, v, key, data in graph.edges(keys=True, data=True):
             length = data.get('length', 0)
-            base_time = length / speed_m_per_min if speed_m_per_min > 0 else 1e9
-            
+            base = length / max(speed_m_min, 1.0)
             if self.congestion_manager is not None:
-                congestion_factor = self.congestion_manager.get_congestion_factor(u, v, key)
-                data['time_weight'] = base_time * congestion_factor
-            else:
-                data['time_weight'] = base_time
-        
+                try:
+                    base *= self.congestion_manager.get_congestion_factor(u, v, key)
+                except Exception:
+                    pass
+            data['time_weight'] = base
         return 'time_weight'
-    
+
     def _add_safety_weights(self, graph: Any, mode: str) -> str:
-        """Add safety-based weights (prefer low-speed roads for bikes/walk)."""
-        
-        for u, v, key, data in graph.edges(keys=True, data=True):
-            length = data.get('length', 0)
-            highway_type = data.get('highway', 'residential')
-            
-            if isinstance(highway_type, list):
-                highway_type = highway_type[0] if highway_type else 'residential'
-            
-            if mode in ['walk', 'bike', 'cargo_bike', 'e_scooter']:
-                if highway_type in ['motorway', 'motorway_link', 'trunk', 'trunk_link']:
-                    risk_factor = 100.0
-                elif highway_type in ['primary', 'primary_link']:
-                    risk_factor = 5.0
-                elif highway_type in ['secondary', 'secondary_link']:
-                    risk_factor = 2.0
-                elif highway_type in ['residential', 'living_street', 'cycleway', 'path', 'footway']:
-                    risk_factor = 0.8
-                else:
-                    risk_factor = 1.0
-            else:
-                risk_factor = 1.0
-            
-            data['safety_weight'] = length * risk_factor
-        
+        _RISK = {
+            'motorway': 100, 'motorway_link': 100, 'trunk': 50, 'trunk_link': 50,
+            'primary': 5, 'primary_link': 5, 'secondary': 2, 'secondary_link': 2,
+            'residential': 0.8, 'living_street': 0.8,
+            'cycleway': 0.7, 'path': 0.7, 'footway': 0.7,
+        }
+        active = {'walk', 'bike', 'cargo_bike', 'e_scooter'}
+        for _u, _v, _k, data in graph.edges(keys=True, data=True):
+            hw = data.get('highway', 'residential')
+            if isinstance(hw, list):
+                hw = hw[0] if hw else 'residential'
+            risk = _RISK.get(hw, 1.0) if mode in active else 1.0
+            data['safety_weight'] = data.get('length', 0) * risk
         return 'safety_weight'
-    
+
     def _add_emission_weights(self, graph: Any, mode: str) -> str:
-        """Add emission-based weights (prefer flat routes)."""
-        
-        has_elevation = self.graph_manager.has_elevation()
-        
-        for u, v, key, data in graph.edges(keys=True, data=True):
+        has_elev = self.graph_manager.has_elevation()
+        for _u, _v, _k, data in graph.edges(keys=True, data=True):
             length = data.get('length', 0)
-            
-            if has_elevation:
-                u_elev = graph.nodes[u].get('elevation', 0)
-                v_elev = graph.nodes[v].get('elevation', 0)
-                elev_change = abs(v_elev - u_elev)
-                elev_penalty = 1.0 + (elev_change / 100.0)
-            else:
-                elev_penalty = 1.0
-            
-            data['emission_weight'] = length * elev_penalty
-        
+            penalty = 1.0
+            if has_elev:
+                eu = graph.nodes[_u].get('elevation', 0)
+                ev = graph.nodes[_v].get('elevation', 0)
+                penalty = 1.0 + abs(ev - eu) / 100.0
+            data['emission_weight'] = length * penalty
         return 'emission_weight'
-    
+
     def _add_scenic_weights(self, graph: Any, mode: str) -> str:
-        """Add scenic/quality weights (prefer green spaces, paths)."""
-        
-        for u, v, key, data in graph.edges(keys=True, data=True):
-            length = data.get('length', 0)
-            highway_type = data.get('highway', 'residential')
-            
-            if isinstance(highway_type, list):
-                highway_type = highway_type[0] if highway_type else 'residential'
-            
-            if highway_type in ['path', 'footway', 'cycleway', 'track', 'bridleway']:
-                scenic_factor = 0.5
-            elif highway_type in ['residential', 'living_street', 'pedestrian']:
-                scenic_factor = 0.7
-            elif highway_type in ['tertiary', 'tertiary_link', 'unclassified']:
-                scenic_factor = 0.9
-            elif highway_type in ['secondary', 'secondary_link']:
-                scenic_factor = 1.2
-            else:
-                scenic_factor = 1.5
-            
-            data['scenic_weight'] = length * scenic_factor
-        
+        _S = {
+            'path': 0.5, 'footway': 0.5, 'cycleway': 0.5, 'track': 0.5,
+            'residential': 0.7, 'living_street': 0.7, 'pedestrian': 0.7,
+            'tertiary': 0.9, 'unclassified': 0.9, 'secondary': 1.2,
+        }
+        for _u, _v, _k, data in graph.edges(keys=True, data=True):
+            hw = data.get('highway', 'residential')
+            if isinstance(hw, list):
+                hw = hw[0] if hw else 'residential'
+            data['scenic_weight'] = data.get('length', 0) * _S.get(hw, 1.5)
         return 'scenic_weight'

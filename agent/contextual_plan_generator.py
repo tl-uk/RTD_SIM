@@ -333,12 +333,19 @@ class ContextualPlanGenerator:
         # Recurring pattern
         if hasattr(job_story, 'parameters') and job_story.parameters.get('recurring'):
             freq = job_story.parameters.get('frequency', '5/week')
-            
-            if '5/week' in str(freq) or 'daily' in job_story.context.lower():
+            # Use job_id or job_type as fallback text — job_story has no .context attr
+            job_text = (
+                getattr(job_story, 'job_id', '')
+                or getattr(job_story, 'story_id', '')
+                or getattr(job_story, 'job_type', '')
+            ).lower()
+
+            if '5/week' in str(freq) or 'daily' in job_text:
                 plan.recurring_pattern = 'daily'
+                logger.debug("Recurring: daily (from parameters)")
             elif 'weekly' in str(freq):
                 plan.recurring_pattern = 'weekly'
-            
+
             logger.debug(f"Recurring: {plan.recurring_pattern}")
         
         # ====================================================================

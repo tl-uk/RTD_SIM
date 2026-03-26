@@ -256,12 +256,24 @@ def create_agents(
                 if scores:
                     best = agent.planner.choose_action(scores)
                     agent.state.mode = best.mode
-                    agent.state.route = [(float(x), float(y)) for (x, y) in (best.route or [])]
+
+                    # Build route: abstract routes (rail/ferry/air) are already
+                    # plain (lon,lat) 2-tuples from make_synthetic_route().
+                    # OSMnx routes are also (lon,lat) tuples.  Both are safe to
+                    # cast — but guard against any non-tuple element defensively.
+                    raw_route = best.route or []
+                    safe_route = []
+                    for pt in raw_route:
+                        try:
+                            safe_route.append((float(pt[0]), float(pt[1])))
+                        except (TypeError, ValueError, IndexError):
+                            pass
+                    agent.state.route = safe_route
                     agent.state.route_index = 0
                     agent.state.route_offset_km = 0.0
                     agent.state.departed_at_step = 0
-                    
-                    # Store action params
+
+                    # Store action params (includes abstract=True, network, trip_distance_km)
                     if hasattr(agent.state, 'action_params'):
                         agent.state.action_params = best.params
                 

@@ -83,9 +83,9 @@ MODES: Dict[str, Dict[str, Any]] = {
         'routeable':      True,
     },
     'tram': {
-        # Trams follow road corridors in OSMnx drive graph.
-        # Not a perfect proxy but acceptable until GTFS integration.
-        'network':       'rail',
+        # Trams follow road/dedicated corridors.  We route them on the drive
+        # graph (close enough for Edinburgh) until GTFS is available.
+        'network':       'drive',
         'emissions_g_km': 35,
         'speed_kmh':      25,
         'routeable':      True,
@@ -144,27 +144,27 @@ MODES: Dict[str, Dict[str, Any]] = {
     },
 
     # ── Rail – ABSTRACT (no OSMnx routing) ───────────────────────
-    # These appear on the map as a straight-line segment with a
-    # station-marker icon at each endpoint.  Phase 10b will replace
-    # this with GTFS path interpolation.
+    # Agents for these modes get a synthetic 2-point route via
+    # make_synthetic_route().  Phase 10b will replace this with
+    # real rail-graph routing via the generalized-cost router.
     'local_train': {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      80,
-        'routeable':      True,
+        'routeable':      False,
     },
     'intercity_train': {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      150,
-        'routeable':      True,
+        'routeable':      False,
     },
-    # Phase 10b stub – uncomment when RailFreightAgent is ready
+    # Phase 10b: full generalized-cost rail routing via RailFreightAgent
     'freight_rail': {
         'network':       'rail',
         'emissions_g_km': 35,   # electrified; 76 diesel
         'speed_kmh':      80,
-        'routeable':      True,
+        'routeable':      False,
     },
 
     # ── Ferry – ABSTRACT ─────────────────────────────────────────

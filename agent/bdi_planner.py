@@ -900,40 +900,26 @@ class BDIPlanner:
             logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
 
-        # Near‑range realism: if close to range limit, require a charger very near destination (stricter than 5km)
-        if mode in self.EV_RANGE_KM:
+        # Near-range realism: consolidated — guards all calls against None infrastructure.
+        if mode in self.EV_RANGE_KM and self.infrastructure is not None:
             dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
-            # Use estimated route km for this threshold
             if est_trip_km > max_range * 0.8:
-                nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
+                nearest = self.infrastructure.find_nearest_charger(
+                    dest, max_distance_km=dest_nearby_km
+                )
                 if nearest is None:
                     logger.debug(
-                        f"{mode} not feasible: near-range (est_trip {est_trip_km:.1f}km ≈ {max_range:.1f}km) "
-                        f"and no charger within {dest_nearby_km:.1f}km of destination"
+                        "%s not feasible: near-range (est_trip %.1fkm ~= %.1fkm) "
+                        "and no charger within %.1fkm of destination",
+                        mode, est_trip_km, max_range, dest_nearby_km,
                     )
                     return False
-        # Effect: trips approaching the EV’s range require a closer charger at the destination, adding realism without 
-        # removing your existing 5 km rule for long trips.
-        
-        # Near‑range realism: if close to range limit, require a charger very near destination.
-        # This complements (does not replace) your existing 5km check for long trips.
-        if trip_distance > max_range * 0.8:
-            dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))  # stricter than 5km for near-range
-            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
+
+        # Long-trip charger check — guard against None infrastructure.
+        if self.infrastructure is not None and trip_distance > max_range * 0.5:
+            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=5.0)
             if nearest is None:
-                logger.debug(
-                    f"{mode} not feasible: near-range ({trip_distance:.1f}km ≈ {max_range:.1f}km) "
-                    f"and no charger within {dest_nearby_km:.1f}km of destination"
-                )
-                return False
-        
-        # Check charger availability for long trips (ONLY for vehicles)
-        if trip_distance > max_range * 0.5:
-            nearest = self.infrastructure.find_nearest_charger(
-                dest, max_distance_km=5.0
-            )
-            if nearest is None:
-                logger.debug(f"{mode} not feasible: no charger within 5km of destination")
+                logger.debug("%s not feasible: no charger within 5km of destination", mode)
                 return False
         
         return True

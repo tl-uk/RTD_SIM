@@ -131,9 +131,64 @@ class SpatialEnvironment:
         """Load mode-specific graphs."""
         self.graph_manager.load_mode_specific_graphs(place, bbox, modes, use_cache)
     
-    def add_elevation_data(self, method: str = 'opentopo', **kwargs) -> bool:
-        """Add elevation data to graph."""
-        return self.graph_manager.add_elevation_data(method, **kwargs)
+    def load_rail_graph(
+        self,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+    ) -> bool:
+        """
+        Load the OpenRailMap rail graph and register it with graph_manager.
+
+        Called by environment_setup.py after the drive graph is loaded.
+        Safe to call multiple times — returns immediately if already loaded.
+
+        Args:
+            bbox: Optional (north, south, east, west) override.
+                  If None, derives bbox from the loaded drive graph.
+
+        Returns:
+            True if rail graph loaded successfully, False otherwise.
+        """
+        if self.graph_manager.get_graph('rail') is not None:
+            logger.debug("Rail graph already loaded — skipping")
+            return True
+
+        from simulation.spatial.rail_network import fetch_rail_graph
+
+        if bbox is None:
+            drive = self.graph_manager.get_graph('drive')
+            if drive is not None:
+                xs = [d['x'] for _, d in drive.nodes(data=True)]
+                ys = [d['y'] for _, d in drive.nodes(data=True)]
+                bbox = (max(ys), min(ys), max(xs), min(xs))
+            else:
+                logger.warning(
+                    "load_rail_graph: drive graph not loaded — using Edinburgh bbox"
+                )
+                bbox = (56.0, 55.85, -3.05, -3.40)
+
+        try:
+            logger.info("Fetching rail graph from OpenRailMap (bbox=%s)…", bbox)
+            G_rail = fetch_rail_graph(bbox)
+            if G_rail is not None:
+                self.graph_manager.graphs['rail'] = G_rail
+                # Also cache on the router so it doesn't re-fetch
+                self.router._rail_graph = G_rail
+                self.router._rail_graph_attempted = True
+                logger.info(
+                    "✅ Rail graph loaded: %d nodes, %d edges",
+                    len(G_rail.nodes), len(G_rail.edges),
+                )
+                return True
+            else:
+                logger.warning("⚠️  OpenRailMap returned None — rail agents will use synthetic routes")
+                return False
+        except Exception as exc:
+            logger.error("load_rail_graph failed: %s", exc)
+            return False
+
+    def get_rail_graph(self):
+        """Return the loaded rail graph (or None). Used by visualization."""
+        return self.graph_manager.get_graph('rail')
     
     # ============================================================================
     # Routing (Delegate to Router)
