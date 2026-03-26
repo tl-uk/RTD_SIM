@@ -43,7 +43,8 @@ def render_map_tab(results, anim, current_data):
     
     # Use fragment to isolate map rendering
     # This allows display options to update the map without full page rerun
-    render_map_fragment(agent_states, results.infrastructure)
+    show_rail = st.sidebar.checkbox("Show Rail Network (OpenRailMap)", value=True)
+    render_map_fragment(agent_states, results.infrastructure, show_rail)
     
     st.markdown("---")
     
@@ -66,14 +67,12 @@ def render_map_tab(results, anim, current_data):
 # This prevents full page reruns when checkboxes are toggled, improving performance and 
 # user experience.
 @st.fragment
-def render_map_fragment(agent_states, infrastructure_manager):
+def render_map_fragment(agent_states, infrastructure_manager, show_rail):
     """
     Render map as a fragment - updates independently when display options change.
     
     This prevents full page reruns when checkboxes are toggled.
     """
-    show_rail = st.sidebar.checkbox("Show Rail Network (OpenRailMap)", value=True)
-
     # Render map with current display settings from session state
     deck = render_map(
         agent_states=agent_states,

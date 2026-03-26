@@ -129,6 +129,18 @@ def render_map(
     """
     layers = []
     
+    # Add the Rail Infrastructure Layer
+    if show_rail and infrastructure_manager:
+        # Fetch the rail graph from the graph manager
+        G_rail = None
+        if hasattr(infrastructure_manager, 'graph_manager'):
+            G_rail = infrastructure_manager.graph_manager.get_graph('rail')
+        
+        if G_rail:
+            rail_layer = create_rail_layer(G_rail) # From rail_visualizer.py
+            if rail_layer:
+                layers.append(rail_layer)
+                
     # ========================================================================
     # Agents Layer
     # ========================================================================

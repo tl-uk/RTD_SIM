@@ -85,7 +85,7 @@ MODES: Dict[str, Dict[str, Any]] = {
     'tram': {
         # Trams follow road corridors in OSMnx drive graph.
         # Not a perfect proxy but acceptable until GTFS integration.
-        'network':       'drive',
+        'network':       'rail',
         'emissions_g_km': 35,
         'speed_kmh':      25,
         'routeable':      True,

@@ -76,29 +76,29 @@ class Router:
             'car': 'drive',
             'ev': 'drive',
             
-            # Light commercial (Phase 4.5F)
+            # Light commercial
             'van_electric': 'drive',
             'van_diesel': 'drive',
             
-            # Medium freight (Phase 4.5F)
+            # Medium freight
             'truck_electric': 'drive',
             'truck_diesel': 'drive',
             
-            # Heavy freight (Phase 4.5F)
+            # Heavy freight
             'hgv_electric': 'drive',
             'hgv_diesel': 'drive',
             'hgv_hydrogen': 'drive',
             
-            # Public transport (Phase 4.5G)
-            'tram': 'drive',
-            'local_train': 'drive',
-            'intercity_train': 'drive',
+            # Public transport
+            'tram': 'rail',
+            'local_train': 'rail',
+            'intercity_train': 'rail',
             
-            # Maritime (Phase 4.5G)
+            # Maritime
             'ferry_diesel': 'drive',
             'ferry_electric': 'drive',
             
-            # Aviation (Phase 4.5G)
+            # Aviation
             'flight_domestic': 'drive',
             'flight_electric': 'drive',
         }
