@@ -393,16 +393,32 @@ class Router:
         rail_graph = self._get_rail_graph()
 
         if rail_graph is None:
-            # Fallback to spine routing — NOT a bare straight line
-            logger.debug("%s: rail graph unavailable — using spine fallback", agent_id)
+            # Spine fallback: route via hardcoded station waypoints so rail
+            # agents travel through real station locations rather than a bare
+            # straight line across the map (including over water/hills).
+            logger.debug(
+                "%s: rail graph unavailable — spine station fallback for %s",
+                agent_id, mode,
+            )
             try:
                 from simulation.spatial.rail_spine import route_via_stations
-                route = route_via_stations(origin, dest, mode)
-                if len(route) > 2:
-                    return route
+                spine_route = route_via_stations(origin, dest, mode)
+                if spine_route and len(spine_route) > 2:
+                    logger.info(
+                        "✅ %s: %s spine fallback %d waypoints",
+                        agent_id, mode, len(spine_route),
+                    )
+                    return spine_route
+                # spine returned only 2 points (no stations in range) —
+                # still better than nothing but log it
+                logger.debug(
+                    "%s: spine returned 2-point route (no stations within range)",
+                    agent_id,
+                )
+                return spine_route if spine_route else [origin, dest]
             except Exception as exc:
-                logger.warning("%s: spine fallback failed: %s", agent_id, exc)
-            return [origin, dest]   # absolute last resort
+                logger.warning("%s: spine fallback failed: %s — bare line last resort", agent_id, exc)
+                return [origin, dest]
 
         # ── Snap to rail transfer nodes ───────────────────────────────────────
         orig_rail_node = self._nearest_rail_node(origin, rail_graph)

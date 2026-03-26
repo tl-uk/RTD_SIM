@@ -143,28 +143,29 @@ MODES: Dict[str, Dict[str, Any]] = {
         'range_km':       600,
     },
 
-    # ── Rail – ABSTRACT (no OSMnx routing) ───────────────────────
-    # Agents for these modes get a synthetic 2-point route via
-    # make_synthetic_route().  Phase 10b will replace this with
-    # real rail-graph routing via the generalized-cost router.
+    # ── Rail – routed via intermodal router ──────────────────────
+    # Phase 10b: these modes now route through Router._compute_intermodal_route
+    # which stitches: access leg (road) → rail spine/OpenRailMap → egress leg (road).
+    # routeable: True — the abstract guard in bdi_planner MUST NOT fire for rail.
+    # ferry/air remain routeable: False (genuine no-network abstractions).
     'local_train': {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      80,
-        'routeable':      True,   # was False — rail IS routeable via rail graph,
+        'routeable':      True,   # was False — caused straight-line abstractions
     },
     'intercity_train': {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      150,
-        'routeable':      True,
+        'routeable':      True,   # was False
     },
-    # Phase 10b: full generalized-cost rail routing via RailFreightAgent
+    # Full generalized-cost rail routing via RailFreightAgent
     'freight_rail': {
         'network':       'rail',
         'emissions_g_km': 35,   # electrified; 76 diesel
         'speed_kmh':      80,
-        'routeable':      True,
+        'routeable':      True,   # was False
     },
 
     # ── Ferry – ABSTRACT ─────────────────────────────────────────

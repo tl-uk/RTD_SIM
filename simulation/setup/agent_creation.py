@@ -257,10 +257,10 @@ def create_agents(
                     best = agent.planner.choose_action(scores)
                     agent.state.mode = best.mode
 
-                    # Build route: abstract routes (rail/ferry/air) are already
-                    # plain (lon,lat) 2-tuples from make_synthetic_route().
-                    # OSMnx routes are also (lon,lat) tuples.  Both are safe to
-                    # cast — but guard against any non-tuple element defensively.
+                    # Build route: road and rail routes are (lon, lat) tuples
+                    # returned by env.compute_route() / _compute_intermodal_route.
+                    # Abstract modes (ferry/air) return 2-tuples from
+                    # make_synthetic_route().  All forms are safe to cast below.
                     raw_route = best.route or []
                     safe_route = []
                     for pt in raw_route:

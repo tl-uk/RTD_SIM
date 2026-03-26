@@ -45,7 +45,11 @@ def render_map_tab(results, anim, current_data):
     # This allows display options to update the map without full page rerun
     show_rail = st.sidebar.checkbox("Show Rail Network (OpenRailMap)", value=True)
 
+    # Resolve the SpatialEnvironment so render_map can fetch the rail graph.
+    # SimulationResults stores it under different attribute names depending on
+    # the run path — try both so neither breaks.
     env = getattr(results, 'env', None) or getattr(results, 'spatial_environment', None)
+
     render_map_fragment(agent_states, results.infrastructure, show_rail, env=env)
     
     st.markdown("---")
@@ -72,17 +76,22 @@ def render_map_tab(results, anim, current_data):
 def render_map_fragment(agent_states, infrastructure_manager, show_rail, env=None):
     """
     Render map as a fragment - updates independently when display options change.
-    
-    This prevents full page reruns when checkboxes are toggled.
+
+    Args:
+        agent_states:           Current agent state list.
+        infrastructure_manager: InfrastructureManager instance.
+        show_rail:              Whether to render the OpenRailMap / spine layer.
+        env:                    SpatialEnvironment — carries the rail graph that
+                                render_map() needs to build the rail pydeck layer.
+                                Without this the layer is silently skipped even
+                                when show_rail=True.
     """
-    # Render map with current display settings from session state
     deck = render_map(
         agent_states=agent_states,
         show_agents=st.session_state.get('show_agents', True),
         show_routes=st.session_state.get('show_routes', True),
         show_infrastructure=st.session_state.get('show_infrastructure', True),
         show_rail=show_rail,
-        # show_rail=st.session_state.get('show_rail' True),
         infrastructure_manager=infrastructure_manager,
         env=env,
     )

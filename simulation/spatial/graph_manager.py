@@ -355,14 +355,65 @@ class GraphManager:
     def get_graph(self, network_type: str = 'all') -> Optional[Any]:
         """
         Get graph for specific network type.
-        
+
+        IMPORTANT: only 'all' falls back to primary_graph.  Every other
+        network type (walk, bike, drive, rail) returns None if not loaded
+        so callers receive a clear signal rather than silently getting the
+        wrong graph.  Previously 'rail' fell through to primary_graph (the
+        drive graph), causing rail agents to route on roads.
+
+        'rail' triggers just-in-time spine loading the first time it is
+        requested and the graph has not already been loaded by load_rail_graph().
+
         Args:
-            network_type: Network type ('all', 'walk', 'bike', 'drive')
-        
+            network_type: Network type ('all', 'walk', 'bike', 'drive', 'rail')
+
         Returns:
-            Graph or None if not loaded
+            Graph or None if not loaded / not available
         """
-        return self.graphs.get(network_type, self.primary_graph)
+        if network_type in self.graphs:
+            return self.graphs[network_type]
+
+        # JIT: load the rail spine the first time rail is requested
+        if network_type == 'rail':
+            return self._load_rail_jit()
+
+        # Only 'all' falls back to primary_graph — all other specific types
+        # return None so the caller can handle missing graphs explicitly
+        if network_type == 'all':
+            return self.primary_graph
+
+        return None
+
+    def _load_rail_jit(self) -> Optional[Any]:
+        """
+        Load the rail spine graph on first demand (just-in-time).
+
+        Called automatically by get_graph('rail') when no rail graph has
+        been registered yet.  Prevents repeated load attempts once it is
+        clear the spine is unavailable.
+
+        Returns:
+            Rail spine NetworkX graph or None.
+        """
+        if getattr(self, '_rail_load_attempted', False):
+            return None
+        self._rail_load_attempted = True
+        try:
+            from simulation.spatial.rail_spine import get_spine_graph
+            G = get_spine_graph()
+            if G is not None:
+                self.graphs['rail'] = G
+                logger.info(
+                    "✅ Rail spine loaded JIT: %d stations, %d edges",
+                    G.number_of_nodes(), G.number_of_edges(),
+                )
+            else:
+                logger.warning("Rail spine JIT load returned None")
+            return G
+        except Exception as exc:
+            logger.warning("Rail spine JIT load failed: %s", exc)
+            return None
     
     def get_nearest_node(
         self,
