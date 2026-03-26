@@ -393,11 +393,16 @@ class Router:
         rail_graph = self._get_rail_graph()
 
         if rail_graph is None:
-            logger.debug(
-                "%s: rail graph unavailable — synthetic route for %s",
-                agent_id, mode,
-            )
-            return [origin, dest]
+            # Fallback to spine routing — NOT a bare straight line
+            logger.debug("%s: rail graph unavailable — using spine fallback", agent_id)
+            try:
+                from simulation.spatial.rail_spine import route_via_stations
+                route = route_via_stations(origin, dest, mode)
+                if len(route) > 2:
+                    return route
+            except Exception as exc:
+                logger.warning("%s: spine fallback failed: %s", agent_id, exc)
+            return [origin, dest]   # absolute last resort
 
         # ── Snap to rail transfer nodes ───────────────────────────────────────
         orig_rail_node = self._nearest_rail_node(origin, rail_graph)

@@ -151,20 +151,20 @@ MODES: Dict[str, Dict[str, Any]] = {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      80,
-        'routeable':      False,
+        'routeable':      True,   # was False — rail IS routeable via rail graph,
     },
     'intercity_train': {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      150,
-        'routeable':      False,
+        'routeable':      True,
     },
     # Phase 10b: full generalized-cost rail routing via RailFreightAgent
     'freight_rail': {
         'network':       'rail',
         'emissions_g_km': 35,   # electrified; 76 diesel
         'speed_kmh':      80,
-        'routeable':      False,
+        'routeable':      True,
     },
 
     # ── Ferry – ABSTRACT ─────────────────────────────────────────

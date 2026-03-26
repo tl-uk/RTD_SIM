@@ -165,6 +165,8 @@
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/coordinate_utils.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/graph_manager.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/metrics_calculator.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/spatial/rail_network.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/spatial/rail_spine.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/router.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial_environment.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/time/__init__.py
@@ -172,6 +174,7 @@
 /Users/theo/Dev/Python/RTD_SIM/ui/__init__.py
 /Users/theo/Dev/Python/RTD_SIM/ui/animation_controls.py
 /Users/theo/Dev/Python/RTD_SIM/ui/components/__init__.py
+/Users/theo/Dev/Python/RTD_SIM/ui/components/rail_visualizer.py
 /Users/theo/Dev/Python/RTD_SIM/ui/components/synthetic_events_settings.py
 /Users/theo/Dev/Python/RTD_SIM/ui/components/temporal_settings.py
 /Users/theo/Dev/Python/RTD_SIM/ui/diagnostics_panel.py
