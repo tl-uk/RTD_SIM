@@ -380,17 +380,14 @@ def _render_influence_network(results, agents):
     # Explain what the updater is doing
     with st.expander("How peer influence flows into BDI"):
         st.markdown("""
-        **Before Phase 2** — `apply_social_influence()` in the simulation loop directly 
-        overwrote `agent.state.mode`, bypassing the BDI planner entirely.
-
-        **After Phase 2** — `BayesianBeliefUpdater._reweight_desires_from_peers()` computes 
+        `BayesianBeliefUpdater._reweight_desires_from_peers()` computes 
         the EV adoption rate among the agent's immediate neighbours and nudges 
         `agent.desires['eco']` by up to ±0.03 per update cycle (every 5 steps).
 
         The BDI planner then scores modes using the updated desire weights — social influence 
         now flows *through* the belief-desire-intention cycle rather than short-circuiting it.
 
-        **What the colour encodes**: green nodes have high `eco` desire (prefer EV/bike/bus), 
+        **Colour encodes**: green nodes have high `eco` desire (prefer EV/bike/bus), 
         grey nodes have low `eco` desire (prefer car). As peer influence accumulates over 
         200 steps, you should see clusters of similar-coloured nodes forming — this is 
         emergent homophily-driven opinion convergence.
