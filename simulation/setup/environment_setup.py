@@ -121,6 +121,20 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
         
         if progress_callback:
             progress_callback(0.15, f"✅ Loaded {region_name}")
+
+        # ── Load rail graph (OpenRailMap, fallback to hardcoded station spine) ──
+        # Done here so the rail graph is available before agent creation and
+        # visualization.  Non-blocking: failure logs a warning but never raises.
+        if progress_callback:
+            progress_callback(0.17, "🚆 Loading rail network…")
+        try:
+            rail_loaded = env.load_rail_graph()
+            if rail_loaded:
+                logger.info("✅ Rail graph ready")
+            else:
+                logger.info("⚠️  Rail graph unavailable — rail agents use station-spine routing")
+        except Exception as _rail_exc:
+            logger.warning("Rail graph load failed (non-fatal): %s", _rail_exc)
         
         # Verify congestion if enabled
         if config.use_congestion:

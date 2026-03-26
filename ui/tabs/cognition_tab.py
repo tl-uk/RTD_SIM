@@ -389,7 +389,7 @@ def _render_influence_network(results, agents):
 
         **Colour encodes**: green nodes have high `eco` desire (prefer EV/bike/bus), 
         grey nodes have low `eco` desire (prefer car). As peer influence accumulates over 
-        200 steps, you should see clusters of similar-coloured nodes forming — this is 
+        200 steps, there should be clusters of similar-coloured nodes forming — this is 
         emergent homophily-driven opinion convergence.
         """)
 

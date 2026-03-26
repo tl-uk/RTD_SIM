@@ -455,20 +455,34 @@ class BDIPlanner:
 
             # ── Abstract mode guard ─────────────────────────────────────────
             # Modes like local_train, ferry_electric, flight_domestic cannot be
-            # routed via OSMnx.  Generate a synthetic straight-line route so they
-            # appear on the map with a realistic distance for cost/emissions
-            # calculations and are never sent through env.compute_route().
+            # routed via OSMnx.  For rail modes we route through the Edinburgh
+            # station spine (origin → station_A → ... → station_B → dest) to
+            # produce a realistic multi-leg polyline instead of a bare diagonal.
+            # Ferry/air modes get a 2-point straight line (correct behaviour).
             if not is_routeable(mode):
                 try:
                     origin_pos = (float(origin[0]), float(origin[1]))
                     dest_pos   = (float(dest[0]),   float(dest[1]))
                 except Exception:
                     origin_pos, dest_pos = (0.0, 0.0), (0.0, 0.0)
+
                 dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
-                route   = make_synthetic_route(origin_pos, dest_pos, mode)
+
+                # Rail modes: route via real station waypoints
+                if get_network(mode) == 'rail':
+                    try:
+                        from simulation.spatial.rail_spine import route_via_stations
+                        route = route_via_stations(origin_pos, dest_pos, mode)
+                    except Exception as _re:
+                        logger.debug("rail_spine fallback: %s", _re)
+                        route = make_synthetic_route(origin_pos, dest_pos, mode)
+                else:
+                    # Ferry / air — straight line is correct
+                    route = make_synthetic_route(origin_pos, dest_pos, mode)
+
                 logger.debug(
-                    "   Abstract route: %s (%s) %.1fkm synthetic",
-                    mode, get_network(mode), dist_km,
+                    "   Abstract route: %s (%s) %.1fkm via %d waypoints",
+                    mode, get_network(mode), dist_km, len(route),
                 )
                 routing_results[mode] = f"abstract: {dist_km:.1f}km"
                 actions.append(Action(
@@ -900,7 +914,7 @@ class BDIPlanner:
             logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
 
-        # Near-range realism: consolidated — guards all calls against None infrastructure.
+        # Near-range realism: consolidated, guarded against None infrastructure.
         if mode in self.EV_RANGE_KM and self.infrastructure is not None:
             dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
             if est_trip_km > max_range * 0.8:
@@ -909,20 +923,20 @@ class BDIPlanner:
                 )
                 if nearest is None:
                     logger.debug(
-                        "%s not feasible: near-range (est_trip %.1fkm ~= %.1fkm) "
+                        "%s not feasible: near-range (est_trip %.1fkm) "
                         "and no charger within %.1fkm of destination",
-                        mode, est_trip_km, max_range, dest_nearby_km,
+                        mode, est_trip_km, dest_nearby_km,
                     )
                     return False
 
-        # Long-trip charger check — guard against None infrastructure.
+        # Long-trip charger check.
         if self.infrastructure is not None and trip_distance > max_range * 0.5:
             nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=5.0)
             if nearest is None:
                 logger.debug("%s not feasible: no charger within 5km of destination", mode)
                 return False
-        
-        return True
+
+                return True
     
     # This function gathers detailed parameters about the EV trip, including distance, 
     # nearest charger info, and grid stress factors.

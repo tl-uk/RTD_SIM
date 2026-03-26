@@ -78,13 +78,26 @@ def render_main_tabs(results, anim, current_data):
 def _render_map_tab(results, anim, agent_states, metrics):
     """Render map visualization tab."""
     st.subheader(f"Live View - Step {anim.current_step + 1}/{anim.total_steps}")
-    
+
+    # Rail network overlay toggle
+    show_rail = st.checkbox(
+        "🚆 Show Rail Network",
+        value=False,
+        key="show_rail_main",
+        help="Overlay Edinburgh / UK rail lines from OpenRailMap (or station spine)",
+    )
+
+    # Pull SpatialEnvironment from results if available
+    env = getattr(results, 'env', None) or getattr(results, 'spatial_environment', None)
+
     deck = render_map(
         agent_states=agent_states,
         show_agents=st.session_state.show_agents,
         show_routes=st.session_state.show_routes,
         show_infrastructure=st.session_state.show_infrastructure,
+        show_rail=show_rail,
         infrastructure_manager=results.infrastructure,
+        env=env,
     )
     
     st.pydeck_chart(deck, width='stretch')
