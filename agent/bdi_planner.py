@@ -455,34 +455,20 @@ class BDIPlanner:
 
             # ── Abstract mode guard ─────────────────────────────────────────
             # Modes like local_train, ferry_electric, flight_domestic cannot be
-            # routed via OSMnx.  For rail modes we route through the Edinburgh
-            # station spine (origin → station_A → ... → station_B → dest) to
-            # produce a realistic multi-leg polyline instead of a bare diagonal.
-            # Ferry/air modes get a 2-point straight line (correct behaviour).
+            # routed via OSMnx.  Generate a synthetic straight-line route so they
+            # appear on the map with a realistic distance for cost/emissions
+            # calculations and are never sent through env.compute_route().
             if not is_routeable(mode):
                 try:
                     origin_pos = (float(origin[0]), float(origin[1]))
                     dest_pos   = (float(dest[0]),   float(dest[1]))
                 except Exception:
                     origin_pos, dest_pos = (0.0, 0.0), (0.0, 0.0)
-
                 dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
-
-                # Rail modes: route via real station waypoints
-                if get_network(mode) == 'rail':
-                    try:
-                        from simulation.spatial.rail_spine import route_via_stations
-                        route = route_via_stations(origin_pos, dest_pos, mode)
-                    except Exception as _re:
-                        logger.debug("rail_spine fallback: %s", _re)
-                        route = make_synthetic_route(origin_pos, dest_pos, mode)
-                else:
-                    # Ferry / air — straight line is correct
-                    route = make_synthetic_route(origin_pos, dest_pos, mode)
-
+                route   = make_synthetic_route(origin_pos, dest_pos, mode)
                 logger.debug(
-                    "   Abstract route: %s (%s) %.1fkm via %d waypoints",
-                    mode, get_network(mode), dist_km, len(route),
+                    "   Abstract route: %s (%s) %.1fkm synthetic",
+                    mode, get_network(mode), dist_km,
                 )
                 routing_results[mode] = f"abstract: {dist_km:.1f}km"
                 actions.append(Action(
@@ -914,29 +900,43 @@ class BDIPlanner:
             logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
 
-        # Near-range realism: consolidated, guarded against None infrastructure.
-        if mode in self.EV_RANGE_KM and self.infrastructure is not None:
+        # Near‑range realism: if close to range limit, require a charger very near destination (stricter than 5km)
+        if mode in self.EV_RANGE_KM:
             dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
+            # Use estimated route km for this threshold
             if est_trip_km > max_range * 0.8:
-                nearest = self.infrastructure.find_nearest_charger(
-                    dest, max_distance_km=dest_nearby_km
-                )
+                nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
                 if nearest is None:
                     logger.debug(
-                        "%s not feasible: near-range (est_trip %.1fkm) "
-                        "and no charger within %.1fkm of destination",
-                        mode, est_trip_km, dest_nearby_km,
+                        f"{mode} not feasible: near-range (est_trip {est_trip_km:.1f}km ≈ {max_range:.1f}km) "
+                        f"and no charger within {dest_nearby_km:.1f}km of destination"
                     )
                     return False
-
-        # Long-trip charger check.
-        if self.infrastructure is not None and trip_distance > max_range * 0.5:
-            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=5.0)
+        # Effect: trips approaching the EV’s range require a closer charger at the destination, adding realism without 
+        # removing your existing 5 km rule for long trips.
+        
+        # Near‑range realism: if close to range limit, require a charger very near destination.
+        # This complements (does not replace) your existing 5km check for long trips.
+        if trip_distance > max_range * 0.8:
+            dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))  # stricter than 5km for near-range
+            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
             if nearest is None:
-                logger.debug("%s not feasible: no charger within 5km of destination", mode)
+                logger.debug(
+                    f"{mode} not feasible: near-range ({trip_distance:.1f}km ≈ {max_range:.1f}km) "
+                    f"and no charger within {dest_nearby_km:.1f}km of destination"
+                )
                 return False
-
-                return True
+        
+        # Check charger availability for long trips (ONLY for vehicles)
+        if trip_distance > max_range * 0.5:
+            nearest = self.infrastructure.find_nearest_charger(
+                dest, max_distance_km=5.0
+            )
+            if nearest is None:
+                logger.debug(f"{mode} not feasible: no charger within 5km of destination")
+                return False
+        
+        return True
     
     # This function gathers detailed parameters about the EV trip, including distance, 
     # nearest charger info, and grid stress factors.
@@ -1033,9 +1033,56 @@ class BDIPlanner:
         cost_norm = min(1.0, money / 5.0)
         emissions_norm = min(1.0, emissions_g / 500.0)
         comfort_penalty = 1.0 - comfort
- 
-        # Infrastructure adjustments
-        infrastructure_penalty = 0.0
+
+        # ── Abstract mode cost corrections ──────────────────────────────────
+        # Rail/ferry/air abstract routes return a straight-line 2-point route.
+        # route_distance_km() on 2 points gives straight-line distance — shorter
+        # than the actual road distance that competing modes are measured on.
+        # This makes rail artificially fast/cheap vs EV/bus/car.
+        # Corrections applied here:
+        #   1. Distance correction: multiply by realistic detour factor so
+        #      distance-derived time is comparable to road routes.
+        #   2. Transfer penalty: boarding a train/ferry costs ~15–20 min
+        #      (walk to station + wait + board) — this is the critical missing
+        #      cost that models the 'S' (Shift) friction in ASI.
+        #   3. Monetary cost uplift: train/ferry fares are not zero.
+        if params.get('abstract'):
+            network = params.get('network', 'rail')
+            trip_dist_km = params.get('trip_distance_km', 0.0)
+
+            # Detour/realism factor — rail is not straight-line in practice
+            _DETOUR = {'rail': 1.20, 'ferry': 1.05, 'air': 1.02}
+            detour = _DETOUR.get(network, 1.15)
+
+            # Transfer penalty in minutes (walk to station + wait + board)
+            # Read from context (set by policy engine) or use empirical defaults
+            _TRANSFER_MIN = {'rail': 18.0, 'ferry': 30.0, 'air': 60.0}
+            transfer_min = float(
+                context.get('boarding_penalty_min')
+                or _TRANSFER_MIN.get(network, 18.0)
+            )
+
+            # Monetary cost: approximate per-km fare for passenger rail
+            # (UK avg ~0.35 £/km local, ~0.25 £/km intercity, ~0.80 £/km ferry)
+            _FARE_GBP_KM = {'rail': 0.30, 'ferry': 0.50, 'air': 0.20}
+            fare_gbp_km = _FARE_GBP_KM.get(network, 0.30)
+
+            # Apply corrections — increase time_norm and cost_norm
+            # so rail competes on realistic terms, not straight-line physics
+            corrected_time_min = (trip_dist_km * detour / max(
+                {'rail': 1.33, 'ferry': 0.50, 'air': 11.67}.get(network, 1.0), 0.1
+            )) + transfer_min
+            time_norm = min(1.0, corrected_time_min / 60.0)
+
+            fare_total = trip_dist_km * fare_gbp_km
+            cost_norm = min(1.0, fare_total / 5.0)
+
+            logger.debug(
+                "Abstract cost correction %s (%s): "
+                "time %.1f→%.1f min (+%.0f transfer), fare £%.2f",
+                mode, network, time_min, corrected_time_min,
+                transfer_min, fare_total,
+            )
         
         if mode in self.EV_RANGE_KM and self.has_infrastructure:
             trip_distance = params.get('trip_distance_km', 0)
