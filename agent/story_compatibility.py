@@ -778,15 +778,38 @@ def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
         # ====================================================================
         # 5. General Passenger Transit & Commuting Ontology
         # ====================================================================
-        if j_type in ['passenger_commute', 'passenger_errand', 'passenger_transit', 'passenger_leisure', 'business_travel']:
+        if j_type in ['passenger_commute', 'passenger_errand', 'passenger_transit',
+                      'passenger_leisure', 'business_travel', 'passenger_special']:
             
-            # Allow freight operators to commute (e.g., night_shift), but block them from leisure/tourism
+            # Allow freight operators to commute (e.g., night_shift), but block
+            # them from leisure/tourism/scenic jobs
             if p_type == 'freight':
-                return j_type == 'passenger_commute'
+                return j_type in ('passenger_commute',)
                 
             if j_type == 'business_travel':
-                return user_id in ['business_commuter', 'business_traveler', 'air_freight_operator']
-                
+                return user_id in ['business_commuter', 'business_traveler',
+                                   'air_freight_operator']
+
+            # Tourist-specific jobs: only tourist personas and multi-modal
+            # travellers; block pure commuter personas from scenic-rail etc.
+            if j_type == 'passenger_special' or any(
+                kw in job_id for kw in ('scenic', 'tourist_', 'exploration', 'cruise')
+            ):
+                tourist_personas = [
+                    'tourist', 'tourist_visitor', 'long_distance_commuter',
+                    'business_traveler', 'eco_warrior', 'retired_commuter',
+                    'elderly_non_driver', 'accessibility_user',
+                ]
+                return user_id in tourist_personas
+
+            # Rail-operations passenger jobs (commuter_rail_journey,
+            # intercity_train_commute, multi_modal_commute, rail_multimodal_transfer)
+            # — accessible to any non-freight commuter/traveller persona
+            if any(kw in job_id for kw in ('rail', 'train', 'commuter_rail',
+                                            'intercity_train', 'multi_modal')):
+                blocked = ['elderly_non_driver', 'shift_worker']
+                return p_type == 'passenger' and user_id not in blocked
+
             return True
 
         # ====================================================================
@@ -864,86 +887,6 @@ def filter_compatible_combinations(
 
     _FILTER_CACHE[cache_key] = compatible
     return list(compatible)
-
-# ============================================================================
-# Compatibility Check Function
-# ============================================================================
-
-# def is_compatible(user_story_id: str, job_story_id: str) -> bool:
-#     """
-#     Check if user + job combination makes sense (whitelist-based).
-
-#     Args:
-#         user_story_id: User persona (e.g., 'concerned_parent')
-#         job_story_id: Job/task type (e.g., 'shopping_trip')
-
-#     Returns:
-#         True if compatible, False otherwise
-#     """
-#     if job_story_id in COMPATIBLE_USERS_FOR_JOB:
-#         allowed_users = COMPATIBLE_USERS_FOR_JOB[job_story_id]
-#         if user_story_id in allowed_users:
-#             return True
-#         else:
-#             logger.debug(
-#                 f"❌ Blocked: {user_story_id} + {job_story_id} "
-#                 f"(not in whitelist)"
-#             )
-#             return False
-
-#     # Safe default: block unknown jobs
-#     logger.warning(
-#         f"⚠️ Job '{job_story_id}' has NO WHITELIST — blocking all users. "
-#         f"(user: {user_story_id})"
-#     )
-#     return False
-
-
-# def filter_compatible_combinations(
-#     user_story_ids: List[str],
-#     job_story_ids: List[str]
-# ) -> List[Tuple[str, str]]:
-#     """
-#     Filter to only compatible user + job combinations.
-
-#     Results are cached by input set so that repeated calls (UI tab renders,
-#     agent creation phases) with the same persona/job lists pay the O(N×M)
-#     whitelist cost only once per simulation run.
-
-#     Args:
-#         user_story_ids: List of user personas
-#         job_story_ids:  List of job types
-
-#     Returns:
-#         List of (user, job) tuples that are compatible
-#     """
-#     cache_key = (frozenset(user_story_ids), frozenset(job_story_ids))
-
-#     if cache_key in _FILTER_CACHE:
-#         cached = _FILTER_CACHE[cache_key]
-#         total_combos = len(user_story_ids) * len(job_story_ids)
-#         logger.info(
-#             "✅ Whitelist filtering: %d/%d allowed (cached — 0 new evaluations)",
-#             len(cached), total_combos,
-#         )
-#         return list(cached)   # return a copy so callers can mutate freely
-
-#     compatible = []
-#     for user_story in user_story_ids:
-#         for job_story in job_story_ids:
-#             if is_compatible(user_story, job_story):
-#                 compatible.append((user_story, job_story))
-
-#     total_combos = len(user_story_ids) * len(job_story_ids)
-#     filtered_count = total_combos - len(compatible)
-
-#     logger.info(
-#         "✅ Whitelist filtering: %d/%d allowed (%d blocked)",
-#         len(compatible), total_combos, filtered_count,
-#     )
-
-#     _FILTER_CACHE[cache_key] = compatible
-#     return list(compatible)
 
 
 def get_missing_whitelists(job_story_ids: List[str]) -> List[str]:

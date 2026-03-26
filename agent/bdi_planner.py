@@ -455,34 +455,20 @@ class BDIPlanner:
 
             # ── Abstract mode guard ─────────────────────────────────────────
             # Modes like local_train, ferry_electric, flight_domestic cannot be
-            # routed via OSMnx.  For rail modes we route through the Edinburgh
-            # station spine (origin → station_A → ... → station_B → dest) to
-            # produce a realistic multi-leg polyline instead of a bare diagonal.
-            # Ferry/air modes get a 2-point straight line (correct behaviour).
+            # routed via OSMnx.  Generate a synthetic straight-line route so they
+            # appear on the map with a realistic distance for cost/emissions
+            # calculations and are never sent through env.compute_route().
             if not is_routeable(mode):
                 try:
                     origin_pos = (float(origin[0]), float(origin[1]))
                     dest_pos   = (float(dest[0]),   float(dest[1]))
                 except Exception:
                     origin_pos, dest_pos = (0.0, 0.0), (0.0, 0.0)
-
                 dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
-
-                # Rail modes: route via real station waypoints
-                if get_network(mode) == 'rail':
-                    try:
-                        from simulation.spatial.rail_spine import route_via_stations
-                        route = route_via_stations(origin_pos, dest_pos, mode)
-                    except Exception as _re:
-                        logger.debug("rail_spine fallback: %s", _re)
-                        route = make_synthetic_route(origin_pos, dest_pos, mode)
-                else:
-                    # Ferry / air — straight line is correct
-                    route = make_synthetic_route(origin_pos, dest_pos, mode)
-
+                route   = make_synthetic_route(origin_pos, dest_pos, mode)
                 logger.debug(
-                    "   Abstract route: %s (%s) %.1fkm via %d waypoints",
-                    mode, get_network(mode), dist_km, len(route),
+                    "   Abstract route: %s (%s) %.1fkm synthetic",
+                    mode, get_network(mode), dist_km,
                 )
                 routing_results[mode] = f"abstract: {dist_km:.1f}km"
                 actions.append(Action(
@@ -914,29 +900,43 @@ class BDIPlanner:
             logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
 
-        # Near-range realism: consolidated, guarded against None infrastructure.
-        if mode in self.EV_RANGE_KM and self.infrastructure is not None:
+        # Near‑range realism: if close to range limit, require a charger very near destination (stricter than 5km)
+        if mode in self.EV_RANGE_KM:
             dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
+            # Use estimated route km for this threshold
             if est_trip_km > max_range * 0.8:
-                nearest = self.infrastructure.find_nearest_charger(
-                    dest, max_distance_km=dest_nearby_km
-                )
+                nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
                 if nearest is None:
                     logger.debug(
-                        "%s not feasible: near-range (est_trip %.1fkm) "
-                        "and no charger within %.1fkm of destination",
-                        mode, est_trip_km, dest_nearby_km,
+                        f"{mode} not feasible: near-range (est_trip {est_trip_km:.1f}km ≈ {max_range:.1f}km) "
+                        f"and no charger within {dest_nearby_km:.1f}km of destination"
                     )
                     return False
-
-        # Long-trip charger check.
-        if self.infrastructure is not None and trip_distance > max_range * 0.5:
-            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=5.0)
+        # Effect: trips approaching the EV’s range require a closer charger at the destination, adding realism without 
+        # removing your existing 5 km rule for long trips.
+        
+        # Near‑range realism: if close to range limit, require a charger very near destination.
+        # This complements (does not replace) your existing 5km check for long trips.
+        if trip_distance > max_range * 0.8:
+            dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))  # stricter than 5km for near-range
+            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
             if nearest is None:
-                logger.debug("%s not feasible: no charger within 5km of destination", mode)
+                logger.debug(
+                    f"{mode} not feasible: near-range ({trip_distance:.1f}km ≈ {max_range:.1f}km) "
+                    f"and no charger within {dest_nearby_km:.1f}km of destination"
+                )
                 return False
-
-                return True
+        
+        # Check charger availability for long trips (ONLY for vehicles)
+        if trip_distance > max_range * 0.5:
+            nearest = self.infrastructure.find_nearest_charger(
+                dest, max_distance_km=5.0
+            )
+            if nearest is None:
+                logger.debug(f"{mode} not feasible: no charger within 5km of destination")
+                return False
+        
+        return True
     
     # This function gathers detailed parameters about the EV trip, including distance, 
     # nearest charger info, and grid stress factors.
@@ -1033,10 +1033,42 @@ class BDIPlanner:
         cost_norm = min(1.0, money / 5.0)
         emissions_norm = min(1.0, emissions_g / 500.0)
         comfort_penalty = 1.0 - comfort
- 
+
+        # ── Abstract mode schedule-risk adjustment ────────────────────────────
+        # Rail/ferry/air services run on fixed schedules.  If an agent misses a
+        # train there is a wait cost that does not exist for car/bike/EV.
+        # This is separate from the boarding_penalty (already in MetricsCalculator)
+        # and captures the agent's *preference* response to that risk.
+        #
+        # Only applied to abstract modes — routeable modes have no schedule risk.
+        _ABSTRACT_MODES = {
+            'local_train', 'intercity_train', 'freight_rail',
+            'ferry_diesel', 'ferry_electric',
+            'flight_domestic', 'flight_electric',
+        }
+        schedule_risk_penalty = 0.0
+        if mode in _ABSTRACT_MODES:
+            # Agents who value reliability penalise scheduled modes more
+            w_reliability = desires.get('reliability', desires.get('maximize_reliability', 0.5))
+            # Read scenario-tuned boarding penalty if available; else use defaults
+            _DEFAULT_BOARD = {'local_train': 20, 'intercity_train': 25,
+                              'freight_rail': 30, 'ferry_diesel': 35,
+                              'ferry_electric': 35, 'flight_domestic': 75,
+                              'flight_electric': 75}
+            boarding_min = float(
+                context.get('boarding_penalty_min')
+                or _DEFAULT_BOARD.get(mode, 20)
+            )
+            # Normalise penalty: 20 min → 0.33, 75 min → 1.25
+            schedule_risk_penalty = w_reliability * (boarding_min / 60.0) * 0.5
+            logger.debug(
+                "Schedule risk penalty for %s: %.3f (reliability=%.2f, board=%dmin)",
+                mode, schedule_risk_penalty, w_reliability, boarding_min,
+            )
+
         # Infrastructure adjustments
         infrastructure_penalty = 0.0
-        
+
         if mode in self.EV_RANGE_KM and self.has_infrastructure:
             trip_distance = params.get('trip_distance_km', 0)
             max_range = self.EV_RANGE_KM.get(mode, 350.0)
@@ -1098,6 +1130,7 @@ class BDIPlanner:
             + w_risk * risk
             + w_eco * emissions_norm
             + infrastructure_penalty
+            + schedule_risk_penalty   # abstract mode schedule/reliability cost
         )
 
         # Apply freight mode preference bonuses

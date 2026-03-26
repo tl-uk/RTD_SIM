@@ -545,6 +545,43 @@ def run_simulation_loop(
                  for p in _scenario_mode_policies],
             )
 
+    # ── Propagate generalised cost parameters into every agent's context ──────
+    # The BDI cost function reads boarding_penalty_min, carbon_tax_gbp_tco2,
+    # etc. from agent_context so that scenario policy changes (e.g. a carbon
+    # tax hike) immediately shift the effective rail/road cost differential
+    # without needing a full replanning cycle.
+    #
+    # Defaults match _DEFAULT_POLICY in router.py so results are consistent
+    # whether cost() or Router.compute_route() is called first.
+    _gen_cost_defaults = {
+        'boarding_penalty_min': 20.0,    # walk-to-station + wait
+        'carbon_tax_gbp_tco2': 0.0,      # £0 default (no carbon tax)
+        'energy_price_gbp_km': 0.12,     # ~12p/km road energy
+        'value_of_time_gbp_h': 10.0,     # UK DfT avg VoT
+    }
+    # Extract scenario-level overrides from active scenario policies
+    if _scenario_mode_policies:
+        for _pol in _scenario_mode_policies:
+            _param = _pol.get('parameter', '')
+            _val   = _pol.get('value', None)
+            if _param == 'carbon_tax' and _val is not None:
+                _gen_cost_defaults['carbon_tax_gbp_tco2'] = float(_val)
+            elif _param == 'boarding_penalty_min' and _val is not None:
+                _gen_cost_defaults['boarding_penalty_min'] = float(_val)
+            elif _param == 'energy_price_gbp_km' and _val is not None:
+                _gen_cost_defaults['energy_price_gbp_km'] = float(_val)
+
+    for _agent in agents:
+        ctx = getattr(_agent, 'agent_context', None)
+        if ctx is not None:
+            for k, v in _gen_cost_defaults.items():
+                ctx.setdefault(k, v)   # don't overwrite if FusedIdentity already set it
+
+    logger.debug(
+        "Generalised cost params seeded into %d agent contexts: %s",
+        len(agents), _gen_cost_defaults,
+    )
+
     for step in range(config.steps):
         # Initialize agent states for this step
         agent_states = []
