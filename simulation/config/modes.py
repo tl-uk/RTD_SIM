@@ -151,21 +151,21 @@ MODES: Dict[str, Dict[str, Any]] = {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      80,
-        'routeable':      False,
+        'routeable':      True,
     },
     'intercity_train': {
         'network':       'rail',
         'emissions_g_km': 41,
         'speed_kmh':      150,
-        'routeable':      False,
+        'routeable':      True,
     },
     # Phase 10b stub – uncomment when RailFreightAgent is ready
-    # 'freight_rail': {
-    #     'network':       'rail',
-    #     'emissions_g_km': 35,   # electrified; 76 diesel
-    #     'speed_kmh':      80,
-    #     'routeable':      False,
-    # },
+    'freight_rail': {
+        'network':       'rail',
+        'emissions_g_km': 35,   # electrified; 76 diesel
+        'speed_kmh':      80,
+        'routeable':      True,
+    },
 
     # ── Ferry – ABSTRACT ─────────────────────────────────────────
     'ferry_diesel': {

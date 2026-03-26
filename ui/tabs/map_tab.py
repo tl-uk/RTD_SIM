@@ -72,13 +72,16 @@ def render_map_fragment(agent_states, infrastructure_manager):
     
     This prevents full page reruns when checkboxes are toggled.
     """
-    
+    show_rail = st.sidebar.checkbox("Show Rail Network (OpenRailMap)", value=True)
+
     # Render map with current display settings from session state
     deck = render_map(
         agent_states=agent_states,
         show_agents=st.session_state.get('show_agents', True),
         show_routes=st.session_state.get('show_routes', True),
         show_infrastructure=st.session_state.get('show_infrastructure', True),
+        show_rail=show_rail,
+        # show_rail=st.session_state.get('show_rail' True),
         infrastructure_manager=infrastructure_manager,
     )
     

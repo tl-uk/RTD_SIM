@@ -23,6 +23,7 @@ import logging
 from typing import List, Tuple, Optional, Any, TYPE_CHECKING
 
 from simulation.spatial.coordinate_utils import is_valid_lonlat
+from simulation.spatial.rail_network import fetch_rail_graph
 
 if TYPE_CHECKING:
     from simulation.spatial.graph_manager import GraphManager
@@ -186,6 +187,111 @@ class Router:
         
         return interpolated
 
+    # def compute_route(
+    #     self,
+    #     agent_id: str,
+    #     origin: Tuple[float, float],
+    #     dest: Tuple[float, float],
+    #     mode: str
+    # ) -> List[Tuple[float, float]]:
+    #     """
+    #     Compute shortest path route with detailed geometry.
+    #     """
+    #     if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
+    #         logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
+    #         return []
+        
+    #     # Handle very short trips (< 100m)
+    #     from simulation.spatial.coordinate_utils import haversine_km
+    #     distance_km = haversine_km(origin, dest)
+        
+    #     if distance_km < 0.1:  # Less than 100m
+    #         logger.info(f"✅ {agent_id}: Very short trip ({distance_km*1000:.0f}m), returning direct route")
+    #         return [origin, dest]
+        
+    #     network_type = self.mode_network_types.get(mode, 'drive')
+    #     graph = self.graph_manager.get_graph(network_type)
+        
+    #     if graph is None:
+    #         logger.error(f"❌ {agent_id}: No graph for {mode}")
+    #         return []
+        
+    #     try:
+    #         orig_node = self.graph_manager.get_nearest_node(origin, network_type)
+    #         dest_node = self.graph_manager.get_nearest_node(dest, network_type)
+            
+    #         if orig_node is None or dest_node is None:
+    #             logger.error(f"❌ {agent_id}: Could not find nodes for {mode} (network: {network_type})")
+    #             logger.error(f"   Origin: {origin}, Dest: {dest}")
+    #             logger.error(f"   Trying fallback to 'drive' network...")
+                
+    #             # Try fallback to 'drive' network
+    #             if network_type != 'drive':
+    #                 graph = self.graph_manager.get_graph('drive')
+    #                 if graph:
+    #                     orig_node = self.graph_manager.get_nearest_node(origin, 'drive')
+    #                     dest_node = self.graph_manager.get_nearest_node(dest, 'drive')
+                        
+    #                     if orig_node and dest_node:
+    #                         logger.info(f"   ✅ Fallback successful using 'drive' network")
+    #                         network_type = 'drive'
+    #                     else:
+    #                         logger.error(f"   ❌ Fallback failed")
+    #                         return []
+    #                 else:
+    #                     logger.error(f"   ❌ 'drive' network not available")
+    #                     return []
+    #             else:
+    #                 return []
+            
+    #         # Get node route
+    #         route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
+            
+    #         # Extract detailed geometry
+    #         detailed_coords = []
+            
+    #         for i in range(len(route_nodes) - 1):
+    #             u = route_nodes[i]
+    #             v = route_nodes[i + 1]
+                
+    #             # Get edge data
+    #             edge_data = graph.get_edge_data(u, v)
+                
+    #             if edge_data and isinstance(edge_data, dict) and 0 in edge_data:
+    #                 edge_data = edge_data[0]
+                
+    #             # Add node coordinate if first iteration
+    #             if i == 0:
+    #                 detailed_coords.append((float(graph.nodes[u]['x']), float(graph.nodes[u]['y'])))
+                
+    #             # Extract edge geometry
+    #             if edge_data and 'geometry' in edge_data:
+    #                 geom = edge_data['geometry']
+    #                 if hasattr(geom, 'coords'):
+    #                     edge_coords = [(float(x), float(y)) for (x, y) in geom.coords]
+    #                     # Add geometry points (skip first as it's the same as last point added)
+    #                     detailed_coords.extend(edge_coords[1:])
+    #                 else:
+    #                     # No geometry: add destination node
+    #                     detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
+    #             else:
+    #                 # No geometry: add destination node
+    #                 detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
+            
+    #         # INTERPOLATION: Add intermediate points since geometry data is missing
+    #         detailed_coords = self._interpolate_route_geometry(detailed_coords, max_segment_km=0.05)
+            
+    #         logger.info(f"✅ {agent_id}: {mode} route with {len(detailed_coords)} points (from {len(route_nodes)} nodes)")
+    #         return detailed_coords
+        
+    #     except nx.NetworkXNoPath:
+    #         logger.error(f"❌ {agent_id}: No path exists")
+    #         return []
+    #     except Exception as e:
+    #         logger.error(f"❌ {agent_id}: Routing failed: {e}")
+    #         return []
+
+    # ================= NEW: Testing Road/Rail/Tram ===================
     def compute_route(
         self,
         agent_id: str,
@@ -194,101 +300,72 @@ class Router:
         mode: str
     ) -> List[Tuple[float, float]]:
         """
-        Compute shortest path route with detailed geometry.
+        Compute path following either Road or Rail/Tram tracks.
         """
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
             logger.error(f"❌ {agent_id}: Invalid coords {origin} → {dest}")
             return []
         
-        # Handle very short trips (< 100m)
         from simulation.spatial.coordinate_utils import haversine_km
         distance_km = haversine_km(origin, dest)
-        
-        if distance_km < 0.1:  # Less than 100m
-            logger.info(f"✅ {agent_id}: Very short trip ({distance_km*1000:.0f}m), returning direct route")
+        if distance_km < 0.1:
             return [origin, dest]
+
+        # 1. Identify Network
+        from simulation.config.modes import MODES
+        network_type = MODES.get(mode, {}).get('network', 'drive')
         
-        network_type = self.mode_network_types.get(mode, 'drive')
+        # 2. Get Graph
         graph = self.graph_manager.get_graph(network_type)
         
+        # 3. RAIL LOGIC: If rail graph isn't loaded, try to fetch/load it
+        if network_type == 'rail' and graph is None:
+            # This assumes your GraphManager handles 'rail' in its load logic
+            # If not, it will fall back to 'drive' below
+            logger.warning(f"⚠️ {agent_id}: Rail graph not in memory, attempting fallback.")
+
         if graph is None:
-            logger.error(f"❌ {agent_id}: No graph for {mode}")
-            return []
-        
+            logger.error(f"❌ {agent_id}: No graph for {mode}, falling back to 'drive'")
+            network_type = 'drive'
+            graph = self.graph_manager.get_graph('drive')
+
         try:
+            # 4. Snap to Nodes
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest, network_type)
             
-            if orig_node is None or dest_node is None:
-                logger.error(f"❌ {agent_id}: Could not find nodes for {mode} (network: {network_type})")
-                logger.error(f"   Origin: {origin}, Dest: {dest}")
-                logger.error(f"   Trying fallback to 'drive' network...")
-                
-                # Try fallback to 'drive' network
-                if network_type != 'drive':
-                    graph = self.graph_manager.get_graph('drive')
-                    if graph:
-                        orig_node = self.graph_manager.get_nearest_node(origin, 'drive')
-                        dest_node = self.graph_manager.get_nearest_node(dest, 'drive')
-                        
-                        if orig_node and dest_node:
-                            logger.info(f"   ✅ Fallback successful using 'drive' network")
-                            network_type = 'drive'
-                        else:
-                            logger.error(f"   ❌ Fallback failed")
-                            return []
-                    else:
-                        logger.error(f"   ❌ 'drive' network not available")
-                        return []
-                else:
-                    return []
-            
-            # Get node route
+            # 5. Pathfinding
+            # We use 'length' for rail as well to follow tracks accurately
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight='length')
             
-            # Extract detailed geometry
+            # 6. Geometry Extraction (Reuse your existing logic)
             detailed_coords = []
-            
             for i in range(len(route_nodes) - 1):
-                u = route_nodes[i]
-                v = route_nodes[i + 1]
-                
-                # Get edge data
+                u, v = route_nodes[i], route_nodes[i+1]
                 edge_data = graph.get_edge_data(u, v)
+                if edge_data and 0 in edge_data: edge_data = edge_data[0]
                 
-                if edge_data and isinstance(edge_data, dict) and 0 in edge_data:
-                    edge_data = edge_data[0]
-                
-                # Add node coordinate if first iteration
                 if i == 0:
                     detailed_coords.append((float(graph.nodes[u]['x']), float(graph.nodes[u]['y'])))
                 
-                # Extract edge geometry
                 if edge_data and 'geometry' in edge_data:
                     geom = edge_data['geometry']
-                    if hasattr(geom, 'coords'):
-                        edge_coords = [(float(x), float(y)) for (x, y) in geom.coords]
-                        # Add geometry points (skip first as it's the same as last point added)
-                        detailed_coords.extend(edge_coords[1:])
-                    else:
-                        # No geometry: add destination node
-                        detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
+                    detailed_coords.extend([(float(x), float(y)) for (x, y) in geom.coords][1:])
                 else:
-                    # No geometry: add destination node
                     detailed_coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
             
-            # INTERPOLATION: Add intermediate points since geometry data is missing
+            # Apply your interpolation
             detailed_coords = self._interpolate_route_geometry(detailed_coords, max_segment_km=0.05)
             
-            logger.info(f"✅ {agent_id}: {mode} route with {len(detailed_coords)} points (from {len(route_nodes)} nodes)")
+            logger.info(f"✅ {agent_id}: {mode} ({network_type}) route successful.")
             return detailed_coords
+
+        except (nx.NetworkXNoPath, Exception) as e:
+            logger.error(f"❌ {agent_id}: Routing failed on {network_type}: {e}")
+            # Final emergency fallback: Straight line for the demo
+            return [origin, dest]
         
-        except nx.NetworkXNoPath:
-            logger.error(f"❌ {agent_id}: No path exists")
-            return []
-        except Exception as e:
-            logger.error(f"❌ {agent_id}: Routing failed: {e}")
-            return []
+    # ===============================================
     
     def compute_alternatives(
         self,

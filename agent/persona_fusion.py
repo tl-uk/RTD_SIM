@@ -1023,6 +1023,17 @@ class PersonaFusion:
             base = max(0.20, base - 0.10)
         return round(base, 2)
 
+    @staticmethod
+    def _determine_network_type(job_id: str) -> str:
+        """Map job context to physical network type."""
+        # Add rail/tram detection
+        if any(w in job_id for w in ('rail', 'train', 'tram')):
+            return 'rail'
+        if 'walk' in job_id:
+            return 'walk'
+        if 'bike' in job_id or 'cycling' in job_id:
+            return 'bike'
+        return 'drive'
 
 # ─────────────────────────────────────────────────────────────────
 # MODULE-LEVEL SINGLETON (convenience)
