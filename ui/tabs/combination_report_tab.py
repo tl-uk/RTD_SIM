@@ -24,7 +24,7 @@ def render_combination_report_tab():
     st.header("🔍 Agent Combination Report")
     
     st.markdown("""
-    This tool validates that user personas and job types are sensibly combined.
+    Ontology-driven Dynamic heuristic Resolver tool validates that user personas and job types are sensibly combined.
     It helps identify nonsensical combinations like "tourist + freight_delivery".
     """)
     

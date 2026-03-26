@@ -387,7 +387,7 @@ def _render_influence_network(results, agents):
         The BDI planner then scores modes using the updated desire weights — social influence 
         now flows *through* the belief-desire-intention cycle rather than short-circuiting it.
 
-        **Colour encodes**: green nodes have high `eco` desire (prefer EV/bike/bus), 
+        **Colour encoding**: green nodes have high `eco` desire (prefer EV/bike/bus), 
         grey nodes have low `eco` desire (prefer car). As peer influence accumulates over 
         200 steps, there should be clusters of similar-coloured nodes forming — this is 
         emergent homophily-driven opinion convergence.

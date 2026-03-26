@@ -1235,8 +1235,7 @@ def _render_advanced_features():
                 with st.expander("🕸️ Neighbourhood Influence", expanded=False):
                     st.markdown(
                         "Control the **structure** and **strength** of peer influence. "
-                        "These settings apply equally to NHS managers, "
-                        "Tesco drivers, paramedics, and commuters."
+                        "These settings apply equally to all agents."
                     )
                     network_k = st.slider(
                         "Average ties per agent (k)",
