@@ -135,6 +135,28 @@ def setup_environment(config: SimulationConfig, progress_callback=None) -> Spati
                 logger.info("⚠️  Rail graph unavailable — rail agents use station-spine routing")
         except Exception as _rail_exc:
             logger.warning("Rail graph load failed (non-fatal): %s", _rail_exc)
+
+        # ── Load GTFS transit graph (bus/tram/ferry stops + headways) ─────────
+        # Non-blocking: a missing feed path simply skips loading.  Agents on
+        # bus/tram/ferry modes fall back to the drive-graph proxy when absent.
+        gtfs_path = getattr(config, 'gtfs_feed_path', None)
+        if gtfs_path:
+            if progress_callback:
+                progress_callback(0.19, "🚌 Loading GTFS transit data…")
+            try:
+                gtfs_loaded = env.load_gtfs_graph(
+                    feed_path      = gtfs_path,
+                    service_date   = getattr(config, 'gtfs_service_date', None),
+                    fuel_overrides = getattr(config, 'gtfs_fuel_overrides', None),
+                )
+                if gtfs_loaded:
+                    logger.info("✅ GTFS transit graph ready")
+                else:
+                    logger.warning("⚠️  GTFS load failed — bus/tram use drive proxy")
+            except Exception as _gtfs_exc:
+                logger.warning("GTFS load failed (non-fatal): %s", _gtfs_exc)
+        else:
+            logger.debug("No gtfs_feed_path in config — GTFS transit routing skipped")
         
         # Verify congestion if enabled
         if config.use_congestion:

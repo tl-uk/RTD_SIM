@@ -189,6 +189,72 @@ class SpatialEnvironment:
     def get_rail_graph(self):
         """Return the loaded rail graph (or None). Used by visualization."""
         return self.graph_manager.get_graph('rail')
+
+    def load_gtfs_graph(
+        self,
+        feed_path: str,
+        service_date: Optional[str] = None,
+        fuel_overrides: Optional[dict] = None,
+        headway_window: Optional[tuple] = None,
+    ) -> bool:
+        """
+        Parse a GTFS static feed and register the transit graph.
+
+        Builds a NetworkX transit graph (stops + service edges with shape
+        geometry and headways) and stores it as graph_manager.graphs['transit'].
+        Also stitches walk-transfer edges so agents can walk to/from stops.
+
+        Args:
+            feed_path:      Path to GTFS .zip or directory.
+            service_date:   'YYYYMMDD' — restrict to services active on this date.
+                            None = load all services (larger graph, slower).
+            fuel_overrides: {route_id: 'electric'|'diesel'|'hydrogen'}
+                            overrides the loader's auto-inferred fuel type.
+            headway_window: (start_s, end_s) for headway computation.
+                            Defaults to AM peak 07:00–09:30.
+
+        Returns:
+            True if transit graph loaded and registered successfully.
+        """
+        if self.graph_manager.get_graph('transit') is not None:
+            logger.debug("GTFS transit graph already loaded — skipping")
+            return True
+
+        try:
+            from simulation.gtfs import load_gtfs
+            G_transit, loader = load_gtfs(
+                feed_path       = feed_path,
+                service_date    = service_date,
+                fuel_overrides  = fuel_overrides,
+                headway_window  = headway_window,
+                walk_graph      = self.graph_manager.get_graph('walk'),
+            )
+            if G_transit is None:
+                logger.warning("⚠️  GTFS: transit graph build returned None")
+                return False
+
+            self.graph_manager.graphs['transit'] = G_transit
+            self.gtfs_loader = loader     # stash for analytics / pydeck layers
+            logger.info(
+                "✅ GTFS transit graph: %d stops, %d service edges",
+                G_transit.number_of_nodes(),
+                G_transit.number_of_edges(),
+            )
+            summary = loader.summary()
+            logger.info(
+                "   Modes: %s | Fuels: %s",
+                summary.get('modes', {}),
+                summary.get('fuels', {}),
+            )
+            return True
+
+        except Exception as exc:
+            logger.error("load_gtfs_graph failed: %s", exc)
+            return False
+
+    def get_transit_graph(self):
+        """Return the loaded GTFS transit graph (or None). Used by visualization."""
+        return self.graph_manager.get_graph('transit')
     
     # ============================================================================
     # Routing (Delegate to Router)
@@ -597,7 +663,7 @@ class SpatialEnvironment:
         return self.graph_manager.cache_dir
     
     # ============================================================================
-    # Congestion Management (Phase 2.2b)
+    # Congestion Management
     # ============================================================================
     
     def update_agent_congestion(

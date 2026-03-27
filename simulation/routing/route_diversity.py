@@ -98,17 +98,21 @@ def add_route_diversity_perturbed(env):
         """Compute route with agent-specific perturbation."""
         agent_seed = hash(agent_id) % (2**32)
         rng = random.Random(agent_seed)
-        # Map modes to network types — canonical list matches router.py
+        # Route diversity only applies to road modes.  Rail, tram, bus, and
+        # ferry modes now have dedicated routing paths (GTFS or intermodal rail)
+        # and must NOT be intercepted here — delegate to the real router.
+        _ROAD_MODES = {
+            'walk', 'bike', 'cargo_bike', 'e_scooter',
+            'car', 'ev', 'taxi_ev', 'taxi_diesel',
+            'van_electric', 'van_diesel',
+            'truck_electric', 'truck_diesel',
+            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+        }
+        if mode not in _ROAD_MODES:
+            return original_compute_route(agent_id, origin, dest, mode)
+
         network_type = {
             'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
-            'bus': 'drive', 'tram': 'drive',
-            'car': 'drive', 'ev': 'drive',
-            'taxi_ev': 'drive', 'taxi_diesel': 'drive',
-            'van_electric': 'drive', 'van_diesel': 'drive',
-            'truck_electric': 'drive', 'truck_diesel': 'drive',
-            'hgv_electric': 'drive', 'hgv_diesel': 'drive', 'hgv_hydrogen': 'drive',
-            'local_train': 'drive', 'intercity_train': 'drive',  # proxy until Phase 10b
-            'ferry_diesel': 'drive', 'ferry_electric': 'drive',  # proxy
         }.get(mode, 'drive')
         
         graph = env.graph_manager.get_graph(network_type)
@@ -161,6 +165,16 @@ def add_route_diversity_k_shortest(env, k=3):
         agent_seed = hash(agent_id) % (2**32)
         rng = random.Random(agent_seed)
         
+        _ROAD_MODES_K = {
+            'walk', 'bike', 'cargo_bike', 'e_scooter',
+            'car', 'ev', 'taxi_ev', 'taxi_diesel',
+            'van_electric', 'van_diesel',
+            'truck_electric', 'truck_diesel',
+            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+        }
+        if mode not in _ROAD_MODES_K:
+            return original_compute_route(agent_id, origin, dest, mode)
+
         network_type = {
             'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
         }.get(mode, 'drive')
@@ -243,6 +257,16 @@ def add_route_diversity_ultra_fast(env):
         """Route with hash-based agent-specific bias."""
         agent_seed = hash(agent_id) % (2**32)
         
+        _ROAD_MODES_UF = {
+            'walk', 'bike', 'cargo_bike', 'e_scooter',
+            'car', 'ev', 'taxi_ev', 'taxi_diesel',
+            'van_electric', 'van_diesel',
+            'truck_electric', 'truck_diesel',
+            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+        }
+        if mode not in _ROAD_MODES_UF:
+            return original_compute_route(agent_id, origin, dest, mode)
+
         network_type = {
             'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
         }.get(mode, 'drive')

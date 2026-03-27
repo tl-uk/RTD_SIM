@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Any
 from collections import Counter
 from ui.components.rail_visualizer import create_rail_layer
+from ui.components.gtfs_visualizer import create_gtfs_service_layer, create_gtfs_stops_layer
 
 import logging
 
@@ -106,12 +107,15 @@ def render_map(
     show_routes: bool = False,
     show_infrastructure: bool = False,
     show_rail: bool = False,
+    show_gtfs: bool = False,
+    show_gtfs_stops: bool = False,
+    gtfs_electric_only: bool = False,
     infrastructure_manager: Optional[Any] = None,
-    env: Optional[Any] = None,                   # SpatialEnvironment (for rail graph)
+    env: Optional[Any] = None,
     center_lon: float = -3.19,
     center_lat: float = 55.95,
     zoom: int = 13,
-    **kwargs,                                     # absorb legacy positional extras
+    **kwargs,
 ) -> pdk.Deck:
     """
     Render interactive map with agents, routes, and infrastructure.
@@ -157,6 +161,43 @@ def render_map(
                 logger.warning("Rail layer failed: %s", exc)
         elif show_rail:
             logger.debug("show_rail=True but rail graph not yet loaded")
+
+    # ── GTFS Transit Layer ────────────────────────────────────────────────────
+    # Service path geometry from shapes.txt; stop markers sized by frequency.
+    # Inserted between the OpenRailMap layer and the agent layer.
+    if show_gtfs or show_gtfs_stops:
+        G_transit = None
+        env_arg = env or kwargs.get('env') or kwargs.get('spatial_environment')
+        if env_arg is not None and hasattr(env_arg, 'get_transit_graph'):
+            G_transit = env_arg.get_transit_graph()
+        elif infrastructure_manager is not None:
+            gm = getattr(infrastructure_manager, 'graph_manager', None)
+            if gm is not None:
+                G_transit = gm.get_graph('transit')
+
+        if G_transit is not None:
+            try:
+                if show_gtfs:
+                    svc_layer = create_gtfs_service_layer(
+                        G_transit,
+                        show_electric_only=gtfs_electric_only,
+                    )
+                    if svc_layer:
+                        layers.insert(0, svc_layer)
+                        logger.info(
+                            "✅ GTFS service layer added (%d edges)", G_transit.number_of_edges()
+                        )
+                if show_gtfs_stops:
+                    stop_layer = create_gtfs_stops_layer(G_transit)
+                    if stop_layer:
+                        layers.append(stop_layer)   # on top — stops should be clickable
+                        logger.info(
+                            "✅ GTFS stops layer added (%d stops)", G_transit.number_of_nodes()
+                        )
+            except Exception as exc:
+                logger.warning("GTFS layer failed: %s", exc)
+        elif show_gtfs:
+            logger.debug("show_gtfs=True but transit graph not yet loaded")
                 
     # ========================================================================
     # Agents Layer

@@ -75,6 +75,11 @@ except ImportError:
 # ── Modes that route on the rail graph (not drive) ───────────────────────────
 _RAIL_MODES = frozenset({'local_train', 'intercity_train', 'freight_rail'})
 
+# ── Modes that route on the GTFS transit graph when available ─────────────────
+# When no GTFS graph is loaded these fall back to _compute_road_route (drive
+# proxy) so the simulation degrades gracefully rather than crashing.
+_TRANSIT_MODES = frozenset({'bus', 'tram', 'ferry_diesel', 'ferry_electric'})
+
 # ── Default policy parameters (overridden per-call by scenario context) ───────
 _DEFAULT_POLICY: Dict[str, float] = {
     'value_of_time_gbp_h':  10.0,   # £10/h UK average
@@ -202,8 +207,17 @@ class Router:
 
         policy = {**_DEFAULT_POLICY, **(policy_context or {})}
 
+        # Rail: three-leg intermodal route (access road → rail spine/OSM → egress road)
         if mode in _RAIL_MODES:
             return self._compute_intermodal_route(
+                agent_id, origin, dest, mode, policy
+            )
+
+        # Transit (bus/tram/ferry): GTFS four-leg route when graph loaded,
+        # road-graph proxy otherwise.  Headway cost makes infrequent services
+        # correctly expensive vs frequent ones in the BDI generalised cost.
+        if mode in _TRANSIT_MODES:
+            return self._compute_gtfs_route(
                 agent_id, origin, dest, mode, policy
             )
 
@@ -356,6 +370,188 @@ class Router:
             self._rail_graph = None
 
         return self._rail_graph
+
+    # =========================================================================
+    # GTFS TRANSIT ROUTING
+    # =========================================================================
+
+    def _get_transit_graph(self) -> Optional[Any]:
+        """
+        Return the GTFS transit graph (bus/tram/ferry stops + service edges).
+
+        The transit graph is never auto-fetched — it must be pre-loaded via
+        environment_setup.py:
+            env.load_gtfs_graph(feed_path=config.gtfs_feed_path)
+        or registered directly:
+            env.graph_manager.graphs['transit'] = G_transit
+
+        Returns None when no GTFS data is available so callers fall back
+        to the drive-graph proxy gracefully.
+        """
+        return self.graph_manager.get_graph('transit')
+
+    def _compute_gtfs_route(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> List[Tuple[float, float]]:
+        """
+        Four-leg GTFS transit route:
+            walk access → board at nearest stop
+            → ride (headway-weighted generalised cost)
+            → alight at nearest stop to destination
+            → walk egress
+
+        Generalised cost per transit edge:
+            gen_cost = (travel_time_h + headway_h/2) × VoT
+                     + dist_km × energy_price
+                     + dist_km × emit_kg_km × carbon_tax
+
+        The headway/2 term is the expected waiting time (E[wait] = headway/2
+        for uniform arrivals) — the critical term that makes 4-minute-frequency
+        Edinburgh trams competitive while 60-minute rural buses are not.
+
+        Falls back to _compute_road_route (drive proxy) when no GTFS graph
+        is loaded or no stops are within 2km of origin/dest.
+        """
+        G_transit = self._get_transit_graph()
+
+        if G_transit is None:
+            logger.debug(
+                "%s: no GTFS transit graph — drive proxy for %s",
+                agent_id, mode,
+            )
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
+        try:
+            from simulation.gtfs.gtfs_graph import GTFSGraph, _haversine_m
+        except ImportError:
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
+        builder = GTFSGraph(None)
+
+        # ── Snap to nearest stops ─────────────────────────────────────────
+        origin_stop = builder.nearest_stop(
+            G_transit, origin, mode_filter=mode, max_distance_m=2000
+        )
+        dest_stop = builder.nearest_stop(
+            G_transit, dest, mode_filter=mode, max_distance_m=2000
+        )
+
+        if origin_stop is None or dest_stop is None:
+            logger.debug(
+                "%s: no GTFS stop within 2km for %s — drive proxy",
+                agent_id, mode,
+            )
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
+        if origin_stop == dest_stop:
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
+        # ── Apply headway-weighted generalised cost to transit edges ──────
+        vot     = float(policy.get('value_of_time_gbp_h',  10.0))
+        e_price = float(policy.get('energy_price_gbp_km',   0.12))
+        c_tax   = float(policy.get('carbon_tax_gbp_tco2',   0.0))
+
+        for u, v, key, data in G_transit.edges(keys=True, data=True):
+            travel_h  = data.get('travel_time_s', 300) / 3600.0
+            headway_h = data.get('headway_s', 1800) / 3600.0 / 2.0
+            dist_km   = data.get('length', 0) / 1000.0
+            emit_kg   = data.get('emissions_g_km', 100.0) / 1000.0
+            data['gen_cost'] = (
+                (travel_h + headway_h) * vot
+                + dist_km * e_price
+                + dist_km * emit_kg * c_tax
+            )
+
+        # ── Route on transit graph ────────────────────────────────────────
+        try:
+            transit_nodes = nx.shortest_path(
+                G_transit, origin_stop, dest_stop, weight='gen_cost'
+            )
+        except Exception:
+            logger.debug(
+                "%s: no GTFS path %s→%s — drive proxy",
+                agent_id, origin_stop, dest_stop,
+            )
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
+        # ── Extract geometry from shape_coords ────────────────────────────
+        transit_coords: List[Tuple[float, float]] = []
+        for i in range(len(transit_nodes) - 1):
+            u_node = transit_nodes[i]
+            v_node = transit_nodes[i + 1]
+            edge_map = G_transit.get_edge_data(u_node, v_node)
+            if edge_map:
+                first_key = next(iter(edge_map))
+                shape = edge_map[first_key].get('shape_coords', [])
+            else:
+                shape = []
+
+            if shape:
+                transit_coords.extend(shape if i == 0 else shape[1:])
+            else:
+                u_d = G_transit.nodes.get(u_node, {})
+                v_d = G_transit.nodes.get(v_node, {})
+                if i == 0:
+                    transit_coords.append((float(u_d.get('x', 0)), float(u_d.get('y', 0))))
+                transit_coords.append((float(v_d.get('x', 0)), float(v_d.get('y', 0))))
+
+        if not transit_coords:
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
+        # ── Access leg (walk to first stop) ───────────────────────────────
+        first_d = G_transit.nodes.get(origin_stop, {})
+        first_coord = (float(first_d.get('x', origin[0])), float(first_d.get('y', origin[1])))
+        access_leg = self._compute_road_route(
+            agent_id + '_access', origin, first_coord, 'walk', policy
+        )
+
+        # ── Egress leg (walk from last stop) ──────────────────────────────
+        last_d = G_transit.nodes.get(dest_stop, {})
+        last_coord = (float(last_d.get('x', dest[0])), float(last_d.get('y', dest[1])))
+        egress_leg = self._compute_road_route(
+            agent_id + '_egress', last_coord, dest, 'walk', policy
+        )
+
+        # ── Stitch ────────────────────────────────────────────────────────
+        full_route: List[Tuple[float, float]] = (
+            (access_leg[:-1] if access_leg else [])
+            + transit_coords
+            + (egress_leg[1:] if len(egress_leg) > 1 else [])
+        )
+
+        if len(full_route) < 2:
+            full_route = [origin, dest]
+
+        from simulation.spatial.coordinate_utils import route_distance_km as _rdkm
+        logger.info(
+            "✅ %s: GTFS %s %.1fkm (%d stops, %d pts)",
+            agent_id, mode, _rdkm(full_route), len(transit_nodes), len(full_route),
+        )
+        return full_route
+        self,
+        coord: Tuple[float, float],
+        rail_graph: Any,
+    ) -> Optional[int]:
+        """Brute-force nearest node on the rail graph to (lon, lat) coord."""
+        if rail_graph is None:
+            return None
+        lon, lat = coord
+        best_node = None
+        best_dist = float('inf')
+        for node, data in rail_graph.nodes(data=True):
+            nlon = float(data.get('x', data.get('lon', 0)))
+            nlat = float(data.get('y', data.get('lat', 0)))
+            d = haversine_km((lon, lat), (nlon, nlat))
+            if d < best_dist:
+                best_dist = d
+                best_node = node
+        return best_node
+
 
     def _nearest_rail_node(
         self,
