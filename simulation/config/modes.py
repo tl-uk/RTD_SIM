@@ -83,12 +83,19 @@ MODES: Dict[str, Dict[str, Any]] = {
         'routeable':      True,
     },
     'tram': {
-        # Trams follow road/dedicated corridors.  We route them on the drive
-        # graph (close enough for Edinburgh) until GTFS is available.
-        'network':       'drive',
+        # Edinburgh Trams runs on a specific dedicated corridor
+        # (Airport → Gateway → Murrayfield → Princes St → Newhaven).
+        # Routing on the generic drive graph produces phantom routes through
+        # residential streets where no track exists.
+        #
+        # Phase 10b fix: treat as abstract (routeable=False) so agents
+        # route via the tram-stop spine (Edinburgh tram stops added to
+        # rail_spine.py) rather than generic road paths.
+        # GTFS integration in Phase 10c will replace this.
+        'network':       'tram',
         'emissions_g_km': 35,
         'speed_kmh':      25,
-        'routeable':      True,
+        'routeable':      False,
     },
 
     # ── Road – commercial passenger ───────────────────────────────
@@ -217,6 +224,7 @@ MODES: Dict[str, Dict[str, Any]] = {
 # ─────────────────────────────────────────────────────────────────
 ABSTRACT_ROUTE_FACTOR: Dict[str, float] = {
     'rail':  1.15,   # rail lines are ~15% longer than crow-flies
+    'tram':  1.08,   # tram corridors are slightly indirect
     'ferry': 1.05,   # sea routes are near-straight
     'air':   1.02,   # flight paths nearly direct
 }

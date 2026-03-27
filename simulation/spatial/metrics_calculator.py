@@ -272,6 +272,7 @@ class MetricsCalculator:
         # Only apply to modes that are actually abstract (rail/ferry/air).
         _ABSTRACT_MODES = {
             'local_train', 'intercity_train', 'freight_rail',
+            'tram', # Phase 10b: tram is now abstract
             'ferry_diesel', 'ferry_electric',
             'flight_domestic', 'flight_electric',
         }

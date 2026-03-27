@@ -143,6 +143,13 @@ class BDIPlanner:
         'flight_electric': 500.0,
         'taxi_ev': 300.0,     # <-- ADD THIS
     }
+
+    CHARGING_TIME_MIN = {
+        'level2': 240.0,
+        'dcfast': 30.0,
+        'depot': 480.0,
+        'hgv_depot': 720.0,
+    }
     
     # Distance-based mode constraints - EXPANDED  
     MODE_MAX_DISTANCE_KM = {
@@ -179,13 +186,6 @@ class BDIPlanner:
         
         # Micro-mobility
         'e_scooter': 30.0,
-    }
-
-    CHARGING_TIME_MIN = {
-        'level2': 240.0,
-        'dcfast': 30.0,
-        'depot': 480.0,
-        'hgv_depot': 720.0,
     }
     
     # Distance-based mode constraints - EXPANDED  
@@ -268,9 +268,9 @@ class BDIPlanner:
         self.mode_cost_factors: Dict[str, float] = {}
 
         if self.infrastructure:
-            logger.info("BDI planner: infrastructure-aware (Phase 4.5F - Expanded Freight)")
+            logger.info("BDI planner: infrastructure-aware (Expanded Freight)")
         else:
-            logger.info("BDI planner: basic mode (Phase 4.5F - Expanded Freight)")
+            logger.info("BDI planner: basic mode (Expanded Freight)")
 
     def apply_scenario_cost_factors(self, scenario_policies: list) -> None:
         """
@@ -305,7 +305,7 @@ class BDIPlanner:
             elif param == 'cost_increase':
                 factor = 1.0 + (value / 100.0)          # 20% on  → 1.20
             elif param == 'cost_factor':
-                factor = value                            # direct multiplier
+                factor = value                          # direct multiplier
             else:
                 continue
 
@@ -514,7 +514,9 @@ class BDIPlanner:
                 dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
 
                 if get_network(mode) == 'rail':
-                    # Rail not routeable (graph unavailable) — use spine waypoints
+                    # Tram — route via Edinburgh tram stop spine so the agent
+                    # travels along the real tram corridor rather than a diagonal.
+                    # Phase 10c will replace this with GTFS network routing.
                     try:
                         from simulation.spatial.rail_spine import route_via_stations
                         route = route_via_stations(origin_pos, dest_pos, mode)
@@ -547,13 +549,17 @@ class BDIPlanner:
                 routing_results[mode] = "infrastructure_failed"
                 continue
             
-            # Compute actual route
+            # Compute actual route — pass agent_context as policy_context so
+            # the router's generalised cost formula uses scenario-adjusted
+            # carbon_tax, energy_price, boarding_penalty_min, value_of_time.
+            # Without this, policy changes never reach the edge weights.
             try:
                 route = env.compute_route(
                     agent_id=agent_id,
                     origin=origin,
                     dest=dest,
-                    mode=mode
+                    mode=mode,
+                    policy_context=context,   # generalised cost params from agent_context
                 )
             except Exception as e:
                 logger.error(f"         Routing exception: {e}")

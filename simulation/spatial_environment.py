@@ -255,6 +255,10 @@ class SpatialEnvironment:
     def get_transit_graph(self):
         """Return the loaded GTFS transit graph (or None). Used by visualization."""
         return self.graph_manager.get_graph('transit')
+
+    def add_elevation_data(self, method: str = 'opentopo', **kwargs) -> bool:
+        """Add elevation data to graph."""
+        return self.graph_manager.add_elevation_data(method, **kwargs)
     
     # ============================================================================
     # Routing (Delegate to Router)

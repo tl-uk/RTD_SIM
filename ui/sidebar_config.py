@@ -1543,7 +1543,7 @@ def get_scenario_info(scenario_name: str, scenarios_dir: Path) -> dict:
         return {}
 
 # =======================================================================
-# NEW: Combined scenario parameters renderer (Phase 5.1)
+# Combined scenario parameters renderer
 # ======================================================================= 
 def _render_combined_scenario_parameters(scenario_data):
     """

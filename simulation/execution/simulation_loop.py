@@ -884,7 +884,7 @@ def run_simulation_loop(
                         agent=agent,
                         step=step,
                         weather_conditions=weather_impact,
-                        emissions=trip_emissions,             # ← calculated above; None when no movement
+                        emissions=trip_emissions,             # calculated above; None when no movement
                     )
             
             # RECORD MODE TRANSITION
