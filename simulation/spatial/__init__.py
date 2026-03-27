@@ -9,6 +9,9 @@ Modular architecture with single responsibility:
 - MetricsCalculator: Performance metrics
 - coordinate_utils: Pure utility functions
 - CongestionManager: Dynamic congestion data handling
+- rail_network: OpenRailMap integration
+- rail_spine: UK intercity rail network backbone
+- naptan_loader: DfT NaPTAN transfer node integration
 """
 
 # Import classes lazily to avoid circular imports
@@ -28,6 +31,15 @@ def __getattr__(name):
     elif name == 'coordinate_utils':
         from simulation.spatial import coordinate_utils
         return coordinate_utils
+    elif name == 'rail_network':
+        from simulation.spatial import rail_network
+        return rail_network
+    elif name == 'rail_spine':
+        from simulation.spatial import rail_spine
+        return rail_spine
+    elif name == 'naptan_loader':
+        from simulation.spatial import naptan_loader
+        return naptan_loader
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 __all__ = [
@@ -36,4 +48,7 @@ __all__ = [
     'MetricsCalculator',
     'CongestionManager', 
     'coordinate_utils',
+    'rail_network',
+    'rail_spine',
+    'naptan_loader',
 ]
