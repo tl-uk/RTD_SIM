@@ -261,8 +261,31 @@ def render_sidebar_config():
             use_container_width=True  # TODO: change to width='stretch' after Streamlit ≥ 1.44
         )
 
-    # =======================================================================
-    # Build config
+    # ── Map Display Toggles ──────────────────────────────────────────────────
+    # These are OUTSIDE the form so they update the map immediately without
+    # a full re-run.  They write session_state keys consumed by main_tabs.py
+    # and map_tab.py.  Using .get() defaults above means they are never unset,
+    # but initialising here gives the user explicit controls.
+    st.markdown("---")
+    st.markdown("### 🗺️ Map Display")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.session_state['show_agents'] = st.checkbox(
+            "Show Agents",
+            value=st.session_state.get('show_agents', True),
+            key="_disp_agents",
+        )
+        st.session_state['show_infrastructure'] = st.checkbox(
+            "Show Chargers",
+            value=st.session_state.get('show_infrastructure', True),
+            key="_disp_infra",
+        )
+    with col2:
+        st.session_state['show_routes'] = st.checkbox(
+            "Show Routes",
+            value=st.session_state.get('show_routes', True),
+            key="_disp_routes",
+        )
     # =======================================================================
     config = SimulationConfig(
         steps=steps,

@@ -637,7 +637,20 @@ class Router:
         agent_id: str = 'unknown',
         policy: Optional[Dict] = None,
     ) -> List[Tuple[float, float]]:
-        """Compute a named route variant."""
+        """
+        Compute a named route variant.
+
+        Variants:
+          generalised / shortest — minimum generalised cost (time×VoT + dist×energy + emissions×carbon_tax)
+          fastest                — minimum travel time
+          safest                 — minimum risk for active / vulnerable modes
+          greenest               — minimum operational CO₂ (gradient-aware if elevation available)
+          cheapest               — minimum monetary cost (fuel + fares); primary research metric for
+                                   "lowest cost to decarbonisation" analysis
+          decarbonisation        — minimum lifecycle CO₂ weighted by UK carbon budget trajectory;
+                                   used for resilience-to-decarbonisation research
+          scenic                 — prefer quiet / green roads
+        """
         if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
             return []
         policy = policy or dict(_DEFAULT_POLICY)
@@ -659,12 +672,14 @@ class Router:
                 return []
 
             weight_key = {
-                'generalised': lambda: self._apply_generalised_weights(graph, mode, policy),
-                'shortest':    lambda: self._apply_generalised_weights(graph, mode, policy),
-                'fastest':     lambda: self._add_time_weights(graph, mode),
-                'safest':      lambda: self._add_safety_weights(graph, mode),
-                'greenest':    lambda: self._add_emission_weights(graph, mode),
-                'scenic':      lambda: self._add_scenic_weights(graph, mode),
+                'generalised':     lambda: self._apply_generalised_weights(graph, mode, policy),
+                'shortest':        lambda: self._apply_generalised_weights(graph, mode, policy),
+                'fastest':         lambda: self._add_time_weights(graph, mode),
+                'safest':          lambda: self._add_safety_weights(graph, mode),
+                'greenest':        lambda: self._add_emission_weights(graph, mode),
+                'cheapest':        lambda: self._add_monetary_weights(graph, mode, policy),
+                'decarbonisation': lambda: self._add_decarbonisation_weights(graph, mode, policy),
+                'scenic':          lambda: self._add_scenic_weights(graph, mode),
             }.get(variant, lambda: 'length')()
 
             route_nodes = nx.shortest_path(
@@ -680,7 +695,7 @@ class Router:
             return []
 
     # =========================================================================
-    # LEGACY WEIGHT HELPERS (preserved for backwards-compat)
+    # WEIGHT HELPERS
     # =========================================================================
 
     def _add_time_weights(self, graph: Any, mode: str) -> str:
@@ -713,16 +728,168 @@ class Router:
         return 'safety_weight'
 
     def _add_emission_weights(self, graph: Any, mode: str) -> str:
+        """
+        Gradient-aware emission weights using true road grade.
+
+        Uses `grade` edge attribute when available (populated by
+        ox.add_edge_grades after UTM projection).  Falls back to elevation
+        node-pair difference when grade is absent, and to flat-terrain when
+        elevation is absent.
+
+        True grade formula:
+          grade = Δelevation_m / length_m   (dimensionless, signed)
+          penalty_factor = 1 + max(0, grade) × 5  (uphill burns more fuel)
+          recovery_factor = max(0.5, 1 + grade × 2)  (downhill saves some)
+        """
         has_elev = self.graph_manager.has_elevation()
+        emit_g_km = _EMISSIONS_G_KM.get(mode, 100)
+        zero_emit = emit_g_km == 0
+
         for _u, _v, _k, data in graph.edges(keys=True, data=True):
-            length = data.get('length', 0)
-            penalty = 1.0
+            length_m = data.get('length', 0.0)
+            length_km = length_m / 1000.0
+
+            if zero_emit:
+                # Zero-emission modes: weight by time only (to prefer faster edges)
+                data['emission_weight'] = length_m / max(
+                    self.speeds_km_min.get(mode, 0.5) * 1000, 1.0
+                )
+                continue
+
+            factor = 1.0
             if has_elev:
-                eu = graph.nodes[_u].get('elevation', 0)
-                ev = graph.nodes[_v].get('elevation', 0)
-                penalty = 1.0 + abs(ev - eu) / 100.0
-            data['emission_weight'] = length * penalty
+                # Prefer ox.add_edge_grades() result ('grade' attribute, dimensionless)
+                grade = data.get('grade', None)
+                if grade is None and length_m > 0:
+                    # Fallback: derive grade from node elevations
+                    eu = graph.nodes[_u].get('elevation', 0)
+                    ev = graph.nodes[_v].get('elevation', 0)
+                    grade = (ev - eu) / length_m  # dimensionless true grade
+
+                if grade is not None:
+                    if grade > 0:
+                        factor = 1.0 + grade * 5.0   # uphill: +5% per % grade
+                    else:
+                        factor = max(0.5, 1.0 + grade * 2.0)  # downhill: save up to 50%
+                    factor = max(0.5, min(3.0, factor))   # clamp [0.5, 3.0]
+
+            data['emission_weight'] = emit_g_km * length_km * factor
         return 'emission_weight'
+
+    def _add_monetary_weights(
+        self,
+        graph: Any,
+        mode: str,
+        policy: Dict,
+    ) -> str:
+        """
+        Monetary cost weights: fuel/energy cost per edge.
+
+        This is the primary weight for the 'cheapest' variant used in
+        "lowest cost to decarbonisation" research.
+
+        cost_per_edge = dist_km × energy_price_gbp_km
+                      + dist_km × emit_kg_km × carbon_tax_gbp_tco2
+                      + dist_km × toll_per_km (from edge attributes)
+
+        The carbon tax term means a carbon pricing policy immediately makes
+        high-emission routes more expensive — this is the mechanism by which
+        carbon taxes drive modal shift in the simulation.
+        """
+        e_price  = float(policy.get('energy_price_gbp_km',  0.12))
+        c_tax    = float(policy.get('carbon_tax_gbp_tco2',  0.0))
+        emit_g_km = _EMISSIONS_G_KM.get(mode, 100)
+        emit_kg_km = emit_g_km / 1000.0
+
+        for _u, _v, _k, data in graph.edges(keys=True, data=True):
+            dist_km = data.get('length', 0.0) / 1000.0
+            toll_km = data.get('toll_per_km', 0.0)   # future: congestion charge zone
+            data['monetary_weight'] = (
+                dist_km * e_price
+                + dist_km * emit_kg_km * c_tax
+                + dist_km * toll_km
+            )
+        return 'monetary_weight'
+
+    def _add_decarbonisation_weights(
+        self,
+        graph: Any,
+        mode: str,
+        policy: Dict,
+    ) -> str:
+        """
+        Lifecycle CO₂ weights for 'decarbonisation' route variant.
+
+        Minimises total carbon cost including:
+          - Operational emissions (g CO₂/km × grade factor)
+          - Embodied carbon amortised per km (vehicle manufacturing)
+          - Infrastructure carbon amortised per km (road/rail construction)
+          - UK carbon budget trajectory weighting (2030 target = 2× today's price)
+
+        This variant answers "which route minimises lifetime CO₂ under the
+        UK's net-zero trajectory?" — the core RTD_SIM research question.
+
+        Carbon budget trajectory (UK CCC 6th Carbon Budget):
+          2025: £80/tCO₂   2030: £120/tCO₂   2035: £180/tCO₂   2050: £300/tCO₂
+        We use a simple linear interpolation from scenario year.
+        """
+        from datetime import datetime
+        # Scenario year — use current year as default
+        scenario_year = int(policy.get('scenario_year', datetime.now().year))
+
+        # UK CCC carbon budget price trajectory (£/tCO₂)
+        _BUDGET_PRICE = {2025: 80, 2030: 120, 2035: 180, 2040: 240, 2050: 300}
+        years = sorted(_BUDGET_PRICE)
+        if scenario_year <= years[0]:
+            c_budget_price = _BUDGET_PRICE[years[0]]
+        elif scenario_year >= years[-1]:
+            c_budget_price = _BUDGET_PRICE[years[-1]]
+        else:
+            for i in range(len(years) - 1):
+                y0, y1 = years[i], years[i + 1]
+                if y0 <= scenario_year <= y1:
+                    t = (scenario_year - y0) / (y1 - y0)
+                    c_budget_price = _BUDGET_PRICE[y0] + t * (_BUDGET_PRICE[y1] - _BUDGET_PRICE[y0])
+                    break
+
+        # Embodied carbon (kg CO₂ per km per vehicle) — SMMT / Ricardo lifecycle data
+        _EMBODIED_KG_KM = {
+            'car': 0.060, 'ev': 0.085,           # EV higher manufacture offset over lifetime
+            'bus': 0.020, 'tram': 0.015,
+            'van_diesel': 0.040, 'van_electric': 0.055,
+            'truck_diesel': 0.035, 'truck_electric': 0.045,
+            'hgv_diesel': 0.025, 'hgv_electric': 0.035, 'hgv_hydrogen': 0.030,
+            'walk': 0.0, 'bike': 0.001, 'e_scooter': 0.002, 'cargo_bike': 0.002,
+            'local_train': 0.010, 'intercity_train': 0.008, 'freight_rail': 0.012,
+        }
+        embodied_kg_km = _EMBODIED_KG_KM.get(mode, 0.030)
+
+        has_elev = self.graph_manager.has_elevation()
+        emit_g_km = _EMISSIONS_G_KM.get(mode, 100)
+        emit_kg_km = emit_g_km / 1000.0
+
+        for _u, _v, _k, data in graph.edges(keys=True, data=True):
+            dist_km = data.get('length', 0.0) / 1000.0
+
+            # Gradient factor for operational emissions (same as _add_emission_weights)
+            factor = 1.0
+            if has_elev:
+                grade = data.get('grade', None)
+                if grade is None and data.get('length', 0) > 0:
+                    eu = graph.nodes[_u].get('elevation', 0)
+                    ev_node = graph.nodes[_v].get('elevation', 0)
+                    grade = (ev_node - eu) / data['length']
+                if grade is not None:
+                    factor = 1.0 + max(0, grade) * 5.0 if grade > 0 else max(0.5, 1.0 + grade * 2.0)
+                    factor = max(0.5, min(3.0, factor))
+
+            operational_kg = emit_kg_km * dist_km * factor
+            lifecycle_kg   = operational_kg + embodied_kg_km * dist_km
+
+            # Convert to monetary equivalent at carbon budget price (£/tCO₂ → £/kg = /1000)
+            data['decarb_weight'] = lifecycle_kg * (c_budget_price / 1000.0)
+
+        return 'decarb_weight'
 
     def _add_scenic_weights(self, graph: Any, mode: str) -> str:
         _S = {

@@ -493,21 +493,40 @@ class BDIPlanner:
             logger.debug(f"   Testing mode: {mode}")
 
             # ── Abstract mode guard ─────────────────────────────────────────
-            # Modes like local_train, ferry_electric, flight_domestic cannot be
-            # routed via OSMnx.  Generate a synthetic straight-line route so they
-            # appear on the map with a realistic distance for cost/emissions
-            # calculations and are never sent through env.compute_route().
+            # Ferry/air modes are truly abstract (no network graph) → 2-point
+            # straight-line route via make_synthetic_route().
+            #
+            # Rail modes (local_train, intercity_train, freight_rail) route
+            # via the Edinburgh/UK station spine so they appear on the map
+            # travelling through real stations (Waverley → Haymarket → …)
+            # rather than a single diagonal line.
+            #
+            # modes.py sets rail routeable=True so this guard only fires for
+            # ferry/air.  If for any reason rail still reaches here (e.g. rail
+            # graph unavailable), it falls back to the spine gracefully.
             if not is_routeable(mode):
                 try:
                     origin_pos = (float(origin[0]), float(origin[1]))
                     dest_pos   = (float(dest[0]),   float(dest[1]))
                 except Exception:
                     origin_pos, dest_pos = (0.0, 0.0), (0.0, 0.0)
+
                 dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
-                route   = make_synthetic_route(origin_pos, dest_pos, mode)
+
+                if get_network(mode) == 'rail':
+                    # Rail not routeable (graph unavailable) — use spine waypoints
+                    try:
+                        from simulation.spatial.rail_spine import route_via_stations
+                        route = route_via_stations(origin_pos, dest_pos, mode)
+                    except Exception:
+                        route = make_synthetic_route(origin_pos, dest_pos, mode)
+                else:
+                    # Ferry / air — straight line is correct
+                    route = make_synthetic_route(origin_pos, dest_pos, mode)
+
                 logger.debug(
-                    "   Abstract route: %s (%s) %.1fkm synthetic",
-                    mode, get_network(mode), dist_km,
+                    "   Abstract route: %s (%s) %.1fkm via %d waypoints",
+                    mode, get_network(mode), dist_km, len(route),
                 )
                 routing_results[mode] = f"abstract: {dist_km:.1f}km"
                 actions.append(Action(

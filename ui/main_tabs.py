@@ -92,9 +92,9 @@ def _render_map_tab(results, anim, agent_states, metrics):
 
     deck = render_map(
         agent_states=agent_states,
-        show_agents=st.session_state.show_agents,
-        show_routes=st.session_state.show_routes,
-        show_infrastructure=st.session_state.show_infrastructure,
+        show_agents=st.session_state.get('show_agents', True),
+        show_routes=st.session_state.get('show_routes', True),
+        show_infrastructure=st.session_state.get('show_infrastructure', True),
         show_rail=show_rail,
         infrastructure_manager=results.infrastructure,
         env=env,

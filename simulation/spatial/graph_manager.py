@@ -477,6 +477,83 @@ class GraphManager:
     def has_elevation(self) -> bool:
         """Check if elevation data is available."""
         return self._has_elevation
+
+    def project_to_utm(self, network_type: str = 'drive') -> bool:
+        """
+        Project graph to local UTM (EPSG:27700 British National Grid for UK).
+
+        OSMnx stores node coordinates in WGS84 decimal degrees (x=lon, y=lat).
+        All spatial calculations on the graph (length, grade, area) use the
+        pre-computed `length` attribute in metres added by OSMnx at download
+        time — so edge distances are already correct.
+
+        However `ox.add_edge_grades()` requires that `elevation` node attributes
+        exist AND that we are working in a projected CRS so that the grade
+        calculation:
+
+            grade = Δelevation / length
+
+        uses matching units (both in metres).  Calling this method:
+          1. Re-projects the graph to BNG (EPSG:27700) so coordinates are
+             in metres (Easting, Northing) and `length` values are verified.
+          2. Adds the `grade` attribute to every edge via ox.add_edge_grades().
+
+        The projected graph is stored back under the same network_type key
+        so subsequent routing calls use gradient-aware edge weights
+        automatically.
+
+        Args:
+            network_type: Which graph to project (default 'drive').
+
+        Returns:
+            True if projection succeeded, False otherwise.
+        """
+        if not OSMNX_AVAILABLE:
+            logger.warning("project_to_utm: OSMnx not available")
+            return False
+
+        graph = self.get_graph(network_type)
+        if graph is None:
+            logger.warning("project_to_utm: no graph for network_type=%s", network_type)
+            return False
+
+        if not self._has_elevation:
+            logger.warning(
+                "project_to_utm: elevation data not loaded — "
+                "call add_elevation_data() first for accurate grades"
+            )
+            # Still project so length values are in metres for future use
+            # but grades will be zero without elevation
+
+        try:
+            import osmnx as ox
+            # Project to British National Grid (EPSG:27700) — ~1m accuracy across UK
+            G_proj = ox.project_graph(graph, to_crs='EPSG:27700')
+
+            # Add true grade (Δelevation_m / length_m) to every directed edge.
+            # Requires elevation node attribute — silently adds 0 if absent.
+            if self._has_elevation:
+                G_proj = ox.add_edge_grades(G_proj, add_absolute=True)
+                logger.info(
+                    "✅ Graph projected (EPSG:27700) + edge grades added: "
+                    "%d edges with grade attribute",
+                    sum(1 for _, _, d in G_proj.edges(data=True) if 'grade' in d),
+                )
+            else:
+                logger.info("✅ Graph projected to EPSG:27700 (no elevation → grades=0)")
+
+            # Store projected graph — downstream routing uses it transparently
+            self.graphs[network_type] = G_proj
+            if network_type == 'drive':
+                self.primary_graph = G_proj
+
+            # Clear nearest-node cache — projected coordinates differ from WGS84
+            self._nearest_node_cache.pop(network_type, None)
+            return True
+
+        except Exception as exc:
+            logger.error("project_to_utm failed: %s", exc)
+            return False
     
     def is_loaded(self) -> bool:
         """Check if any graph is loaded."""

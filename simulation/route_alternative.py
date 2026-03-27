@@ -34,25 +34,26 @@ class RouteAlternative:
     def compute_metrics(self, env: 'SpatialEnvironment') -> None:
         """
         Calculate all metrics for this route.
-        
-        Args:
-            env: SpatialEnvironment instance for metric calculations
+
+        Metrics computed:
+          distance, time, cost, emissions, comfort, risk  — core
+          monetary_cost                                    — fuel + fares only (cheapest variant)
+          lifecycle_co2_kg                                 — operational + embodied carbon (decarbonisation variant)
         """
         if not self.route or len(self.route) < 2:
             self.metrics = {
-                'distance': 0.0,
-                'time': 0.0,
-                'cost': 0.0,
-                'emissions': 0.0,
-                'comfort': 0.0,
-                'risk': 0.0,
+                'distance': 0.0, 'time': 0.0, 'cost': 0.0,
+                'emissions': 0.0, 'comfort': 0.0, 'risk': 0.0,
+                'monetary_cost': 0.0, 'lifecycle_co2_kg': 0.0,
             }
             return
         
         # Core metrics
-        self.metrics['distance'] = env._distance(self.route)
-        self.metrics['time'] = env.estimate_travel_time(self.route, self.mode)
-        self.metrics['cost'] = env.estimate_monetary_cost(self.route, self.mode)
+        self.metrics['distance']  = env._distance(self.route)
+        self.metrics['time']      = env.estimate_travel_time(self.route, self.mode)
+        self.metrics['cost']      = env.estimate_monetary_cost(self.route, self.mode)
+        self.metrics['comfort']   = env.estimate_comfort(self.route, self.mode)
+        self.metrics['risk']      = env.estimate_risk(self.route, self.mode)
         
         # Use elevation-aware emissions if available
         if env.has_elevation:
@@ -60,12 +61,33 @@ class RouteAlternative:
         else:
             self.metrics['emissions'] = env.estimate_emissions(self.route, self.mode)
         
-        self.metrics['comfort'] = env.estimate_comfort(self.route, self.mode)
-        self.metrics['risk'] = env.estimate_risk(self.route, self.mode)
-        
-        # Additional metrics
+        # ── Research metrics ─────────────────────────────────────────────────
+        # monetary_cost: fuel/energy/fares only (no time valuation).
+        # Used by the 'cheapest' variant for "lowest cost to decarbonisation".
+        self.metrics['monetary_cost'] = self.metrics['cost']
+
+        # lifecycle_co2_kg: operational + embodied carbon per trip.
+        # Embodied carbon (vehicle manufacture amortised over lifetime km)
+        # — SMMT / Ricardo Energy & Environment lifecycle data (2023).
+        _EMBODIED_KG_KM = {
+            'car': 0.060, 'ev': 0.085,
+            'bus': 0.020, 'tram': 0.015,
+            'van_diesel': 0.040, 'van_electric': 0.055,
+            'truck_diesel': 0.035, 'truck_electric': 0.045,
+            'hgv_diesel': 0.025, 'hgv_electric': 0.035, 'hgv_hydrogen': 0.030,
+            'walk': 0.0, 'bike': 0.001, 'e_scooter': 0.002, 'cargo_bike': 0.002,
+            'local_train': 0.010, 'intercity_train': 0.008, 'freight_rail': 0.012,
+            'ferry_diesel': 0.018, 'ferry_electric': 0.014,
+            'flight_domestic': 0.025, 'flight_electric': 0.020,
+        }
+        dist_km = self.metrics['distance']
+        operational_kg = self.metrics['emissions'] / 1000.0   # g → kg
+        embodied_kg = _EMBODIED_KG_KM.get(self.mode, 0.030) * dist_km
+        self.metrics['lifecycle_co2_kg'] = operational_kg + embodied_kg
+
+        # Waypoint count
         self.metrics['waypoints'] = len(self.route)
-        
+
         # Elevation metrics if available
         if env.has_elevation:
             self._compute_elevation_metrics(env)
@@ -97,20 +119,28 @@ class RouteAlternative:
     def score(self, weights: Dict[str, float]) -> float:
         """
         Score this route based on weighted preferences.
-        
+
+        Standard metrics: time, cost, emissions, comfort, risk, distance
+        Research metrics:
+          monetary_cost    — fuel + fares only; use for 'cheapest' variant
+          lifecycle_co2_kg — operational + embodied carbon; use for 'decarbonisation' variant
+
         Args:
-            weights: Dictionary mapping metric names to importance weights
-                    Negative weights = minimize, positive = maximize
-        
+            weights: metric → importance weight.
+                     Negative weights = minimise, positive = maximise.
+
         Returns:
-            Weighted score (higher = better)
-        
-        Example:
-            weights = {
-                'time': -0.8,      # Minimize time (weight -0.8)
-                'cost': -0.3,      # Minimize cost (weight -0.3)
-                'comfort': 0.5,    # Maximize comfort (weight +0.5)
-            }
+            Weighted score (higher = better).
+
+        Examples:
+            # Cheapest: minimise monetary cost
+            weights = {'monetary_cost': -1.0, 'time': -0.2}
+
+            # Decarbonisation: minimise lifecycle CO₂
+            weights = {'lifecycle_co2_kg': -1.0, 'time': -0.3, 'cost': -0.2}
+
+            # Balanced
+            weights = {'time': -0.8, 'cost': -0.3, 'comfort': 0.5}
         """
         score = 0.0
         
@@ -168,6 +198,58 @@ def rank_alternatives(
     scored = [(alt.score(weights), alt) for alt in alternatives]
     scored.sort(reverse=True, key=lambda x: x[0])
     return scored
+
+def cheapest_route(
+    alternatives: List[RouteAlternative],
+    time_weight: float = 0.2,
+) -> Optional[RouteAlternative]:
+    """
+    Return the alternative with the lowest monetary cost.
+
+    Used for "lowest cost to decarbonisation" research analysis.
+    Optionally penalises very slow routes via time_weight.
+
+    Args:
+        alternatives: Computed RouteAlternative list (with metrics).
+        time_weight:  Small penalty for travel time (default 0.2).
+
+    Returns:
+        Cheapest RouteAlternative or None.
+    """
+    if not alternatives:
+        return None
+    ranked = rank_alternatives(
+        alternatives,
+        weights={'monetary_cost': -1.0, 'time': -time_weight},
+    )
+    return ranked[0][1] if ranked else None
+
+
+def lowest_carbon_route(
+    alternatives: List[RouteAlternative],
+    time_weight: float = 0.3,
+) -> Optional[RouteAlternative]:
+    """
+    Return the alternative with the lowest lifecycle CO₂.
+
+    Used for "resilience to decarbonisation" research analysis.
+    Uses lifecycle_co2_kg (operational + embodied) not just operational
+    emissions so EVs with high embodied carbon are correctly modelled.
+
+    Args:
+        alternatives: Computed RouteAlternative list (with metrics).
+        time_weight:  Small penalty for travel time (default 0.3).
+
+    Returns:
+        Lowest-carbon RouteAlternative or None.
+    """
+    if not alternatives:
+        return None
+    ranked = rank_alternatives(
+        alternatives,
+        weights={'lifecycle_co2_kg': -1.0, 'time': -time_weight},
+    )
+    return ranked[0][1] if ranked else None
 
 
 def filter_pareto_optimal(alternatives: List[RouteAlternative]) -> List[RouteAlternative]:
