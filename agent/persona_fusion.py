@@ -297,6 +297,51 @@ _PERSONA_PROFILES: Dict[str, Dict[str, Any]] = {
         'base_modes':     ['van_electric', 'van_diesel', 'truck_electric', 'truck_diesel',
                            'hgv_electric', 'hgv_diesel'],
     },
+    # ── Trades & Commercial Passenger (Phase 10b) ─────────────────
+    'taxi_driver': {
+        'asi_tier': 'improve',
+        'ev_threshold': 0.75,
+        'desire_weights': {'minimize_cost': 0.90, 'minimize_time': 0.85, 'maximize_reliability': 0.90},
+        'beliefs':        {'charger_availability': 0.20, 'cost_pressure_high': 0.90},
+        'base_modes':     ['taxi_ev', 'taxi_diesel', 'ev', 'car'],
+    },
+    'ride_hail_driver': {
+        'asi_tier': 'shift',
+        'ev_threshold': 0.65,
+        'desire_weights': {'minimize_cost': 0.95, 'minimize_time': 0.80, 'maximize_flexibility': 0.90},
+        'beliefs':        {'cost_pressure_high': 0.85, 'ev_is_viable': 0.60},
+        'base_modes':     ['ev', 'car', 'taxi_ev', 'taxi_diesel'],
+    },
+    'island_tradesperson': {
+        'asi_tier': 'improve',
+        'ev_threshold': 0.80,
+        'desire_weights': {'maximize_reliability': 0.95, 'minimize_cost': 0.70},
+        'beliefs':        {'range_anxiety': 0.80, 'charger_availability': 0.10},
+        'base_modes':     ['van_diesel', 'van_electric'],
+        'access_modes':   ['van_diesel', 'van_electric'],
+    },
+    'rural_technician': {
+        'asi_tier': 'improve',
+        'ev_threshold': 0.75,
+        'desire_weights': {'maximize_reliability': 0.95, 'minimize_time': 0.80},
+        'beliefs':        {'range_anxiety': 0.90, 'charger_availability': 0.30},
+        'base_modes':     ['van_diesel', 'van_electric'],
+    },
+    'specialist_engineer': {
+        'asi_tier': 'shift',
+        'ev_threshold': 0.55,
+        'desire_weights': {'minimize_time': 0.90, 'maximize_reliability': 0.95},
+        'beliefs':        {'ev_is_viable': 0.70},
+        'base_modes':     ['van_electric', 'van_diesel', 'ev', 'car'],
+    },
+    'emergency_trade_worker': {
+        'asi_tier': 'improve',
+        'ev_threshold': 0.85,
+        'reliability_critical': True,
+        'desire_weights': {'maximize_reliability': 0.95, 'minimize_time': 0.95},
+        'beliefs':        {'charger_availability': 0.30},
+        'base_modes':     ['van_diesel', 'van_electric'],
+    },
     # ── DfT segments ─────────────────────────────────────────────
     'retired_commuter': {
         'asi_tier': 'improve',

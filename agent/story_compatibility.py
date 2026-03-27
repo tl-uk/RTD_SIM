@@ -165,20 +165,16 @@ COMPATIBLE_USERS_FOR_JOB = {
     # ========================================================================
 
     'service_engineer_call': [
-        'freight_operator',
-        'business_commuter',
-        'delivery_driver',
-        'rural_resident',
-        'frequent_driver',
+        'specialist_engineer',
+        'rural_technician',
+        'emergency_trade_worker',
     ],
 
     'trades_contractor': [
+        'island_tradesperson',
+        'rural_technician',
+        'specialist_engineer',
         'freight_operator',
-        'business_commuter',
-        'rural_resident',
-        'frequent_driver',
-        'delivery_driver',
-        'island_resident',          # island tradespeople doing contract work
     ],
 
     'freight_delivery_route': [
@@ -815,21 +811,7 @@ def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
         # ====================================================================
         # 6. Service & Trades Ontology
         # ====================================================================
-        # if j_type == 'service':
-        #     trades_personas = [
-        #         'freight_operator', 'frequent_driver', 'rural_resident', 
-        #         'business_commuter', 'delivery_driver', 'island_resident',
-        #         'shift_worker'
-        #     ]
-        #     return user_id in trades_personas
-
-        # return False
-
-        # ====================================================================
-        # 6. Service & Trades Ontology (UPDATED)
-        # ====================================================================
         if j_type == 'service':
-            # NEW: Cleaned up trade personas
             trades_personas = [
                 'island_tradesperson', 'rural_technician', 
                 'specialist_engineer', 'emergency_trade_worker',
@@ -838,11 +820,11 @@ def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
             return user_id in trades_personas
 
         # ====================================================================
-        # 7. Taxi & Private Hire Ontology (NEW)
+        # 7. Taxi & Private Hire Ontology
         # ====================================================================
         if j_type == 'taxi_service' or operator_type == 'taxi':
             taxi_personas = [
-                'taxi_driver', 'ride_hail_driver', 'fleet_manager_taxi'
+                'taxi_driver', 'ride_hail_driver'
             ]
             return user_id in taxi_personas
         

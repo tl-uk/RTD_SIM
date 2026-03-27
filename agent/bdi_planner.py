@@ -141,8 +141,46 @@ class BDIPlanner:
         'e_scooter': 30.0,
         'ferry_electric': 50.0,
         'flight_electric': 500.0,
+        'taxi_ev': 300.0,     # <-- ADD THIS
     }
     
+    # Distance-based mode constraints - EXPANDED  
+    MODE_MAX_DISTANCE_KM = {
+        'walk': 3.0,  # Realistic walking distance
+        'bike': 10.0,  # Regular bike comfortable range
+        'cargo_bike': 20.0,  # E-cargo bike urban delivery range (realistic for Edinburgh)
+        'bus': 100.0,
+        'car': 500.0,
+        'ev': 350.0,
+        'taxi_ev': 400.0,     # <-- ADD THIS
+        'taxi_diesel': 600.0, # <-- ADD THIS
+        
+        # Freight modes
+        'van_electric': 200.0,
+        'van_diesel': 500.0,
+        'truck_electric': 250.0,
+        'truck_diesel': 600.0,
+        'hgv_electric': 300.0,
+        'hgv_diesel': 800.0,
+        'hgv_hydrogen': 600.0,
+        
+        # Public transport
+        'tram': 25.0,
+        'local_train': 150.0,
+        'intercity_train': 800.0,
+        
+        # Maritime
+        'ferry_diesel': 200.0,
+        'ferry_electric': 50.0,
+        
+        # Aviation
+        'flight_domestic': 1000.0,
+        'flight_electric': 500.0,
+        
+        # Micro-mobility
+        'e_scooter': 30.0,
+    }
+
     CHARGING_TIME_MIN = {
         'level2': 240.0,
         'dcfast': 30.0,
@@ -196,6 +234,7 @@ class BDIPlanner:
         self.default_modes = [
             'walk', 'bike', 'bus', 
             'car', 'ev',
+            'taxi_ev', 'taxi_diesel',
             'van_electric', 'van_diesel',
             'cargo_bike',
             'truck_electric', 'truck_diesel',
@@ -624,7 +663,11 @@ class BDIPlanner:
 
         else:
             # STEP 1: Initial mode selection (legacy path — no FusedIdentity)
-            if vehicle_type == 'micro_mobility':
+            if context.get('operator_type') == 'taxi':
+                modes = ['taxi_ev', 'taxi_diesel', 'ev', 'car']
+                logger.debug(f"Taxi context: initial modes {modes}")
+
+            elif vehicle_type == 'micro_mobility':
                 if trip_distance_km > 20:
                     modes = ['cargo_bike', 'van_electric', 'van_diesel']
                     logger.warning(
@@ -717,6 +760,7 @@ class BDIPlanner:
             'van_electric', 'van_diesel',
             'truck_electric', 'truck_diesel',
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+            'taxi_ev', 'taxi_diesel',
         }
         if not _fused_override and vehicle_type == 'personal' and not vehicle_required:
             before_set = set(modes)

@@ -30,6 +30,8 @@ service_engineer_call:
     preferred_modes:
     - van_electric
     - van_diesel
+    - ev        # Added for specialist_engineer
+    - car       # Added for specialist_engineer
   plan_context:
   - Response time affects customer satisfaction
   - Must carry specialized tools and parts

@@ -202,7 +202,28 @@ combinations:
         cost: "-0.1"   # concessionary bus pass reduces cost concern
       notes: "Bus pass means cost less critical; step-free access and seating priority"
 
+  # Ride-hail driver on urban shift - heavy reliance on public DC charging
+  ride_hail_driver_urban_ride_hail_shift:
+    persona: "ride_hail_driver"
+    job: "urban_ride_hail_shift"
+    conflict_resolution: "job_priority"
+    overrides:
+      desires:
+        time: "+0.15"  # Time charging is money lost
+      route_optimization: "maximize_earnings"
+      notes: "App-based driver chasing fares; highly sensitive to public charging wait times"
 
+  # Emergency trade worker responding to a callout
+  emergency_trade_worker_service_engineer_call:
+    persona: "emergency_trade_worker"
+    job: "service_engineer_call"
+    conflict_resolution: "blend"
+    overrides:
+      desires:
+        reliability: "+0.1"
+      reliability_critical: true
+      notes: "24/7 callouts mean vehicle must be 100% available; triggers hard EV block if chargers are full"
+      
 # Prohibited combinations — documented for story_compatibility.py whitelist
 # (Prohibition is enforced in story_compatibility.py, not here)
 prohibited:

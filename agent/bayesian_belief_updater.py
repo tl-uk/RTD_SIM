@@ -84,6 +84,12 @@ class BayesianBeliefUpdater:
         'freight_operator':        0.40,  # high financial risk
         'delivery_driver':         0.20,  # gig: lower barrier
         'shift_worker':            0.25,
+        'taxi_driver':             0.35,  # <-- NEW: Needs moderate peer proof
+        'ride_hail_driver':        0.25,  # <-- NEW: Faster to adapt to costs
+        'emergency_trade_worker':  0.50,  # <-- NEW: High reliability risk
+        'rural_technician':        0.45,  # <-- NEW: High range anxiety
+        'island_tradesperson':     0.40,  # <-- NEW
+        'specialist_engineer':     0.30,  # <-- NEW
         'eco_warrior':             0.10,  # early adopter: minimal proof
         'budget_student':          0.15,
         'business_commuter':       0.30,
@@ -222,7 +228,7 @@ class BayesianBeliefUpdater:
                 return 0.0, {}
  
             mode_counts: Dict[str, int] = {}
-            ev_modes = {'ev', 'van_electric', 'truck_electric', 'hgv_electric'}
+            ev_modes = {'ev', 'van_electric', 'truck_electric', 'hgv_electric', 'taxi_ev'}
             ev_count = 0
  
             for nb_id in neighbors:

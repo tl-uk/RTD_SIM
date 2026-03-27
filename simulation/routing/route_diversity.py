@@ -103,6 +103,7 @@ def add_route_diversity_perturbed(env):
             'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
             'bus': 'drive', 'tram': 'drive',
             'car': 'drive', 'ev': 'drive',
+            'taxi_ev': 'drive', 'taxi_diesel': 'drive',
             'van_electric': 'drive', 'van_diesel': 'drive',
             'truck_electric': 'drive', 'truck_diesel': 'drive',
             'hgv_electric': 'drive', 'hgv_diesel': 'drive', 'hgv_hydrogen': 'drive',

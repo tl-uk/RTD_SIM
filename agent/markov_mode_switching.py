@@ -58,6 +58,12 @@ _PERSONA_BASE_DIAGONAL: Dict[str, float] = {
     'student':              0.50,
     'mobility_impaired':    0.70,  # constrained choices
     'freight_operator':     0.60,
+    'taxi_driver':          0.75,  # High habit/vehicle lock-in
+    'ride_hail_driver':     0.55,  # Fluid, goes where the money is
+    'island_tradesperson':  0.80,  # Highly constrained options
+    'rural_technician':     0.75,  # Route habituation
+    'specialist_engineer':  0.65,
+    'emergency_trade_worker': 0.70,
     'last_mile_delivery':   0.55,
     'gig_worker':           0.50,
     # ── Operator personas (operator_personas.yaml) ────────────────────────

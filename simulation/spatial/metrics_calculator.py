@@ -63,6 +63,8 @@ class MetricsCalculator:
             'bus': 0.33,         # 20 km/h city average
             'car': 0.5,          # 30 km/h city average
             'ev': 0.5,           # 30 km/h city average
+            'taxi_ev': 0.45,     # Slightly faster than buses, traffic limited
+            'taxi_diesel': 0.45,
             
             # Light commercial (Phase 4.5F)
             'van_electric': 0.58,   # 35 km/h = 0.58 km/min
@@ -99,6 +101,7 @@ class MetricsCalculator:
             'cargo_bike': 0,
             'e_scooter': 0,
             'ev': 0,
+            'taxi_ev': 0,
             'van_electric': 0,
             'truck_electric': 0,
             'hgv_electric': 0,
@@ -113,6 +116,7 @@ class MetricsCalculator:
             # Combustion
             'bus': 80,
             'car': 180,
+            'taxi_diesel': 160,
             'van_diesel': 250,
             'truck_diesel': 400,
             'hgv_diesel': 800,
@@ -130,6 +134,9 @@ class MetricsCalculator:
             'bus': {'base': 2.5, 'per_km': 0.10},
             'car': {'base': 1.0, 'per_km': 0.40},
             'ev': {'base': 1.0, 'per_km': 0.15},
+            # Note: For the *driver*, cost is running cost. 
+            'taxi_ev': {'base': 1.0, 'per_km': 0.15},
+            'taxi_diesel': {'base': 1.0, 'per_km': 0.35},
             
             # Freight
             'cargo_bike': {'base': 0.5, 'per_km': 0.05},
@@ -164,7 +171,8 @@ class MetricsCalculator:
             'bike': 0.6,
             'bus': 0.7,
             'car': 0.8,
-            'ev': 0.85,
+            'ev': 0.85, 
+            'taxi_ev': 0.8, 'taxi_diesel': 0.8,
             'van_electric': 0.75,
             'van_diesel': 0.75,
             'truck_electric': 0.70,
@@ -172,6 +180,7 @@ class MetricsCalculator:
             'hgv_electric': 0.65,
             'hgv_diesel': 0.65,
             'cargo_bike': 0.55,
+            
             # Public transport — high comfort but variable reliability penalty
             # applied via transfer boarding overhead in calculate_travel_time
             'tram':            0.75,
@@ -195,6 +204,7 @@ class MetricsCalculator:
             'bus': 0.15,
             'car': 0.25,
             'ev': 0.20,
+            'taxi_ev': 0.25, 'taxi_diesel': 0.25,
             'van_electric': 0.25,
             'van_diesel': 0.25,
             'truck_electric': 0.30,
@@ -458,6 +468,8 @@ class MetricsCalculator:
             'bus': 'drive',
             'car': 'drive',
             'ev': 'drive',
+            'taxi_ev': 'drive',
+            'taxi_diesel': 'drive',
             'van_electric': 'drive',
             'van_diesel': 'drive',
             'truck_electric': 'drive',

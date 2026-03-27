@@ -91,6 +91,21 @@ MODES: Dict[str, Dict[str, Any]] = {
         'routeable':      True,
     },
 
+    # ── Road – commercial passenger ───────────────────────────────
+    'taxi_ev': {
+        'network':       'drive',
+        'emissions_g_km': 0,
+        'speed_kmh':      45,
+        'routeable':      True,
+        'range_km':       300,
+    },
+    'taxi_diesel': {
+        'network':       'drive',
+        'emissions_g_km': 160,
+        'speed_kmh':      45,
+        'routeable':      True,
+    },
+
     # ── Road – light commercial ───────────────────────────────────
     'van_electric': {
         'network':       'drive',
@@ -293,4 +308,4 @@ FREIGHT_MODES   = frozenset({'van_electric', 'van_diesel', 'truck_electric', 'tr
                               'hgv_electric', 'hgv_diesel', 'hgv_hydrogen', 'cargo_bike'})
 PASSENGER_MODES = frozenset({'walk', 'bike', 'e_scooter', 'car', 'ev', 'bus', 'tram',
                               'local_train', 'intercity_train', 'ferry_diesel', 'ferry_electric',
-                              'flight_domestic', 'flight_electric'})
+                              'flight_domestic', 'flight_electric', 'taxi_ev', 'taxi_diesel'})
