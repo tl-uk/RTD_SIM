@@ -1,4 +1,6 @@
 """
+simulation/spatial/__init__.py
+
 Spatial subsystem for RTD_SIM.
 
 Modular architecture with single responsibility:
