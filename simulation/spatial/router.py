@@ -533,24 +533,6 @@ class Router:
             agent_id, mode, _rdkm(full_route), len(transit_nodes), len(full_route),
         )
         return full_route
-        self,
-        coord: Tuple[float, float],
-        rail_graph: Any,
-    ) -> Optional[int]:
-        """Brute-force nearest node on the rail graph to (lon, lat) coord."""
-        if rail_graph is None:
-            return None
-        lon, lat = coord
-        best_node = None
-        best_dist = float('inf')
-        for node, data in rail_graph.nodes(data=True):
-            nlon = float(data.get('x', data.get('lon', 0)))
-            nlat = float(data.get('y', data.get('lat', 0)))
-            d = haversine_km((lon, lat), (nlon, nlat))
-            if d < best_dist:
-                best_dist = d
-                best_node = node
-        return best_node
 
 
     def _nearest_rail_node(
