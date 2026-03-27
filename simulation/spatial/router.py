@@ -540,7 +540,13 @@ class Router:
         coord: Tuple[float, float],
         rail_graph: Any,
     ) -> Optional[int]:
-        """Brute-force nearest node on the rail graph to (lon, lat) coord."""
+        """
+        Brute-force nearest node on the rail graph to (lon, lat) coord.
+
+        For the hardcoded spine graph (string CRS node IDs) this also
+        consults the NaPTAN bridge so that the 25-station spine can be
+        augmented by live DfT data when available.
+        """
         if rail_graph is None:
             return None
         lon, lat = coord
@@ -554,6 +560,52 @@ class Router:
                 best_dist = d
                 best_node = node
         return best_node
+
+    def _snap_to_transfer_node(
+        self,
+        coord: Tuple[float, float],
+        rail_graph: Any,
+    ) -> Tuple[Optional[int], Tuple[float, float]]:
+        """
+        Return (graph_node_id, station_coord) for the nearest transfer node.
+
+        Strategy:
+          1. Try NaPTAN bridge (live DfT data, ~2,500 UK stations).
+          2. If NaPTAN lookup finds a station that exists in the rail graph,
+             return that node directly.
+          3. Fall back to brute-force nearest-node on the rail graph.
+
+        This ensures that when the full OpenRailMap graph is loaded, the
+        agent snaps to the correct node even if its coordinates differ
+        slightly from the NaPTAN dataset.
+        """
+        # ── Attempt NaPTAN snap ───────────────────────────────────────────
+        try:
+            from simulation.spatial.rail_spine import nearest_transfer_node
+            node_info = nearest_transfer_node(coord, max_km=30.0)
+            if node_info and rail_graph is not None:
+                # Try to find this station in the graph by CRS code or proximity
+                crs = node_info.get('crs', '')
+                if crs and crs in rail_graph.nodes:
+                    nd = rail_graph.nodes[crs]
+                    return (crs, (float(nd.get('x', 0)), float(nd.get('y', 0))))
+                # Proximity match if CRS not in graph
+                nlon, nlat = node_info['lon'], node_info['lat']
+                snap_node = self._nearest_rail_node((nlon, nlat), rail_graph)
+                if snap_node is not None:
+                    nd = rail_graph.nodes[snap_node]
+                    return (snap_node,
+                            (float(nd.get('x', 0)), float(nd.get('y', 0))))
+        except Exception:
+            pass  # NaPTAN unavailable — fall through to brute-force
+
+        # ── Brute-force fallback ──────────────────────────────────────────
+        node = self._nearest_rail_node(coord, rail_graph)
+        if node is None:
+            return (None, coord)
+        nd = rail_graph.nodes[node]
+        return (node, (float(nd.get('x', 0)), float(nd.get('y', 0))))
+    
 
     def _compute_intermodal_route(
         self,
