@@ -815,15 +815,36 @@ def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
         # ====================================================================
         # 6. Service & Trades Ontology
         # ====================================================================
+        # if j_type == 'service':
+        #     trades_personas = [
+        #         'freight_operator', 'frequent_driver', 'rural_resident', 
+        #         'business_commuter', 'delivery_driver', 'island_resident',
+        #         'shift_worker'
+        #     ]
+        #     return user_id in trades_personas
+
+        # return False
+
+        # ====================================================================
+        # 6. Service & Trades Ontology (UPDATED)
+        # ====================================================================
         if j_type == 'service':
+            # NEW: Cleaned up trade personas
             trades_personas = [
-                'freight_operator', 'frequent_driver', 'rural_resident', 
-                'business_commuter', 'delivery_driver', 'island_resident',
-                'shift_worker'
+                'island_tradesperson', 'rural_technician', 
+                'specialist_engineer', 'emergency_trade_worker',
+                'freight_operator', 'delivery_driver'
             ]
             return user_id in trades_personas
 
-        return False
+        # ====================================================================
+        # 7. Taxi & Private Hire Ontology (NEW)
+        # ====================================================================
+        if j_type == 'taxi_service' or operator_type == 'taxi':
+            taxi_personas = [
+                'taxi_driver', 'ride_hail_driver', 'fleet_manager_taxi'
+            ]
+            return user_id in taxi_personas
         
     except Exception as e:
         import logging

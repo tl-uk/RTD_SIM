@@ -23,7 +23,7 @@ urban_food_delivery:
     - 12:00-14:00
     - 18:00-21:00
   destination_type: multiple_urban
-  # ✅ FIXED: Reduced from 5-10km to match real urban food delivery patterns
+  # FIXED: Reduced from 5-10km to match real urban food delivery patterns
   typical_distance_km:
   - 3
   - 8
@@ -36,7 +36,7 @@ urban_food_delivery:
     time_sensitive: true
   vehicle_constraints:
     type: micro_mobility
-    # ✅ FIXED: Reduced from 10km to 8km to match typical_distance_km max
+    # FIXED: Reduced from 10km to 8km to match typical_distance_km max
     max_distance_km: 8
     preferred_modes:
     - cargo_bike
@@ -82,7 +82,7 @@ urban_parcel_delivery:
     end: '18:00'
     flexibility: low
   destination_type: multiple_urban
-  # ✅ FIXED: Reduced from 10-15km to 5-20km (realistic urban parcel routes)
+  # FIXED: Reduced from 10-15km to 5-20km (realistic urban parcel routes)
   typical_distance_km:
   - 5
   - 20
@@ -94,7 +94,7 @@ urban_parcel_delivery:
     urgency: medium
   vehicle_constraints:
     type: micro_mobility
-    # ✅ FIXED: Reduced from 15km to 20km to match typical_distance_km max
+    # FIXED: Reduced from 15km to 20km to match typical_distance_km max
     max_distance_km: 20
     capacity_kg:
     - 5
@@ -143,7 +143,7 @@ gig_economy_delivery:
     - 12:00-14:00
     - 18:00-21:00
   destination_type: multiple_urban
-  # ✅ FIXED: Reduced from 15-40km to 5-25km (realistic gig delivery)
+  # FIXED: Reduced from 15-40km to 5-25km (realistic gig delivery)
   # Note: 40km was causing infrastructure_failed for cargo bikes
   typical_distance_km:
   - 5

@@ -75,7 +75,7 @@ morning_commute:
       - workplace_parking
       - max_cost
 
-
+# ----------------------------------------------------------------------------
 commute_flexible:
   context: When commuting with flexible timing — flexi-hours, part-time, or variable start
   goal: I want to travel outside peak hours where possible to reduce stress and cost
@@ -119,7 +119,7 @@ commute_flexible:
       - preferred_mode
       - flex_hours
 
-
+# ----------------------------------------------------------------------------
 multi_modal_commute:
   context: When commuting using a combination of transport modes (bike+train, bus+walk)
   goal: I want to chain modes efficiently to cover each leg of my journey optimally
@@ -165,7 +165,7 @@ multi_modal_commute:
       - station_lat
       - station_lon
 
-
+# ----------------------------------------------------------------------------
 intercity_train_commute:
   context: When commuting daily between cities over long distances (e.g. Edinburgh–Glasgow)
   goal: I want a fast, productive intercity journey with reliable scheduling
@@ -311,7 +311,7 @@ accessible_tram_journey:
     optional:
       - accessibility_features
 
-
+# ----------------------------------------------------------------------------
 tourist_scenic_rail:
   context: When exploring scenic rail routes as part of a leisure or holiday trip
   goal: I want a slow, scenic journey that maximises the travel experience
@@ -359,7 +359,7 @@ tourist_scenic_rail:
       - scenic_route_name
       - attractions
 
-
+# ----------------------------------------------------------------------------
 island_ferry_trip:
   context: When travelling to or from a Scottish island via scheduled ferry service
   goal: I want a reliable ferry crossing that fits my schedule and budget

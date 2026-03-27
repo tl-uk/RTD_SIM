@@ -1072,3 +1072,111 @@ tourist_visitor:
     influence_susceptibility: 0.7
     influence_strength: 0.35
     network_size_range: [2, 8]
+
+# ========================================================================
+# COMMERCIAL PASSENGER & TRADES PERSONAS
+# ========================================================================
+
+taxi_driver:
+  narrative: |
+    As a licensed city taxi driver, my vehicle is my livelihood. I rely on
+    public rapid chargers. Time spent charging is money lost, so I need fast,
+    reliable infrastructure near ranks and airports.
+  persona_type: "freight"  # Using freight to align with commercial logic
+  desires:
+    cost: 0.9
+    time: 0.85
+    reliability: 0.9
+    flexibility: 0.4
+    eco: 0.4
+  beliefs:
+    - text: "Public rapid chargers are too often broken or occupied"
+      strength: 0.9
+      updateable: true
+  constraints:
+    - "Cannot charge at home (lives in flat)"
+    - "Must maximize earning hours"
+  mode_preferences:
+    taxi_ev: 0.8
+    taxi_diesel: 0.7
+
+ride_hail_driver:
+  narrative: |
+    As a gig-economy ride-hail driver, I use my personal or leased car to earn money.
+    I chase surge pricing across the city and worry about the total cost of ownership
+    and ZEZ fees eating into my margins.
+  persona_type: "freight"
+  desires:
+    cost: 0.95
+    time: 0.8
+    flexibility: 0.9
+    reliability: 0.7
+    eco: 0.5
+  constraints:
+    - "Highly sensitive to per-mile running costs"
+  mode_preferences:
+    ev: 0.85
+    car: 0.6
+    taxi_ev: 0.7
+
+island_tradesperson:
+  narrative: |
+    As a tradesperson living on a Scottish island, I rely on ferries to transport
+    materials from the mainland. My van needs to handle rough roads, and public
+    charging on the island is basically non-existent.
+  persona_type: "freight"
+  desires:
+    reliability: 0.95
+    cost: 0.7
+    time: 0.6
+    flexibility: 0.3
+  constraints:
+    - "Ferry schedules dictate material runs"
+  mode_preferences:
+    van_diesel: 0.9
+    van_electric: 0.4
+
+rural_technician:
+  narrative: |
+    As a service engineer covering vast rural patches, I drive 150+ miles a day.
+    I suffer from acute range anxiety because if my van dies in a dead zone,
+    my SLA is ruined and I'm stranded.
+  persona_type: "freight"
+  desires:
+    reliability: 0.95
+    time: 0.8
+    cost: 0.6
+    eco: 0.4
+  mode_preferences:
+    van_diesel: 0.95
+    van_electric: 0.5
+
+specialist_engineer:
+  narrative: |
+    As a corporate service engineer repairing high-value medical or IT equipment,
+    I travel between major hospitals and corporate campuses. My company pays for
+    my vehicle, but I need guaranteed reliability to hit strict SLAs.
+  persona_type: "freight"
+  desires:
+    time: 0.9
+    reliability: 0.95
+    comfort: 0.7
+    cost: 0.3
+  mode_preferences:
+    van_electric: 0.8
+    van_diesel: 0.6
+
+emergency_trade_worker:
+  narrative: |
+    As a 24/7 emergency plumber/electrician, I get called out at 3 AM. I cannot
+    wait 40 minutes at a charger when a customer's house is flooding. I need
+    immediate, guaranteed vehicle availability.
+  persona_type: "freight"
+  desires:
+    time: 0.95
+    reliability: 0.95
+    safety: 0.8
+    cost: 0.5
+  mode_preferences:
+    van_diesel: 0.9
+    van_electric: 0.6

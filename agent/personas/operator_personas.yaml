@@ -82,7 +82,7 @@ fleet_manager_logistics:
     influence_strength: 0.65
     network_size_range: [10, 30]
 
-
+# ----------------------------------------------------------------------------
 fleet_manager_healthcare:
   narrative: |
     As an NHS transport manager, I coordinate patient transport, staff fleet,
@@ -144,7 +144,7 @@ fleet_manager_healthcare:
     influence_strength: 0.6
     network_size_range: [8, 25]
 
-
+# ----------------------------------------------------------------------------
 fleet_manager_retail:
   narrative: |
     As a retail logistics director at a major UK supermarket chain, I manage

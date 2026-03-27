@@ -46,6 +46,8 @@ service_engineer_call:
     - urgency_level
     - customer_priority
     - parts_required
+
+# ----------------------------------------------------------------------------
 trades_contractor:
   context: When traveling to job sites with tools, materials, and equipment
   goal: I want dependable transport that accommodates my work requirements
@@ -90,6 +92,8 @@ trades_contractor:
     - job_type
     - materials_required
     - estimated_duration
+
+# ----------------------------------------------------------------------------
 freight_delivery_route:
   context: When performing multi-stop delivery route with time windows
   goal: I want to complete all deliveries efficiently and on time

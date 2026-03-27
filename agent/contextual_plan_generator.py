@@ -367,8 +367,8 @@ class ContextualPlanGenerator:
         
         job_type = getattr(job_story, 'job_type', 'general')
         
-        if job_type in ['freight', 'delivery', 'gig_delivery']:
-            # Freight: Cost optimization
+        if job_type in ['freight', 'delivery', 'gig_delivery', 'taxi_service']:
+            # Freight & Taxis: Cost optimization (or maximizing earnings)
             plan.primary_objective = 'minimize_cost'
         elif 'commute' in job_type:
             # Commute: Time optimization

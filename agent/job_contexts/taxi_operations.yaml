@@ -1,0 +1,97 @@
+# agent/job_contexts/taxi_operations.yaml
+#
+# Job contexts for Taxis (Hackney Carriages) and Private Hire Vehicles (Ride-hail).
+# Crucial for modeling rapid DC charging demand and high urban mileage.
+
+urban_ride_hail_shift:
+  context: When operating an app-based ride-hail vehicle for a prolonged urban shift
+  goal: I want to maximize my loaded mileage and minimize charging downtime
+  outcome: So I maximize my daily earnings while operating within city limits
+  job_type: taxi_service
+  time_window:
+    start: 06:00
+    end: '23:59'
+    flexibility: high
+    peak_hours: ['07:00-09:30', '17:00-20:00']
+  destination_type: multiple_urban
+  typical_distance_km:
+    - 100
+    - 250    # Total shift distance, lots of short hops
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: commercial
+    recurring: true
+    urgency: medium
+    operator_type: taxi
+  vehicle_constraints:
+    preferred_modes:
+      - taxi_ev
+      - taxi_diesel
+      - ev
+      - car
+  plan_context:
+    - High percentage of "deadheading" (driving empty to next fare)
+    - Relies entirely on public rapid DC chargers (no depot)
+    - Charging time directly reduces earning potential
+  csv_columns:
+    required: ["shift_start_lat", "shift_start_lon"]
+
+station_taxi_rank:
+  context: When operating from a designated taxi rank at a major transport hub
+  goal: I want to capture high-value fares arriving from intercity trains
+  outcome: So I provide essential first/last mile connectivity for travelers
+  job_type: taxi_service
+  time_window:
+    start: 05:00
+    end: '01:00'
+    flexibility: low
+  destination_type: station_to_any
+  typical_distance_km:
+    - 2
+    - 20
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: commercial
+    recurring: true
+    urgency: high
+    luggage_present: true
+    operator_type: taxi
+  vehicle_constraints:
+    preferred_modes:
+      - taxi_ev
+      - taxi_diesel
+  plan_context:
+    - Significant idling time at taxi ranks
+    - Clean Air Zones/ZEZs force rapid transition to EV for licensed taxis
+    - Luggage space is a strict constraint
+
+airport_taxi_run:
+  context: When taking passengers on longer-haul trips to or from the airport
+  goal: I want a reliable vehicle that can handle highway speeds and passenger luggage
+  outcome: So passengers make their flights and I can quickly return to the city
+  job_type: taxi_service
+  time_window:
+    start: 03:00
+    end: '23:59'
+    flexibility: low
+  destination_type: airport_terminal
+  typical_distance_km:
+    - 15
+    - 80
+  parameters:
+    vehicle_required: true
+    vehicle_type: commercial
+    priority: commercial
+    recurring: true
+    urgency: high
+    luggage_present: true
+    operator_type: taxi
+  vehicle_constraints:
+    preferred_modes:
+      - taxi_ev
+      - taxi_diesel
+  plan_context:
+    - Range anxiety is acute if asked to do an airport run with <40% battery
+    - Airport rapid charging hubs are critical infrastructure
