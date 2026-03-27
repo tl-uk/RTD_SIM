@@ -8,6 +8,7 @@ Fixed: use_container_width deprecation warnings
 import streamlit as st
 import sys
 from pathlib import Path
+from ui.tabs.gtfs_analytics_tab import render_gtfs_analytics_tab
 
 # Add parent directory to path
 parent_dir = Path(__file__).resolve().parent.parent

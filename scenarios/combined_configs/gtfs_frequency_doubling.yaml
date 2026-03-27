@@ -1,0 +1,123 @@
+# scenarios/combined_configs/gtfs_frequency_doubling.yaml
+#
+# GTFS Transit Frequency Doubling Scenario
+# ─────────────────────────────────────────────────────────────────────────────
+# PURPOSE
+#   Simulates the effect of doubling bus and tram service frequency across the
+#   study region.  In the BDI generalised cost formula, headway enters as:
+#
+#       gen_cost += (headway_s / 2) × VoT_h
+#
+#   Halving headway halves the expected waiting cost.  For agents near the
+#   modal shift threshold (identified by gtfs_analytics.modal_shift_threshold_
+#   analysis), this is often sufficient to flip them from car to transit.
+#
+# MECHANISM
+#   The 'headway_reduction' policy parameter is read by router.py's
+#   _compute_gtfs_route() when it builds gen_cost weights on GTFS edges.
+#   A 50% reduction corresponds to doubling frequency (half the gap between
+#   services).
+#
+# EXPECTED EMERGENT BEHAVIOUR
+#   • Agents near the tipping threshold switch from car/ev to bus/tram
+#   • Mode adoption history shows a step-change in bus/tram uptake
+#   • Emissions hotspots on major corridors reduce
+#   • Car-mode agents in transit deserts remain unaffected (no service)
+#
+# RESEARCH USE
+#   Compare this scenario against default_policies.yaml to quantify:
+#     Δ mode_share[bus + tram]
+#     Δ total_emissions
+#     Tipping points detected in mode_share_analyzer
+#   This directly tests the ASI "Shift" tier: does better transit service
+#   produce measurable modal shift without punitive road pricing?
+#
+# DATA REQUIREMENT
+#   config.gtfs_feed_path must be set.  Without GTFS data this scenario
+#   degrades to a no-op (no transit edges to re-weight).
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: "GTFS Frequency Doubling"
+description: >
+  Doubles bus and tram service frequency across all GTFS routes.
+  Halves expected waiting time in the BDI generalised cost, making
+  transit more competitive against car for threshold agents.
+  Requires GTFS feed loaded via config.gtfs_feed_path.
+
+version: "1.0.0"
+category: "modal_shift"
+research_question: >
+  What is the modal shift impact of doubling bus/tram frequency?
+  Which agent personas respond first, and at what frequency
+  threshold does a tipping point emerge?
+
+policies:
+  # ── Transit frequency ────────────────────────────────────────────────────
+  - parameter: headway_reduction
+    value: 50.0              # percent reduction — 50% = double frequency
+    target: transit
+    mode: bus
+    description: "Double bus frequency — halve expected waiting time"
+    phase_in_step: 0         # effective from simulation start
+
+  - parameter: headway_reduction
+    value: 50.0
+    target: transit
+    mode: tram
+    description: "Double tram frequency"
+    phase_in_step: 0
+
+  # ── Generalised cost context ─────────────────────────────────────────────
+  # VoT and carbon_tax unchanged — isolates the frequency effect
+  - parameter: value_of_time_gbp_h
+    value: 10.0
+    target: policy_context
+    description: "UK DfT average VoT — unchanged"
+
+  - parameter: carbon_tax_gbp_tco2
+    value: 0.0
+    target: policy_context
+    description: "No carbon tax — isolates frequency effect"
+
+  - parameter: boarding_penalty_min
+    value: 15.0
+    target: policy_context
+    description: "Standard 15-min boarding penalty — unchanged"
+
+  # ── Mode cost factors ────────────────────────────────────────────────────
+  # Bus/tram cost factors unchanged — frequency is the only lever
+  - parameter: cost_factor
+    value: 1.0
+    target: mode
+    mode: bus
+    description: "No fare change — frequency effect in isolation"
+
+  - parameter: cost_factor
+    value: 1.0
+    target: mode
+    mode: tram
+
+constraints: []
+
+expected_outcomes:
+  primary:
+    - "Bus mode share increases by 5–15 percentage points"
+    - "Tram mode share increases, especially for short-distance agents"
+    - "Total CO₂ emissions decrease proportionally to shifted agents"
+  secondary:
+    - "Car mode share decreases for agents near transit corridors"
+    - "Agents in transit deserts show no mode change (no service nearby)"
+    - "Markov habit tracking shows new transit lock-in after 10+ consecutive uses"
+  tipping_points:
+    description: >
+      Watch mode_share_analyzer for a velocity spike in bus/tram uptake
+      between simulation steps 20–60 (depending on agent population).
+      This is the emergent tipping point driven by threshold agents switching.
+
+notes: >
+  Run alongside default_policies.yaml for comparison.
+  Set config.run_gtfs_analytics = True to generate transit desert and
+  modal shift threshold reports before and after.
+  Pair with gtfs_bus_electrification.yaml to separate frequency and
+  electrification effects.

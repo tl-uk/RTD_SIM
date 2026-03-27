@@ -1,0 +1,129 @@
+# scenarios/combined_configs/gtfs_bus_electrification.yaml
+#
+# GTFS Bus Fleet Electrification Priority Scenario
+# ─────────────────────────────────────────────────────────────────────────────
+# PURPOSE
+#   Simulates the immediate electrification of all diesel bus and tram routes.
+#   In the BDI cost formula, fuel_type determines emissions_g_km on GTFS edges:
+#
+#       gen_cost += dist_km × (emissions_g_km / 1000) × carbon_tax_gbp_tco2
+#
+#   Switching diesel (130 g/km) to electric (35 g/km) reduces the emissions
+#   cost component.  The primary effect is visible when carbon_tax > 0:
+#   agents who weight eco desire highly will see a reduced transit cost and
+#   shift earlier.  At carbon_tax = 0 the change is visible in the emissions
+#   ledger but not the mode choice (since cost = 0 × emit = 0 either way).
+#
+# MECHANISM
+#   'fuel_type_override' → 'electric' is applied to all bus/tram GTFS edges
+#   at graph build time.  The emissions_g_km attribute drops from ~130 to ~35.
+#   The carbon tax (set to £50/tCO₂ here) then makes diesel alternatives
+#   genuinely more expensive in the BDI evaluation.
+#
+# RESEARCH USE
+#   Primary comparison: this scenario vs default_policies.yaml
+#     Metric: lifecycle_emissions by mode (tracked in simulation_loop.py)
+#   Secondary: combine with gtfs_frequency_doubling.yaml to test whether
+#   electrification + frequency produces super-additive modal shift.
+#
+#   This is the cleanest test of the ASI "Improve" tier:
+#     "Same service, cleaner technology → emissions drop without modal shift"
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: "GTFS Bus Fleet Electrification"
+description: >
+  Assumes immediate electrification of all diesel bus and tram routes.
+  Applies a £50/tCO₂ carbon tax to reveal the cost signal difference
+  between diesel and electric transit. Primarily affects the emissions
+  ledger; mode choice is unchanged at low VoT unless carbon_tax > £30.
+
+version: "1.0.0"
+category: "electrification"
+research_question: >
+  How much does full bus fleet electrification reduce transport CO₂
+  in the simulation? Does the emissions saving change agent mode choices
+  when combined with a carbon price signal?
+
+policies:
+  # ── Electrification ──────────────────────────────────────────────────────
+  - parameter: fuel_type_override
+    value: electric
+    target: gtfs_transit
+    mode: bus
+    description: >
+      Override all diesel bus routes to electric.
+      Drops emissions_g_km from ~130 to ~35 on all bus GTFS edges.
+    phase_in_step: 0
+
+  - parameter: fuel_type_override
+    value: electric
+    target: gtfs_transit
+    mode: tram
+    description: "Mark all tram routes as electric (most already are)."
+    phase_in_step: 0
+
+  # ── Carbon pricing — needed to make electrification visible in BDI ───────
+  - parameter: carbon_tax_gbp_tco2
+    value: 50.0              # £50/tCO₂ — UK Climate Change Act trajectory
+    target: policy_context
+    description: >
+      Carbon price signal. Without this the cost formula change from
+      electrification is invisible in mode choice (0 × any_factor = 0).
+      £50 is consistent with the UK Government's central carbon value 2030.
+
+  # ── Scenario context ─────────────────────────────────────────────────────
+  - parameter: value_of_time_gbp_h
+    value: 10.0
+    target: policy_context
+
+  - parameter: boarding_penalty_min
+    value: 15.0
+    target: policy_context
+
+  - parameter: energy_price_gbp_km
+    value: 0.12
+    target: policy_context
+
+  # ── Road modes: diesel gets carbon tax applied ────────────────────────────
+  # No explicit car cost_increase here — the carbon_tax_gbp_tco2 policy context
+  # is applied inside _apply_generalised_weights and _compute_gtfs_route
+  # automatically to all modes via the formula:
+  #   gen_cost += dist_km × (emissions_g_km / 1000) × carbon_tax
+  # At £50/tCO₂, a car emitting 170 g/km pays:
+  #   0.17 kg/km × £50/t = £0.0085/km extra — modest but meaningful on long trips
+
+constraints:
+  - type: "bus_ev_charger_availability"
+    description: >
+      Electrification requires depot charging infrastructure.
+      Use infrastructure_tab to verify sufficient depot charger capacity before
+      deploying this scenario at scale.
+
+expected_outcomes:
+  primary:
+    - "Bus/tram lifecycle emissions drop by ~73% (130 → 35 g/km)"
+    - "Total simulation CO₂ falls by 15–25% depending on bus mode share"
+    - "Eco-warrior and concerned_parent personas show increased bus preference"
+  secondary:
+    - "Mode share change is modest without frequency improvement"
+    - "Carbon tax makes car marginally more expensive on long trips"
+    - "Electrification_opportunity_ranking in GTFS analytics shows all bus routes as fulfilled"
+  measurement:
+    - "lifecycle_emissions['bus'] before and after — should show ~73% reduction"
+    - "mode_share_analyzer: watch for eco-persona shift toward bus"
+
+combination_scenarios:
+  - name: "Electrification + Frequency"
+    load_also: "gtfs_frequency_doubling.yaml"
+    expected: >
+      Super-additive effect: electrification reduces emissions per trip,
+      while frequency reduces waiting cost. Together they produce both
+      lower emissions AND higher modal shift. Test whether the tipping
+      point velocity is higher than either scenario alone.
+
+notes: >
+  Run alongside default_policies.yaml AND gtfs_frequency_doubling.yaml
+  in scenario_comparator.py to produce a 3-way comparison.
+  Set run_gtfs_analytics = True to populate the electrification_opportunity
+  ranking showing which routes have been fulfilled vs remaining diesel.
