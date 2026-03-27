@@ -2,19 +2,22 @@
 simulation/spatial/__init__.py
 
 Spatial subsystem for RTD_SIM.
-
-Modular architecture with single responsibility:
-- GraphManager: OSM graph loading & caching
-- Router: Route computation & alternatives  
-- MetricsCalculator: Performance metrics
-- coordinate_utils: Pure utility functions
-- CongestionManager: Dynamic congestion data handling
-- rail_network: OpenRailMap integration
-- rail_spine: UK intercity rail network backbone
-- naptan_loader: DfT NaPTAN transfer node integration
 """
 
-# Import classes lazily to avoid circular imports
+from typing import TYPE_CHECKING
+
+# Make the IDE / Linter happy without causing circular imports at runtime
+if TYPE_CHECKING:
+    from simulation.spatial.graph_manager import GraphManager
+    from simulation.spatial.router import Router
+    from simulation.spatial.metrics_calculator import MetricsCalculator
+    from simulation.spatial.congestion_manager import CongestionManager
+    from simulation.spatial import coordinate_utils
+    from simulation.spatial import rail_network
+    from simulation.spatial import rail_spine
+    from simulation.spatial import naptan_loader
+
+# Import classes lazily to avoid circular imports at runtime
 def __getattr__(name):
     if name == 'GraphManager':
         from simulation.spatial.graph_manager import GraphManager
