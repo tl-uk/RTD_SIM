@@ -14,7 +14,7 @@ from collections import defaultdict
 
 from simulation.config.simulation_config import SimulationConfig
 
-# Phase 2 + 3: belief updating and Markov mode switching
+# Belief updating and Markov mode switching
 try:
     from agent.bayesian_belief_updater import BayesianBeliefUpdater
     BELIEF_UPDATER_AVAILABLE = True
@@ -452,19 +452,32 @@ def run_simulation_loop(
     
     # Track mode adoption over time
     def record_adoption():
-        """Record current mode distribution."""
+        """Record current mode distribution across ALL modes."""
         mode_counts = defaultdict(int)
         for agent in agents:
             mode = agent.state.mode
             mode_counts[mode] += 1
-        
-        # Include all freight modes
+
+        # Complete mode list — matches MODES registry in modes.py.
+        # Previously this list omitted transit and rail modes, making
+        # local_train, bus, tram, etc. invisible in tipping-point detection.
         all_modes = [
-            'walk', 'bike', 'bus', 'car', 'ev',
-            'cargo_bike',
+            # Active
+            'walk', 'bike', 'e_scooter', 'cargo_bike',
+            # Road – personal
+            'car', 'ev', 'taxi_ev', 'taxi_diesel',
+            # Road – commercial
+            'bus', 'tram',
+            # Road – freight
             'van_electric', 'van_diesel',
             'truck_electric', 'truck_diesel',
-            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen'
+            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+            # Rail
+            'local_train', 'intercity_train', 'freight_rail',
+            # Maritime
+            'ferry_diesel', 'ferry_electric',
+            # Aviation
+            'flight_domestic', 'flight_electric',
         ]
         
         for mode in all_modes:
@@ -1339,6 +1352,38 @@ def run_simulation_loop(
         'temporal_engine': temporal_engine,  
         'event_generator': event_generator,  # Phase 7.2
     }
+
+    # ── GTFS post-simulation analytics ────────────────────────────────────────
+    if getattr(config, 'run_gtfs_analytics', False):
+        try:
+            from simulation.gtfs.gtfs_analytics import run_full_gtfs_analysis
+            gtfs_report = run_full_gtfs_analysis(
+                agents         = agents,
+                results        = results,
+                env            = env,
+                policy_context = _gen_cost_defaults,
+            )
+            results['gtfs_analytics'] = gtfs_report
+            logger.info("✅ GTFS analytics complete")
+        except Exception as _gtfs_err:
+            logger.warning("GTFS analytics failed (non-fatal): %s", _gtfs_err)
+            results['gtfs_analytics'] = None
+    
+    # Add dynamic policy results if available
+    if policy_engine:
+        # Get final policy report
+        final_report = get_final_policy_report(policy_engine)
+        
+        if final_report:
+            results['policy_actions'] = policy_actions_taken
+            results['constraint_violations'] = constraint_violations
+            results['cost_recovery_history'] = cost_recovery_history
+            results['final_cost_recovery'] = final_report['cost_recovery']
+            results['policy_status'] = final_report['policy_status']
+        
+        logger.info(f"✅ Policy tracking: {len(policy_actions_taken)} actions, "
+                   f"{len(constraint_violations)} violations")
+
     
     # Add dynamic policy results if available
     if policy_engine:

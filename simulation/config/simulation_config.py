@@ -124,6 +124,13 @@ class SimulationConfig:
         environmental: Optional[EnvironmentalConfig] = None,
         policy: Optional[PolicyConfig] = None,
         system_dynamics: Optional[SystemDynamicsConfig] = None, # System Dynamics (new structured config)
+
+        # ===== GTFS =========================
+        gtfs_feed_path=None,
+        gtfs_service_date=None,
+        gtfs_fuel_overrides=None,
+        gtfs_headway_window=None,
+        run_gtfs_analytics=False,
     ):
         """
         Initialize SimulationConfig.
@@ -155,7 +162,7 @@ class SimulationConfig:
         self.strong_tie_threshold = strong_tie_threshold
         self.llm_backend = llm_backend
         
-        # Phase 7.1: Temporal scaling
+        # Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling
         self.time_scale = time_scale
         self.start_datetime = start_datetime
@@ -165,9 +172,16 @@ class SimulationConfig:
         self.scenarios_dir = scenarios_dir
         self.combined_scenario_data = combined_scenario_data
 
-        # Policy framework (NEW)
+        # Policy framework
         self.use_default_policies = use_default_policies
         self.policy_thresholds = policy_thresholds
+
+        # GTFS
+        self.gtfs_feed_path      = gtfs_feed_path
+        self.gtfs_service_date   = gtfs_service_date
+        self.gtfs_fuel_overrides = gtfs_fuel_overrides
+        self.gtfs_headway_window = gtfs_headway_window
+        self.run_gtfs_analytics  = run_gtfs_analytics
         
         # Initialize sub-configs
         # Use provided sub-configs OR build from flat parameters
@@ -250,9 +264,61 @@ class SimulationConfig:
             self.use_default_policies = use_default_policies
         if not hasattr(self, 'policy_thresholds'):
             self.policy_thresholds = policy_thresholds
+
+    # ========================================
+    # GTFS transit integration
+    # ========================================
+    gtfs_feed_path: Optional[str] = None
+    """
+    Path to a GTFS static feed (.zip or directory containing *.txt files).
+    When set, environment_setup.py will parse the feed and register a
+    NetworkX transit graph under graph_manager.graphs['transit'].
+    Bus/tram/ferry agents will then route via the GTFS graph rather than
+    the OSM drive proxy.
+
+    UK data sources (all free):
+      Traveline National Dataset (TNDS):  travelinedata.org.uk
+      ScotRail:                           raildeliverygroup.com/gtfs
+      Transport for London:               api.tfl.gov.uk/swagger/ui
+      Bus Open Data Service (BODS):       data.bus-data.dft.gov.uk
+    """
+    
+
+    gtfs_service_date: Optional[str] = None
+    """
+    ISO date string 'YYYYMMDD' to filter GTFS services active on that day.
+    None = load all services regardless of calendar (larger graph, slower).
+    Recommended: set to a typical Tuesday to avoid weekend timetables.
+    Example: '20250401'
+    """
+
+    gtfs_fuel_overrides: Optional[dict] = None
+    """
+    Dict of {route_id: fuel_type} to override GTFSLoader's auto-inference.
+    Useful when the feed lacks route_color or route_desc fields that the
+    loader relies on to detect electric/diesel/hydrogen services.
+    Example: {'SL1': 'electric', 'X99': 'diesel'}
+    """
+
+    gtfs_headway_window: Optional[tuple] = None
+    """
+    (start_seconds, end_seconds) past midnight for headway computation.
+    Defaults to AM peak 07:00-09:30 = (25200, 34200).
+    Set to (0, 86400) to use the full-day average.
+    """
+
+    # ── GTFS analytics ────────────────────────────────────────────────────
+    run_gtfs_analytics: bool = False
+    """
+    If True, run the full GTFS analytics suite after simulation completes.
+    Results stored in results['gtfs_analytics'].
+    Includes: transit_deserts, electrification_ranking, modal_shift,
+              emissions_hotspots.
+    Adds ~2-10s to post-processing time depending on agent count.
+    """
     
     # ========================================
-    # Phase 6.2b: Event System
+    # Event System
     # ========================================
     enable_event_bus: bool = False
     """Enable real-time event bus (auto-falls back to in-memory if Redis unavailable)"""
@@ -562,7 +628,7 @@ class SimulationResults:
         self.scenario_comparator = None
         self.analytics_summary = {}
         
-        # Phase 5.3: System Dynamics results
+        # System Dynamics results
         self.system_dynamics_history = []
 
         # ── Data quality counters ──────────────────────────────────────────

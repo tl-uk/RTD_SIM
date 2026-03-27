@@ -1,5 +1,5 @@
 """
-simulation/gtfs/__init__.py
+simulation/gtfs
 
 GTFS integration layer for RTD_SIM.
 
@@ -21,6 +21,13 @@ Example usage:
 
 from simulation.gtfs.gtfs_loader import GTFSLoader
 from simulation.gtfs.gtfs_graph import GTFSGraph
+from simulation.gtfs.gtfs_analytics import (
+    transit_desert_analysis,
+    electrification_opportunity_ranking,
+    modal_shift_threshold_analysis,
+    emissions_hotspot_detection,
+    run_full_gtfs_analysis,
+)
 from typing import Optional, Tuple, Any
 
 
@@ -65,4 +72,11 @@ def load_gtfs(
     return G, loader
 
 
-__all__ = ['GTFSLoader', 'GTFSGraph', 'load_gtfs']
+__all__ = [
+    'GTFSLoader', 'GTFSGraph', 'load_gtfs',
+    'transit_desert_analysis',
+    'electrification_opportunity_ranking',
+    'modal_shift_threshold_analysis',
+    'emissions_hotspot_detection',
+    'run_full_gtfs_analysis',
+]
