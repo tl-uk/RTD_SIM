@@ -421,8 +421,27 @@ def _tram_stop_coord(stop_id: str) -> Optional[Tuple[float, float]]:
     return None
 
 
-def _nearest_tram_stop(coord: Tuple[float, float]) -> Optional[str]:
-    """Return the ID of the nearest Edinburgh tram stop to (lon, lat)."""
+def _nearest_tram_stop(
+    coord: Tuple[float, float],
+    max_km: float = 1.5,
+) -> Optional[str]:
+    """
+    Return the ID of the nearest Edinburgh tram stop within max_km.
+
+    Returns None when no stop is within the catchment distance so that
+    tram is correctly excluded as a mode option for agents far from the
+    corridor (e.g. agents in Balerno, Musselburgh, Bo'ness).
+
+    DfT walking distance standard for tram/LRT: 700m (modal shift model).
+    We use 1.5km as a generous upper limit that also captures Ingliston
+    P&R, Gogar, and Edinburgh Park (all reachable by short feeder bus or
+    car drop-off).  Beyond 1.5km the access overhead makes tram non-
+    competitive with bus or car for Edinburgh distances.
+
+    Args:
+        coord:  (lon, lat)
+        max_km: Maximum walk/access distance to nearest stop (default 1.5km).
+    """
     lon, lat = coord
     best_id   = None
     best_dist = float('inf')
@@ -439,32 +458,45 @@ def _nearest_tram_stop(coord: Tuple[float, float]) -> Optional[str]:
             if d < best_dist:
                 best_dist = d
                 best_id   = stop_id
+
+    if best_dist > max_km:
+        logger.debug(
+            "_nearest_tram_stop: nearest stop %.2fkm away (max %.1fkm) — outside catchment",
+            best_dist, max_km,
+        )
+        return None
     return best_id
 
 
 def route_via_tram_stops(
     origin: Tuple[float, float],
     dest: Tuple[float, float],
-) -> List[Tuple[float, float]]:
+    max_access_km: float = 1.5,
+) -> Optional[List[Tuple[float, float]]]:
     """
     Build a realistic Edinburgh tram route as a list of (lon, lat) waypoints.
 
+    Returns None when either origin or destination is outside the tram
+    corridor catchment (default 1.5km from nearest stop).  Callers must
+    check for None and fall back to make_synthetic_route or skip tram.
+
     Strategy:
-      1. Find nearest tram stop to origin.
-      2. Find nearest tram stop to dest.
-      3. Return [origin, stop_A, ...intermediate stops..., stop_B, dest]
+      1. Find nearest tram stop within max_access_km of origin.
+      2. Find nearest tram stop within max_access_km of dest.
+      3. If either is None → return None (tram not viable for this trip).
+      4. Route through ordered stops between the two snapped stops.
 
-    Since Edinburgh Trams is a single line, intermediate stops are simply
-    all stops between stop_A and stop_B in the ordered TRAM_LINE sequence.
-
-    If origin and destination are closest to the same stop, returns a
-    direct walk [origin, dest] — too short for tram to be relevant.
+    Args:
+        origin:         (lon, lat)
+        dest:           (lon, lat)
+        max_access_km:  Maximum walk/feeder distance to tram stop (default 1.5km).
     """
-    origin_stop_id = _nearest_tram_stop(origin)
-    dest_stop_id   = _nearest_tram_stop(dest)
+    origin_stop_id = _nearest_tram_stop(origin, max_km=max_access_km)
+    dest_stop_id   = _nearest_tram_stop(dest,   max_km=max_access_km)
 
+    # One or both ends are outside tram catchment — not viable
     if origin_stop_id is None or dest_stop_id is None:
-        return [origin, dest]
+        return None
 
     if origin_stop_id == dest_stop_id:
         # Both ends snap to the same stop — trip too short for tram
@@ -476,7 +508,7 @@ def route_via_tram_stops(
         idx_a = _TRAM_STOP_ORDER.index(origin_stop_id)
         idx_b = _TRAM_STOP_ORDER.index(dest_stop_id)
     except ValueError:
-        # Stop not in ordered list — fall back to just endpoints
+        # Stop not in ordered list — fall back to endpoints only
         a = _tram_stop_coord(origin_stop_id)
         b = _tram_stop_coord(dest_stop_id)
         return [origin] + ([a] if a else []) + ([b] if b else []) + [dest]
@@ -685,7 +717,9 @@ def route_via_stations(
     For local_train / tram: prefer nearby suburban stations.
     For intercity_train:    prefer major/intercity stations.
     """
-    # Tram mode — delegate to dedicated tram stop routing (Edinburgh tram line)
+    # Tram mode — delegate to dedicated tram stop routing.
+    # Returns None when origin/dest are outside the tram corridor catchment
+    # (>1.5km from any stop).  Callers must handle None.
     if mode == 'tram':
         return route_via_tram_stops(origin, dest)
 

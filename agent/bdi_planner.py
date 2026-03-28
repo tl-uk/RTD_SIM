@@ -516,13 +516,20 @@ class BDIPlanner:
                 if get_network(mode) in ('rail', 'tram'):
                     # Rail and tram — route via the station/stop spine so the agent
                     # travels through real stop locations rather than a diagonal.
-                    # Tram uses _TRAM_TYPES stops; rail uses _PASSENGER_TYPES.
-                    # Phase 10c: GTFS network routing will replace this for tram.
+                    # route_via_stations returns None for tram when origin/dest are
+                    # outside the tram corridor catchment (>1.5km from any stop).
+                    # In that case, skip tram entirely — it's not a viable mode.
                     try:
                         from simulation.spatial.rail_spine import route_via_stations
                         route = route_via_stations(origin_pos, dest_pos, mode)
                     except Exception:
                         route = make_synthetic_route(origin_pos, dest_pos, mode)
+
+                    # None = tram outside catchment — don't offer this mode
+                    if route is None:
+                        logger.debug("   Tram skipped: origin/dest outside 1.5km catchment")
+                        routing_results[mode] = "outside_tram_catchment"
+                        continue
                 else:
                     # Ferry / air — straight line is correct
                     route = make_synthetic_route(origin_pos, dest_pos, mode)
