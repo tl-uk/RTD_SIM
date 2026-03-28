@@ -878,10 +878,10 @@ def nearest_transfer_node(
 ) -> Optional[Dict]:
     """
     Return the nearest transfer node (station) to (lon, lat) coord.
-
+ 
     Used by the Router to snap an agent's origin/destination to a station
     before computing the rail leg of an intermodal route.
-
+ 
     Args:
         coord:   (lon, lat).
         bbox:    Optional spatial filter passed to get_transfer_nodes.
@@ -890,7 +890,7 @@ def nearest_transfer_node(
     nodes = get_transfer_nodes(bbox=bbox)
     if not nodes:
         return None
-
+ 
     lon, lat = coord
     best = None
     best_dist = float('inf')
@@ -899,36 +899,5 @@ def nearest_transfer_node(
         if d < best_dist:
             best_dist = d
             best = node
-
+ 
     return best if best_dist <= max_km else None
-    """
-    Return station list as pydeck-compatible dicts for the station icon layer.
-
-    Each dict has: lon, lat, name, type, tooltip_html
-    """
-    data = []
-    for crs, info in STATIONS.items():
-        s_type = info.get("type", "suburban")
-        type_emoji = {
-            "major":           "🚉",
-            "interchange":     "🔄",
-            "suburban":        "🚊",
-            "regional":        "🚆",
-            "intercity_stop":  "🚄",
-            "freight_junction": "🚂",
-        }.get(s_type, "🚉")
-
-        data.append({
-            "lon":     info["lon"],
-            "lat":     info["lat"],
-            "name":    info["name"],
-            "crs":     crs,
-            "type":    s_type,
-            "tooltip_html": (
-                f"<b>{type_emoji} {info['name']}</b><br/>"
-                f"CRS: {crs}<br/>"
-                f"Type: {s_type.replace('_', ' ').title()}"
-                + ("<br/>🚋 Tram interchange" if info.get("tram_link") else "")
-            ),
-        })
-    return data
