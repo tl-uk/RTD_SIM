@@ -54,6 +54,12 @@ try:
 except ImportError:
     COGNITION_TAB_AVAILABLE = False
 
+try:
+    from ui.tabs.gtfs_analytics_tab import render_gtfs_analytics_tab
+    GTFS_TAB_AVAILABLE = True
+except ImportError:
+    GTFS_TAB_AVAILABLE = False
+
 
 # Import policy diagnostics
 from ui.tabs.policy_diagnostics_tab import render_policy_diagnostics_tab
@@ -369,6 +375,10 @@ if hasattr(results, 'system_dynamics_history') and results.system_dynamics_histo
     except ImportError:
         pass # Module not available, skip tab
 
+# GTFS Transit Analytics tab — always shown; renders setup guide when no GTFS data loaded
+if GTFS_TAB_AVAILABLE:
+    tab_configs.append(("🚌 GTFS Transit", None))   # None = special render path below
+
 # ALWAYS show Policy Diagnostics (handles both cases internally)
 tab_configs.append(("🔍 Policy Diagnostics", render_policy_diagnostics_tab))
 
@@ -399,6 +409,13 @@ for i, (tab_name, render_func) in enumerate(tab_configs):
         elif tab_name == "🔬 System Dynamics":
             # SD tab needs all three args
             render_func(results, anim, current_data)
+        elif tab_name == "🚌 GTFS Transit":
+            # GTFS tab needs results + agents + env (not current_data)
+            render_gtfs_analytics_tab(
+                results=results,
+                agents=results.agents or [],
+                env=results.env,
+            )
         else:
             # Standard tabs
             render_func(results, anim, current_data)
