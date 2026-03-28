@@ -252,6 +252,43 @@ def render_sidebar_config():
             scenario_config = {'scenario_name': None, 'scenarios_dir': scenarios_dir}
             st.info("ℹ️ Simple scenarios disabled (using combined scenario)")
 
+        # ── GTFS Transit Feed ────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### 🚌 GTFS Transit Data")
+        st.caption(
+            "Load a GTFS static feed for accurate bus/tram/ferry routing "
+            "and transit analytics (optional — leave blank to use tram spine)."
+        )
+
+        gtfs_feed_path = st.text_input(
+            "GTFS feed path",
+            value="",
+            placeholder="/path/to/gtfs.zip or leave blank",
+            key="gtfs_feed_path_input",
+            help=(
+                "Path to a GTFS .zip or unzipped directory. "
+                "UK sources: Traveline (Scotland), Bus Open Data Service (England), "
+                "ScotRail (rail.delivery/gtfs)."
+            ),
+        )
+
+        gtfs_service_date = ""
+        run_gtfs_analytics = False
+        if gtfs_feed_path.strip():
+            gtfs_service_date = st.text_input(
+                "Service date (YYYYMMDD)",
+                value="",
+                placeholder="e.g. 20250401 — leave blank for all services",
+                key="gtfs_service_date_input",
+                help="Filter to services active on this date (faster load). None = all services.",
+            )
+            run_gtfs_analytics = st.checkbox(
+                "Run GTFS analytics after simulation",
+                value=True,
+                key="gtfs_analytics_checkbox",
+                help="Compute transit deserts, electrification ranking, modal shift thresholds.",
+            )
+
         st.markdown("---")
 
         # Submit button
@@ -322,7 +359,12 @@ def render_sidebar_config():
         combined_scenario_data=combined_scenario_data,
         use_default_policies=use_default_policies,
         policy_thresholds=policy_thresholds,
-        
+
+        # GTFS transit feed
+        gtfs_feed_path=gtfs_feed_path.strip() if gtfs_feed_path.strip() else None,
+        gtfs_service_date=gtfs_service_date.strip() if gtfs_service_date.strip() else None,
+        run_gtfs_analytics=run_gtfs_analytics,
+
         # Weather parameters
         weather_enabled=weather_config['enable_weather'],
         weather_source=weather_config['weather_source'],

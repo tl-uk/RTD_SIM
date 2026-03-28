@@ -316,10 +316,31 @@ class SpatialEnvironment:
         agent_id: str,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
-        mode: str
+        mode: str,
+        policy_context: Optional[dict] = None,
     ) -> List[Tuple[float, float]]:
-        """Compute shortest path route."""
-        return self.router.compute_route(agent_id, origin, dest, mode)
+        """
+        Compute shortest generalised-cost route.
+
+        Args:
+            agent_id:       Identifier for logging.
+            origin:         (lon, lat) start coordinate.
+            dest:           (lon, lat) end coordinate.
+            mode:           Transport mode string.
+            policy_context: Dict with generalised cost parameters, e.g.
+                            {'carbon_tax_gbp_tco2': 25.0,
+                             'energy_price_gbp_km': 0.15,
+                             'boarding_penalty_min': 20.0,
+                             'value_of_time_gbp_h': 10.0}
+                            When None the router uses its own defaults.
+                            Pass agent_context from BDI planner so that
+                            scenario policy changes (carbon tax hike, fuel
+                            subsidy) immediately shift generalised costs.
+        """
+        return self.router.compute_route(
+            agent_id, origin, dest, mode,
+            policy_context=policy_context,
+        )
     
     def compute_route_alternatives(
         self,
@@ -327,20 +348,21 @@ class SpatialEnvironment:
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
-        variants: List[str] = None
+        variants: List[str] = None,
+        policy_context: Optional[dict] = None,
     ) -> List[Any]:
         """
         Compute multiple route alternatives.
-        
+
         Returns RouteAlternative objects with metrics already computed.
         """
-        alternatives = self.router.compute_alternatives(agent_id, origin, dest, mode, variants)
-        
-        # Compute metrics for each alternative
+        alternatives = self.router.compute_alternatives(
+            agent_id, origin, dest, mode, variants,
+            policy_context=policy_context,
+        )
         for alt in alternatives:
             if hasattr(alt, 'compute_metrics'):
                 alt.compute_metrics(self)
-        
         return alternatives
     
     def route(self, origin: Tuple[float, float], dest: Tuple[float, float], mode: str = 'walk'):

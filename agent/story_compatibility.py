@@ -822,9 +822,25 @@ def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
         # ====================================================================
         # 7. Taxi & Private Hire Ontology
         # ====================================================================
-        if j_type == 'taxi_service' or operator_type == 'taxi':
+        # Covers: taxi_service, urban_ride_hail_shift, station_taxi_rank,
+        #         airport_taxi_run, and any job with operator_type='taxi'.
+        # These are commercial passenger transport jobs — delivery_driver,
+        # frequent_driver, shift_worker, and taxi/ride-hail specialist
+        # personas are the correct match.  Eco-warriors and concerned parents
+        # are excluded: they do not drive taxis for a living.
+        _TAXI_KEYWORDS = ('taxi', 'ride_hail', 'private_hire', 'cab')
+        _is_taxi_job = (
+            j_type in ('taxi_service', 'passenger_transport', 'private_hire')
+            or operator_type in ('taxi', 'private_hire', 'ride_hail')
+            or any(kw in job_id for kw in _TAXI_KEYWORDS)
+        )
+        if _is_taxi_job:
             taxi_personas = [
-                'taxi_driver', 'ride_hail_driver'
+                'taxi_driver', 'ride_hail_driver',     # specialist personas
+                'delivery_driver', 'frequent_driver',   # driving-centric personas
+                'shift_worker',                         # for night/split shifts
+                'fleet_manager_logistics',              # fleet operators
+                'fleet_manager_retail',
             ]
             return user_id in taxi_personas
         
