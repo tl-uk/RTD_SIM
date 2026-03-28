@@ -228,7 +228,7 @@ class StoryDrivenAgent(CognitiveAgent):
         
         # === STEP 3: Determine priority ===
         urgency = params.get('urgency', 'medium')
-        
+
         if self.job_story.desire_overrides:
             # Emergency jobs (desire_overrides present)
             context['priority'] = 'emergency'
@@ -241,12 +241,18 @@ class StoryDrivenAgent(CognitiveAgent):
             'service',              # light_commercial.yaml (service_engineer, trades)
                                     # fleet_operators.yaml (nhs_patient_transport)
             'air_freight',          # aviation.yaml (air_cargo_express)
+            'taxi_service',         # taxi_operations.yaml
         ]:
-            # Commercial / professional jobs
+            # Commercial / professional jobs — always commercial priority
             context['priority'] = 'commercial'
         elif urgency == 'critical':
+            # Critical urgency always escalates to emergency regardless of job type
             context['priority'] = 'emergency'
-        elif urgency == 'high':
+        elif urgency == 'high' and context.get('vehicle_type', 'personal') not in ('personal', 'transit'):
+            # High urgency only escalates to commercial for non-passenger vehicle types.
+            # Passenger commutes (morning_commute urgency=high) must remain 'normal'
+            # so that bdi_planner._filter_modes_by_context does not restrict them
+            # to freight/commercial vehicles.
             context['priority'] = 'commercial'
         else:
             context['priority'] = 'normal'

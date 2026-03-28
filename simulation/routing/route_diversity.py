@@ -94,22 +94,28 @@ def add_route_diversity_perturbed(env):
     """
     original_compute_route = env.compute_route
     
-    def diversified_compute_route(agent_id, origin, dest, mode='drive'):
-        """Compute route with agent-specific perturbation."""
+    def diversified_compute_route(agent_id, origin, dest, mode='drive', policy_context=None, **kwargs):
+        """Compute route with agent-specific perturbation.
+
+        policy_context is accepted and forwarded to the real router so that
+        scenario parameters (carbon_tax, VoT, energy_price) reach edge weights.
+        Non-road modes (rail, transit, ferry, air) are delegated directly to
+        the real router rather than the drive-graph perturbation path.
+        """
         agent_seed = hash(agent_id) % (2**32)
         rng = random.Random(agent_seed)
-        # Route diversity only applies to road modes.  Rail, tram, bus, and
-        # ferry modes now have dedicated routing paths (GTFS or intermodal rail)
-        # and must NOT be intercepted here — delegate to the real router.
+
+        # Only perturb road modes — rail/transit/ferry/air have dedicated routing paths
         _ROAD_MODES = {
             'walk', 'bike', 'cargo_bike', 'e_scooter',
             'car', 'ev', 'taxi_ev', 'taxi_diesel',
             'van_electric', 'van_diesel',
             'truck_electric', 'truck_diesel',
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+            'bus',   # bus uses drive graph when no GTFS loaded
         }
         if mode not in _ROAD_MODES:
-            return original_compute_route(agent_id, origin, dest, mode)
+            return original_compute_route(agent_id, origin, dest, mode, policy_context=policy_context)
 
         network_type = {
             'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
@@ -139,10 +145,10 @@ def add_route_diversity_perturbed(env):
             return _extract_route_geometry(graph, node_path)
             
         except nx.NetworkXNoPath:
-            return original_compute_route(agent_id, origin, dest, mode)
+            return original_compute_route(agent_id, origin, dest, mode, policy_context=policy_context)
         except Exception as e:
             logger.warning(f"Perturbed routing failed: {e}, using fallback")
-            return original_compute_route(agent_id, origin, dest, mode)
+            return original_compute_route(agent_id, origin, dest, mode, policy_context=policy_context)
     
     env.compute_route = diversified_compute_route
     return env
@@ -160,20 +166,24 @@ def add_route_diversity_k_shortest(env, k=3):
     """
     original_compute_route = env.compute_route
     
-    def k_shortest_compute_route(agent_id, origin, dest, mode='drive'):
-        """Find k shortest paths efficiently."""
+    def k_shortest_compute_route(agent_id, origin, dest, mode='drive', policy_context=None, **kwargs):
+        """Find k shortest paths efficiently.
+
+        policy_context forwarded to real router for non-road modes and fallbacks.
+        """
         agent_seed = hash(agent_id) % (2**32)
         rng = random.Random(agent_seed)
-        
+
         _ROAD_MODES_K = {
             'walk', 'bike', 'cargo_bike', 'e_scooter',
             'car', 'ev', 'taxi_ev', 'taxi_diesel',
             'van_electric', 'van_diesel',
             'truck_electric', 'truck_diesel',
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+            'bus',
         }
         if mode not in _ROAD_MODES_K:
-            return original_compute_route(agent_id, origin, dest, mode)
+            return original_compute_route(agent_id, origin, dest, mode, policy_context=policy_context)
 
         network_type = {
             'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
@@ -227,7 +237,7 @@ def add_route_diversity_k_shortest(env, k=3):
             
         except Exception as e:
             logger.warning(f"K-shortest failed: {e}, using standard path")
-            return original_compute_route(agent_id, origin, dest, mode)
+            return original_compute_route(agent_id, origin, dest, mode, policy_context=policy_context)
     
     env.compute_route = k_shortest_compute_route
     return env
@@ -253,19 +263,25 @@ def add_route_diversity_ultra_fast(env):
     # their unique hashes. This approach is ideal for large-scale simulations where performance 
     # is a concern and some level of route diversity is desired without the need for complex 
     # algorithms.
-    def ultra_fast_diverse_route(agent_id, origin, dest, mode='drive'):
-        """Route with hash-based agent-specific bias."""
+    def ultra_fast_diverse_route(agent_id, origin, dest, mode='drive', policy_context=None, **kwargs):
+        """Route with hash-based agent-specific bias.
+
+        policy_context accepted and forwarded so that scenario-adjusted edge
+        weights (carbon_tax, VoT, energy_price) reach the real router for any
+        mode that bypasses the drive-graph perturbation path.
+        """
         agent_seed = hash(agent_id) % (2**32)
-        
+
         _ROAD_MODES_UF = {
             'walk', 'bike', 'cargo_bike', 'e_scooter',
             'car', 'ev', 'taxi_ev', 'taxi_diesel',
             'van_electric', 'van_diesel',
             'truck_electric', 'truck_diesel',
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+            'bus',
         }
         if mode not in _ROAD_MODES_UF:
-            return original_compute_route(agent_id, origin, dest, mode)
+            return original_compute_route(agent_id, origin, dest, mode, policy_context=policy_context)
 
         network_type = {
             'walk': 'walk', 'bike': 'bike', 'cargo_bike': 'bike', 'e_scooter': 'bike',
@@ -293,7 +309,7 @@ def add_route_diversity_ultra_fast(env):
             return _extract_route_geometry(graph, node_path)
             
         except Exception as e:
-            return original_compute_route(agent_id, origin, dest, mode)
+            return original_compute_route(agent_id, origin, dest, mode, policy_context=policy_context)
     
     env.compute_route = ultra_fast_diverse_route
     return env

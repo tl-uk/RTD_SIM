@@ -227,6 +227,124 @@ STATIONS: Dict[str, Dict] = {
         "type":     "freight_junction",
         "tram_link": False,
     },
+
+    # ── Edinburgh Tram stops (Airport → Newhaven, Phase 1 + 2 extension) ─────
+    # Coordinates from Transport for Edinburgh / Lothian Buses open data.
+    # Type 'tram_stop' is used exclusively for tram routing via route_via_stations().
+    # 'tram_terminus' marks end-of-line stops.
+    "TRAM_AIR": {
+        "name":     "Edinburgh Airport",
+        "lon":      -3.3616,
+        "lat":       55.9501,
+        "type":     "tram_terminus",
+        "tram_link": True,
+    },
+    "TRAM_ING": {
+        "name":     "Ingliston Park & Ride",
+        "lon":      -3.3501,
+        "lat":       55.9388,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_GOG": {
+        "name":     "Gogar",
+        "lon":      -3.3262,
+        "lat":       55.9285,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_BNK": {
+        "name":     "Bankhead",
+        "lon":      -3.2989,
+        "lat":       55.9271,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_STN": {
+        "name":     "Stenhouse",
+        "lon":      -3.2708,
+        "lat":       55.9267,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_BLG": {
+        "name":     "Balgreen",
+        "lon":      -3.2570,
+        "lat":       55.9347,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_MRF": {
+        "name":     "Murrayfield Stadium",
+        "lon":      -3.2445,
+        "lat":       55.9411,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_RSB": {
+        "name":     "Roseburn",
+        "lon":      -3.2333,
+        "lat":       55.9466,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_WEP": {
+        "name":     "West End – Princes Street",
+        "lon":      -3.2130,
+        "lat":       55.9495,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_PRS": {
+        "name":     "Princes Street",
+        "lon":      -3.1983,
+        "lat":       55.9506,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_SAS": {
+        "name":     "St Andrew Square",
+        "lon":      -3.1890,
+        "lat":       55.9527,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_YRK": {
+        "name":     "York Place",
+        "lon":      -3.1862,
+        "lat":       55.9573,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    # ── Newhaven extension (opened June 2023) ─────────────────────────────────
+    "TRAM_PIC": {
+        "name":     "Picardy Place",
+        "lon":      -3.1844,
+        "lat":       55.9600,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_MCR": {
+        "name":     "McDonald Road",
+        "lon":      -3.1807,
+        "lat":       55.9638,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_BAL": {
+        "name":     "Balfour Street",
+        "lon":      -3.1754,
+        "lat":       55.9692,
+        "type":     "tram_stop",
+        "tram_link": False,
+    },
+    "TRAM_NEW": {
+        "name":     "Newhaven",
+        "lon":      -3.1717,
+        "lat":       55.9779,
+        "type":     "tram_terminus",
+        "tram_link": False,
+    },
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -567,6 +685,10 @@ def route_via_stations(
     For local_train / tram: prefer nearby suburban stations.
     For intercity_train:    prefer major/intercity stations.
     """
+    # Tram mode — delegate to dedicated tram stop routing (Edinburgh tram line)
+    if mode == 'tram':
+        return route_via_tram_stops(origin, dest)
+
     # Select station types based on mode
     if mode in ('intercity_train', 'freight_rail'):
         s_types = _INTERCITY_TYPES

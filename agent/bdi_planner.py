@@ -513,10 +513,11 @@ class BDIPlanner:
 
                 dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
 
-                if get_network(mode) == 'rail':
-                    # Tram — route via Edinburgh tram stop spine so the agent
-                    # travels along the real tram corridor rather than a diagonal.
-                    # Phase 10c will replace this with GTFS network routing.
+                if get_network(mode) in ('rail', 'tram'):
+                    # Rail and tram — route via the station/stop spine so the agent
+                    # travels through real stop locations rather than a diagonal.
+                    # Tram uses _TRAM_TYPES stops; rail uses _PASSENGER_TYPES.
+                    # Phase 10c: GTFS network routing will replace this for tram.
                     try:
                         from simulation.spatial.rail_spine import route_via_stations
                         route = route_via_stations(origin_pos, dest_pos, mode)
