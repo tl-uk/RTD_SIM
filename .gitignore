@@ -82,3 +82,38 @@ main.py.backup
 __pycache__/
 **/.DS_Store
 **/__pycache__/
+
+# ─────────────────────────────────────────────────────────────
+# Large datasets & transport feeds (NEVER COMMIT)
+# Shared repo across multiple machines
+# ─────────────────────────────────────────────────────────────
+
+# GTFS / transport datasets
+*.zip
+*.7z
+*.tar
+*.gz
+
+# local data folders
+data/
+logs/
+
+# allow small placeholder files if needed
+!data/.gitkeep
+!logs/.gitkeep
+
+# temporary downloads
+downloads/
+tmp/
+temp/
+
+# large binary artifacts
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.sqlite
+*.db
+
+# OS / accidental large exports
+*.csv.large
