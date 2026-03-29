@@ -441,7 +441,7 @@ def render_gtfs_validation_panel(results=None) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 TRANSITLAND_API_BASE = "https://transit.land/api/v2"
-DEFAULT_API_KEY = "2bbaf55b-fb97-450b-bd07-fa8c12adc36b"
+DEFAULT_API_KEY = "2gZcYiXnEihN0la3DTXYi79SvDEE8IkB" #"2bbaf55b-fb97-450b-bd07-fa8c12adc36b"
 
 # Well-known UK operator IDs for the city dropdown
 UK_GTFS_OPERATORS = {
