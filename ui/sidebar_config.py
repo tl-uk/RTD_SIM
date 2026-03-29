@@ -1269,7 +1269,7 @@ def _render_gtfs_configuration() -> dict:
         # }
         _KNOWN_FEEDS = {
             "(select)":             "",
-            "🚋 Edinburgh Trams":   "f-bus~dft~gov~uk",
+            "🚋 Edinburgh Trams":   "f-gcpv-edinburghtramsltd",
             "🚌 Lothian Buses":     "f-gcpv-lothianbuses",
             "🚆 ScotRail":          "f-gcpv-firstscotland",
             "🚇 Glasgow Subway":    "f-gcpv-spt",
