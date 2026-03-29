@@ -440,7 +440,7 @@ def render_gtfs_validation_panel(results=None) -> None:
 #   Bus Open Data:    https://data.bus-data.dft.gov.uk/  (England, free API key)
 # ─────────────────────────────────────────────────────────────────────────────
 
-TRANSITLAND_API = "https://transit.land/api/v2"
+TRANSITLAND_API = "https://transit.land/api/v2/feeds?api_key=2bbaf55b-fb97-450b-bd07-fa8c12adc36b"
 
 # Well-known UK operator IDs for the city dropdown
 UK_GTFS_OPERATORS = {
