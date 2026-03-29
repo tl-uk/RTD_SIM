@@ -265,12 +265,11 @@ def render_sidebar_config():
         )
 
     # ── Map Display Toggles ──────────────────────────────────────────────────
-    # These are OUTSIDE the form so they update the map immediately without
-    # a full re-run.  They write session_state keys consumed by main_tabs.py
-    # and map_tab.py.  Using .get() defaults above means they are never unset,
-    # but initialising here gives the user explicit controls.
+    # OUTSIDE the form so checkboxes update the map immediately.
+    # All keys initialized here so map_tab.py never hits a KeyError.
     st.markdown("---")
     st.markdown("### 🗺️ Map Display")
+
     col1, col2 = st.columns(2)
     with col1:
         st.session_state['show_agents'] = st.checkbox(
@@ -283,11 +282,35 @@ def render_sidebar_config():
             value=st.session_state.get('show_infrastructure', True),
             key="_disp_infra",
         )
+        st.session_state['show_rail'] = st.checkbox(
+            "Show Rail Network",
+            value=st.session_state.get('show_rail', True),
+            key="_disp_rail",
+            help="Overlay OpenRailMap / station spine layer",
+        )
+        st.session_state['show_gtfs'] = st.checkbox(
+            "Show Transit Routes (GTFS)",
+            value=st.session_state.get('show_gtfs', True),
+            key="_disp_gtfs",
+            help="Show GTFS service paths (bus/tram/ferry). Requires a GTFS feed.",
+        )
     with col2:
         st.session_state['show_routes'] = st.checkbox(
             "Show Routes",
             value=st.session_state.get('show_routes', True),
             key="_disp_routes",
+        )
+        st.session_state['show_gtfs_stops'] = st.checkbox(
+            "Show Transit Stops (GTFS)",
+            value=st.session_state.get('show_gtfs_stops', False),
+            key="_disp_gtfs_stops",
+            help="Show GTFS stop markers sized by service frequency.",
+        )
+        st.session_state['show_gtfs_electric_only'] = st.checkbox(
+            "Electric routes only",
+            value=st.session_state.get('show_gtfs_electric_only', False),
+            key="_disp_electric_only",
+            help="Filter GTFS layer to zero-emission routes only.",
         )
     # =======================================================================
     config = SimulationConfig(
@@ -1234,6 +1257,45 @@ def _render_gtfs_configuration() -> dict:
     run_analytics  = False
 
     if enable_gtfs:
+        # ── TransitLand auto-download ─────────────────────────────────────
+        st.caption("**Or auto-download a UK feed:**")
+        _KNOWN_FEEDS = {
+            "(select)":             "",
+            "🚋 Edinburgh Trams":   "o-gcpv-edinburghtramsltd",
+            "🚌 Lothian Buses":     "o-gcpv-lothianbuses",
+            "🚆 ScotRail":          "o-gcpv-firstscotland",
+            "🚇 Glasgow Subway":    "o-gcpv-spt",
+            "🚌 First Glasgow":     "o-gcpv-firstglasgow",
+        }
+        selected_feed = st.selectbox(
+            "Known UK operators",
+            options=list(_KNOWN_FEEDS.keys()),
+            index=0,
+            key="_gtfs_known_operator",
+            help=(
+                "Select a known operator to download via TransitLand (free, no key needed). "
+                "Downloaded to /tmp/ — paste the path above."
+            ),
+        )
+        if selected_feed and selected_feed != "(select)":
+            if st.button(f"⬇️ Download {selected_feed}", key="_gtfs_download_btn"):
+                with st.spinner(f"Downloading {selected_feed}…"):
+                    try:
+                        from simulation.gtfs.gtfs_validator import download_gtfs_feed
+                        dl_path = download_gtfs_feed(
+                            _KNOWN_FEEDS[selected_feed],
+                            output_dir="/tmp",
+                        )
+                        if dl_path:
+                            st.session_state["_gtfs_feed_path"] = dl_path
+                            st.success(f"✅ Downloaded to `{dl_path}` — paste path above")
+                            st.rerun()
+                        else:
+                            st.error("Download failed — try TransitLand manually: transit.land")
+                    except Exception as _e:
+                        st.error(f"Download error: {_e}")
+
+        # ── Feed path input ───────────────────────────────────────────────
         feed_path_raw = st.text_input(
             "Feed path",
             value=st.session_state.get("_gtfs_feed_path", ""),

@@ -79,7 +79,8 @@ def render_gtfs_analytics_tab(results: Dict[str, Any], agents: list, env: Any) -
     st.header("GTFS Transit Analytics")
 
     # ── Check whether GTFS data / analytics are available ─────────────────
-    gtfs_report = results.get('gtfs_analytics')
+    # results is a SimulationResults object (not a dict) — use getattr, not .get()
+    gtfs_report = getattr(results, 'gtfs_analytics', None)
     has_transit = env is not None and hasattr(env, 'get_transit_graph') and \
                   env.get_transit_graph() is not None
 

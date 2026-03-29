@@ -83,19 +83,22 @@ MODES: Dict[str, Dict[str, Any]] = {
         'routeable':      True,
     },
     'tram': {
-        # Edinburgh Trams runs on a specific dedicated corridor
-        # (Airport → Gateway → Murrayfield → Princes St → Newhaven).
-        # Routing on the generic drive graph produces phantom routes through
-        # residential streets where no track exists.
+        # Edinburgh Trams runs on a dedicated corridor not represented in the
+        # generic OSMnx drive graph.  Setting routeable=True with network='tram'
+        # causes Router.compute_route() to call get_graph('tram') → None →
+        # silent fallback to [origin, dest] straight line.
         #
-        # Phase 10b fix: treat as abstract (routeable=False) so agents
-        # route via the tram-stop spine (Edinburgh tram stops added to
-        # rail_spine.py) rather than generic road paths.
-        # GTFS integration in Phase 10c will replace this.
+        # KEEP routeable=False so the abstract guard in bdi_planner fires and
+        # dispatches to route_via_tram_stops() (Edinburgh tram stop spine) with
+        # the 1.5km catchment filter.
+        #
+        # Phase 10c: when a GTFS feed is loaded, Router._compute_gtfs_route()
+        # handles tram via the transit graph — routeable=True is correct THEN.
+        # Until a GTFS feed is provided, routeable=False is the safe default.
         'network':       'tram',
         'emissions_g_km': 35,
         'speed_kmh':      25,
-        'routeable':      True,
+        'routeable':      False,
     },
 
     # ── Road – commercial passenger ───────────────────────────────

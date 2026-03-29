@@ -41,22 +41,22 @@ def render_map_tab(results, anim, current_data):
     
     st.subheader(header)
     
-    # Use fragment to isolate map rendering
-    # This allows display options to update the map without full page rerun
-    show_rail = st.sidebar.checkbox("Show Rail Network (OpenRailMap)", value=True)
-    show_gtfs = st.sidebar.checkbox("Show Transit Routes (GTFS)", value=True)
-    show_gtfs_stops = st.sidebar.checkbox("Show Transit Stops (GTFS)", value=False)
-    gtfs_electric_only = st.sidebar.checkbox("Electric routes only", value=False)
+    # All display toggles are controlled from the sidebar Map Display section
+    # (sidebar_config.py) and written to session_state.  Read them here so the
+    # map fragment refreshes whenever a checkbox changes.
+    show_rail              = st.session_state.get('show_rail',              True)
+    show_gtfs              = st.session_state.get('show_gtfs',              True)
+    show_gtfs_stops        = st.session_state.get('show_gtfs_stops',        False)
+    show_gtfs_electric_only = st.session_state.get('show_gtfs_electric_only', False)
 
-    # Resolve the SpatialEnvironment so render_map can fetch the rail graph.
+    # Resolve the SpatialEnvironment so render_map can fetch rail + transit graphs.
     env = getattr(results, 'env', None) or getattr(results, 'spatial_environment', None)
 
     render_map_fragment(
-        agent_states, results.infrastructure, show_rail,
-        env=env,
+        agent_states, results.infrastructure, show_rail, env=env,
         show_gtfs=show_gtfs,
         show_gtfs_stops=show_gtfs_stops,
-        gtfs_electric_only=gtfs_electric_only,
+        show_gtfs_electric_only=show_gtfs_electric_only,
     )
     
     st.markdown("---")
@@ -85,22 +85,25 @@ def render_map_fragment(
     infrastructure_manager,
     show_rail,
     env=None,
-    show_gtfs=False,
-    show_gtfs_stops=False,
-    gtfs_electric_only=False,
+    show_gtfs: bool = True,
+    show_gtfs_stops: bool = False,
+    show_gtfs_electric_only: bool = False,
 ):
     """
-    Render map as a fragment - updates independently when display options change.
+    Render map as a fragment — updates independently when display options change.
+
+    All 7 display toggles (agents/routes/infra + rail/gtfs/stops/electric) should be
+    read from session_state in render_map_tab() and passed in as arguments so
+    that @st.fragment re-renders only this section when a checkbox changes.
 
     Args:
-        agent_states:           Current agent state list.
-        infrastructure_manager: InfrastructureManager instance.
-        show_rail:              Whether to render the OpenRailMap / spine layer.
-        env:                    SpatialEnvironment — carries the rail and transit
-                                graphs that render_map() needs.
-        show_gtfs:              Render GTFS service path layer.
-        show_gtfs_stops:        Render GTFS stop marker layer.
-        gtfs_electric_only:     Only show zero-emission routes in GTFS layer.
+        agent_states:              Current agent state list.
+        infrastructure_manager:    InfrastructureManager instance.
+        show_rail:                 Render OpenRailMap / station spine layer.
+        env:                       SpatialEnvironment — carries rail + transit graphs.
+        show_gtfs:                 Render GTFS service path layer.
+        show_gtfs_stops:           Render GTFS stop marker layer.
+        show_gtfs_electric_only:   Filter GTFS layer to zero-emission routes only.
     """
     deck = render_map(
         agent_states=agent_states,
@@ -108,11 +111,10 @@ def render_map_fragment(
         show_routes=st.session_state.get('show_routes', True),
         show_infrastructure=st.session_state.get('show_infrastructure', True),
         show_rail=show_rail,
-        show_gtfs=show_gtfs,
-        show_gtfs_stops=show_gtfs_stops,
-        gtfs_electric_only=gtfs_electric_only,
         infrastructure_manager=infrastructure_manager,
         env=env,
+        show_gtfs=show_gtfs,
+        show_gtfs_stops=show_gtfs_stops,
+        show_gtfs_electric_only=show_gtfs_electric_only,
     )
-
     st.pydeck_chart(deck, width='stretch')

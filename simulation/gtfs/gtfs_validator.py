@@ -185,12 +185,12 @@ def validate_gtfs_feed(
     # ── Load feed ────────────────────────────────────────────────────────────
     try:
         from simulation.gtfs.gtfs_loader import GTFSLoader
-        loader = GTFSLoader(feed_path)
-        loaded = loader.load(service_date=service_date)
+        loader = GTFSLoader(feed_path, service_date=service_date)
+        loader.load()
         result.ok("Feed loaded",
-                  f"{loaded.get('num_stops', 0)} stops, "
-                  f"{loaded.get('num_routes', 0)} routes, "
-                  f"{loaded.get('num_trips', 0)} trips")
+                  f"{len(loader.stops)} stops, "
+                  f"{len(loader.routes)} routes, "
+                  f"{len(loader.trips)} trips")
     except Exception as e:
         result.fail("Feed load failed", str(e))
         return
@@ -424,6 +424,141 @@ def render_gtfs_validation_panel(results=None) -> None:
             feed_path = getattr(results.env, 'gtfs_feed_path', None)
         generate_alignment_map(feed_path=feed_path)
         st.success("Map saved to /tmp/rtd_sim_gtfs_validation.html")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRANSITLAND ON-DEMAND GTFS DOWNLOADER
+# Free tier: 1 req/s, no registration needed for public feeds.
+# API key available free at https://www.transit.land for higher rate limits.
+#
+# UK GTFS sources:
+#   Edinburgh Trams:  transitland operator ID  o-gcpv-edinburghtramsltd
+#   Lothian Buses:    transitland operator ID  o-gcpv-lothianbuses
+#   ScotRail:         transitland operator ID  o-gcpv-firstscotland
+#   Glasgow Subway:   transitland operator ID  o-gcpv-spt
+#   Traveline Scot:   https://www.travelinedata.org.uk/  (full Scotland feed)
+#   Bus Open Data:    https://data.bus-data.dft.gov.uk/  (England, free API key)
+# ─────────────────────────────────────────────────────────────────────────────
+
+TRANSITLAND_API = "https://transit.land/api/v2"
+
+# Well-known UK operator IDs for the city dropdown
+UK_GTFS_OPERATORS = {
+    "Edinburgh Trams":  "o-gcpv-edinburghtramsltd",
+    "Lothian Buses":    "o-gcpv-lothianbuses",
+    "ScotRail":         "o-gcpv-firstscotland",
+    "Glasgow Subway":   "o-gcpv-spt",
+    "First Glasgow":    "o-gcpv-firstglasgow",
+    "Stagecoach West Scotland": "o-gcpv-stagecoachbus",
+}
+
+
+def search_gtfs_feeds_for_bbox(
+    bbox: Tuple[float, float, float, float],
+    api_key: str = "",
+) -> List[Dict]:
+    """
+    Query TransitLand for GTFS feeds covering the given bounding box.
+
+    Args:
+        bbox:    (west, south, east, north) in WGS84 decimal degrees.
+        api_key: TransitLand API key (optional; free tier works without one).
+
+    Returns:
+        List of dicts: {name, operator_id, feed_id, download_url, last_updated}
+    """
+    import urllib.request
+    import urllib.parse
+
+    west, south, east, north = bbox
+    params: dict = {
+        'bbox': f"{west},{south},{east},{north}",
+        'per_page': '20',
+    }
+    if api_key:
+        params['apikey'] = api_key
+
+    url = f"{TRANSITLAND_API}/feeds?{urllib.parse.urlencode(params)}"
+    try:
+        req = urllib.request.Request(url, headers={'Accept': 'application/json'})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except Exception as exc:
+        logger.error("TransitLand feed search failed: %s", exc)
+        return []
+
+    feeds = []
+    for feed in data.get('feeds', []):
+        fv = feed.get('feed_versions', [{}])
+        latest = fv[0] if fv else {}
+        feeds.append({
+            'name':         feed.get('name', feed.get('onestop_id', '?')),
+            'operator_id':  feed.get('onestop_id', ''),
+            'feed_id':      feed.get('id', ''),
+            'download_url': latest.get('url', ''),
+            'last_updated': latest.get('fetched_at', '?')[:10],
+        })
+    return feeds
+
+
+def download_gtfs_feed(
+    operator_id_or_url: str,
+    output_dir: str = "/tmp",
+    api_key: str = "",
+) -> Optional[str]:
+    """
+    Download a GTFS feed from TransitLand by operator ID or direct URL.
+
+    Args:
+        operator_id_or_url: TransitLand operator ID (e.g. 'o-gcpv-edinburghtramsltd')
+                            or a direct HTTPS download URL.
+        output_dir:         Where to save the .zip file.
+        api_key:            TransitLand API key (optional).
+
+    Returns:
+        Local path to downloaded .zip, or None on failure.
+    """
+    import urllib.request
+    import urllib.parse
+
+    output_path = Path(output_dir) / f"{operator_id_or_url.replace('/', '_')}.zip"
+
+    # If it looks like a URL, download directly
+    if operator_id_or_url.startswith('http'):
+        download_url = operator_id_or_url
+    else:
+        # Resolve operator ID → latest feed version URL via TransitLand API
+        params: dict = {'onestop_id': operator_id_or_url}
+        if api_key:
+            params['apikey'] = api_key
+        meta_url = f"{TRANSITLAND_API}/feeds?{urllib.parse.urlencode(params)}"
+        try:
+            req = urllib.request.Request(meta_url, headers={'Accept': 'application/json'})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            feeds = data.get('feeds', [])
+            if not feeds:
+                logger.error("No feed found for operator: %s", operator_id_or_url)
+                return None
+            fv = feeds[0].get('feed_versions', [{}])
+            download_url = fv[0].get('url', '') if fv else ''
+            if not download_url:
+                logger.error("No download URL in feed metadata for: %s", operator_id_or_url)
+                return None
+        except Exception as exc:
+            logger.error("TransitLand metadata lookup failed: %s", exc)
+            return None
+
+    # Download the zip
+    try:
+        logger.info("Downloading GTFS feed from: %s", download_url)
+        urllib.request.urlretrieve(download_url, str(output_path))
+        logger.info("GTFS downloaded to: %s (%d KB)",
+                    output_path, output_path.stat().st_size // 1024)
+        return str(output_path)
+    except Exception as exc:
+        logger.error("GTFS download failed: %s", exc)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

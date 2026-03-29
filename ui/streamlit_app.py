@@ -117,14 +117,21 @@ def init_session_state():
         'simulation_run': False,
         'results': None,
         'animation_controller': None,
-        'show_agents': True,
-        'show_routes': True,  # Routes default ON
-        'show_infrastructure': True,
+        # ── Map display toggles (all 7 keys must be pre-populated so
+        #    sidebar_config.py and map_tab.py never raise KeyError) ──────────
+        'show_agents':              True,
+        'show_routes':              True,
+        'show_infrastructure':      True,
+        'show_rail':                True,
+        'show_gtfs':                True,
+        'show_gtfs_stops':          False,
+        'show_gtfs_electric_only':  False,
+        # ────────────────────────────────────────────────────────────────────
         'current_region': None,
         'policy_engine': None,
         'combined_scenario_active': False,
-        'last_config': None,  # CRITICAL: Store config for diagnostics
-        'current_animation_step': 0,  # CRITICAL: Preserve step across reruns
+        'last_config': None,
+        'current_animation_step': 0,
     }
     
     for key, value in defaults.items():
@@ -392,7 +399,7 @@ tab_names = [name for name, _ in tab_configs]
 # HACK: Hidden marker forces tab refresh when display options change
 # This invisible HTML comment triggers Streamlit's change detection
 st.markdown(
-    f"<!-- refresh:{st.session_state.show_agents}:{st.session_state.show_routes}:{st.session_state.show_infrastructure}:{anim.current_step} -->", 
+    f"<!-- refresh:{st.session_state.get('show_agents')}:{st.session_state.get('show_routes')}:{st.session_state.get('show_infrastructure')}:{st.session_state.get('show_rail')}:{st.session_state.get('show_gtfs')}:{st.session_state.get('show_gtfs_stops')}:{st.session_state.get('show_gtfs_electric_only')}:{anim.current_step} -->",
     unsafe_allow_html=True
 )
 
