@@ -552,12 +552,34 @@ def download_gtfs_feed(
             return None
 
     # Download the zip
+    # try:
+    #     logger.info("Downloading GTFS feed from: %s", download_url)
+    #     urllib.request.urlretrieve(download_url, str(output_path))
+    #     logger.info("GTFS downloaded to: %s (%d KB)",
+    #                 output_path, output_path.stat().st_size // 1024)
+    #     return str(output_path)
+    # except Exception as exc:
+    #     logger.error("GTFS download failed: %s", exc)
+    #     return None
     try:
         logger.info("Downloading GTFS feed from: %s", download_url)
-        urllib.request.urlretrieve(download_url, str(output_path))
+        import shutil
+        
+        # Spoof a standard web browser to bypass Cloudflare / Agency Firewalls
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
+        req_dl = urllib.request.Request(download_url, headers=headers)
+        
+        # Use urlopen to stream the file directly to disk
+        with urllib.request.urlopen(req_dl, timeout=60) as response, open(output_path, 'wb') as out_file:
+            shutil.copyfileobj(response, out_file)
+            
         logger.info("GTFS downloaded to: %s (%d KB)",
                     output_path, output_path.stat().st_size // 1024)
         return str(output_path)
+        
     except Exception as exc:
         logger.error("GTFS download failed: %s", exc)
         return None
