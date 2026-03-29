@@ -445,14 +445,19 @@ DEFAULT_API_KEY = "2bbaf55b-fb97-450b-bd07-fa8c12adc36b"
 
 # Well-known UK operator IDs for the city dropdown
 UK_GTFS_OPERATORS = {
-    "Edinburgh Trams":  "o-gcpv-edinburghtramsltd",
-    "Lothian Buses":    "o-gcpv-lothianbuses",
-    "ScotRail":         "o-gcpv-firstscotland",
-    "Glasgow Subway":   "o-gcpv-spt",
-    "First Glasgow":    "o-gcpv-firstglasgow",
-    "Stagecoach West Scotland": "o-gcpv-stagecoachbus",
+    # "Edinburgh Trams":  "o-gcpv-edinburghtramsltd",
+    # "Lothian Buses":    "o-gcpv-lothianbuses",
+    # "ScotRail":         "o-gcpv-firstscotland",
+    # "Glasgow Subway":   "o-gcpv-spt",
+    # "First Glasgow":    "o-gcpv-firstglasgow",
+    # "Stagecoach West Scotland": "o-gcpv-stagecoachbus",
+    "Edinburgh Trams":          "f-gcpv-edinburghtramsltd",
+    "Lothian Buses":            "f-gcpv-lothianbuses",
+    "ScotRail":                 "f-gcpv-firstscotland",
+    "Glasgow Subway":           "f-gcpv-spt",
+    "First Glasgow":            "f-gcpv-firstglasgow",
+    "Stagecoach West Scotland": "f-gcpv-stagecoachbus",
 }
-
 
 def search_gtfs_feeds_for_bbox(
     bbox: Tuple[float, float, float, float],
@@ -502,25 +507,75 @@ def search_gtfs_feeds_for_bbox(
     return feeds
 
 
+# def download_gtfs_feed(
+#     operator_id_or_url: str,
+#     output_dir: str = "/tmp",
+#     api_key: str = DEFAULT_API_KEY,
+# ) -> Optional[str]:
+#     """
+#     Download a GTFS feed from TransitLand by operator ID or direct URL.
+
+#     Args:
+#         operator_id_or_url: TransitLand operator ID (e.g. 'o-gcpv-edinburghtramsltd')
+#                             or a direct HTTPS download URL.
+#         output_dir:         Where to save the .zip file.
+#         api_key:            TransitLand API key (optional).
+
+#     Returns:
+#         Local path to downloaded .zip, or None on failure.
+#     """
+#     import urllib.request
+#     import urllib.parse
+
+#     output_path = Path(output_dir) / f"{operator_id_or_url.replace('/', '_')}.zip"
+
+#     # If it looks like a URL, download directly
+#     if operator_id_or_url.startswith('http'):
+#         download_url = operator_id_or_url
+#     else:
+#         # Resolve operator ID → latest feed version URL via TransitLand API
+#         params: dict = {'onestop_id': operator_id_or_url}
+#         if api_key:
+#             params['apikey'] = api_key
+            
+#         meta_url = f"{TRANSITLAND_API_BASE}/feeds?{urllib.parse.urlencode(params)}"
+#         try:
+#             req = urllib.request.Request(meta_url, headers={'Accept': 'application/json'})
+#             with urllib.request.urlopen(req, timeout=15) as resp:
+#                 data = json.loads(resp.read().decode('utf-8'))
+#             feeds = data.get('feeds', [])
+#             if not feeds:
+#                 logger.error("No feed found for operator: %s", operator_id_or_url)
+#                 return None
+#             fv = feeds[0].get('feed_versions', [{}])
+#             download_url = fv[0].get('url', '') if fv else ''
+#             if not download_url:
+#                 logger.error("No download URL in feed metadata for: %s", operator_id_or_url)
+#                 return None
+#         except Exception as exc:
+#             logger.error("TransitLand metadata lookup failed: %s", exc)
+#             return None
+
+#     # Download the zip
+#     try:
+#         logger.info("Downloading GTFS feed from: %s", download_url)
+#         urllib.request.urlretrieve(download_url, str(output_path))
+#         logger.info("GTFS downloaded to: %s (%d KB)",
+#                     output_path, output_path.stat().st_size // 1024)
+#         return str(output_path)
+#     except Exception as exc:
+#         logger.error("GTFS download failed: %s", exc)
+#         return None
+
 def download_gtfs_feed(
     operator_id_or_url: str,
     output_dir: str = "/tmp",
     api_key: str = DEFAULT_API_KEY,
 ) -> Optional[str]:
-    """
-    Download a GTFS feed from TransitLand by operator ID or direct URL.
-
-    Args:
-        operator_id_or_url: TransitLand operator ID (e.g. 'o-gcpv-edinburghtramsltd')
-                            or a direct HTTPS download URL.
-        output_dir:         Where to save the .zip file.
-        api_key:            TransitLand API key (optional).
-
-    Returns:
-        Local path to downloaded .zip, or None on failure.
-    """
+    """Download a GTFS feed from TransitLand by Feed ID or direct URL."""
     import urllib.request
-    import urllib.parse
+    import shutil
+    from pathlib import Path
 
     output_path = Path(output_dir) / f"{operator_id_or_url.replace('/', '_')}.zip"
 
@@ -528,42 +583,19 @@ def download_gtfs_feed(
     if operator_id_or_url.startswith('http'):
         download_url = operator_id_or_url
     else:
-        # Resolve operator ID → latest feed version URL via TransitLand API
-        params: dict = {'onestop_id': operator_id_or_url}
-        if api_key:
-            params['apikey'] = api_key
+        # Convert Operator ID (o-) to Feed ID (f-) just in case legacy IDs are passed
+        feed_id = operator_id_or_url
+        if feed_id.startswith('o-'):
+            feed_id = 'f-' + feed_id[2:]
             
-        meta_url = f"{TRANSITLAND_API_BASE}/feeds?{urllib.parse.urlencode(params)}"
-        try:
-            req = urllib.request.Request(meta_url, headers={'Accept': 'application/json'})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode('utf-8'))
-            feeds = data.get('feeds', [])
-            if not feeds:
-                logger.error("No feed found for operator: %s", operator_id_or_url)
-                return None
-            fv = feeds[0].get('feed_versions', [{}])
-            download_url = fv[0].get('url', '') if fv else ''
-            if not download_url:
-                logger.error("No download URL in feed metadata for: %s", operator_id_or_url)
-                return None
-        except Exception as exc:
-            logger.error("TransitLand metadata lookup failed: %s", exc)
-            return None
+        # Direct download endpoint bypasses metadata lookup failures
+        download_url = f"{TRANSITLAND_API_BASE}/feeds/{feed_id}/download"
+        if api_key:
+            download_url += f"?apikey={api_key}"
 
     # Download the zip
-    # try:
-    #     logger.info("Downloading GTFS feed from: %s", download_url)
-    #     urllib.request.urlretrieve(download_url, str(output_path))
-    #     logger.info("GTFS downloaded to: %s (%d KB)",
-    #                 output_path, output_path.stat().st_size // 1024)
-    #     return str(output_path)
-    # except Exception as exc:
-    #     logger.error("GTFS download failed: %s", exc)
-    #     return None
     try:
         logger.info("Downloading GTFS feed from: %s", download_url)
-        import shutil
         
         # Spoof a standard web browser to bypass Cloudflare / Agency Firewalls
         headers = {

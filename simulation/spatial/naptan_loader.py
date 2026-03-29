@@ -180,50 +180,104 @@ def download_naptan(
         return _fallback_from_spine()
 
 
-def _fetch_from_api(stop_types: frozenset) -> List[NaptanStop]:
-    """Download from DfT NaPTAN API (JSON format)."""
-    try:
-        import urllib.request
-        url = f"{_NAPTAN_API_URL}?dataFormat=json"
+# def _fetch_from_api(stop_types: frozenset) -> List[NaptanStop]:
+#     """Download from DfT NaPTAN API (JSON format)."""
+#     try:
+#         import urllib.request
+#         url = f"{_NAPTAN_API_URL}?dataFormat=json"
         
-        # HACK: User-Agent spoofing to bypass DfT firewalls, and 120s timeout for large payload
+#         # HACK: User-Agent spoofing to bypass DfT firewalls, and 120s timeout for large payload
+#         headers = {
+#             'Accept': 'application/json',
+#             'User-Agent': 'RTD-SIM/1.0 (freight-decarbonisation-simulator)'
+#         }
+#         req = urllib.request.Request(url, headers=headers)
+        
+#         logger.info("Fetching NaPTAN data from DfT API (this may take up to 2 minutes)...")
+#         with urllib.request.urlopen(req, timeout=120) as resp:
+#             data = json.loads(resp.read().decode('utf-8'))
+#     except Exception as exc:
+#         raise RuntimeError(f"NaPTAN API request failed: {exc}") from exc
+
+#     stops: List[NaptanStop] = []
+#     raw_list = data if isinstance(data, list) else data.get('stopPoints', [])
+
+#     for item in raw_list:
+#         stop_type = item.get('stopType', '')
+#         if stop_type not in stop_types:
+#             continue
+#         status = item.get('status', 'act')
+#         if status not in ('act', 'active'):
+#             continue
+#         try:
+#             lon = float(item.get('longitude', item.get('lon', 0)))
+#             lat = float(item.get('latitude',  item.get('lat', 0)))
+#         except (TypeError, ValueError):
+#             continue
+#         if lon == 0 and lat == 0:
+#             continue
+
+#         stops.append(NaptanStop(
+#             atco_code   = item.get('atcoCode', ''),
+#             common_name = item.get('commonName', item.get('name', '')),
+#             stop_type   = stop_type,
+#             lon         = lon,
+#             lat         = lat,
+#             crs_code    = item.get('crsCode', ''),
+#             status      = status,
+#         ))
+
+#     return stops
+def _fetch_from_api(stop_types: frozenset) -> List[NaptanStop]:
+    """Download from DfT NaPTAN API (CSV format - much more stable than JSON)."""
+    import urllib.request
+    import csv
+    import io
+    
+    try:
+        url = f"{_NAPTAN_API_URL}?dataFormat=csv"
+        
+        # Spoof standard browser to bypass DfT bot protection
         headers = {
-            'Accept': 'application/json',
-            'User-Agent': 'RTD-SIM/1.0 (freight-decarbonisation-simulator)'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
         }
         req = urllib.request.Request(url, headers=headers)
         
-        logger.info("Fetching NaPTAN data from DfT API (this may take up to 2 minutes)...")
+        logger.info("Fetching NaPTAN data from DfT CSV API (this is large, please wait)...")
         with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+            # Read and decode CSV stream
+            csv_text = resp.read().decode('utf-8-sig')
+            
     except Exception as exc:
         raise RuntimeError(f"NaPTAN API request failed: {exc}") from exc
 
     stops: List[NaptanStop] = []
-    raw_list = data if isinstance(data, list) else data.get('stopPoints', [])
-
-    for item in raw_list:
-        stop_type = item.get('stopType', '')
+    reader = csv.DictReader(io.StringIO(csv_text))
+    
+    for row in reader:
+        stop_type = row.get('StopType', '')
         if stop_type not in stop_types:
             continue
-        status = item.get('status', 'act')
+        status = row.get('Status', 'act')
         if status not in ('act', 'active'):
             continue
+            
         try:
-            lon = float(item.get('longitude', item.get('lon', 0)))
-            lat = float(item.get('latitude',  item.get('lat', 0)))
+            lon = float(row.get('Longitude', 0))
+            lat = float(row.get('Latitude', 0))
         except (TypeError, ValueError):
             continue
+            
         if lon == 0 and lat == 0:
             continue
 
         stops.append(NaptanStop(
-            atco_code   = item.get('atcoCode', ''),
-            common_name = item.get('commonName', item.get('name', '')),
+            atco_code   = row.get('ATCOCode', ''),
+            common_name = row.get('CommonName', ''),
             stop_type   = stop_type,
             lon         = lon,
             lat         = lat,
-            crs_code    = item.get('crsCode', ''),
+            crs_code    = row.get('CrsCode', ''),
             status      = status,
         ))
 
