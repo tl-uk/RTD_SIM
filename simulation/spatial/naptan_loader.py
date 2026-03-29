@@ -185,8 +185,16 @@ def _fetch_from_api(stop_types: frozenset) -> List[NaptanStop]:
     try:
         import urllib.request
         url = f"{_NAPTAN_API_URL}?dataFormat=json"
-        req = urllib.request.Request(url, headers={'Accept': 'application/json'})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        
+        # HACK: User-Agent spoofing to bypass DfT firewalls, and 120s timeout for large payload
+        headers = {
+            'Accept': 'application/json',
+            'User-Agent': 'RTD-SIM/1.0 (freight-decarbonisation-simulator)'
+        }
+        req = urllib.request.Request(url, headers=headers)
+        
+        logger.info("Fetching NaPTAN data from DfT API (this may take up to 2 minutes)...")
+        with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode('utf-8'))
     except Exception as exc:
         raise RuntimeError(f"NaPTAN API request failed: {exc}") from exc

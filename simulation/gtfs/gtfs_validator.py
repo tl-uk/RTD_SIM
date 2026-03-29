@@ -440,7 +440,8 @@ def render_gtfs_validation_panel(results=None) -> None:
 #   Bus Open Data:    https://data.bus-data.dft.gov.uk/  (England, free API key)
 # ─────────────────────────────────────────────────────────────────────────────
 
-TRANSITLAND_API = "https://transit.land/api/v2/feeds?api_key=2bbaf55b-fb97-450b-bd07-fa8c12adc36b"
+TRANSITLAND_API_BASE = "https://transit.land/api/v2"
+DEFAULT_API_KEY = "2bbaf55b-fb97-450b-bd07-fa8c12adc36b"
 
 # Well-known UK operator IDs for the city dropdown
 UK_GTFS_OPERATORS = {
@@ -478,7 +479,7 @@ def search_gtfs_feeds_for_bbox(
     if api_key:
         params['apikey'] = api_key
 
-    url = f"{TRANSITLAND_API}/feeds?{urllib.parse.urlencode(params)}"
+    url = f"{TRANSITLAND_API_BASE}/feeds?{urllib.parse.urlencode(params)}"
     try:
         req = urllib.request.Request(url, headers={'Accept': 'application/json'})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -504,7 +505,7 @@ def search_gtfs_feeds_for_bbox(
 def download_gtfs_feed(
     operator_id_or_url: str,
     output_dir: str = "/tmp",
-    api_key: str = "",
+    api_key: str = DEFAULT_API_KEY,
 ) -> Optional[str]:
     """
     Download a GTFS feed from TransitLand by operator ID or direct URL.
@@ -531,7 +532,8 @@ def download_gtfs_feed(
         params: dict = {'onestop_id': operator_id_or_url}
         if api_key:
             params['apikey'] = api_key
-        meta_url = f"{TRANSITLAND_API}/feeds?{urllib.parse.urlencode(params)}"
+            
+        meta_url = f"{TRANSITLAND_API_BASE}/feeds?{urllib.parse.urlencode(params)}"
         try:
             req = urllib.request.Request(meta_url, headers={'Accept': 'application/json'})
             with urllib.request.urlopen(req, timeout=15) as resp:
@@ -559,7 +561,6 @@ def download_gtfs_feed(
     except Exception as exc:
         logger.error("GTFS download failed: %s", exc)
         return None
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI entry point
