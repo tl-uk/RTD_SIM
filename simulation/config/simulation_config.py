@@ -645,3 +645,11 @@ class SimulationResults:
         # back to a straight-line walk.  A non-zero value flags potential
         # OD-pair connectivity issues that could bias mode-share results.
         self.routing_fallback_count: int = 0
+
+        # GTFS analytics
+        self.gtfs_analytics = None
+
+# 
+def get(self, key, default=None):
+    """Duck-typing compatibility: allow results.get('attr') like a dict."""
+    return getattr(self, key, default)

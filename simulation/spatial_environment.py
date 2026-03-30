@@ -198,7 +198,23 @@ class SpatialEnvironment:
         headway_window: Optional[tuple] = None,
     ) -> bool:
         """
-        Parse a GTFS static feed with spatial bounding box filtering.
+        Parse a GTFS static feed and register the transit graph.
+
+        Builds a NetworkX transit graph (stops + service edges with shape
+        geometry and headways) and stores it as graph_manager.graphs['transit'].
+        Also stitches walk-transfer edges so agents can walk to/from stops.
+
+        Args:
+            feed_path:      Path to GTFS .zip or directory.
+            service_date:   'YYYYMMDD' — restrict to services active on this date.
+                            None = load all services (larger graph, slower).
+            fuel_overrides: {route_id: 'electric'|'diesel'|'hydrogen'}
+                            overrides the loader's auto-inferred fuel type.
+            headway_window: (start_s, end_s) for headway computation.
+                            Defaults to AM peak 07:00–09:30.
+
+        Returns:
+            True if transit graph loaded and registered successfully.
         """
         if self.graph_manager.get_graph('transit') is not None:
             logger.debug("GTFS transit graph already loaded — skipping")

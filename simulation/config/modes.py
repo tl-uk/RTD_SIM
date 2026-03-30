@@ -98,7 +98,7 @@ MODES: Dict[str, Dict[str, Any]] = {
         'network':       'tram',
         'emissions_g_km': 35,
         'speed_kmh':      25,
-        'routeable':      True,
+        'routeable':      False,
     },
 
     # ── Road – commercial passenger ───────────────────────────────
