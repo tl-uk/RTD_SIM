@@ -157,12 +157,18 @@ class GTFSLoader:
         feed_path: str | Path,
         fuel_overrides: Optional[Dict[str, str]] = None,
         service_date: Optional[str] = None,
-        bbox: Optional[Tuple[float, float, float, float]] = None,  # (west, south, east, north)
     ):
+        """
+        Args:
+            feed_path:      Path to .zip file or directory containing GTFS CSVs
+            fuel_overrides: {route_id: 'electric'|'diesel'|'hydrogen'|'hybrid'}
+                            Takes precedence over all inference.
+            service_date:   'YYYYMMDD' string — filter to services active on this
+                            date.  None = load all services regardless of date.
+        """
         self.feed_path    = Path(feed_path)
         self.fuel_overrides = fuel_overrides or {}
         self.service_date   = service_date
-        self.bbox = bbox
 
         # Parsed data (populated by load())
         self.stops:      Dict[str, Dict[str, Any]] = {}
@@ -170,213 +176,284 @@ class GTFSLoader:
         self.trips:      Dict[str, Dict[str, Any]] = {}
         self.stop_times: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         self.shapes:     Dict[str, List[Tuple[float, float]]] = {}
-        
-        # Track valid IDs for cascading filter
         self._active_services: Optional[Set[str]] = None
-        self._valid_trips: Set[str] = set()
-        self._valid_routes: Set[str] = set()
-        self._valid_shapes: Set[str] = set()
 
         self._loaded = False
 
     # ── Loading ───────────────────────────────────────────────────────────────
 
     def load(self) -> 'GTFSLoader':
+        """Parse all available GTFS files. Returns self for chaining."""
         if self._loaded:
             return self
+
         logger.info("Loading GTFS feed: %s", self.feed_path)
-        self._parse_all()
+
+        if self.feed_path.suffix.lower() == '.zip':
+            self._load_from_zip()
+        else:
+            self._load_from_dir()
+
         self._loaded = True
+        logger.info(
+            "GTFS loaded: %d stops, %d routes, %d trips, %d shapes",
+            len(self.stops), len(self.routes),
+            len(self.trips), len(self.shapes),
+        )
         return self
 
-    def _yield_csv_rows(self, name: str):
-        """Generator that yields rows one by one to prevent MemoryErrors."""
+    def _read_csv(self, name: str) -> Optional[List[Dict[str, str]]]:
+        """Read a GTFS CSV file and return list of row dicts, or None if missing."""
         if self.feed_path.suffix.lower() == '.zip':
             try:
-                zf = zipfile.ZipFile(self.feed_path)
-                match = next((n for n in zf.namelist() if n.endswith(f'/{name}') or n == name), None)
-                if match is None: return
-                with zf.open(match) as f:
-                    wrapper = io.TextIOWrapper(f, encoding='utf-8-sig')
-                    for row in csv.DictReader(wrapper):
-                        yield row
-                zf.close()
-            except KeyError: return
+                with zipfile.ZipFile(self.feed_path) as zf:
+                    names = zf.namelist()
+                    # Handle feeds where the CSV is in a subdirectory
+                    match = next(
+                        (n for n in names if n.endswith(f'/{name}') or n == name),
+                        None,
+                    )
+                    if match is None:
+                        return None
+                    with zf.open(match) as f:
+                        text = f.read().decode('utf-8-sig')  # strip BOM
+            except KeyError:
+                return None
         else:
             path = self.feed_path / name
-            if not path.exists(): return
+            if not path.exists():
+                return None
             with open(path, encoding='utf-8-sig') as f:
-                for row in csv.DictReader(f):
-                    yield row
+                text = f.read()
+
+        reader = csv.DictReader(io.StringIO(text))
+        return [dict(row) for row in reader]
+
+    def _load_from_zip(self) -> None:
+        self._parse_all()
+
+    def _load_from_dir(self) -> None:
+        self._parse_all()
 
     def _parse_all(self) -> None:
         self._parse_calendar()
         self._parse_calendar_dates()
         self._parse_stops()
-        self._parse_stop_times()  # MUST run before trips to filter valid trips
-        self._parse_trips()       # MUST run before routes/shapes to filter valid routes
         self._parse_routes()
+        self._parse_trips()
+        self._parse_stop_times()
         self._parse_shapes()
 
     # ── Individual file parsers ───────────────────────────────────────────────
 
     def _parse_calendar(self) -> None:
-        if self.service_date is None: return
+        rows = self._read_csv('calendar.txt')
+        if not rows:
+            return
+
+        if self.service_date is None:
+            return  # no date filter — all services active
+
         self._active_services = set()
         try:
             y, m, d = int(self.service_date[:4]), int(self.service_date[4:6]), int(self.service_date[6:])
             from datetime import date
             target = date(y, m, d)
             day_col = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'][target.weekday()]
-        except Exception:
+        except Exception as exc:
+            logger.warning("calendar date parse failed: %s — loading all services", exc)
             self._active_services = None
             return
 
-        for row in self._yield_csv_rows('calendar.txt'):
+        for row in rows:
             try:
-                start, end = row.get('start_date', '19700101'), row.get('end_date', '20991231')
+                start = row.get('start_date', '19700101')
+                end   = row.get('end_date',   '20991231')
                 from datetime import date as _date
                 s = _date(int(start[:4]), int(start[4:6]), int(start[6:]))
-                e = _date(int(end[:4]), int(end[4:6]), int(end[6:]))
+                e = _date(int(end[:4]),   int(end[4:6]),   int(end[6:]))
                 if s <= target <= e and row.get(day_col, '0') == '1':
                     self._active_services.add(row['service_id'])
-            except Exception: continue
+            except Exception:
+                continue
 
     def _parse_calendar_dates(self) -> None:
-        if self.service_date is None or self._active_services is None: return
-        for row in self._yield_csv_rows('calendar_dates.txt'):
-            if row.get('date', '') != self.service_date: continue
-            sid, exc = row.get('service_id', ''), row.get('exception_type', '')
-            if exc == '1': self._active_services.add(sid)
-            elif exc == '2': self._active_services.discard(sid)
+        rows = self._read_csv('calendar_dates.txt')
+        if not rows or self.service_date is None or self._active_services is None:
+            return
+        for row in rows:
+            if row.get('date', '') != self.service_date:
+                continue
+            sid = row.get('service_id', '')
+            exc = row.get('exception_type', '')
+            if exc == '1':
+                self._active_services.add(sid)
+            elif exc == '2':
+                self._active_services.discard(sid)
 
     def _parse_stops(self) -> None:
-        count = 0
-        for row in self._yield_csv_rows('stops.txt'):
+        rows = self._read_csv('stops.txt')
+        if not rows:
+            logger.warning("GTFS: stops.txt missing or empty")
+            return
+        for row in rows:
             sid = row.get('stop_id', '').strip()
-            if not sid: continue
+            if not sid:
+                continue
             try:
-                lat, lon = float(row.get('stop_lat', 0) or 0), float(row.get('stop_lon', 0) or 0)
-            except ValueError: continue
-            if lat == 0.0 and lon == 0.0: continue
-            
-            # SPATIAL FILTER: Skip stops outside the map
-            if self.bbox:
-                west, south, east, north = self.bbox
-                if not (west <= lon <= east and south <= lat <= north):
-                    continue
-
+                lat = float(row.get('stop_lat', 0) or 0)
+                lon = float(row.get('stop_lon', 0) or 0)
+            except ValueError:
+                continue
+            if lat == 0.0 and lon == 0.0:
+                continue
             self.stops[sid] = {
-                'name': row.get('stop_name', '').strip(),
-                'lat': lat, 'lon': lon,
-                'code': row.get('stop_code', '').strip(),
-                'wheelchair': row.get('wheelchair_boarding', '0') == '1',
+                'name':          row.get('stop_name', '').strip(),
+                'lat':           lat,
+                'lon':           lon,
+                'code':          row.get('stop_code', '').strip(),
+                'wheelchair':    row.get('wheelchair_boarding', '0') == '1',
                 'location_type': int(row.get('location_type', '0') or '0'),
                 'parent_station': row.get('parent_station', '').strip(),
             }
-            count += 1
-        logger.info(f"GTFS: Filtered to {count} stops within map region.")
-
-    def _parse_stop_times(self) -> None:
-        count = 0
-        for row in self._yield_csv_rows('stop_times.txt'):
-            sid = row.get('stop_id', '').strip()
-            
-            # CASCADING FILTER: If stop isn't in our map, discard!
-            if sid not in self.stops: continue
-                
-            tid = row.get('trip_id', '').strip()
-            self._valid_trips.add(tid) # Save trip ID for the next cascade
-            
-            dep_str = row.get('departure_time', '') or row.get('arrival_time', '')
-            arr_str = row.get('arrival_time', '') or dep_str
-            dep_s, arr_s = _parse_time_s(dep_str), _parse_time_s(arr_str)
-            if dep_s < 0: continue
-            
-            try: seq = int(row.get('stop_sequence', '0') or '0')
-            except ValueError: seq = 0
-
-            self.stop_times[tid].append({
-                'stop_id': sid, 'stop_sequence': seq,
-                'arrival_s': arr_s, 'departure_s': dep_s,
-                'pickup_type': int(row.get('pickup_type', '0') or '0'),
-                'dropoff_type': int(row.get('drop_off_type', '0') or '0'),
-            })
-            count += 1
-
-        for tid in self.stop_times:
-            self.stop_times[tid].sort(key=lambda x: x['stop_sequence'])
-        logger.info(f"GTFS: Parsed {count} stop_times (dropped millions outside region).")
-
-    def _parse_trips(self) -> None:
-        for row in self._yield_csv_rows('trips.txt'):
-            tid = row.get('trip_id', '').strip()
-            
-            # CASCADING FILTER: Only keep trips serving our stops
-            if tid not in self._valid_trips: continue
-                
-            sid = row.get('service_id', '').strip()
-            if self._active_services is not None and sid not in self._active_services: continue
-                
-            route_id, shape_id = row.get('route_id', '').strip(), row.get('shape_id', '').strip()
-            self._valid_routes.add(route_id)
-            if shape_id: self._valid_shapes.add(shape_id)
-                
-            self.trips[tid] = {
-                'route_id': route_id, 'service_id': sid, 'shape_id': shape_id,
-                'direction_id': int(row.get('direction_id', '0') or '0'),
-                'headsign': row.get('trip_headsign', '').strip(),
-            }
 
     def _infer_fuel_type(self, route_id: str, route_type: int, desc: str, color: str) -> str:
-        if route_id in self.fuel_overrides: return self.fuel_overrides[route_id]
-        if route_type in _ELECTRIC_ROUTE_TYPES: return 'electric'
+        """Infer fuel type from route attributes."""
+        if route_id in self.fuel_overrides:
+            return self.fuel_overrides[route_id]
+
+        if route_type in _ELECTRIC_ROUTE_TYPES:
+            return 'electric'
+
         combined = (desc + ' ' + color).lower()
         for kw, fuel in _FUEL_KEYWORDS.items():
-            if re.search(kw, combined): return fuel
-        if route_type in (2, 100, 101, 102, 103, 106, 109): return 'electric'
+            if re.search(kw, combined):
+                return fuel
+
+        # Rail modes default to electric (most UK rail is overhead electric)
+        if route_type in (2, 100, 101, 102, 103, 106, 109):
+            return 'electric'
+
         return 'diesel'
 
     def _parse_routes(self) -> None:
-        for row in self._yield_csv_rows('routes.txt'):
+        rows = self._read_csv('routes.txt')
+        if not rows:
+            logger.warning("GTFS: routes.txt missing or empty")
+            return
+        for row in rows:
             rid = row.get('route_id', '').strip()
-            
-            # CASCADING FILTER: Only keep routes serving our map
-            if rid not in self._valid_routes: continue
-                
-            try: rtype = int(row.get('route_type', '3') or '3')
-            except ValueError: rtype = 3
+            if not rid:
+                continue
+            try:
+                rtype = int(row.get('route_type', '3') or '3')
+            except ValueError:
+                rtype = 3
 
-            desc, lname, color = row.get('route_desc', ''), row.get('route_long_name', ''), row.get('route_color', '')
-            fuel = self._infer_fuel_type(rid, rtype, desc + ' ' + lname, color)
-            mode = _ROUTE_TYPE_TO_MODE.get(rtype, 'bus')
+            desc  = row.get('route_desc', '') or ''
+            lname = row.get('route_long_name', '') or ''
+            color = row.get('route_color', '') or ''
+            fuel  = self._infer_fuel_type(rid, rtype, desc + ' ' + lname, color)
+            mode  = _ROUTE_TYPE_TO_MODE.get(rtype, 'bus')
 
-            if mode == 'ferry_diesel' and fuel == 'electric': mode = 'ferry_electric'
+            # Upgrade ferry_diesel → ferry_electric if inferred electric
+            if mode == 'ferry_diesel' and fuel == 'electric':
+                mode = 'ferry_electric'
 
             self.routes[rid] = {
-                'agency_id': row.get('agency_id', '').strip(),
-                'short_name': row.get('route_short_name', '').strip(),
-                'long_name': lname.strip(),
-                'route_type': rtype, 'mode': mode, 'fuel_type': fuel,
-                'color': '#' + color if color else '#888888',
+                'agency_id':   row.get('agency_id', '').strip(),
+                'short_name':  row.get('route_short_name', '').strip(),
+                'long_name':   lname.strip(),
+                'route_type':  rtype,
+                'mode':        mode,
+                'fuel_type':   fuel,
+                'color':       '#' + color if color else '#888888',
             }
 
-    def _parse_shapes(self) -> None:
-        raw: Dict[str, List[Tuple[int, float, float]]] = defaultdict(list)
-        for row in self._yield_csv_rows('shapes.txt'):
-            shape_id = row.get('shape_id', '').strip()
-            
-            # CASCADING FILTER: Only keep shapes serving our map
-            if shape_id not in self._valid_shapes: continue
-                
+    def _parse_trips(self) -> None:
+        rows = self._read_csv('trips.txt')
+        if not rows:
+            logger.warning("GTFS: trips.txt missing or empty")
+            return
+        for row in rows:
+            tid = row.get('trip_id', '').strip()
+            if not tid:
+                continue
+            sid = row.get('service_id', '').strip()
+            if self._active_services is not None and sid not in self._active_services:
+                continue
+            self.trips[tid] = {
+                'route_id':    row.get('route_id', '').strip(),
+                'service_id':  sid,
+                'shape_id':    row.get('shape_id', '').strip(),
+                'direction_id': int(row.get('direction_id', '0') or '0'),
+                'headsign':    row.get('trip_headsign', '').strip(),
+            }
+
+    def _parse_stop_times(self) -> None:
+        rows = self._read_csv('stop_times.txt')
+        if not rows:
+            logger.warning("GTFS: stop_times.txt missing or empty")
+            return
+
+        active_trips = set(self.trips.keys())
+        count = 0
+
+        for row in rows:
+            tid = row.get('trip_id', '').strip()
+            if tid not in active_trips:
+                continue
+            dep_str = row.get('departure_time', '') or row.get('arrival_time', '')
+            arr_str = row.get('arrival_time', '') or dep_str
+            dep_s = _parse_time_s(dep_str)
+            arr_s = _parse_time_s(arr_str)
+            if dep_s < 0:
+                continue
             try:
-                seq, lat, lon = int(row.get('shape_pt_sequence', '0') or '0'), float(row.get('shape_pt_lat', 0) or 0), float(row.get('shape_pt_lon', 0) or 0)
-            except (ValueError, TypeError): continue
+                seq = int(row.get('stop_sequence', '0') or '0')
+            except ValueError:
+                seq = 0
+
+            self.stop_times[tid].append({
+                'stop_id':       row.get('stop_id', '').strip(),
+                'stop_sequence': seq,
+                'arrival_s':     arr_s,
+                'departure_s':   dep_s,
+                'pickup_type':   int(row.get('pickup_type',    '0') or '0'),
+                'dropoff_type':  int(row.get('drop_off_type',  '0') or '0'),
+            })
+            count += 1
+
+        # Sort each trip's stops by sequence
+        for tid in self.stop_times:
+            self.stop_times[tid].sort(key=lambda x: x['stop_sequence'])
+
+        logger.info("GTFS: parsed %d stop_time records across %d trips", count, len(self.stop_times))
+
+    def _parse_shapes(self) -> None:
+        rows = self._read_csv('shapes.txt')
+        if not rows:
+            logger.debug("GTFS: shapes.txt absent — routes will render without shape geometry")
+            return
+
+        raw: Dict[str, List[Tuple[int, float, float]]] = defaultdict(list)
+        for row in rows:
+            shape_id = row.get('shape_id', '').strip()
+            if not shape_id:
+                continue
+            try:
+                seq = int(row.get('shape_pt_sequence', '0') or '0')
+                lat = float(row.get('shape_pt_lat', 0) or 0)
+                lon = float(row.get('shape_pt_lon', 0) or 0)
+            except (ValueError, TypeError):
+                continue
             raw[shape_id].append((seq, lon, lat))
 
         for shape_id, pts in raw.items():
             pts.sort(key=lambda x: x[0])
             self.shapes[shape_id] = [(lon, lat) for _, lon, lat in pts]
+
+        logger.info("GTFS: parsed %d shapes", len(self.shapes))
 
     # ── Headway computation ───────────────────────────────────────────────────
 

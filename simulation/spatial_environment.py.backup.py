@@ -198,56 +198,54 @@ class SpatialEnvironment:
         headway_window: Optional[tuple] = None,
     ) -> bool:
         """
-        Parse a GTFS static feed with spatial bounding box filtering.
+        Parse a GTFS static feed and register the transit graph.
+
+        Builds a NetworkX transit graph (stops + service edges with shape
+        geometry and headways) and stores it as graph_manager.graphs['transit'].
+        Also stitches walk-transfer edges so agents can walk to/from stops.
+
+        Args:
+            feed_path:      Path to GTFS .zip or directory.
+            service_date:   'YYYYMMDD' — restrict to services active on this date.
+                            None = load all services (larger graph, slower).
+            fuel_overrides: {route_id: 'electric'|'diesel'|'hydrogen'}
+                            overrides the loader's auto-inferred fuel type.
+            headway_window: (start_s, end_s) for headway computation.
+                            Defaults to AM peak 07:00–09:30.
+
+        Returns:
+            True if transit graph loaded and registered successfully.
         """
         if self.graph_manager.get_graph('transit') is not None:
             logger.debug("GTFS transit graph already loaded — skipping")
             return True
 
         try:
-            # Dynamically calculate the map bounds to filter the massive UK feed
-            bbox = None
-            drive = self.graph_manager.get_graph('drive')
-            if drive is not None and len(drive.nodes) > 0:
-                lons = [d['x'] for _, d in drive.nodes(data=True)]
-                lats = [d['y'] for _, d in drive.nodes(data=True)]
-                
-                # Add a 0.05 degree (~5km) padding to ensure we catch transit lines 
-                # that start/end just outside the visible simulation area
-                pad = 0.05
-                bbox = (min(lons) - pad, min(lats) - pad, max(lons) + pad, max(lats) + pad)
-                logger.info(f"Applying GTFS Spatial Filter: bbox={bbox}")
-
-            # Instantiate directly to pass the bbox argument
-            from simulation.gtfs.gtfs_loader import GTFSLoader
-            from simulation.gtfs.gtfs_graph import GTFSGraph
-            
-            loader = GTFSLoader(
-                feed_path=feed_path,
-                service_date=service_date,
-                fuel_overrides=fuel_overrides,
-                bbox=bbox  # <-- Critical: Passes the bounding box
+            from simulation.gtfs import load_gtfs
+            G_transit, loader = load_gtfs(
+                feed_path       = feed_path,
+                service_date    = service_date,
+                fuel_overrides  = fuel_overrides,
+                headway_window  = headway_window,
+                walk_graph      = self.graph_manager.get_graph('walk'),
             )
-            loader.load()
-            
-            headways = loader.compute_headways(headway_window)
-            builder = GTFSGraph(loader, headways)
-            G_transit = builder.build()
-
             if G_transit is None:
                 logger.warning("⚠️  GTFS: transit graph build returned None")
                 return False
 
-            # Link transit nodes to walkable road network
-            G_walk = self.graph_manager.get_graph('walk')
-            if G_walk is not None:
-                builder.build_transfer_edges(G_transit, G_walk)
-
             self.graph_manager.graphs['transit'] = G_transit
-            self.gtfs_loader = loader  # stash for analytics / pydeck layers
-            
-            logger.info("✅ GTFS transit graph: %d stops, %d service edges",
-                        G_transit.number_of_nodes(), G_transit.number_of_edges())
+            self.gtfs_loader = loader     # stash for analytics / pydeck layers
+            logger.info(
+                "✅ GTFS transit graph: %d stops, %d service edges",
+                G_transit.number_of_nodes(),
+                G_transit.number_of_edges(),
+            )
+            summary = loader.summary()
+            logger.info(
+                "   Modes: %s | Fuels: %s",
+                summary.get('modes', {}),
+                summary.get('fuels', {}),
+            )
             return True
 
         except Exception as exc:
