@@ -130,7 +130,7 @@ class SimulationConfig:
         gtfs_service_date=None,
         gtfs_fuel_overrides=None,
         gtfs_headway_window=None,
-        run_gtfs_analytics=False,
+        run_gtfs_analytics=None,
     ):
         """
         Initialize SimulationConfig.
@@ -182,6 +182,8 @@ class SimulationConfig:
         self.gtfs_fuel_overrides = gtfs_fuel_overrides
         self.gtfs_headway_window = gtfs_headway_window
         self.run_gtfs_analytics  = run_gtfs_analytics
+        # GTFS Analytics (Phase 10)
+        self.gtfs_analytics = None
         
         # Initialize sub-configs
         # Use provided sub-configs OR build from flat parameters
@@ -344,6 +346,12 @@ class SimulationConfig:
     enable_infrastructure_events: bool = True
     """Publish infrastructure failure events (future use)"""
 
+    def get(self, key, default=None):
+        """
+        HACK: Duck-typing method to allow dictionary-style access.
+        Prevents UI crashes when tabs call results.get('attribute').
+        """
+        return getattr(self, key, default)
 
     # ===== BACKWARD COMPATIBILITY PROPERTIES =====
     # Allow old-style attribute access after initialization

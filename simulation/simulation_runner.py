@@ -249,6 +249,12 @@ def run_simulation(
         if 'analytics_summary' in loop_results:
             results.analytics_summary = loop_results['analytics_summary']
             logger.info(f"✅ Analytics summary generated")
+
+        # Extract GTFS Analytics
+        if 'gtfs_analytics' in loop_results:
+            results.gtfs_analytics = loop_results['gtfs_analytics']
+            if results.gtfs_analytics:
+                logger.info("✅ GTFS analytics report stored in results")
         
         # Phase 5.3: Collect System Dynamics results
         if 'system_dynamics_history' in loop_results:
