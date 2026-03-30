@@ -638,21 +638,44 @@ class Router:
             try:
                 from simulation.spatial.rail_spine import route_via_stations
                 spine_route = route_via_stations(origin, dest, mode)
+            #     if spine_route and len(spine_route) > 2:
+            #         logger.info(
+            #             "✅ %s: %s spine fallback %d waypoints",
+            #             agent_id, mode, len(spine_route),
+            #         )
+            #         return spine_route
+            #     # spine returned only 2 points (no stations in range) —
+            #     # still better than nothing but log it
+            #     logger.debug(
+            #         "%s: spine returned 2-point route (no stations within range)",
+            #         agent_id,
+            #     )
+            #     return spine_route if spine_route else [origin, dest]
+            # except Exception as exc:
+            #     logger.warning("%s: spine fallback failed: %s — bare line last resort", agent_id, exc)
+            #     return [origin, dest]
+                # VISUAL FIX: To prevent straight lines cutting through buildings,
+                # we route the connections between the spine stations on the road network.
+                # It acts as an excellent visual proxy for the track geometry.
                 if spine_route and len(spine_route) > 2:
-                    logger.info(
-                        "✅ %s: %s spine fallback %d waypoints",
-                        agent_id, mode, len(spine_route),
-                    )
-                    return spine_route
-                # spine returned only 2 points (no stations in range) —
-                # still better than nothing but log it
-                logger.debug(
-                    "%s: spine returned 2-point route (no stations within range)",
-                    agent_id,
-                )
+                    realistic_route = []
+                    for i in range(len(spine_route) - 1):
+                        # Use the car router to map the rail path to the physical landscape
+                        leg = self._compute_road_route(agent_id, spine_route[i], spine_route[i+1], 'car', policy)
+                        if leg and len(leg) > 1:
+                            realistic_route.extend(leg[:-1])
+                        else:
+                            realistic_route.append(spine_route[i])
+                    realistic_route.append(spine_route[-1])
+                    
+                    logger.info("✅ %s: %s spine fallback mapped to road geometry (%d pts)", 
+                                agent_id, mode, len(realistic_route))
+                    return realistic_route
+                
                 return spine_route if spine_route else [origin, dest]
+                
             except Exception as exc:
-                logger.warning("%s: spine fallback failed: %s — bare line last resort", agent_id, exc)
+                logger.warning("%s: spine fallback failed: %s", agent_id, exc)
                 return [origin, dest]
 
         # ── Snap to rail transfer nodes ───────────────────────────────────────

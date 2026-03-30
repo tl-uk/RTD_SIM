@@ -441,19 +441,54 @@ class GTFSGraph:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
+    # @staticmethod
+    # def _slice_shape(
+    #     shape_coords: Optional[List[Tuple[float, float]]],
+    #     u_lon: float, u_lat: float,
+    #     v_lon: float, v_lat: float,
+    #     window_m: float = 200.0,
+    # ) -> List[Tuple[float, float]]:
+    #     """
+    #     Return the sub-sequence of shape_coords between stops u and v.
+
+    #     Finds the two shape points closest to u and v, then extracts
+    #     everything between them.  Falls back to a 2-point straight line
+    #     if no shape or points outside window.
+    #     """
+    #     if not shape_coords or len(shape_coords) < 2:
+    #         return [(u_lon, u_lat), (v_lon, v_lat)]
+
+    #     def nearest_idx(lon: float, lat: float) -> int:
+    #         best_i, best_d = 0, float('inf')
+    #         for i, (slon, slat) in enumerate(shape_coords):
+    #             d = _haversine_m(lon, lat, slon, slat)
+    #             if d < best_d:
+    #                 best_d, best_i = d, i
+    #         return best_i if best_d < window_m else -1
+
+    #     i_u = nearest_idx(u_lon, u_lat)
+    #     i_v = nearest_idx(v_lon, v_lat)
+
+    #     if i_u < 0 or i_v < 0 or i_u == i_v:
+    #         return [(u_lon, u_lat), (v_lon, v_lat)]
+
+    #     start, end = min(i_u, i_v), max(i_u, i_v)
+    #     sliced = shape_coords[start: end + 1]
+
+    #     # Ensure direction matches u→v
+    #     if i_u > i_v:
+    #         sliced = list(reversed(sliced))
+
+    #     return sliced if sliced else [(u_lon, u_lat), (v_lon, v_lat)]
     @staticmethod
     def _slice_shape(
         shape_coords: Optional[List[Tuple[float, float]]],
         u_lon: float, u_lat: float,
         v_lon: float, v_lat: float,
-        window_m: float = 200.0,
+        window_m: float = 1500.0,  # <-- MASSIVE INCREASE for UK BODS inaccuracies
     ) -> List[Tuple[float, float]]:
         """
         Return the sub-sequence of shape_coords between stops u and v.
-
-        Finds the two shape points closest to u and v, then extracts
-        everything between them.  Falls back to a 2-point straight line
-        if no shape or points outside window.
         """
         if not shape_coords or len(shape_coords) < 2:
             return [(u_lon, u_lat), (v_lon, v_lat)]
@@ -469,8 +504,10 @@ class GTFSGraph:
         i_u = nearest_idx(u_lon, u_lat)
         i_v = nearest_idx(v_lon, v_lat)
 
+        # VISUAL FIX: If we couldn't snap the stops to the shape, return the 
+        # entire shape rather than a straight line. It looks infinitely better.
         if i_u < 0 or i_v < 0 or i_u == i_v:
-            return [(u_lon, u_lat), (v_lon, v_lat)]
+            return shape_coords
 
         start, end = min(i_u, i_v), max(i_u, i_v)
         sliced = shape_coords[start: end + 1]
