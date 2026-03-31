@@ -485,20 +485,25 @@ class Router:
             u_node = transit_nodes[i]
             v_node = transit_nodes[i + 1]
             edge_map = G_transit.get_edge_data(u_node, v_node)
+            
+            shape = []
             if edge_map:
                 first_key = next(iter(edge_map))
                 shape = edge_map[first_key].get('shape_coords', [])
-            else:
-                shape = []
 
             if shape:
                 transit_coords.extend(shape if i == 0 else shape[1:])
             else:
-                u_d = G_transit.nodes.get(u_node, {})
-                v_d = G_transit.nodes.get(v_node, {})
-                if i == 0:
-                    transit_coords.append((float(u_d.get('x', 0)), float(u_d.get('y', 0))))
-                transit_coords.append((float(v_d.get('x', 0)), float(v_d.get('y', 0))))
+                # VISUAL FIX: GTFS feed lacks shapes. Map the straight line to the road network!
+                u_x, u_y = float(G_transit.nodes[u_node].get('x', 0)), float(G_transit.nodes[u_node].get('y', 0))
+                v_x, v_y = float(G_transit.nodes[v_node].get('x', 0)), float(G_transit.nodes[v_node].get('y', 0))
+                leg = self._compute_road_route(agent_id, (u_x, u_y), (v_x, v_y), 'car', policy)
+                
+                if leg and len(leg) > 1:
+                    transit_coords.extend(leg if i == 0 else leg[1:])
+                else:
+                    if i == 0: transit_coords.append((u_x, u_y))
+                    transit_coords.append((v_x, v_y))
 
         if not transit_coords:
             return self._compute_road_route(agent_id, origin, dest, mode, policy)
@@ -719,13 +724,20 @@ class Router:
                 )
                 rail_coords = self._extract_geometry(rail_graph, rail_nodes)
                 
-                # VISUAL FIX 1: OSMnx often strips curved geometry from rail edges.
-                # If we get a straight line back for a long trip, use the road proxy to bend it!
-                if len(rail_coords) <= 2 and haversine_km(orig_rail_coord, dest_rail_coord) > 2.0:
-                    logger.debug("%s: rail path missing geometry, mapping to road proxy", agent_id)
-                    leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
-                    if leg and len(leg) > 1:
-                        rail_coords = leg
+                # VISUAL FIX: If OpenRailMap returns raw nodes with no curves (straight lines),
+                # map the segments to the physical road network so it bends with the terrain!
+                if len(rail_coords) == len(rail_nodes):
+                    realistic_route = []
+                    for i in range(len(rail_nodes) - 1):
+                        leg_u = (float(rail_graph.nodes[rail_nodes[i]]['x']), float(rail_graph.nodes[rail_nodes[i]]['y']))
+                        leg_v = (float(rail_graph.nodes[rail_nodes[i+1]]['x']), float(rail_graph.nodes[rail_nodes[i+1]]['y']))
+                        leg = self._compute_road_route(agent_id, leg_u, leg_v, 'car', policy)
+                        if leg and len(leg) > 1:
+                            realistic_route.extend(leg[:-1])
+                        else:
+                            realistic_route.append(leg_u)
+                    realistic_route.append((float(rail_graph.nodes[rail_nodes[-1]]['x']), float(rail_graph.nodes[rail_nodes[-1]]['y'])))
+                    rail_coords = realistic_route
 
                 rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
                 
