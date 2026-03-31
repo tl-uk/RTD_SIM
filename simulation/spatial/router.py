@@ -396,7 +396,9 @@ class Router:
             logger.debug("%s: GTFS tram failed — spine fallback", agent_id)
             try:
                 from simulation.spatial.rail_spine import route_via_tram_stops
-                spine_route = route_via_tram_stops(origin, dest, max_access_km=1.5)
+                # 2.5km catchment — BODS GTFS tram stops can be sparse;
+                # 1.5km was too tight for agents placed in outer Edinburgh.
+                spine_route = route_via_tram_stops(origin, dest, max_access_km=2.5)
                 return spine_route if spine_route else [origin, dest]
             except Exception:
                 return [origin, dest]
@@ -405,6 +407,68 @@ class Router:
         else:
             # Bus modes fall back to standard road routing
             return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
+    def _compute_access_leg(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        max_straight_km: float = 3.0,
+    ) -> List[Tuple[float, float]]:
+        """
+        Compute a pedestrian access or egress leg between a trip origin/destination
+        and a transit stop or rail station.
+
+        Strategy (in priority order):
+          1. Walk graph is loaded → route on it.
+          2. Walk graph unavailable AND distance ≤ max_straight_km → return an
+             interpolated straight line.  This is more realistic for pedestrian
+             access than routing on the drive graph (pedestrians use footpaths,
+             shortcuts, cut-throughs that are NOT in the drive graph), and it
+             prevents the 200+ waypoint residential-street squiggle that appears
+             when the drive graph is used as a walk fallback.
+          3. Distance > max_straight_km and walk graph unavailable → drive graph
+             (agent is driving to a park-and-ride, not walking).
+
+        Args:
+            agent_id:         Used only for logging.
+            origin:           (lon, lat) start coord.
+            dest:             (lon, lat) end coord (usually a stop/station).
+            max_straight_km:  Threshold below which the straight-line strategy
+                              is used when the walk graph is absent.
+
+        Returns:
+            List of (lon, lat) 2-tuples.
+        """
+        dist_km = haversine_km(origin, dest)
+
+        # ── Walk graph available ──────────────────────────────────────────────
+        G_walk = self.graph_manager.get_graph('walk')
+        if G_walk is not None:
+            try:
+                orig_node = self.graph_manager.get_nearest_node(origin, 'walk')
+                dest_node = self.graph_manager.get_nearest_node(dest,   'walk')
+                if orig_node and dest_node and orig_node != dest_node:
+                    walk_nodes = nx.shortest_path(G_walk, orig_node, dest_node)
+                    coords = self._extract_geometry(G_walk, walk_nodes)
+                    return self._interpolate(coords, max_segment_km=0.05)
+            except Exception:
+                pass  # fall through
+
+        # ── Walk graph unavailable — straight line for short legs ─────────────
+        if dist_km <= max_straight_km:
+            logger.debug(
+                "%s: walk graph absent, access leg %.2fkm — using interpolated line",
+                agent_id, dist_km,
+            )
+            return self._interpolate([origin, dest], max_segment_km=0.05)
+
+        # ── Long access leg without walk graph — drive graph as last resort ───
+        logger.debug(
+            "%s: walk graph absent, access leg %.2fkm > %.2fkm — drive proxy",
+            agent_id, dist_km, max_straight_km,
+        )
+        return self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
 
     def _compute_gtfs_route(
         self,
@@ -468,12 +532,38 @@ class Router:
         builder = GTFSGraph(None)
 
         # ── Snap to nearest stops ─────────────────────────────────────────
-        origin_stop = builder.nearest_stop(
-            G_transit, origin, mode_filter=mode, max_distance_m=2000
-        )
-        dest_stop = builder.nearest_stop(
-            G_transit, dest, mode_filter=mode, max_distance_m=2000
-        )
+        # For tram specifically, the BODS GTFS feed encodes Edinburgh Trams as
+        # route_type=0 (Light Rail), which GTFSLoader maps to 'local_train', NOT
+        # 'tram'.  We therefore try three mode filters in sequence and accept the
+        # first pair that produces distinct, reachable stops:
+        #   1. 'tram'        — correct if the feed uses route_type=0→'tram'
+        #   2. 'local_train' — correct for BODS (route_type=0→'local_train')
+        #   3. None          — any nearby stop (last resort; picks the service)
+        # All other modes use a single filter with a 2km catchment.
+        if mode == 'tram':
+            _tram_filters: list = ['tram', 'local_train', None]
+            _tram_catchment: int = 5000  # 5km — trams have long inter-stop gaps
+            origin_stop = dest_stop = None
+            for mf in _tram_filters:
+                origin_stop = builder.nearest_stop(
+                    G_transit, origin, mode_filter=mf, max_distance_m=_tram_catchment
+                )
+                dest_stop = builder.nearest_stop(
+                    G_transit, dest,   mode_filter=mf, max_distance_m=_tram_catchment
+                )
+                if origin_stop and dest_stop and origin_stop != dest_stop:
+                    logger.debug(
+                        "%s: tram GTFS snap via mode_filter=%s (%s → %s)",
+                        agent_id, mf, origin_stop, dest_stop,
+                    )
+                    break
+        else:
+            origin_stop = builder.nearest_stop(
+                G_transit, origin, mode_filter=mode, max_distance_m=2000
+            )
+            dest_stop = builder.nearest_stop(
+                G_transit, dest, mode_filter=mode, max_distance_m=2000
+            )
 
         if origin_stop is None or dest_stop is None:
             logger.debug(
@@ -552,16 +642,12 @@ class Router:
         # ── Access leg (walk to first stop) ───────────────────────────────
         first_d = G_transit.nodes.get(origin_stop, {})
         first_coord = (float(first_d.get('x', origin[0])), float(first_d.get('y', origin[1])))
-        access_leg = self._compute_road_route(
-            agent_id + '_access', origin, first_coord, 'walk', policy
-        )
+        access_leg = self._compute_access_leg(agent_id + '_access', origin, first_coord)
 
         # ── Egress leg (walk from last stop) ──────────────────────────────
         last_d = G_transit.nodes.get(dest_stop, {})
         last_coord = (float(last_d.get('x', dest[0])), float(last_d.get('y', dest[1])))
-        egress_leg = self._compute_road_route(
-            agent_id + '_egress', last_coord, dest, 'walk', policy
-        )
+        egress_leg = self._compute_access_leg(agent_id + '_egress', last_coord, dest)
 
         # ── Stitch ────────────────────────────────────────────────────────
         full_route: List[Tuple[float, float]] = (
@@ -907,7 +993,7 @@ class Router:
             return [origin, dest]
 
         # ── Access leg (walk) ─────────────────────────────────────────────────
-        access_leg = self._compute_road_route(agent_id + '_access', origin, orig_rail_coord, 'walk', policy)
+        access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_rail_coord)
 
         # ── Rail leg ──────────────────────────────────────────────────────────
         try:
@@ -923,7 +1009,7 @@ class Router:
             rail_coords = [orig_rail_coord, dest_rail_coord]
 
         # ── Egress leg (walk) ─────────────────────────────────────────────────
-        egress_leg = self._compute_road_route(agent_id + '_egress', dest_rail_coord, dest, 'walk', policy)
+        egress_leg = self._compute_access_leg(agent_id + '_egress', dest_rail_coord, dest)
 
         # ── Stitch legs ───────────────────────────────────────────────────────
         full_route: List[Tuple[float, float]] = (
