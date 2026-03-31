@@ -76,6 +76,12 @@ def create_gtfs_service_layer(
         headway  = attrs.get('headway_s', 3600)
         shape    = attrs.get('shape_coords', [])
 
+        # ── Skip transfer / walk edges injected by build_transfer_edges() ──
+        # These carry mode='walk', highway='transfer', headway_s=0 and must
+        # never appear as coloured service lines on the map.
+        if mode == 'walk' or attrs.get('highway') == 'transfer':
+            continue
+
         if show_electric_only and fuel not in ('electric', 'hydrogen'):
             continue
 
@@ -89,14 +95,30 @@ def create_gtfs_service_layer(
 
         color = _mode_color(mode, fuel)
 
+        # ── Build a meaningful service label ────────────────────────────────
+        short_names = attrs.get('route_short_names', [])
+        long_names  = attrs.get('route_long_names',  [])
+        if short_names:
+            service_label = ' / '.join(short_names[:4])
+        elif long_names:
+            service_label = long_names[0][:40]
+        else:
+            service_label = mode.replace('_', ' ').title()
+
+        # ── Headway display — guard against zero (transfer edge artefact) ──
+        if headway > 0:
+            headway_str = f"{headway // 60} min"
+        else:
+            headway_str = "on-demand"
+
         path_data.append({
             'path':    [[float(lon), float(lat)] for lon, lat in shape],
             'color':   color,
             'width':   max(1, 8 - headway // 600),   # more frequent = wider line
             'tooltip_html': (
-                f"<b>{mode.replace('_', ' ').title()}</b><br/>"
-                f"Fuel: {fuel}<br/>"
-                f"Headway: {headway // 60} min"
+                f"<b>{service_label}</b><br/>"
+                f"{mode.replace('_', ' ').title()} · {fuel}<br/>"
+                f"Headway: {headway_str}"
             ),
         })
 
@@ -148,12 +170,28 @@ def create_gtfs_stops_layer(
         if lon == 0 and lat == 0:
             continue
 
-        # Compute average headway across all outgoing edges
-        out_edges = list(G_transit.edges(stop_id, data=True))
+        # ── Skip pure walk/transfer nodes (OSM walk graph nodes stitched in) ─
+        # These have no route_types, no name, and are not GTFS stop_ids.
+        if not attrs.get('stop_id') and not attrs.get('name'):
+            continue
+
+        # Collect served route short names from outgoing service edges
+        served_shorts: list = []
+        for _, _, edata in G_transit.edges(stop_id, data=True):
+            if edata.get('mode', 'walk') == 'walk' or edata.get('highway') == 'transfer':
+                continue
+            for sn in edata.get('route_short_names', []):
+                if sn and sn not in served_shorts:
+                    served_shorts.append(sn)
+        routes_str = ', '.join(served_shorts[:6]) if served_shorts else ''
+
+        # Compute average headway across all outgoing service edges
+        out_edges = [
+            d for _, _, d in G_transit.edges(stop_id, data=True)
+            if d.get('mode', 'walk') != 'walk' and d.get('highway') != 'transfer'
+        ]
         if out_edges:
-            avg_headway = sum(
-                d.get('headway_s', 3600) for _, _, d in out_edges
-            ) / len(out_edges)
+            avg_headway = sum(d.get('headway_s', 3600) for d in out_edges) / len(out_edges)
         else:
             avg_headway = 3600
 
@@ -163,16 +201,17 @@ def create_gtfs_stops_layer(
 
         wheelchair = attrs.get('wheelchair', False)
         name       = attrs.get('name', stop_id)
+        headway_str = f"{int(avg_headway // 60)} min" if avg_headway > 0 else "on-demand"
 
         stop_data.append({
             'lon':         float(lon),
             'lat':         float(lat),
             'radius_px':   radius_px,
             'r': 255, 'g': 200, 'b': 50,   # amber fill for all stops
-            'tooltip_html':     (
+            'tooltip_html': (
                 f"<b>{name}</b><br/>"
-                f"Stop ID: {stop_id}<br/>"
-                f"Avg headway: {int(avg_headway // 60)} min"
+                + (f"Routes: {routes_str}<br/>" if routes_str else '')
+                + f"Avg headway: {headway_str}"
                 + ("<br/>♿ Wheelchair accessible" if wheelchair else "")
             ),
         })

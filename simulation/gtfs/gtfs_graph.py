@@ -195,6 +195,18 @@ class GTFSGraph:
             fuel_type = records[0]['fuel_type']
             shape     = records[0]['shape_coords'] or []
 
+            # ── Resolve human-readable service names for tooltip display ──────
+            # GTFSLoader may store these as 'short_name'/'long_name' (normalised)
+            # or as the raw GTFS keys 'route_short_name'/'route_long_name'.
+            route_short_names: List[str] = []
+            route_long_names:  List[str] = []
+            for rid in route_ids:
+                r_data = loader.routes.get(rid, {})
+                sn = r_data.get('short_name') or r_data.get('route_short_name', '')
+                ln = r_data.get('long_name')  or r_data.get('route_long_name',  '')
+                if sn: route_short_names.append(str(sn))
+                if ln: route_long_names.append(str(ln))
+
             # Average headway from pre-computed table (fall back to per-service spacing)
             # Use the first route_id that has a headway entry
             headway_s = 3600
@@ -213,15 +225,17 @@ class GTFSGraph:
 
             G.add_edge(
                 u, v,
-                travel_time_s  = avg_travel_s,
-                headway_s      = headway_s,
-                shape_coords   = shape,
-                route_ids      = route_ids,
-                mode           = mode,
-                fuel_type      = fuel_type,
-                emissions_g_km = emit,
-                length         = dist_m,
-                gen_cost       = avg_travel_s / 3600.0 * 10.0,  # stub (£10/h VoT)
+                travel_time_s      = avg_travel_s,
+                headway_s          = headway_s,
+                shape_coords       = shape,
+                route_ids          = route_ids,
+                route_short_names  = route_short_names,
+                route_long_names   = route_long_names,
+                mode               = mode,
+                fuel_type          = fuel_type,
+                emissions_g_km     = emit,
+                length             = dist_m,
+                gen_cost           = avg_travel_s / 3600.0 * 10.0,  # stub (£10/h VoT)
             )
 
         # Freeze route_types to frozenset for hashability
@@ -373,6 +387,16 @@ class GTFSGraph:
             return []
         data = []
         for stop_id, attrs in G_transit.nodes(data=True):
+            # Collect route short names served at this stop (from outgoing edges)
+            served_shorts: list = []
+            for _, _, edata in G_transit.edges(stop_id, data=True):
+                if edata.get('mode', 'walk') == 'walk':
+                    continue
+                for sn in edata.get('route_short_names', []):
+                    if sn and sn not in served_shorts:
+                        served_shorts.append(sn)
+            routes_str = ', '.join(served_shorts[:6]) if served_shorts else ''
+
             data.append({
                 'lon':       attrs.get('x', 0),
                 'lat':       attrs.get('y', 0),
@@ -381,8 +405,9 @@ class GTFSGraph:
                 'wheelchair': attrs.get('wheelchair', False),
                 'tooltip_html': (
                     f"<b>{attrs.get('name', stop_id)}</b><br/>"
-                    f"Stop ID: {stop_id}"
-                    + ("<br/>Wheelchair accessible" if attrs.get('wheelchair') else "")
+                    + (f"Routes: {routes_str}<br/>" if routes_str else '')
+                    + f"Stop ID: {stop_id}"
+                    + ("<br/>♿ Wheelchair accessible" if attrs.get('wheelchair') else "")
                 ),
             })
         return data
@@ -425,16 +450,29 @@ class GTFSGraph:
             if fuel == 'electric':
                 color = [min(255, c + 40) for c in color]
 
+            # Build a concise service label: "26 / X27" or "Intercity Train"
+            short_names = attrs.get('route_short_names', [])
+            long_names  = attrs.get('route_long_names',  [])
+            if short_names:
+                service_label = ' / '.join(short_names[:4])
+            elif long_names:
+                service_label = long_names[0][:40]
+            else:
+                service_label = mode.replace('_', ' ').title()
+
+            headway_s = attrs.get('headway_s', 3600)
+            headway_str = f"{headway_s // 60} min" if headway_s > 0 else "on-demand"
+
             data.append({
                 'path':    [[lon, lat] for lon, lat in shape],
                 'color':   color,
                 'mode':    mode,
                 'fuel':    fuel,
-                'headway': attrs.get('headway_s', 3600),
+                'headway': headway_s,
                 'tooltip_html': (
-                    f"Mode: {mode}<br/>"
-                    f"Fuel: {fuel}<br/>"
-                    f"Headway: {attrs.get('headway_s', 3600) // 60} min"
+                    f"<b>{service_label}</b><br/>"
+                    f"{mode.replace('_', ' ').title()} · {fuel}<br/>"
+                    f"Headway: {headway_str}"
                 ),
             })
         return data
