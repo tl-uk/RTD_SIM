@@ -718,16 +718,31 @@ class Router:
                     weight=rail_weight_key,
                 )
                 rail_coords = self._extract_geometry(rail_graph, rail_nodes)
+                
+                # VISUAL FIX 1: OSMnx often strips curved geometry from rail edges.
+                # If we get a straight line back for a long trip, use the road proxy to bend it!
+                if len(rail_coords) <= 2 and haversine_km(orig_rail_coord, dest_rail_coord) > 2.0:
+                    logger.debug("%s: rail path missing geometry, mapping to road proxy", agent_id)
+                    leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
+                    if leg and len(leg) > 1:
+                        rail_coords = leg
+
                 rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+                
         except nx.NetworkXNoPath:
             logger.warning(
-                "%s: no rail path %s→%s, straight-line leg",
+                "%s: no rail path %s→%s on OpenRailMap, mapping to road proxy",
                 agent_id, orig_rail_node, dest_rail_node,
             )
-            rail_coords = [orig_rail_coord, dest_rail_coord]
+            # VISUAL FIX 2: The rail graph is fragmented. Route the train on the road 
+            # network so it physically bends with the terrain!
+            leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
+            rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
+            
         except Exception as exc:
-            logger.error("%s: rail leg failed: %s", agent_id, exc)
-            rail_coords = [orig_rail_coord, dest_rail_coord]
+            logger.error("%s: rail leg failed: %s, mapping to road proxy", agent_id, exc)
+            leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
+            rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
 
         # ── Egress leg: destination station → destination (drive) ─────────────
         egress_leg = self._compute_road_route(
