@@ -93,7 +93,7 @@ def create_gtfs_service_layer(
             'path':    [[float(lon), float(lat)] for lon, lat in shape],
             'color':   color,
             'width':   max(1, 8 - headway // 600),   # more frequent = wider line
-            'tooltip': (
+            'tooltip_html': (
                 f"<b>{mode.replace('_', ' ').title()}</b><br/>"
                 f"Fuel: {fuel}<br/>"
                 f"Headway: {headway // 60} min"
