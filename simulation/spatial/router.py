@@ -390,6 +390,22 @@ class Router:
         """
         return self.graph_manager.get_graph('transit')
 
+    def _transit_fallback(self, agent_id: str, origin: Tuple[float, float], dest: Tuple[float, float], mode: str, policy: Dict) -> List[Tuple[float, float]]:
+        """Clean fallback when GTFS graph is missing or routing fails."""
+        if mode == 'tram':
+            logger.debug("%s: GTFS tram failed — spine fallback", agent_id)
+            try:
+                from simulation.spatial.rail_spine import route_via_tram_stops
+                spine_route = route_via_tram_stops(origin, dest, max_access_km=1.5)
+                return spine_route if spine_route else [origin, dest]
+            except Exception:
+                return [origin, dest]
+        elif mode in ('ferry_diesel', 'ferry_electric'):
+            return [origin, dest]
+        else:
+            # Bus modes fall back to standard road routing
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
     def _compute_gtfs_route(
         self,
         agent_id: str,
@@ -440,12 +456,14 @@ class Router:
                     pass
             
             # Fallback for buses/ferries
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            # return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         try:
             from simulation.gtfs.gtfs_graph import GTFSGraph, _haversine_m
         except ImportError:
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            # return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         builder = GTFSGraph(None)
 
@@ -462,10 +480,12 @@ class Router:
                 "%s: no GTFS stop within 2km for %s — drive proxy",
                 agent_id, mode,
             )
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            # return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         if origin_stop == dest_stop:
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            # return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         # ── Apply headway-weighted generalised cost to transit edges ──────
         vot     = float(policy.get('value_of_time_gbp_h',  10.0))
@@ -496,6 +516,7 @@ class Router:
             return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
         # ── Extract geometry from shape_coords ────────────────────────────
+        # ── Extract geometry from shape_coords ────────────────────────────
         transit_coords: List[Tuple[float, float]] = []
         for i in range(len(transit_nodes) - 1):
             u_node = transit_nodes[i]
@@ -510,19 +531,23 @@ class Router:
             if shape and len(shape) > 2:
                 transit_coords.extend(shape if i == 0 else shape[1:])
             else:
-                # VISUAL FIX: GTFS feed lacks curved shapes. Map the straight line to the road network!
+                # Shape missing. Map buses to the road, but connect-the-dots for Trams/Ferries.
                 u_x, u_y = float(G_transit.nodes[u_node].get('x', 0)), float(G_transit.nodes[u_node].get('y', 0))
                 v_x, v_y = float(G_transit.nodes[v_node].get('x', 0)), float(G_transit.nodes[v_node].get('y', 0))
-                leg = self._compute_road_route(agent_id, (u_x, u_y), (v_x, v_y), 'car', policy)
                 
-                if leg and len(leg) > 1:
-                    transit_coords.extend(leg if i == 0 else leg[1:])
+                if mode in ('bus', 'van_electric', 'van_diesel'):
+                    leg = self._compute_road_route(agent_id, (u_x, u_y), (v_x, v_y), 'car', policy)
+                    if leg and len(leg) > 1:
+                        transit_coords.extend(leg if i == 0 else leg[1:])
+                    else:
+                        if i == 0: transit_coords.append((u_x, u_y))
+                        transit_coords.append((v_x, v_y))
                 else:
                     if i == 0: transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
 
         if not transit_coords:
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         # ── Access leg (walk to first stop) ───────────────────────────────
         first_d = G_transit.nodes.get(origin_stop, {})
@@ -628,6 +653,163 @@ class Router:
         return (node, (float(nd.get('x', 0)), float(nd.get('y', 0))))
     
 
+    # def _compute_intermodal_route(
+    #     self,
+    #     agent_id: str,
+    #     origin: Tuple[float, float],
+    #     dest: Tuple[float, float],
+    #     mode: str,
+    #     policy: Dict,
+    # ) -> List[Tuple[float, float]]:
+    #     """
+    #     Three-leg intermodal route: access (road) → rail → egress (road).
+
+    #     Transfer penalty is encoded in policy['boarding_penalty_min'].
+    #     The penalty inflates the effective distance of the access leg so the
+    #     cost function discourages rail for very short trips where boarding
+    #     overhead makes it non-competitive.  It does NOT insert fake waypoints.
+
+    #     Falls back to synthetic straight-line route if rail graph unavailable.
+    #     """
+    #     rail_graph = self._get_rail_graph()
+
+    #     if rail_graph is None:
+    #         # Spine fallback: route via hardcoded station waypoints so rail
+    #         # agents travel through real station locations rather than a bare
+    #         # straight line across the map (including over water/hills).
+    #         logger.debug(
+    #             "%s: rail graph unavailable — spine station fallback for %s",
+    #             agent_id, mode,
+    #         )
+    #         try:
+    #             from simulation.spatial.rail_spine import route_via_stations
+    #             spine_route = route_via_stations(origin, dest, mode)
+    #             if spine_route and len(spine_route) > 2:
+    #                 realistic_route = []
+    #                 for i in range(len(spine_route) - 1):
+    #                     # Use the car router to map the rail path to the physical landscape
+    #                     leg = self._compute_road_route(agent_id, spine_route[i], spine_route[i+1], 'car', policy)
+    #                     if leg and len(leg) > 1:
+    #                         realistic_route.extend(leg[:-1])
+    #                     else:
+    #                         realistic_route.append(spine_route[i])
+    #                 realistic_route.append(spine_route[-1])
+                    
+    #                 logger.info("✅ %s: %s spine fallback mapped to road geometry (%d pts)", 
+    #                             agent_id, mode, len(realistic_route))
+    #                 return realistic_route
+                
+    #             return spine_route if spine_route else [origin, dest]
+                
+    #         except Exception as exc:
+    #             logger.warning("%s: spine fallback failed: %s", agent_id, exc)
+    #             return [origin, dest]
+
+    #     # ── Snap to rail transfer nodes ───────────────────────────────────────
+    #     orig_rail_node = self._nearest_rail_node(origin, rail_graph)
+    #     dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
+
+    #     if orig_rail_node is None or dest_rail_node is None:
+    #         logger.warning(
+    #             "%s: rail snap failed for %s — synthetic fallback",
+    #             agent_id, mode,
+    #         )
+    #         return [origin, dest]
+
+    #     orig_rail_coord = (
+    #         float(rail_graph.nodes[orig_rail_node].get('x', 0)),
+    #         float(rail_graph.nodes[orig_rail_node].get('y', 0)),
+    #     )
+    #     dest_rail_coord = (
+    #         float(rail_graph.nodes[dest_rail_node].get('x', 0)),
+    #         float(rail_graph.nodes[dest_rail_node].get('y', 0)),
+    #     )
+
+    #     # ── Access leg: origin → origin rail station (drive) ──────────────────
+    #     access_leg = self._compute_road_route(
+    #         agent_id + '_access', origin, orig_rail_coord, 'car', policy
+    #     )
+
+    #     # ── Rail leg: origin station → destination station ────────────────────
+    #     try:
+    #         if orig_rail_node == dest_rail_node:
+    #             rail_coords = [orig_rail_coord, dest_rail_coord]
+    #         else:
+    #             rail_weight_key = self._apply_generalised_weights(
+    #                 rail_graph, mode, policy
+    #             )
+    #             rail_nodes = nx.shortest_path(
+    #                 rail_graph,
+    #                 orig_rail_node,
+    #                 dest_rail_node,
+    #                 weight=rail_weight_key,
+    #             )
+    #             rail_coords = self._extract_geometry(rail_graph, rail_nodes)
+                
+    #             # VISUAL FIX: If OpenRailMap returns raw nodes with poor curves (mostly straight lines),
+    #             # map the segments to the physical road network so it bends with the terrain!
+    #             if len(rail_coords) < len(rail_nodes) * 1.5:
+    #                 realistic_route = []
+    #                 for i in range(len(rail_nodes) - 1):
+    #                     leg_u = (float(rail_graph.nodes[rail_nodes[i]]['x']), float(rail_graph.nodes[rail_nodes[i]]['y']))
+    #                     leg_v = (float(rail_graph.nodes[rail_nodes[i+1]]['x']), float(rail_graph.nodes[rail_nodes[i+1]]['y']))
+    #                     leg = self._compute_road_route(agent_id, leg_u, leg_v, 'car', policy)
+    #                     if leg and len(leg) > 1:
+    #                         realistic_route.extend(leg[:-1])
+    #                     else:
+    #                         realistic_route.append(leg_u)
+    #                 realistic_route.append((float(rail_graph.nodes[rail_nodes[-1]]['x']), float(rail_graph.nodes[rail_nodes[-1]]['y'])))
+    #                 rail_coords = realistic_route
+
+    #             rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+                
+    #     except nx.NetworkXNoPath:
+    #         logger.warning(
+    #             "%s: no rail path %s→%s on OpenRailMap, mapping to road proxy",
+    #             agent_id, orig_rail_node, dest_rail_node,
+    #         )
+    #         # VISUAL FIX 2: The rail graph is fragmented. Route the train on the road 
+    #         # network so it physically bends with the terrain!
+    #         leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
+    #         rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
+            
+    #     except Exception as exc:
+    #         logger.error("%s: rail leg failed: %s, mapping to road proxy", agent_id, exc)
+    #         leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
+    #         rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
+
+    #     # ── Egress leg: destination station → destination (drive) ─────────────
+    #     egress_leg = self._compute_road_route(
+    #         agent_id + '_egress', dest_rail_coord, dest, 'car', policy
+    #     )
+
+    #     # ── Stitch legs (remove duplicated boundary points) ───────────────────
+    #     full_route: List[Tuple[float, float]] = (
+    #         (access_leg[:-1] if access_leg else [])
+    #         + rail_coords
+    #         + (egress_leg[1:] if len(egress_leg) > 1 else [])
+    #     )
+
+    #     if len(full_route) < 2:
+    #         full_route = [origin, dest]
+
+    #     access_km = route_distance_km(access_leg)
+    #     rail_km   = route_distance_km(rail_coords)
+    #     egress_km = route_distance_km(egress_leg)
+    #     board_km  = (
+    #         policy['boarding_penalty_min'] / 60.0
+    #         * self.speeds_km_min.get(mode, 1.33)
+    #     )
+
+    #     logger.info(
+    #         "✅ %s: %s intermodal %.1fkm "
+    #         "(access %.1f + board-penalty %.1f + rail %.1f + egress %.1f)",
+    #         agent_id, mode,
+    #         access_km + board_km + rail_km + egress_km,
+    #         access_km, board_km, rail_km, egress_km,
+    #     )
+    #     return full_route
+
     def _compute_intermodal_route(
         self,
         agent_id: str,
@@ -636,65 +818,15 @@ class Router:
         mode: str,
         policy: Dict,
     ) -> List[Tuple[float, float]]:
-        """
-        Three-leg intermodal route: access (road) → rail → egress (road).
-
-        Transfer penalty is encoded in policy['boarding_penalty_min'].
-        The penalty inflates the effective distance of the access leg so the
-        cost function discourages rail for very short trips where boarding
-        overhead makes it non-competitive.  It does NOT insert fake waypoints.
-
-        Falls back to synthetic straight-line route if rail graph unavailable.
-        """
+        """Three-leg intermodal route: access (road) → rail → egress (road)."""
         rail_graph = self._get_rail_graph()
 
         if rail_graph is None:
-            # Spine fallback: route via hardcoded station waypoints so rail
-            # agents travel through real station locations rather than a bare
-            # straight line across the map (including over water/hills).
-            logger.debug(
-                "%s: rail graph unavailable — spine station fallback for %s",
-                agent_id, mode,
-            )
+            logger.debug("%s: rail graph unavailable — spine fallback for %s", agent_id, mode)
             try:
                 from simulation.spatial.rail_spine import route_via_stations
                 spine_route = route_via_stations(origin, dest, mode)
-            #     if spine_route and len(spine_route) > 2:
-            #         logger.info(
-            #             "✅ %s: %s spine fallback %d waypoints",
-            #             agent_id, mode, len(spine_route),
-            #         )
-            #         return spine_route
-            #     # spine returned only 2 points (no stations in range) —
-            #     # still better than nothing but log it
-            #     logger.debug(
-            #         "%s: spine returned 2-point route (no stations within range)",
-            #         agent_id,
-            #     )
-            #     return spine_route if spine_route else [origin, dest]
-            # except Exception as exc:
-            #     logger.warning("%s: spine fallback failed: %s — bare line last resort", agent_id, exc)
-            #     return [origin, dest]
-                # VISUAL FIX: To prevent straight lines cutting through buildings,
-                # we route the connections between the spine stations on the road network.
-                # It acts as an excellent visual proxy for the track geometry.
-                if spine_route and len(spine_route) > 2:
-                    realistic_route = []
-                    for i in range(len(spine_route) - 1):
-                        # Use the car router to map the rail path to the physical landscape
-                        leg = self._compute_road_route(agent_id, spine_route[i], spine_route[i+1], 'car', policy)
-                        if leg and len(leg) > 1:
-                            realistic_route.extend(leg[:-1])
-                        else:
-                            realistic_route.append(spine_route[i])
-                    realistic_route.append(spine_route[-1])
-                    
-                    logger.info("✅ %s: %s spine fallback mapped to road geometry (%d pts)", 
-                                agent_id, mode, len(realistic_route))
-                    return realistic_route
-                
                 return spine_route if spine_route else [origin, dest]
-                
             except Exception as exc:
                 logger.warning("%s: spine fallback failed: %s", agent_id, exc)
                 return [origin, dest]
@@ -704,10 +836,6 @@ class Router:
         dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
 
         if orig_rail_node is None or dest_rail_node is None:
-            logger.warning(
-                "%s: rail snap failed for %s — synthetic fallback",
-                agent_id, mode,
-            )
             return [origin, dest]
 
         orig_rail_coord = (
@@ -719,90 +847,32 @@ class Router:
             float(rail_graph.nodes[dest_rail_node].get('y', 0)),
         )
 
-        # ── Access leg: origin → origin rail station (drive) ──────────────────
-        access_leg = self._compute_road_route(
-            agent_id + '_access', origin, orig_rail_coord, 'car', policy
-        )
+        # ── Access leg (drive) ────────────────────────────────────────────────
+        access_leg = self._compute_road_route(agent_id + '_access', origin, orig_rail_coord, 'walk', policy)
 
-        # ── Rail leg: origin station → destination station ────────────────────
+        # ── Rail leg (Train) ──────────────────────────────────────────────────
         try:
             if orig_rail_node == dest_rail_node:
                 rail_coords = [orig_rail_coord, dest_rail_coord]
             else:
-                rail_weight_key = self._apply_generalised_weights(
-                    rail_graph, mode, policy
-                )
-                rail_nodes = nx.shortest_path(
-                    rail_graph,
-                    orig_rail_node,
-                    dest_rail_node,
-                    weight=rail_weight_key,
-                )
+                rail_weight_key = self._apply_generalised_weights(rail_graph, mode, policy)
+                rail_nodes = nx.shortest_path(rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key)
                 rail_coords = self._extract_geometry(rail_graph, rail_nodes)
-                
-                # VISUAL FIX: If OpenRailMap returns raw nodes with poor curves (mostly straight lines),
-                # map the segments to the physical road network so it bends with the terrain!
-                if len(rail_coords) < len(rail_nodes) * 1.5:
-                    realistic_route = []
-                    for i in range(len(rail_nodes) - 1):
-                        leg_u = (float(rail_graph.nodes[rail_nodes[i]]['x']), float(rail_graph.nodes[rail_nodes[i]]['y']))
-                        leg_v = (float(rail_graph.nodes[rail_nodes[i+1]]['x']), float(rail_graph.nodes[rail_nodes[i+1]]['y']))
-                        leg = self._compute_road_route(agent_id, leg_u, leg_v, 'car', policy)
-                        if leg and len(leg) > 1:
-                            realistic_route.extend(leg[:-1])
-                        else:
-                            realistic_route.append(leg_u)
-                    realistic_route.append((float(rail_graph.nodes[rail_nodes[-1]]['x']), float(rail_graph.nodes[rail_nodes[-1]]['y'])))
-                    rail_coords = realistic_route
-
                 rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
-                
-        except nx.NetworkXNoPath:
-            logger.warning(
-                "%s: no rail path %s→%s on OpenRailMap, mapping to road proxy",
-                agent_id, orig_rail_node, dest_rail_node,
-            )
-            # VISUAL FIX 2: The rail graph is fragmented. Route the train on the road 
-            # network so it physically bends with the terrain!
-            leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
-            rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
-            
-        except Exception as exc:
-            logger.error("%s: rail leg failed: %s, mapping to road proxy", agent_id, exc)
-            leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
-            rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
+        except Exception:
+            rail_coords = [orig_rail_coord, dest_rail_coord]
 
-        # ── Egress leg: destination station → destination (drive) ─────────────
-        egress_leg = self._compute_road_route(
-            agent_id + '_egress', dest_rail_coord, dest, 'car', policy
-        )
+        # ── Egress leg (drive) ────────────────────────────────────────────────
+        egress_leg = self._compute_road_route(agent_id + '_egress', dest_rail_coord, dest, 'walk', policy)
 
-        # ── Stitch legs (remove duplicated boundary points) ───────────────────
+        # ── Stitch legs ───────────────────────────────────────────────────────
         full_route: List[Tuple[float, float]] = (
             (access_leg[:-1] if access_leg else [])
             + rail_coords
             + (egress_leg[1:] if len(egress_leg) > 1 else [])
         )
 
-        if len(full_route) < 2:
-            full_route = [origin, dest]
-
-        access_km = route_distance_km(access_leg)
-        rail_km   = route_distance_km(rail_coords)
-        egress_km = route_distance_km(egress_leg)
-        board_km  = (
-            policy['boarding_penalty_min'] / 60.0
-            * self.speeds_km_min.get(mode, 1.33)
-        )
-
-        logger.info(
-            "✅ %s: %s intermodal %.1fkm "
-            "(access %.1f + board-penalty %.1f + rail %.1f + egress %.1f)",
-            agent_id, mode,
-            access_km + board_km + rail_km + egress_km,
-            access_km, board_km, rail_km, egress_km,
-        )
-        return full_route
+        return full_route if len(full_route) >= 2 else [origin, dest]
 
     # =========================================================================
     # GENERALISED COST EDGE WEIGHTS
