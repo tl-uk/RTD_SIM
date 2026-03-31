@@ -532,17 +532,14 @@ class Router:
         builder = GTFSGraph(None)
 
         # ── Snap to nearest stops ─────────────────────────────────────────
-        # For tram specifically, the BODS GTFS feed encodes Edinburgh Trams as
-        # route_type=0 (Light Rail), which GTFSLoader maps to 'local_train', NOT
-        # 'tram'.  We therefore try three mode filters in sequence and accept the
-        # first pair that produces distinct, reachable stops:
-        #   1. 'tram'        — correct if the feed uses route_type=0→'tram'
-        #   2. 'local_train' — correct for BODS (route_type=0→'local_train')
-        #   3. None          — any nearby stop (last resort; picks the service)
-        # All other modes use a single filter with a 2km catchment.
+        # For tram, BODS encodes Edinburgh Trams as route_type=0 → 'local_train'.
+        # Try 'tram' first (correct encoding), then 'local_train' (BODS encoding).
+        # No None fallback — mode_filter=None finds bus stops ('6200...' ATCO codes)
+        # in Edinburgh, which are cheaper in gen_cost due to higher frequency, so
+        # shortest_path routes across the entire bus network instead of 2 tram stops.
         if mode == 'tram':
-            _tram_filters: list = ['tram', 'local_train', None]
-            _tram_catchment: int = 5000  # 5km — trams have long inter-stop gaps
+            _tram_filters: list = ['tram', 'local_train']
+            _tram_catchment: int = 5000  # 5km — tram stops can be far apart
             origin_stop = dest_stop = None
             for mf in _tram_filters:
                 origin_stop = builder.nearest_stop(
@@ -567,15 +564,34 @@ class Router:
 
         if origin_stop is None or dest_stop is None:
             logger.debug(
-                "%s: no GTFS stop within 2km for %s — drive proxy",
+                "%s: no GTFS stop within catchment for %s — transit fallback",
                 agent_id, mode,
             )
-            # return self._compute_road_route(agent_id, origin, dest, mode, policy)
             return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         if origin_stop == dest_stop:
-            # return self._compute_road_route(agent_id, origin, dest, mode, policy)
             return self._transit_fallback(agent_id, origin, dest, mode, policy)
+
+        # ── Allowed mode families for gen_cost masking ────────────────────
+        # The GTFS transit graph has ALL service modes mixed together.  Bus
+        # edges have lower gen_cost than tram edges (buses are more frequent
+        # → smaller headway_h penalty).  Without masking, nx.shortest_path
+        # routes tram trips via bus edges, producing 20–43 stop detours.
+        # Set gen_cost=inf for edges outside the requested mode family so the
+        # path is forced to stay on the correct service type.
+        # Transfer edges (mode='walk') are always allowed — they are dead-end
+        # stubs in G_transit (terminal walk-graph nodes) and can't form a path.
+        _TRAM_MODES  = frozenset({'tram', 'local_train'})
+        _RAIL_MODES  = frozenset({'local_train', 'intercity_train', 'rail', 'freight_rail'})
+        _BUS_MODES   = frozenset({'bus'})
+        if mode == 'tram':
+            _allowed_modes = _TRAM_MODES
+        elif mode in ('local_train', 'intercity_train'):
+            _allowed_modes = _RAIL_MODES
+        elif mode == 'bus':
+            _allowed_modes = _BUS_MODES
+        else:
+            _allowed_modes = frozenset({mode})
 
         # ── Apply headway-weighted generalised cost to transit edges ──────
         vot     = float(policy.get('value_of_time_gbp_h',  10.0))
@@ -583,6 +599,16 @@ class Router:
         c_tax   = float(policy.get('carbon_tax_gbp_tco2',   0.0))
 
         for u, v, key, data in G_transit.edges(keys=True, data=True):
+            edge_mode = data.get('mode', 'bus')
+            # Transfer / walk edges are dead-ends; give them high cost so they
+            # don't form part of the in-service path but don't cause errors.
+            if edge_mode == 'walk' or data.get('highway') == 'transfer':
+                data['gen_cost'] = 9999.0
+                continue
+            # Block edges of wrong service family
+            if edge_mode not in _allowed_modes:
+                data['gen_cost'] = float('inf')
+                continue
             travel_h  = data.get('travel_time_s', 300) / 3600.0
             headway_h = data.get('headway_s', 1800) / 3600.0 / 2.0
             dist_km   = data.get('length', 0) / 1000.0

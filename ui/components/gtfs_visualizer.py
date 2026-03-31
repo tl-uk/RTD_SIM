@@ -14,6 +14,7 @@ visualization.py so GTFS service lines read clearly on the base map.
 
 from __future__ import annotations
 import logging
+import math
 from typing import Any, List, Optional, Dict
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,23 @@ try:
 except ImportError:
     _PDK = False
     logger.warning("pydeck not available — GTFS layers disabled")
+
+# ── Straight-line threshold for edges without shape geometry ─────────────────
+# BODS shapes.txt is incomplete for many cross-Forth and long inter-urban
+# routes (X24, X26, X27 etc).  When shape_coords is missing the fallback is a
+# 2-point straight line between stops, which draws visibly across open water.
+# Any 2-point edge whose crow-flies distance exceeds this threshold is skipped
+# in the PathLayer to prevent Forth-crossing artefacts.
+_MAX_SHAPELESS_KM: float = 15.0
+
+
+def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    """Haversine distance in km between two (lon, lat) points."""
+    R = 6371.0
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dl / 2) ** 2
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 # ── Per-mode stroke colours (RGBA) ────────────────────────────────────────────
@@ -88,10 +106,13 @@ def create_gtfs_service_layer(
         if not shape:
             u_d = G_transit.nodes.get(u, {})
             v_d = G_transit.nodes.get(v, {})
-            shape = [
-                [u_d.get('x', 0), u_d.get('y', 0)],
-                [v_d.get('x', 0), v_d.get('y', 0)],
-            ]
+            u_lon, u_lat = u_d.get('x', 0), u_d.get('y', 0)
+            v_lon, v_lat = v_d.get('x', 0), v_d.get('y', 0)
+            # Skip long shapeless edges — they draw straight lines across water.
+            # BODS shapes.txt is missing for many cross-Forth bus services.
+            if _haversine_km(u_lon, u_lat, v_lon, v_lat) > _MAX_SHAPELESS_KM:
+                continue
+            shape = [[u_lon, u_lat], [v_lon, v_lat]]
 
         color = _mode_color(mode, fuel)
 
