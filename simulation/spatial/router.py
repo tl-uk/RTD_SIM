@@ -420,10 +420,26 @@ class Router:
         G_transit = self._get_transit_graph()
 
         if G_transit is None:
-            logger.debug(
-                "%s: no GTFS transit graph — drive proxy for %s",
-                agent_id, mode,
-            )
+            if mode == 'tram':
+                logger.debug("%s: no GTFS — using tram spine fallback", agent_id)
+                try:
+                    from simulation.spatial.rail_spine import route_via_tram_stops
+                    spine_route = route_via_tram_stops(origin, dest)
+                    if spine_route and len(spine_route) > 2:
+                        realistic_route = []
+                        for i in range(len(spine_route) - 1):
+                            leg = self._compute_road_route(agent_id, spine_route[i], spine_route[i+1], 'car', policy)
+                            if leg and len(leg) > 1:
+                                realistic_route.extend(leg[:-1])
+                            else:
+                                realistic_route.append(spine_route[i])
+                        realistic_route.append(spine_route[-1])
+                        return realistic_route
+                    return spine_route if spine_route else [origin, dest]
+                except Exception:
+                    pass
+            
+            # Fallback for buses/ferries
             return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
         try:
@@ -491,10 +507,10 @@ class Router:
                 first_key = next(iter(edge_map))
                 shape = edge_map[first_key].get('shape_coords', [])
 
-            if shape:
+            if shape and len(shape) > 2:
                 transit_coords.extend(shape if i == 0 else shape[1:])
             else:
-                # VISUAL FIX: GTFS feed lacks shapes. Map the straight line to the road network!
+                # VISUAL FIX: GTFS feed lacks curved shapes. Map the straight line to the road network!
                 u_x, u_y = float(G_transit.nodes[u_node].get('x', 0)), float(G_transit.nodes[u_node].get('y', 0))
                 v_x, v_y = float(G_transit.nodes[v_node].get('x', 0)), float(G_transit.nodes[v_node].get('y', 0))
                 leg = self._compute_road_route(agent_id, (u_x, u_y), (v_x, v_y), 'car', policy)
@@ -724,9 +740,9 @@ class Router:
                 )
                 rail_coords = self._extract_geometry(rail_graph, rail_nodes)
                 
-                # VISUAL FIX: If OpenRailMap returns raw nodes with no curves (straight lines),
+                # VISUAL FIX: If OpenRailMap returns raw nodes with poor curves (mostly straight lines),
                 # map the segments to the physical road network so it bends with the terrain!
-                if len(rail_coords) == len(rail_nodes):
+                if len(rail_coords) < len(rail_nodes) * 1.5:
                     realistic_route = []
                     for i in range(len(rail_nodes) - 1):
                         leg_u = (float(rail_graph.nodes[rail_nodes[i]]['x']), float(rail_graph.nodes[rail_nodes[i]]['y']))

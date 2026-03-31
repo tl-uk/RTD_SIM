@@ -169,7 +169,7 @@ def create_gtfs_stops_layer(
             'lat':         float(lat),
             'radius_px':   radius_px,
             'r': 255, 'g': 200, 'b': 50,   # amber fill for all stops
-            'tooltip':     (
+            'tooltip_html':     (
                 f"<b>{name}</b><br/>"
                 f"Stop ID: {stop_id}<br/>"
                 f"Avg headway: {int(avg_headway // 60)} min"

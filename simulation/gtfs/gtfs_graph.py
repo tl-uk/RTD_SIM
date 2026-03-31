@@ -504,10 +504,10 @@ class GTFSGraph:
         i_u = nearest_idx(u_lon, u_lat)
         i_v = nearest_idx(v_lon, v_lat)
 
-        # VISUAL FIX: If we couldn't snap the stops to the shape, return the 
-        # entire shape rather than a straight line. It looks infinitely better.
+        # VISUAL FIX: If we couldn't snap the stops to the shape, return a 2-point
+        # line. router.py will intercept this and map it to the physical road network!
         if i_u < 0 or i_v < 0 or i_u == i_v:
-            return shape_coords
+            return [(u_lon, u_lat), (v_lon, v_lat)]
 
         start, end = min(i_u, i_v), max(i_u, i_v)
         sliced = shape_coords[start: end + 1]
