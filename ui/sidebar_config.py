@@ -613,7 +613,7 @@ def _render_location_map_picker() -> list:
                     border:1px solid #444; padding:4px; font-size:11px;
                     font-family:monospace; resize:none; height:36px; }}
         #copybtn {{ margin-top:4px; padding:4px 10px; background:#2a9d8f; color:white;
-                    border:none; border-radius:3px; cursor:pointer; font-size:12px; }}
+                    border:none; border-radius:3px; cursor:pointer; font-size:12px; flex-shrink: 0;}}
         h4 {{ margin-bottom:4px; font-size:13px; color:#7ec8e3; }}
       </style>
     </head>
