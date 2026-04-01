@@ -1034,6 +1034,9 @@ class Router:
         # ── Access leg (walk) ─────────────────────────────────────────────────
         access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_rail_coord)
 
+        # ── Access leg (drive) ────────────────────────────────────────────────
+        access_leg = self._compute_road_route(agent_id + '_access', origin, orig_rail_coord, 'walk', policy)
+
         # ── Rail leg ──────────────────────────────────────────────────────────
         try:
             rail_weight_key = self._apply_generalised_weights(rail_graph, mode, policy)
