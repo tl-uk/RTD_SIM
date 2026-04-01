@@ -645,6 +645,7 @@ class Router:
             return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
         # ── Extract geometry from shape_coords ────────────────────────────
+        # ── Extract geometry from shape_coords ────────────────────────────
         transit_coords: List[Tuple[float, float]] = []
         for i in range(len(transit_nodes) - 1):
             u_node = transit_nodes[i]
@@ -663,7 +664,7 @@ class Router:
                 u_x, u_y = float(G_transit.nodes[u_node].get('x', 0)), float(G_transit.nodes[u_node].get('y', 0))
                 v_x, v_y = float(G_transit.nodes[v_node].get('x', 0)), float(G_transit.nodes[v_node].get('y', 0))
                 
-                if mode in ('bus', 'van_electric', 'van_diesel', 'tram', 'local_train', 'intercity_train'):
+                if mode in ('bus', 'van_electric', 'van_diesel'):
                     leg = self._compute_road_route(agent_id, (u_x, u_y), (v_x, v_y), 'car', policy)
                     if leg and len(leg) > 1:
                         transit_coords.extend(leg if i == 0 else leg[1:])
@@ -777,169 +778,6 @@ class Router:
         return (node, (float(nd.get('x', 0)), float(nd.get('y', 0))))
     
 
-    def _compute_intermodal_route(
-        self,
-        agent_id: str,
-        origin: Tuple[float, float],
-        dest: Tuple[float, float],
-        mode: str,
-        policy: Dict,
-    ) -> List[Tuple[float, float]]:
-        """
-        Three-leg intermodal route: access (road) → rail → egress (road).
-
-        Transfer penalty is encoded in policy['boarding_penalty_min'].
-        The penalty inflates the effective distance of the access leg so the
-        cost function discourages rail for very short trips where boarding
-        overhead makes it non-competitive.  It does NOT insert fake waypoints.
-
-        Falls back to synthetic straight-line route if rail graph unavailable.
-        """
-        rail_graph = self._get_rail_graph()
-
-        if rail_graph is None:
-            # Spine fallback: route via hardcoded station waypoints so rail
-            # agents travel through real station locations rather than a bare
-            # straight line across the map (including over water/hills).
-            logger.debug(
-                "%s: rail graph unavailable — spine station fallback for %s",
-                agent_id, mode,
-            )
-            try:
-                from simulation.spatial.rail_spine import route_via_stations
-                spine_route = route_via_stations(origin, dest, mode)
-                if spine_route and len(spine_route) > 2:
-                    realistic_route = []
-                    for i in range(len(spine_route) - 1):
-                        # Use the car router to map the rail path to the physical landscape
-                        leg = self._compute_road_route(agent_id, spine_route[i], spine_route[i+1], 'car', policy)
-                        if leg and len(leg) > 1:
-                            realistic_route.extend(leg[:-1])
-                        else:
-                            realistic_route.append(spine_route[i])
-                    realistic_route.append(spine_route[-1])
-                    
-                    logger.info("✅ %s: %s spine fallback mapped to road geometry (%d pts)", 
-                                agent_id, mode, len(realistic_route))
-                    return realistic_route
-                
-                return spine_route if spine_route else [origin, dest]
-                
-            except Exception as exc:
-                logger.warning("%s: spine fallback failed: %s", agent_id, exc)
-                return [origin, dest]
-
-        # ── Snap to rail transfer nodes ───────────────────────────────────────
-        orig_rail_node = self._nearest_rail_node(origin, rail_graph)
-        dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
-
-        if orig_rail_node is None or dest_rail_node is None:
-            logger.warning(
-                "%s: rail snap failed for %s — synthetic fallback",
-                agent_id, mode,
-            )
-            return [origin, dest]
-
-        orig_rail_coord = (
-            float(rail_graph.nodes[orig_rail_node].get('x', 0)),
-            float(rail_graph.nodes[orig_rail_node].get('y', 0)),
-        )
-        dest_rail_coord = (
-            float(rail_graph.nodes[dest_rail_node].get('x', 0)),
-            float(rail_graph.nodes[dest_rail_node].get('y', 0)),
-        )
-
-        # ── Access leg: origin → origin rail station (drive) ──────────────────
-        access_leg = self._compute_road_route(
-            agent_id + '_access', origin, orig_rail_coord, 'car', policy
-        )
-
-        # ── Rail leg: origin station → destination station ────────────────────
-        try:
-            if orig_rail_node == dest_rail_node:
-                rail_coords = [orig_rail_coord, dest_rail_coord]
-            else:
-                rail_weight_key = self._apply_generalised_weights(
-                    rail_graph, mode, policy
-                )
-                rail_nodes = nx.shortest_path(
-                    rail_graph,
-                    orig_rail_node,
-                    dest_rail_node,
-                    weight=rail_weight_key,
-                )
-                rail_coords = self._extract_geometry(rail_graph, rail_nodes)
-                
-                # VISUAL FIX: If OpenRailMap returns raw nodes with poor curves (mostly straight lines),
-                # map the segments to the physical road network so it bends with the terrain!
-                if len(rail_coords) < len(rail_nodes) * 1.5:
-                    realistic_route = []
-                    for i in range(len(rail_nodes) - 1):
-                        leg_u = (float(rail_graph.nodes[rail_nodes[i]]['x']), float(rail_graph.nodes[rail_nodes[i]]['y']))
-                        leg_v = (float(rail_graph.nodes[rail_nodes[i+1]]['x']), float(rail_graph.nodes[rail_nodes[i+1]]['y']))
-                        # This maps the rail segment to the road network to follow the terrain
-                        leg = self._compute_road_route(agent_id, leg_u, leg_v, 'car', policy)
-                        if leg and len(leg) > 1:
-                            realistic_route.extend(leg[:-1])
-                        else:
-                            realistic_route.append(leg_u)
-                    realistic_route.append((float(rail_graph.nodes[rail_nodes[-1]]['x']), float(rail_graph.nodes[rail_nodes[-1]]['y'])))
-                    rail_coords = realistic_route
-
-                    rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
-                
-        except nx.NetworkXNoPath:
-            logger.warning(
-                "%s: no rail path %s→%s on OpenRailMap, mapping to road proxy",
-                agent_id, orig_rail_node, dest_rail_node,
-            )
-            # VISUAL FIX 2: The rail graph is fragmented. Route the train on the road 
-            # network so it physically bends with the terrain!
-            leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
-            rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
-            
-        except Exception as exc:
-            logger.error("%s: rail leg failed: %s, mapping to road proxy", agent_id, exc)
-            leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
-            rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
-
-        # ── Egress leg: destination station → destination (drive) ─────────────
-        egress_leg = self._compute_road_route(
-            agent_id + '_egress', dest_rail_coord, dest, 'car', policy
-        )
-
-        # ── Stitch legs (remove duplicated boundary points) ───────────────────
-        full_route: List[Tuple[float, float]] = (
-            (access_leg[:-1] if access_leg else [])
-            + rail_coords
-            + (egress_leg[1:] if len(egress_leg) > 1 else [])
-        )
-
-        if len(full_route) < 2:
-            full_route = [origin, dest]
-
-        access_km = route_distance_km(access_leg)
-        rail_km   = route_distance_km(rail_coords)
-        egress_km = route_distance_km(egress_leg)
-        board_km  = (
-            policy['boarding_penalty_min'] / 60.0
-            * self.speeds_km_min.get(mode, 1.33)
-        )
-
-        logger.info(
-            "✅ %s: %s intermodal %.1fkm "
-            "(access %.1f + board-penalty %.1f + rail %.1f + egress %.1f)",
-            agent_id, mode,
-            access_km + board_km + rail_km + egress_km,
-            access_km, board_km, rail_km, egress_km,
-        )
-        return full_route
-
-    # # Maximum credible walk-to-station distance in km.
-    # # If _nearest_rail_node snaps to a node further than this the OpenRailMap
-    # # graph is too sparse / fragmented for this area — use the spine instead.
-    # _MAX_ACCESS_KM: float = 5.0
-
     # def _compute_intermodal_route(
     #     self,
     #     agent_id: str,
@@ -949,21 +787,45 @@ class Router:
     #     policy: Dict,
     # ) -> List[Tuple[float, float]]:
     #     """
-    #     Three-leg intermodal route: access (walk) → rail → egress (walk).
+    #     Three-leg intermodal route: access (road) → rail → egress (road).
 
-    #     Guards that trigger spine fallback (avoid residential-street rat-runs):
-    #       1. Rail graph unavailable.
-    #       2. Both ends snap to the same rail node (degenerate rail leg).
-    #       3. Nearest rail node is >_MAX_ACCESS_KM away (sparse/fragmented graph).
+    #     Transfer penalty is encoded in policy['boarding_penalty_min'].
+    #     The penalty inflates the effective distance of the access leg so the
+    #     cost function discourages rail for very short trips where boarding
+    #     overhead makes it non-competitive.  It does NOT insert fake waypoints.
+
+    #     Falls back to synthetic straight-line route if rail graph unavailable.
     #     """
     #     rail_graph = self._get_rail_graph()
 
     #     if rail_graph is None:
-    #         logger.debug("%s: rail graph unavailable — spine fallback for %s", agent_id, mode)
+    #         # Spine fallback: route via hardcoded station waypoints so rail
+    #         # agents travel through real station locations rather than a bare
+    #         # straight line across the map (including over water/hills).
+    #         logger.debug(
+    #             "%s: rail graph unavailable — spine station fallback for %s",
+    #             agent_id, mode,
+    #         )
     #         try:
     #             from simulation.spatial.rail_spine import route_via_stations
     #             spine_route = route_via_stations(origin, dest, mode)
+    #             if spine_route and len(spine_route) > 2:
+    #                 realistic_route = []
+    #                 for i in range(len(spine_route) - 1):
+    #                     # Use the car router to map the rail path to the physical landscape
+    #                     leg = self._compute_road_route(agent_id, spine_route[i], spine_route[i+1], 'car', policy)
+    #                     if leg and len(leg) > 1:
+    #                         realistic_route.extend(leg[:-1])
+    #                     else:
+    #                         realistic_route.append(spine_route[i])
+    #                 realistic_route.append(spine_route[-1])
+                    
+    #                 logger.info("✅ %s: %s spine fallback mapped to road geometry (%d pts)", 
+    #                             agent_id, mode, len(realistic_route))
+    #                 return realistic_route
+                
     #             return spine_route if spine_route else [origin, dest]
+                
     #         except Exception as exc:
     #             logger.warning("%s: spine fallback failed: %s", agent_id, exc)
     #             return [origin, dest]
@@ -973,6 +835,10 @@ class Router:
     #     dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
 
     #     if orig_rail_node is None or dest_rail_node is None:
+    #         logger.warning(
+    #             "%s: rail snap failed for %s — synthetic fallback",
+    #             agent_id, mode,
+    #         )
     #         return [origin, dest]
 
     #     orig_rail_coord = (
@@ -984,80 +850,227 @@ class Router:
     #         float(rail_graph.nodes[dest_rail_node].get('y', 0)),
     #     )
 
-    #     # ── Guard 1: both ends snap to the same rail node ────────────────────
-    #     # The rail leg collapses to [station, station] and the full route
-    #     # becomes two OSM walk legs — producing 1000+ residential-street
-    #     # waypoints mislabelled as "Intercity Train".
-    #     if orig_rail_node == dest_rail_node:
-    #         logger.debug(
-    #             "%s: %s both ends snap to same rail node %s — spine fallback",
-    #             agent_id, mode, orig_rail_node,
-    #         )
-    #         try:
-    #             from simulation.spatial.rail_spine import route_via_stations
-    #             spine_route = route_via_stations(origin, dest, mode)
-    #             if spine_route and len(spine_route) >= 2:
-    #                 return spine_route
-    #         except Exception:
-    #             pass
-    #         return [origin, dest]
+    #     # ── Access leg: origin → origin rail station (drive) ──────────────────
+    #     access_leg = self._compute_road_route(
+    #         agent_id + '_access', origin, orig_rail_coord, 'car', policy
+    #     )
 
-    #     # ── Guard 2: nearest rail node is unreasonably far ───────────────────
-    #     # A snap distance >_MAX_ACCESS_KM means the OpenRailMap graph has no
-    #     # nodes near the agent — walking 5+ km to a "station" then routing via
-    #     # road-network geometry produces the 1000+ waypoint residential tangle
-    #     # visible on the map as "Intercity Train" squiggles through suburbs.
-    #     access_dist_km  = haversine_km(origin,       orig_rail_coord)
-    #     egress_dist_km  = haversine_km(dest_rail_coord, dest)
-    #     journey_dist_km = haversine_km(origin, dest)
-
-    #     if (access_dist_km > self._MAX_ACCESS_KM
-    #             or egress_dist_km > self._MAX_ACCESS_KM
-    #             # Also catch the case where rail snap distance exceeds the
-    #             # whole trip (both origin+dest are closer to each other than
-    #             # to any rail node — short local trip mislabelled as rail).
-    #             or access_dist_km + egress_dist_km > journey_dist_km * 1.5):
-    #         logger.debug(
-    #             "%s: %s snap distances too large (access %.1fkm, egress %.1fkm, "
-    #             "journey %.1fkm) — spine fallback",
-    #             agent_id, mode, access_dist_km, egress_dist_km, journey_dist_km,
-    #         )
-    #         try:
-    #             from simulation.spatial.rail_spine import route_via_stations
-    #             spine_route = route_via_stations(origin, dest, mode)
-    #             if spine_route and len(spine_route) >= 2:
-    #                 return spine_route
-    #         except Exception:
-    #             pass
-    #         return [origin, dest]
-
-    #     # ── Access leg (walk) ─────────────────────────────────────────────────
-    #     access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_rail_coord)
-
-    #     # ── Rail leg ──────────────────────────────────────────────────────────
+    #     # ── Rail leg: origin station → destination station ────────────────────
     #     try:
-    #         rail_weight_key = self._apply_generalised_weights(rail_graph, mode, policy)
-    #         rail_nodes = nx.shortest_path(rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key)
-    #         rail_coords = self._extract_geometry(rail_graph, rail_nodes)
-    #         rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+    #         if orig_rail_node == dest_rail_node:
+    #             rail_coords = [orig_rail_coord, dest_rail_coord]
+    #         else:
+    #             rail_weight_key = self._apply_generalised_weights(
+    #                 rail_graph, mode, policy
+    #             )
+    #             rail_nodes = nx.shortest_path(
+    #                 rail_graph,
+    #                 orig_rail_node,
+    #                 dest_rail_node,
+    #                 weight=rail_weight_key,
+    #             )
+    #             rail_coords = self._extract_geometry(rail_graph, rail_nodes)
+                
+    #             # VISUAL FIX: If OpenRailMap returns raw nodes with poor curves (mostly straight lines),
+    #             # map the segments to the physical road network so it bends with the terrain!
+    #             if len(rail_coords) < len(rail_nodes) * 1.5:
+    #                 realistic_route = []
+    #                 for i in range(len(rail_nodes) - 1):
+    #                     leg_u = (float(rail_graph.nodes[rail_nodes[i]]['x']), float(rail_graph.nodes[rail_nodes[i]]['y']))
+    #                     leg_v = (float(rail_graph.nodes[rail_nodes[i+1]]['x']), float(rail_graph.nodes[rail_nodes[i+1]]['y']))
+    #                     leg = self._compute_road_route(agent_id, leg_u, leg_v, 'car', policy)
+    #                     if leg and len(leg) > 1:
+    #                         realistic_route.extend(leg[:-1])
+    #                     else:
+    #                         realistic_route.append(leg_u)
+    #                 realistic_route.append((float(rail_graph.nodes[rail_nodes[-1]]['x']), float(rail_graph.nodes[rail_nodes[-1]]['y'])))
+    #                 rail_coords = realistic_route
+
+    #             rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+                
     #     except nx.NetworkXNoPath:
-    #         logger.debug("%s: no rail path on OpenRailMap — direct station-to-station line", agent_id)
-    #         rail_coords = self._interpolate([orig_rail_coord, dest_rail_coord], max_segment_km=0.2)
+    #         logger.warning(
+    #             "%s: no rail path %s→%s on OpenRailMap, mapping to road proxy",
+    #             agent_id, orig_rail_node, dest_rail_node,
+    #         )
+    #         # VISUAL FIX 2: The rail graph is fragmented. Route the train on the road 
+    #         # network so it physically bends with the terrain!
+    #         leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
+    #         rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
+            
     #     except Exception as exc:
-    #         logger.warning("%s: rail leg failed (%s) — direct station-to-station line", agent_id, exc)
-    #         rail_coords = [orig_rail_coord, dest_rail_coord]
+    #         logger.error("%s: rail leg failed: %s, mapping to road proxy", agent_id, exc)
+    #         leg = self._compute_road_route(agent_id, orig_rail_coord, dest_rail_coord, 'car', policy)
+    #         rail_coords = leg if leg and len(leg) > 1 else [orig_rail_coord, dest_rail_coord]
 
-    #     # ── Egress leg (walk) ─────────────────────────────────────────────────
-    #     egress_leg = self._compute_access_leg(agent_id + '_egress', dest_rail_coord, dest)
+    #     # ── Egress leg: destination station → destination (drive) ─────────────
+    #     egress_leg = self._compute_road_route(
+    #         agent_id + '_egress', dest_rail_coord, dest, 'car', policy
+    #     )
 
-    #     # ── Stitch legs ───────────────────────────────────────────────────────
+    #     # ── Stitch legs (remove duplicated boundary points) ───────────────────
     #     full_route: List[Tuple[float, float]] = (
     #         (access_leg[:-1] if access_leg else [])
     #         + rail_coords
     #         + (egress_leg[1:] if len(egress_leg) > 1 else [])
     #     )
 
-    #     return full_route if len(full_route) >= 2 else [origin, dest]
+    #     if len(full_route) < 2:
+    #         full_route = [origin, dest]
+
+    #     access_km = route_distance_km(access_leg)
+    #     rail_km   = route_distance_km(rail_coords)
+    #     egress_km = route_distance_km(egress_leg)
+    #     board_km  = (
+    #         policy['boarding_penalty_min'] / 60.0
+    #         * self.speeds_km_min.get(mode, 1.33)
+    #     )
+
+    #     logger.info(
+    #         "✅ %s: %s intermodal %.1fkm "
+    #         "(access %.1f + board-penalty %.1f + rail %.1f + egress %.1f)",
+    #         agent_id, mode,
+    #         access_km + board_km + rail_km + egress_km,
+    #         access_km, board_km, rail_km, egress_km,
+    #     )
+    #     return full_route
+
+    # Maximum credible walk-to-station distance in km.
+    # If _nearest_rail_node snaps to a node further than this the OpenRailMap
+    # graph is too sparse / fragmented for this area — use the spine instead.
+    _MAX_ACCESS_KM: float = 5.0
+
+    def _compute_intermodal_route(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> List[Tuple[float, float]]:
+        """
+        Three-leg intermodal route: access (walk) → rail → egress (walk).
+
+        Guards that trigger spine fallback (avoid residential-street rat-runs):
+          1. Rail graph unavailable.
+          2. Both ends snap to the same rail node (degenerate rail leg).
+          3. Nearest rail node is >_MAX_ACCESS_KM away (sparse/fragmented graph).
+        """
+        rail_graph = self._get_rail_graph()
+
+        if rail_graph is None:
+            logger.debug("%s: rail graph unavailable — spine fallback for %s", agent_id, mode)
+            try:
+                from simulation.spatial.rail_spine import route_via_stations
+                spine_route = route_via_stations(origin, dest, mode)
+                return spine_route if spine_route else [origin, dest]
+            except Exception as exc:
+                logger.warning("%s: spine fallback failed: %s", agent_id, exc)
+                return [origin, dest]
+
+        # ── Snap to rail transfer nodes ───────────────────────────────────────
+        orig_rail_node = self._nearest_rail_node(origin, rail_graph)
+        dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
+
+        if orig_rail_node is None or dest_rail_node is None:
+            return [origin, dest]
+
+        orig_rail_coord = (
+            float(rail_graph.nodes[orig_rail_node].get('x', 0)),
+            float(rail_graph.nodes[orig_rail_node].get('y', 0)),
+        )
+        dest_rail_coord = (
+            float(rail_graph.nodes[dest_rail_node].get('x', 0)),
+            float(rail_graph.nodes[dest_rail_node].get('y', 0)),
+        )
+
+        # ── Guard 1: both ends snap to the same rail node ────────────────────
+        # The rail leg collapses to [station, station] and the full route
+        # becomes two OSM walk legs — producing 1000+ residential-street
+        # waypoints mislabelled as "Intercity Train".
+        if orig_rail_node == dest_rail_node:
+            logger.debug(
+                "%s: %s both ends snap to same rail node %s — spine fallback",
+                agent_id, mode, orig_rail_node,
+            )
+            try:
+                from simulation.spatial.rail_spine import route_via_stations
+                spine_route = route_via_stations(origin, dest, mode)
+                if spine_route and len(spine_route) >= 2:
+                    return spine_route
+            except Exception:
+                pass
+            return [origin, dest]
+
+        # ── Guard 2: nearest rail node is unreasonably far ───────────────────
+        # A snap distance >_MAX_ACCESS_KM means the OpenRailMap graph has no
+        # nodes near the agent — walking 5+ km to a "station" then routing via
+        # road-network geometry produces the 1000+ waypoint residential tangle
+        # visible on the map as "Intercity Train" squiggles through suburbs.
+        access_dist_km  = haversine_km(origin,       orig_rail_coord)
+        egress_dist_km  = haversine_km(dest_rail_coord, dest)
+        journey_dist_km = haversine_km(origin, dest)
+
+        if (access_dist_km > self._MAX_ACCESS_KM
+                or egress_dist_km > self._MAX_ACCESS_KM
+                # Also catch the case where rail snap distance exceeds the
+                # whole trip (both origin+dest are closer to each other than
+                # to any rail node — short local trip mislabelled as rail).
+                or access_dist_km + egress_dist_km > journey_dist_km * 1.5):
+            logger.debug(
+                "%s: %s snap distances too large (access %.1fkm, egress %.1fkm, "
+                "journey %.1fkm) — spine fallback",
+                agent_id, mode, access_dist_km, egress_dist_km, journey_dist_km,
+            )
+            try:
+                from simulation.spatial.rail_spine import route_via_stations
+                spine_route = route_via_stations(origin, dest, mode)
+                if spine_route and len(spine_route) >= 2:
+                    return spine_route
+            except Exception:
+                pass
+            return [origin, dest]
+
+        # ── Access leg (walk) ─────────────────────────────────────────────────
+        access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_rail_coord)
+
+        # ── Rail leg ──────────────────────────────────────────────────────────
+        try:
+            rail_weight_key = self._apply_generalised_weights(rail_graph, mode, policy)
+            rail_nodes = nx.shortest_path(rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key)
+            rail_coords = self._extract_geometry(rail_graph, rail_nodes)
+            rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+        except nx.NetworkXNoPath:
+            logger.debug("%s: no rail path on OpenRailMap — road-proxy station-to-station", agent_id)
+            # Route between stations on the drive graph so the path follows
+            # real roads/tracks rather than a straight diagonal across terrain.
+            # This only fires when the OpenRailMap graph is loaded but fragmented;
+            # if the spine is being used it already returns station waypoints.
+            rail_coords = self._compute_road_route(
+                agent_id + '_railleg', orig_rail_coord, dest_rail_coord, 'car', policy
+            )
+            if len(rail_coords) <= 2:
+                # Drive graph also failed — interpolated straight line
+                rail_coords = self._interpolate(
+                    [orig_rail_coord, dest_rail_coord], max_segment_km=0.2
+                )
+        except Exception as exc:
+            logger.warning("%s: rail leg failed (%s) — interpolated fallback", agent_id, exc)
+            rail_coords = self._interpolate(
+                [orig_rail_coord, dest_rail_coord], max_segment_km=0.2
+            )
+
+        # ── Egress leg (walk) ─────────────────────────────────────────────────
+        egress_leg = self._compute_access_leg(agent_id + '_egress', dest_rail_coord, dest)
+
+        # ── Stitch legs ───────────────────────────────────────────────────────
+        full_route: List[Tuple[float, float]] = (
+            (access_leg[:-1] if access_leg else [])
+            + rail_coords
+            + (egress_leg[1:] if len(egress_leg) > 1 else [])
+        )
+
+        return full_route if len(full_route) >= 2 else [origin, dest]
 
     # =========================================================================
     # GENERALISED COST EDGE WEIGHTS
