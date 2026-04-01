@@ -580,115 +580,219 @@ def _render_location_map_picker() -> list:
     existing_pins_json = json.dumps(st.session_state.map_pins)
 
     leaflet_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8"/>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <style>
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+        <link rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+        <style>
         * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ font-family: sans-serif; }}
-        #map {{ height: 380px; width: 100%; }}
-        #info {{
-          background: #1e2130; color: #e0e0e0;
-          padding: 8px 12px; font-size: 13px;
-          border-top: 1px solid #333;
-          display: flex;
-          flex-direction: column;
-          height: 160px;          /* fixed control panel height */
+
+        html, body {{
+            height:100%;
+            font-family:sans-serif;
+            display:flex;
+            flex-direction:column;
+            background:#111;
         }}
-        #pinlist {{ margin-top:4px; 
-                    overflow-y: auto; /* NEW — prevents layout shift */
-                    flex: 1;
-                    min-height: 0;}}
-        .pin-entry {{ display:flex; justify-content:space-between; align-items:center;
-                      padding: 2px 0; border-bottom: 1px solid #333; }}
-        .pin-entry span {{ font-size: 12px; flex:1; margin-right:8px; overflow:hidden;
-                           text-overflow:ellipsis; white-space:nowrap; }}
-        .rm-btn {{ background:#c0392b; color:white; border:none; border-radius:3px;
-                   padding:2px 6px; cursor:pointer; font-size:11px; flex-shrink:0; }}
-        #copybox {{ width:100%; margin-top:6px; background:#111; color:#7ec8e3;
-                    border:1px solid #444; padding:4px; font-size:11px;
-                    font-family:monospace; resize:none; height:36px; }}
-        #copybtn {{ margin-top:4px; padding:4px 10px; background:#2a9d8f; color:white;
-                    border:none; border-radius:3px; cursor:pointer; font-size:12px; flex-shrink: 0;}}
-        h4 {{ margin-bottom:4px; font-size:13px; color:#7ec8e3; }}
-      </style>
-    </head>
-    <body>
-      <div id="map"></div>
-      <div id="info">
-        <h4>📍 Click map to place pins &nbsp;|&nbsp; Click pin to remove</h4>
+
+        /* MAP AUTO-FILLS REMAINING SPACE */
+        #map {{
+            flex:1;
+            width:100%;
+            min-height:260px;
+        }}
+
+        /* CONTROL PANEL (FIXED HEIGHT, NEVER MOVES) */
+        #info {{
+            background:#1e2130;
+            color:#e0e0e0;
+            padding:8px 12px;
+            font-size:13px;
+            border-top:1px solid #333;
+
+            display:flex;
+            flex-direction:column;
+            height:130px;
+        }}
+
+        #pinlist {{
+            margin-top:4px;
+            overflow-y:auto;
+            flex:1;
+            min-height:0;
+        }}
+
+        .pin-entry {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            padding:2px 0;
+            border-bottom:1px solid #333;
+        }}
+
+        .pin-entry span {{
+            font-size:12px;
+            flex:1;
+            margin-right:8px;
+            overflow:hidden;
+            text-overflow:ellipsis;
+            white-space:nowrap;
+        }}
+
+        .rm-btn {{
+            background:#c0392b;
+            color:white;
+            border:none;
+            border-radius:3px;
+            padding:2px 6px;
+            cursor:pointer;
+            font-size:11px;
+            flex-shrink:0;
+        }}
+
+        #copybox {{
+            width:100%;
+            margin-top:6px;
+            background:#111;
+            color:#7ec8e3;
+            border:1px solid #444;
+            padding:4px;
+            font-size:11px;
+            font-family:monospace;
+            resize:none;
+            height:32px;
+        }}
+
+        #copybtn {{
+            margin-top:4px;
+            padding:4px 10px;
+            background:#2a9d8f;
+            color:white;
+            border:none;
+            border-radius:3px;
+            cursor:pointer;
+            font-size:12px;
+            flex-shrink:0;
+        }}
+
+        h4 {{
+            margin-bottom:4px;
+            font-size:13px;
+            color:#7ec8e3;
+        }}
+        </style>
+        </head>
+
+        <body>
+
+        <div id="map"></div>
+
+        <div id="info">
+        <h4>📍 Click map to place pins | Click pin to remove</h4>
         <div id="pinlist"></div>
-        <textarea id="copybox" readonly placeholder="Pins will appear here as lat,lon pairs..."></textarea>
-        <button id="copybtn" onclick="copyPins()">📋 Copy pin coords</button>
-      </div>
-      <script>
+        <textarea id="copybox" readonly
+            placeholder="Pins will appear here as lat,lon pairs..."></textarea>
+        <button id="copybtn">📋 Copy pin coords</button>
+        </div>
+
+        <script>
         var map = L.map('map').setView([54.5, -3.5], 6);
-        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-          attribution: '© OpenStreetMap contributors', maxZoom: 18
-        }}).addTo(map);
+
+        L.tileLayer(
+        'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+        {{
+            attribution:'© OpenStreetMap contributors',
+            maxZoom:18
+        }}
+        ).addTo(map);
 
         var pins = {existing_pins_json};
         var markers = [];
 
         function renderPins() {{
-          // Clear existing markers
-          markers.forEach(function(m) {{ map.removeLayer(m); }});
-          markers = [];
 
-          var pinlist = document.getElementById('pinlist');
-          pinlist.innerHTML = '';
-          var coords = [];
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
 
-          pins.forEach(function(p, i) {{
-            var m = L.marker([p.lat, p.lon], {{
-              title: p.label || ('Pin ' + (i+1))
+        const pinlist = document.getElementById('pinlist');
+        pinlist.innerHTML = "";
+
+        let coords = [];
+
+        pins.forEach((p,i) => {{
+
+            const m = L.marker([p.lat, p.lon], {{
+            title: p.label || ('Pin ' + (i+1))
             }}).addTo(map);
-            m.bindPopup('<b>' + (p.label || 'Pin ' + (i+1)) + '</b><br>'
-              + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5)
-              + '<br><button onclick="removePin(' + i + ')" style="margin-top:4px;background:#c0392b;color:white;border:none;border-radius:3px;padding:2px 6px;cursor:pointer">Remove</button>');
+
+            m.bindPopup(
+            "<b>" + (p.label || ('Pin '+(i+1))) + "</b><br>" +
+            p.lat.toFixed(5) + ", " + p.lon.toFixed(5) +
+            "<br><button onclick='removePin("+i+")' " +
+            "style='margin-top:4px;background:#c0392b;color:white;border:none;border-radius:3px;padding:2px 6px;cursor:pointer'>Remove</button>"
+            );
+
             markers.push(m);
-            coords.push(p.lat.toFixed(5) + ',' + p.lon.toFixed(5));
 
-            var row = document.createElement('div');
-            row.className = 'pin-entry';
-            row.innerHTML = '<span>📍 ' + (p.label || 'Pin ' + (i+1))
-              + ' (' + p.lat.toFixed(3) + ', ' + p.lon.toFixed(3) + ')</span>'
-              + '<button class="rm-btn" onclick="removePin(' + i + ')">✕</button>';
+            coords.push(p.lat.toFixed(5)+","+p.lon.toFixed(5));
+
+            const row = document.createElement("div");
+            row.className="pin-entry";
+            row.innerHTML =
+            "<span>📍 " +
+            (p.label || ('Pin '+(i+1))) +
+            " (" + p.lat.toFixed(3)+", "+p.lon.toFixed(3)+")</span>" +
+            "<button class='rm-btn' onclick='removePin("+i+")'>✕</button>";
+
             pinlist.appendChild(row);
-          }});
+        }});
 
-          document.getElementById('copybox').value = coords.join('; ');
+        document.getElementById("copybox").value = coords.join("; ");
         }}
 
         function removePin(i) {{
-          pins.splice(i, 1);
-          renderPins();
+        pins.splice(i,1);
+        renderPins();
         }}
 
-        map.on('click', function(e) {{
-          var lat = e.latlng.lat;
-          var lon = e.latlng.lng;
-          pins.push({{ lat: lat, lon: lon, label: 'Pin ' + (pins.length + 1) }});
-          renderPins();
-          // Auto-open popup on last marker
-          markers[markers.length-1].openPopup();
+        map.on("click", e => {{
+        pins.push({{
+            lat:e.latlng.lat,
+            lon:e.latlng.lng,
+            label:"Pin "+(pins.length+1)
+        }});
+        renderPins();
+        markers[markers.length-1].openPopup();
         }});
 
-        function copyPins() {{
-          var box = document.getElementById('copybox');
-          box.select();
-          document.execCommand('copy');
+        /* modern clipboard (fallback included) */
+        document.getElementById("copybtn").onclick = () => {{
+        const text = document.getElementById("copybox").value;
+
+        if (navigator.clipboard) {{
+            navigator.clipboard.writeText(text);
+        }} else {{
+            const box = document.getElementById("copybox");
+            box.select();
+            document.execCommand("copy");
         }}
+        }};
 
         renderPins();
-      </script>
-    </body>
-    </html>
-    """
+
+        /* Fix Leaflet sizing inside iframe */
+        setTimeout(() => map.invalidateSize(), 60);
+
+        </script>
+        </body>
+        </html>
+        """
 
     components.html(leaflet_html, height=500, scrolling=False)
 
