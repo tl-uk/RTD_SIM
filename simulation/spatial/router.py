@@ -650,7 +650,7 @@ class Router:
                 u_x, u_y = float(G_transit.nodes[u_node].get('x', 0)), float(G_transit.nodes[u_node].get('y', 0))
                 v_x, v_y = float(G_transit.nodes[v_node].get('x', 0)), float(G_transit.nodes[v_node].get('y', 0))
                 
-                if mode in ('bus', 'van_electric', 'van_diesel'):
+                if mode in ('bus', 'van_electric', 'van_diesel', 'tram', 'local_train', 'intercity_train'):
                     leg = self._compute_road_route(agent_id, (u_x, u_y), (v_x, v_y), 'car', policy)
                     if leg and len(leg) > 1:
                         transit_coords.extend(leg if i == 0 else leg[1:])
@@ -864,6 +864,7 @@ class Router:
                     for i in range(len(rail_nodes) - 1):
                         leg_u = (float(rail_graph.nodes[rail_nodes[i]]['x']), float(rail_graph.nodes[rail_nodes[i]]['y']))
                         leg_v = (float(rail_graph.nodes[rail_nodes[i+1]]['x']), float(rail_graph.nodes[rail_nodes[i+1]]['y']))
+                        # This maps the rail segment to the road network to follow the terrain
                         leg = self._compute_road_route(agent_id, leg_u, leg_v, 'car', policy)
                         if leg and len(leg) > 1:
                             realistic_route.extend(leg[:-1])
@@ -871,8 +872,6 @@ class Router:
                             realistic_route.append(leg_u)
                     realistic_route.append((float(rail_graph.nodes[rail_nodes[-1]]['x']), float(rail_graph.nodes[rail_nodes[-1]]['y'])))
                     rail_coords = realistic_route
-
-                rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
                 
         except nx.NetworkXNoPath:
             logger.warning(

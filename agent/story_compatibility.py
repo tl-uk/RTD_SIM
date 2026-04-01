@@ -608,6 +608,27 @@ COMPATIBLE_USERS_FOR_JOB = {
     ],
 
     # ========================================================================
+    # TAXI OPERATIONS — taxi_operations.yaml
+    # ========================================================================
+
+    'airport_taxi_run': [
+        'business_traveler',
+        'tourist_visitor',
+        'eco_warrior',
+    ],
+
+    'station_taxi_rank': [
+        'business_commuter',
+        'accessibility_user',
+        'budget_student',
+    ],
+
+    'urban_ride_hail_shift': [
+        'shift_worker',
+        'delivery_driver',
+    ],
+
+    # ========================================================================
     # PORT OPERATIONS — port_operations.yaml
     # ========================================================================
 
