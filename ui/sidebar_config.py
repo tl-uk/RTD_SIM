@@ -595,8 +595,14 @@ def _render_location_map_picker() -> list:
           background: #1e2130; color: #e0e0e0;
           padding: 8px 12px; font-size: 13px;
           border-top: 1px solid #333;
+          display: flex;
+          flex-direction: column;
+          height: 160px;          /* fixed control panel height */
         }}
-        #pinlist {{ margin-top:4px; }}
+        #pinlist {{ margin-top:4px; 
+                    overflow-y: auto; /* NEW — prevents layout shift */
+                    flex: 1;
+                    min-height: 0;}}
         .pin-entry {{ display:flex; justify-content:space-between; align-items:center;
                       padding: 2px 0; border-bottom: 1px solid #333; }}
         .pin-entry span {{ font-size: 12px; flex:1; margin-right:8px; overflow:hidden;
