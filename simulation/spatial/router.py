@@ -464,11 +464,24 @@ class Router:
             return self._interpolate([origin, dest], max_segment_km=0.05)
 
         # ── Long access leg without walk graph — drive graph as last resort ───
+        # If the car route also fails (e.g. agent generated outside the road
+        # network bbox), fall back to an interpolated straight line.  This
+        # prevents a failed drive route returning [origin, dest] (2 points)
+        # from being used as an access leg, which produces dark diagonal lines
+        # on the map mislabelled as rail or tram routes.
         logger.debug(
             "%s: walk graph absent, access leg %.2fkm > %.2fkm — drive proxy",
             agent_id, dist_km, max_straight_km,
         )
-        return self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
+        drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
+        if len(drive_result) > 2:
+            return drive_result
+        # Drive proxy failed — use interpolated line as final fallback
+        logger.debug(
+            "%s: drive proxy failed for access leg (got %d pts) — interpolated line",
+            agent_id, len(drive_result),
+        )
+        return self._interpolate([origin, dest], max_segment_km=0.05)
 
     def _compute_gtfs_route(
         self,
@@ -872,6 +885,8 @@ class Router:
                             realistic_route.append(leg_u)
                     realistic_route.append((float(rail_graph.nodes[rail_nodes[-1]]['x']), float(rail_graph.nodes[rail_nodes[-1]]['y'])))
                     rail_coords = realistic_route
+
+                    rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
                 
         except nx.NetworkXNoPath:
             logger.warning(
