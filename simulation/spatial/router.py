@@ -1033,11 +1033,12 @@ class Router:
                 pass
             return self._get_invalid_route(origin, dest)
 
-        # ── Access leg (walk) ─────────────────────────────────────────────────
-        access_leg = self._compute_road_route(agent_id + '_access', origin, orig_rail_coord, 'walk', policy)
-
-        # ── Access leg (drive) ────────────────────────────────────────────────
-        access_leg = self._compute_road_route(agent_id + '_access', origin, orig_rail_coord, 'walk', policy)
+        # ── Access leg (walk/interpolated) ───────────────────────────────────
+        # _compute_access_leg tries walk graph first, falls back to interpolated
+        # straight line for short legs, and drive graph for long ones.  It
+        # avoids the 200+ waypoint residential squiggle from _compute_road_route
+        # ('walk') which always fails here because no walk graph is loaded.
+        access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_rail_coord)
 
         # ── Rail leg (train)──────────────────────────────────────────────────────────
         try:
@@ -1045,8 +1046,24 @@ class Router:
             rail_nodes = nx.shortest_path(rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key)
             rail_coords = self._extract_geometry(rail_graph, rail_nodes)
             rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+        except nx.NetworkXNoPath:
+            # OpenRailMap graph is fragmented — route station-to-station on the
+            # drive graph so the path follows real roads rather than a straight
+            # diagonal across terrain.  If drive also fails, use spine.
+            logger.debug("%s: no rail path on OpenRailMap — road-proxy station-to-station", agent_id)
+            rail_coords = self._compute_road_route(
+                agent_id + '_railleg', orig_rail_coord, dest_rail_coord, 'car', policy
+            )
+            if len(rail_coords) <= 2:
+                try:
+                    from simulation.spatial.rail_spine import route_via_stations
+                    rail_coords = route_via_stations(orig_rail_coord, dest_rail_coord, mode)
+                    if not rail_coords or len(rail_coords) < 2:
+                        rail_coords = self._interpolate([orig_rail_coord, dest_rail_coord], max_segment_km=0.2)
+                except Exception:
+                    rail_coords = self._interpolate([orig_rail_coord, dest_rail_coord], max_segment_km=0.2)
         except Exception:
-            # Fragmented rail graph. Try spine, otherwise poison.
+            # Other rail graph failure — use spine, else interpolated line
             try:
                 from simulation.spatial.rail_spine import route_via_stations
                 rail_coords = route_via_stations(orig_rail_coord, dest_rail_coord, mode)
@@ -1055,8 +1072,8 @@ class Router:
             except Exception:
                 return self._get_invalid_route(origin, dest)
 
-        # ── Egress leg (walk) ─────────────────────────────────────────────────
-        egress_leg = self._compute_road_route(agent_id + '_egress', dest_rail_coord, dest, 'walk', policy)
+        # ── Egress leg (walk/interpolated) ────────────────────────────────────
+        egress_leg = self._compute_access_leg(agent_id + '_egress', dest_rail_coord, dest)
 
         # ── Stitch legs (remove duplicated boundary points) ───────────────────
         full_route: List[Tuple[float, float]] = (
