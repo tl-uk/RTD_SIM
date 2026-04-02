@@ -32,7 +32,7 @@ except ImportError:
 # 2-point straight line between stops, which draws visibly across open water.
 # Any 2-point edge whose crow-flies distance exceeds this threshold is skipped
 # in the PathLayer to prevent Forth-crossing artefacts.
-_MAX_SHAPELESS_KM: float = 15.0
+_MAX_SHAPELESS_KM: float = 0.3
 
 
 def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
