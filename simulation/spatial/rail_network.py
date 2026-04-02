@@ -39,17 +39,69 @@ _TRANSFER_TIME_H      = 0.25   # 15 min boarding penalty
 _TRANSFER_HIGHWAY_TAG = 'transfer'
 
 
+# def fetch_rail_graph(
+#     bbox: Tuple[float, float, float, float],
+# ) -> Optional[object]:
+#     """
+#     Download rail/tram graph from OpenStreetMap (OpenRailMap tag filters).
+
+#     Args:
+#         bbox: (north, south, east, west) — OSMnx convention
+
+#     Returns:
+#         NetworkX MultiDiGraph or None on failure.
+#     """
+#     if not _OX:
+#         logger.warning("fetch_rail_graph: OSMnx not available")
+#         return None
+
+#     north, south, east, west = bbox
+#     rail_filter = '["railway"~"rail|tram|subway|light_rail"]'
+
+#     try:
+#         # OSMnx >= 1.0 keyword-argument form
+#         G_rail = ox.graph_from_bbox(
+#             north=north,
+#             south=south,
+#             east=east,
+#             west=west,
+#             custom_filter=rail_filter,
+#             retain_all=True,
+#             simplify=True,
+#         )
+#         logger.info(
+#             "✅ Rail graph fetched: %d nodes, %d edges",
+#             len(G_rail.nodes), len(G_rail.edges),
+#         )
+#         return G_rail
+
+#     except TypeError:
+#         # Older OSMnx positional fallback
+#         try:
+#             G_rail = ox.graph_from_bbox(
+#                 north, south, east, west,
+#                 custom_filter=rail_filter,
+#                 retain_all=True,
+#                 simplify=True,
+#             )
+#             logger.info(
+#                 "✅ Rail graph fetched (legacy API): %d nodes, %d edges",
+#                 len(G_rail.nodes), len(G_rail.edges),
+#             )
+#             return G_rail
+#         except Exception as exc:
+#             logger.error("fetch_rail_graph (legacy API) failed: %s", exc)
+#             return None
+
+#     except Exception as exc:
+#         logger.error("fetch_rail_graph failed: %s", exc)
+#         return None
+
 def fetch_rail_graph(
     bbox: Tuple[float, float, float, float],
 ) -> Optional[object]:
     """
     Download rail/tram graph from OpenStreetMap (OpenRailMap tag filters).
-
-    Args:
-        bbox: (north, south, east, west) — OSMnx convention
-
-    Returns:
-        NetworkX MultiDiGraph or None on failure.
     """
     if not _OX:
         logger.warning("fetch_rail_graph: OSMnx not available")
@@ -59,14 +111,10 @@ def fetch_rail_graph(
     rail_filter = '["railway"~"rail|tram|subway|light_rail"]'
 
     try:
-        # OSMnx >= 1.0 keyword-argument form
+        # OSMnx 2.0+ API
         G_rail = ox.graph_from_bbox(
-            north=north,
-            south=south,
-            east=east,
-            west=west,
+            bbox=(west, south, east, north),
             custom_filter=rail_filter,
-            retain_all=True,
             simplify=True,
         )
         logger.info(
@@ -76,7 +124,7 @@ def fetch_rail_graph(
         return G_rail
 
     except TypeError:
-        # Older OSMnx positional fallback
+        # Older OSMnx 1.x positional fallback
         try:
             G_rail = ox.graph_from_bbox(
                 north, south, east, west,
@@ -96,8 +144,7 @@ def fetch_rail_graph(
     except Exception as exc:
         logger.error("fetch_rail_graph failed: %s", exc)
         return None
-
-
+    
 def get_or_fallback_rail_graph(env=None) -> Optional[object]:
     """
     Try to fetch the OpenRailMap graph; fall back to the hardcoded rail spine.

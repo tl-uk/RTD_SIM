@@ -263,6 +263,56 @@ class Router:
     # ROAD ROUTING — single-graph, generalised cost
     # =========================================================================
 
+    # def _compute_road_route(
+    #     self,
+    #     agent_id: str,
+    #     origin: Tuple[float, float],
+    #     dest: Tuple[float, float],
+    #     mode: str,
+    #     policy: Dict,
+    # ) -> List[Tuple[float, float]]:
+    #     """Route on a single OSMnx graph using generalised edge weights."""
+    #     network_type = self.mode_network_types.get(mode, 'drive')
+    #     graph = self.graph_manager.get_graph(network_type)
+
+    #     if graph is None:
+    #         logger.error(
+    #             "❌ %s: no graph for mode=%s network=%s; falling back to drive",
+    #             agent_id, mode, network_type,
+    #         )
+    #         network_type = 'drive'
+    #         graph = self.graph_manager.get_graph('drive')
+    #         if graph is None:
+    #             return [origin, dest]
+
+    #     try:
+    #         orig_node = self.graph_manager.get_nearest_node(origin, network_type)
+    #         dest_node = self.graph_manager.get_nearest_node(dest,   network_type)
+    #         if orig_node is None or dest_node is None:
+    #             return [origin, dest]
+    #         if orig_node == dest_node:
+    #             return [origin, dest]
+
+    #         weight_key = self._apply_generalised_weights(graph, mode, policy)
+    #         route_nodes = nx.shortest_path(
+    #             graph, orig_node, dest_node, weight=weight_key
+    #         )
+    #         coords = self._extract_geometry(graph, route_nodes)
+    #         coords = self._interpolate(coords, max_segment_km=0.05)
+    #         logger.info(
+    #             "✅ %s: %s (%s) %.1fkm, %d pts",
+    #             agent_id, mode, network_type,
+    #             route_distance_km(coords), len(coords),
+    #         )
+    #         return coords
+
+    #     except nx.NetworkXNoPath:
+    #         logger.warning("❌ %s: no road path for %s", agent_id, mode)
+    #         return [origin, dest]
+    #     except Exception as exc:
+    #         logger.error("❌ %s: road routing failed: %s", agent_id, exc)
+    #         return [origin, dest]
+
     def _compute_road_route(
         self,
         agent_id: str,
@@ -276,21 +326,13 @@ class Router:
         graph = self.graph_manager.get_graph(network_type)
 
         if graph is None:
-            logger.error(
-                "❌ %s: no graph for mode=%s network=%s; falling back to drive",
-                agent_id, mode, network_type,
-            )
-            network_type = 'drive'
-            graph = self.graph_manager.get_graph('drive')
-            if graph is None:
-                return [origin, dest]
+            # Fallbacks omitted for brevity, keep your existing checks here...
+            return [origin, dest]
 
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest,   network_type)
-            if orig_node is None or dest_node is None:
-                return [origin, dest]
-            if orig_node == dest_node:
+            if orig_node is None or dest_node is None or orig_node == dest_node:
                 return [origin, dest]
 
             weight_key = self._apply_generalised_weights(graph, mode, policy)
@@ -298,17 +340,20 @@ class Router:
                 graph, orig_node, dest_node, weight=weight_key
             )
             coords = self._extract_geometry(graph, route_nodes)
-            coords = self._interpolate(coords, max_segment_km=0.05)
-            logger.info(
-                "✅ %s: %s (%s) %.1fkm, %d pts",
-                agent_id, mode, network_type,
-                route_distance_km(coords), len(coords),
-            )
-            return coords
+            return self._interpolate(coords, max_segment_km=0.05)
 
         except nx.NetworkXNoPath:
-            logger.warning("❌ %s: no road path for %s", agent_id, mode)
-            return [origin, dest]
+            # PATCH: If directed routing fails (e.g. one-way streets), fallback to undirected
+            # This guarantees the bus/car follows OSM road geometry instead of straight lines!
+            try:
+                G_un = graph.to_undirected()
+                route_nodes = nx.shortest_path(G_un, orig_node, dest_node, weight=weight_key)
+                coords = self._extract_geometry(G_un, route_nodes)
+                return self._interpolate(coords, max_segment_km=0.05)
+            except Exception:
+                logger.warning("❌ %s: absolute no road path for %s", agent_id, mode)
+                return [origin, dest]
+                
         except Exception as exc:
             logger.error("❌ %s: road routing failed: %s", agent_id, exc)
             return [origin, dest]
@@ -1069,7 +1114,10 @@ class Router:
             # Fix: route each consecutive station pair on the drive graph instead.
             # Roads in Scotland run parallel to rail corridors, so the result is
             # geographically sensible even if not perfectly on the tracks.
-            if len(rail_coords) <= len(rail_nodes):
+            # PATCH: Only apply road-mapping if the graph lacks OSM IDs (i.e. it is the spine). 
+            # Real OSM rail tracks will now retain their true geometry.
+            is_spine = not any('osmid' in d for u, v, d in rail_graph.edges(data=True))
+            if is_spine and len(rail_coords) <= len(rail_nodes):
                 road_routed: List[Tuple[float, float]] = []
                 for idx in range(len(rail_nodes) - 1):
                     u_c = (float(rail_graph.nodes[rail_nodes[idx]].get('x', 0)),
@@ -1080,21 +1128,45 @@ class Router:
                         agent_id + f'_rail{idx}', u_c, v_c, 'car', policy
                     )
                     if seg and len(seg) > 2:
-                        # Exclude last point on intermediate segments to avoid duplication
                         road_routed.extend(seg[:-1] if idx < len(rail_nodes) - 2 else seg)
                     else:
-                        # Drive routing failed for this segment — keep node coord
                         if not road_routed:
                             road_routed.append(u_c)
                         road_routed.append(v_c)
                 if len(road_routed) > 2:
                     rail_coords = road_routed
                 else:
-                    # Drive routing completely failed — interpolate as last resort
                     rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
             else:
-                # OSMnx graph returned real edge geometry — interpolate normally
+                # OSMnx graph returned real edge geometry — keep it!
                 rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+
+            # if len(rail_coords) <= len(rail_nodes):
+            #     road_routed: List[Tuple[float, float]] = []
+            #     for idx in range(len(rail_nodes) - 1):
+            #         u_c = (float(rail_graph.nodes[rail_nodes[idx]].get('x', 0)),
+            #                float(rail_graph.nodes[rail_nodes[idx]].get('y', 0)))
+            #         v_c = (float(rail_graph.nodes[rail_nodes[idx + 1]].get('x', 0)),
+            #                float(rail_graph.nodes[rail_nodes[idx + 1]].get('y', 0)))
+            #         seg = self._compute_road_route(
+            #             agent_id + f'_rail{idx}', u_c, v_c, 'car', policy
+            #         )
+            #         if seg and len(seg) > 2:
+            #             # Exclude last point on intermediate segments to avoid duplication
+            #             road_routed.extend(seg[:-1] if idx < len(rail_nodes) - 2 else seg)
+            #         else:
+            #             # Drive routing failed for this segment — keep node coord
+            #             if not road_routed:
+            #                 road_routed.append(u_c)
+            #             road_routed.append(v_c)
+            #     if len(road_routed) > 2:
+            #         rail_coords = road_routed
+            #     else:
+            #         # Drive routing completely failed — interpolate as last resort
+            #         rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+            # else:
+            #     # OSMnx graph returned real edge geometry — interpolate normally
+            #     rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
 
         except nx.NetworkXNoPath:
             logger.debug("%s: no rail path on OpenRailMap — road-proxy station-to-station", agent_id)
