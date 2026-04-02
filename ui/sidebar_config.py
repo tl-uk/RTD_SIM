@@ -579,221 +579,6 @@ def _render_location_map_picker() -> list:
     import json
     existing_pins_json = json.dumps(st.session_state.map_pins)
 
-    # leaflet_html = f"""
-    #     <!DOCTYPE html>
-    #     <html>
-    #     <head>
-    #     <meta charset="utf-8"/>
-    #     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-
-    #     <link rel="stylesheet"
-    #     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    #     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    #     <style>
-    #     * {{ margin:0; padding:0; box-sizing:border-box; }}
-
-    #     html, body {{
-    #         height:100%;
-    #         font-family:sans-serif;
-    #         display:flex;
-    #         flex-direction:column;
-    #         background:#111;
-    #     }}
-
-    #     /* MAP AUTO-FILLS REMAINING SPACE */
-    #     #map {{
-    #         flex:1;
-    #         width:100%;
-    #         min-height:260px;
-    #     }}
-
-    #     /* CONTROL PANEL (FIXED HEIGHT, NEVER MOVES) */
-    #     #info {{
-    #         background:#1e2130;
-    #         color:#e0e0e0;
-    #         padding:8px 12px;
-    #         font-size:13px;
-    #         border-top:1px solid #333;
-
-    #         display:flex;
-    #         flex-direction:column;
-    #         height:130px;
-    #     }}
-
-    #     #pinlist {{
-    #         margin-top:4px;
-    #         overflow-y:auto;
-    #         flex:1;
-    #         min-height:0;
-    #     }}
-
-    #     .pin-entry {{
-    #         display:flex;
-    #         justify-content:space-between;
-    #         align-items:center;
-    #         padding:2px 0;
-    #         border-bottom:1px solid #333;
-    #     }}
-
-    #     .pin-entry span {{
-    #         font-size:12px;
-    #         flex:1;
-    #         margin-right:8px;
-    #         overflow:hidden;
-    #         text-overflow:ellipsis;
-    #         white-space:nowrap;
-    #     }}
-
-    #     .rm-btn {{
-    #         background:#c0392b;
-    #         color:white;
-    #         border:none;
-    #         border-radius:3px;
-    #         padding:2px 6px;
-    #         cursor:pointer;
-    #         font-size:11px;
-    #         flex-shrink:0;
-    #     }}
-
-    #     #copybox {{
-    #         width:100%;
-    #         margin-top:6px;
-    #         background:#111;
-    #         color:#7ec8e3;
-    #         border:1px solid #444;
-    #         padding:4px;
-    #         font-size:11px;
-    #         font-family:monospace;
-    #         resize:none;
-    #         height:32px;
-    #     }}
-
-    #     #copybtn {{
-    #         margin-top:4px;
-    #         padding:4px 10px;
-    #         background:#2a9d8f;
-    #         color:white;
-    #         border:none;
-    #         border-radius:3px;
-    #         cursor:pointer;
-    #         font-size:12px;
-    #         flex-shrink:0;
-    #     }}
-
-    #     h4 {{
-    #         margin-bottom:4px;
-    #         font-size:13px;
-    #         color:#7ec8e3;
-    #     }}
-    #     </style>
-    #     </head>
-
-    #     <body>
-
-    #     <div id="map"></div>
-
-    #     <div id="info">
-    #     <h4>📍 Click map to place pins | Click pin to remove</h4>
-    #     <div id="pinlist"></div>
-    #     <textarea id="copybox" readonly
-    #         placeholder="Pins will appear here as lat,lon pairs..."></textarea>
-    #     <button id="copybtn">📋 Copy pin coords</button>
-    #     </div>
-
-    #     <script>
-    #     var map = L.map('map').setView([54.5, -3.5], 6);
-
-    #     L.tileLayer(
-    #     'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-    #     {{
-    #         attribution:'© OpenStreetMap contributors',
-    #         maxZoom:18
-    #     }}
-    #     ).addTo(map);
-
-    #     var pins = {existing_pins_json};
-    #     var markers = [];
-
-    #     function renderPins() {{
-
-    #     markers.forEach(m => map.removeLayer(m));
-    #     markers = [];
-
-    #     const pinlist = document.getElementById('pinlist');
-    #     pinlist.innerHTML = "";
-
-    #     let coords = [];
-
-    #     pins.forEach((p,i) => {{
-
-    #         const m = L.marker([p.lat, p.lon], {{
-    #         title: p.label || ('Pin ' + (i+1))
-    #         }}).addTo(map);
-
-    #         m.bindPopup(
-    #         "<b>" + (p.label || ('Pin '+(i+1))) + "</b><br>" +
-    #         p.lat.toFixed(5) + ", " + p.lon.toFixed(5) +
-    #         "<br><button onclick='removePin("+i+")' " +
-    #         "style='margin-top:4px;background:#c0392b;color:white;border:none;border-radius:3px;padding:2px 6px;cursor:pointer'>Remove</button>"
-    #         );
-
-    #         markers.push(m);
-
-    #         coords.push(p.lat.toFixed(5)+","+p.lon.toFixed(5));
-
-    #         const row = document.createElement("div");
-    #         row.className="pin-entry";
-    #         row.innerHTML =
-    #         "<span>📍 " +
-    #         (p.label || ('Pin '+(i+1))) +
-    #         " (" + p.lat.toFixed(3)+", "+p.lon.toFixed(3)+")</span>" +
-    #         "<button class='rm-btn' onclick='removePin("+i+")'>✕</button>";
-
-    #         pinlist.appendChild(row);
-    #     }});
-
-    #     document.getElementById("copybox").value = coords.join("; ");
-    #     }}
-
-    #     function removePin(i) {{
-    #     pins.splice(i,1);
-    #     renderPins();
-    #     }}
-
-    #     map.on("click", e => {{
-    #     pins.push({{
-    #         lat:e.latlng.lat,
-    #         lon:e.latlng.lng,
-    #         label:"Pin "+(pins.length+1)
-    #     }});
-    #     renderPins();
-    #     markers[markers.length-1].openPopup();
-    #     }});
-
-    #     /* modern clipboard (fallback included) */
-    #     document.getElementById("copybtn").onclick = () => {{
-    #     const text = document.getElementById("copybox").value;
-
-    #     if (navigator.clipboard) {{
-    #         navigator.clipboard.writeText(text);
-    #     }} else {{
-    #         const box = document.getElementById("copybox");
-    #         box.select();
-    #         document.execCommand("copy");
-    #     }}
-    #     }};
-
-    #     renderPins();
-
-    #     /* Fix Leaflet sizing inside iframe */
-    #     setTimeout(() => map.invalidateSize(), 60);
-
-    #     </script>
-    #     </body>
-    #     </html>
-    #     """
-
     leaflet_html = f"""
         <!DOCTYPE html>
         <html>
@@ -807,19 +592,99 @@ def _render_location_map_picker() -> list:
 
         <style>
         * {{ margin:0; padding:0; box-sizing:border-box; }}
+
         html, body {{
-        height:100%;
-        display:flex;
-        flex-direction:column;
-        font-family:sans-serif;
+            height:100%;
+            font-family:sans-serif;
+            display:flex;
+            flex-direction:column;
+            background:#111;
         }}
-        #map {{ flex:1; min-height:300px; }}
+
+        /* MAP AUTO-FILLS REMAINING SPACE */
+        #map {{
+            flex:1;
+            width:100%;
+            min-height:260px;
+        }}
+
+        /* CONTROL PANEL (FIXED HEIGHT, NEVER MOVES) */
         #info {{
-        background:#1e2130;
-        color:#e0e0e0;
-        padding:6px 10px;
-        font-size:13px;
-        border-top:1px solid #333;
+            background:#1e2130;
+            color:#e0e0e0;
+            padding:8px 12px;
+            font-size:13px;
+            border-top:1px solid #333;
+
+            display:flex;
+            flex-direction:column;
+            height:130px;
+        }}
+
+        #pinlist {{
+            margin-top:4px;
+            overflow-y:auto;
+            flex:1;
+            min-height:0;
+        }}
+
+        .pin-entry {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            padding:2px 0;
+            border-bottom:1px solid #333;
+        }}
+
+        .pin-entry span {{
+            font-size:12px;
+            flex:1;
+            margin-right:8px;
+            overflow:hidden;
+            text-overflow:ellipsis;
+            white-space:nowrap;
+        }}
+
+        .rm-btn {{
+            background:#c0392b;
+            color:white;
+            border:none;
+            border-radius:3px;
+            padding:2px 6px;
+            cursor:pointer;
+            font-size:11px;
+            flex-shrink:0;
+        }}
+
+        #copybox {{
+            width:100%;
+            margin-top:6px;
+            background:#111;
+            color:#7ec8e3;
+            border:1px solid #444;
+            padding:4px;
+            font-size:11px;
+            font-family:monospace;
+            resize:none;
+            height:32px;
+        }}
+
+        #copybtn {{
+            margin-top:4px;
+            padding:4px 10px;
+            background:#2a9d8f;
+            color:white;
+            border:none;
+            border-radius:3px;
+            cursor:pointer;
+            font-size:12px;
+            flex-shrink:0;
+        }}
+
+        h4 {{
+            margin-bottom:4px;
+            font-size:13px;
+            color:#7ec8e3;
         }}
         </style>
         </head>
@@ -827,45 +692,68 @@ def _render_location_map_picker() -> list:
         <body>
 
         <div id="map"></div>
-        <div id="info">
-        📍 Click map to add pins | Click pin popup to remove
-        </div>
 
-        <!-- Hidden input for Streamlit sync -->
-        <input id="st_pins" type="text" style="display:none;">
+        <div id="info">
+        <h4>📍 Click map to place pins | Click pin to remove</h4>
+        <div id="pinlist"></div>
+        <textarea id="copybox" readonly
+            placeholder="Pins will appear here as lat,lon pairs..."></textarea>
+        <button id="copybtn">📋 Copy pin coords</button>
+        </div>
 
         <script>
         var map = L.map('map').setView([54.5, -3.5], 6);
 
         L.tileLayer(
         'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-        {{ attribution:'© OpenStreetMap contributors', maxZoom:18 }}
+        {{
+            attribution:'© OpenStreetMap contributors',
+            maxZoom:18
+        }}
         ).addTo(map);
 
         var pins = {existing_pins_json};
         var markers = [];
 
-        function syncToStreamlit() {{
-        const input = document.getElementById("st_pins");
-        input.value = JSON.stringify(pins);
-        input.dispatchEvent(new Event("input", {{ bubbles:true }}));
-        }}
-
         function renderPins() {{
+
         markers.forEach(m => map.removeLayer(m));
         markers = [];
 
+        const pinlist = document.getElementById('pinlist');
+        pinlist.innerHTML = "";
+
+        let coords = [];
+
         pins.forEach((p,i) => {{
-            const m = L.marker([p.lat, p.lon]).addTo(map);
+
+            const m = L.marker([p.lat, p.lon], {{
+            title: p.label || ('Pin ' + (i+1))
+            }}).addTo(map);
+
             m.bindPopup(
-            "Pin " + (i+1) +
-            "<br>" + p.lat.toFixed(5) + ", " + p.lon.toFixed(5) +
-            "<br><button onclick='removePin("+i+")'>Remove</button>"
+            "<b>" + (p.label || ('Pin '+(i+1))) + "</b><br>" +
+            p.lat.toFixed(5) + ", " + p.lon.toFixed(5) +
+            "<br><button onclick='removePin("+i+")' " +
+            "style='margin-top:4px;background:#c0392b;color:white;border:none;border-radius:3px;padding:2px 6px;cursor:pointer'>Remove</button>"
             );
+
             markers.push(m);
+
+            coords.push(p.lat.toFixed(5)+","+p.lon.toFixed(5));
+
+            const row = document.createElement("div");
+            row.className="pin-entry";
+            row.innerHTML =
+            "<span>📍 " +
+            (p.label || ('Pin '+(i+1))) +
+            " (" + p.lat.toFixed(3)+", "+p.lon.toFixed(3)+")</span>" +
+            "<button class='rm-btn' onclick='removePin("+i+")'>✕</button>";
+
+            pinlist.appendChild(row);
         }});
 
-        syncToStreamlit();
+        document.getElementById("copybox").value = coords.join("; ");
         }}
 
         function removePin(i) {{
@@ -874,17 +762,38 @@ def _render_location_map_picker() -> list:
         }}
 
         map.on("click", e => {{
-        pins.push({{ lat:e.latlng.lat, lon:e.latlng.lng }});
+        pins.push({{
+            lat:e.latlng.lat,
+            lon:e.latlng.lng,
+            label:"Pin "+(pins.length+1)
+        }});
         renderPins();
+        markers[markers.length-1].openPopup();
         }});
 
-        renderPins();
-        setTimeout(() => map.invalidateSize(), 60);
-        </script>
+        /* modern clipboard (fallback included) */
+        document.getElementById("copybtn").onclick = () => {{
+        const text = document.getElementById("copybox").value;
 
+        if (navigator.clipboard) {{
+            navigator.clipboard.writeText(text);
+        }} else {{
+            const box = document.getElementById("copybox");
+            box.select();
+            document.execCommand("copy");
+        }}
+        }};
+
+        renderPins();
+
+        /* Fix Leaflet sizing inside iframe */
+        setTimeout(() => map.invalidateSize(), 60);
+
+        </script>
         </body>
         </html>
         """
+
     components.html(leaflet_html, height=500, scrolling=False)
 
     st.caption(
@@ -893,33 +802,25 @@ def _render_location_map_picker() -> list:
     )
 
     # Coordinate paste input — user pastes "lat,lon; lat,lon" pairs
-    # coord_input = st.text_input(
-    #     "Paste pin coordinates (lat,lon; lat,lon ...)",
-    #     value="",
-    #     key="map_pin_coords",
-    #     placeholder="e.g. 51.127, 1.3092; 55.9533, -3.1883",
-    #     help="Copy coords from the map box above and paste here, separated by semicolons",
-    # )
-    raw = st.text_input("map_pins_hidden", key="map_pins_hidden")
+    coord_input = st.text_input(
+        "Paste pin coordinates (lat,lon; lat,lon ...)",
+        value="",
+        key="map_pin_coords",
+        placeholder="e.g. 51.127, 1.3092; 55.9533, -3.1883",
+        help="Copy coords from the map box above and paste here, separated by semicolons",
+    )
 
     pins = []
-    if raw:
-        try:
-            pins = json.loads(raw)
-        except Exception:
-            pins = []
-
-    # pins = []
-    # if coord_input.strip():
-    #     for part in coord_input.split(";"):
-    #         part = part.strip()
-    #         if not part:
-    #             continue
-    #         try:
-    #             lat_s, lon_s = part.split(",", 1)
-    #             pins.append({"lat": float(lat_s.strip()), "lon": float(lon_s.strip())})
-    #         except ValueError:
-    #             st.warning(f"⚠️ Could not parse coordinates: `{part}` — use format `lat, lon`")
+    if coord_input.strip():
+        for part in coord_input.split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                lat_s, lon_s = part.split(",", 1)
+                pins.append({"lat": float(lat_s.strip()), "lon": float(lon_s.strip())})
+            except ValueError:
+                st.warning(f"⚠️ Could not parse coordinates: `{part}` — use format `lat, lon`")
 
     return pins
 
