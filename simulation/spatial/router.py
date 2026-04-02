@@ -1040,16 +1040,63 @@ class Router:
         # ('walk') which always fails here because no walk graph is loaded.
         access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_rail_coord)
 
-        # ── Rail leg (train)──────────────────────────────────────────────────────────
+        # ── Guard 3: reject routes with unroutable long access/egress legs ───
+        # If _compute_access_leg returned only 2 points for a long leg, it means
+        # the drive proxy failed (agent outside road network bbox) and we got a
+        # bare [origin, station] 2-point line.  _interpolate then turns that into
+        # ~100 evenly-spaced points along a straight diagonal, e.g. eco_warrior
+        # tourist_scenic_rail with 103 waypoints but all in a straight line.
+        # Reject the route here so the BDI planner falls back to another mode.
+        _access_dist_km = haversine_km(origin, orig_rail_coord)
+        if len(access_leg) <= 2 and _access_dist_km > 1.0:
+            logger.debug(
+                "%s: %s access leg unroutable (%.1fkm, %d pts) — invalid route",
+                agent_id, mode, _access_dist_km, len(access_leg),
+            )
+            return self._get_invalid_route(origin, dest)
+
+        # ── Rail leg ──────────────────────────────────────────────────────────
         try:
             rail_weight_key = self._apply_generalised_weights(rail_graph, mode, policy)
             rail_nodes = nx.shortest_path(rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key)
             rail_coords = self._extract_geometry(rail_graph, rail_nodes)
-            rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+
+            # ── Spine geometry check ──────────────────────────────────────────
+            # The 41-station spine has no Shapely edge geometry.  _extract_geometry
+            # returns exactly one coordinate per node, so len(rail_coords) == len(rail_nodes).
+            # Interpolating those bare node coordinates at 0.2km spacing creates a
+            # smooth straight diagonal labelled "Intercity Train" — visually wrong.
+            # Fix: route each consecutive station pair on the drive graph instead.
+            # Roads in Scotland run parallel to rail corridors, so the result is
+            # geographically sensible even if not perfectly on the tracks.
+            if len(rail_coords) <= len(rail_nodes):
+                road_routed: List[Tuple[float, float]] = []
+                for idx in range(len(rail_nodes) - 1):
+                    u_c = (float(rail_graph.nodes[rail_nodes[idx]].get('x', 0)),
+                           float(rail_graph.nodes[rail_nodes[idx]].get('y', 0)))
+                    v_c = (float(rail_graph.nodes[rail_nodes[idx + 1]].get('x', 0)),
+                           float(rail_graph.nodes[rail_nodes[idx + 1]].get('y', 0)))
+                    seg = self._compute_road_route(
+                        agent_id + f'_rail{idx}', u_c, v_c, 'car', policy
+                    )
+                    if seg and len(seg) > 2:
+                        # Exclude last point on intermediate segments to avoid duplication
+                        road_routed.extend(seg[:-1] if idx < len(rail_nodes) - 2 else seg)
+                    else:
+                        # Drive routing failed for this segment — keep node coord
+                        if not road_routed:
+                            road_routed.append(u_c)
+                        road_routed.append(v_c)
+                if len(road_routed) > 2:
+                    rail_coords = road_routed
+                else:
+                    # Drive routing completely failed — interpolate as last resort
+                    rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+            else:
+                # OSMnx graph returned real edge geometry — interpolate normally
+                rail_coords = self._interpolate(rail_coords, max_segment_km=0.2)
+
         except nx.NetworkXNoPath:
-            # OpenRailMap graph is fragmented — route station-to-station on the
-            # drive graph so the path follows real roads rather than a straight
-            # diagonal across terrain.  If drive also fails, use spine.
             logger.debug("%s: no rail path on OpenRailMap — road-proxy station-to-station", agent_id)
             rail_coords = self._compute_road_route(
                 agent_id + '_railleg', orig_rail_coord, dest_rail_coord, 'car', policy
@@ -1063,7 +1110,6 @@ class Router:
                 except Exception:
                     rail_coords = self._interpolate([orig_rail_coord, dest_rail_coord], max_segment_km=0.2)
         except Exception:
-            # Other rail graph failure — use spine, else interpolated line
             try:
                 from simulation.spatial.rail_spine import route_via_stations
                 rail_coords = route_via_stations(orig_rail_coord, dest_rail_coord, mode)
@@ -1074,6 +1120,14 @@ class Router:
 
         # ── Egress leg (walk/interpolated) ────────────────────────────────────
         egress_leg = self._compute_access_leg(agent_id + '_egress', dest_rail_coord, dest)
+
+        _egress_dist_km = haversine_km(dest_rail_coord, dest)
+        if len(egress_leg) <= 2 and _egress_dist_km > 1.0:
+            logger.debug(
+                "%s: %s egress leg unroutable (%.1fkm, %d pts) — invalid route",
+                agent_id, mode, _egress_dist_km, len(egress_leg),
+            )
+            return self._get_invalid_route(origin, dest)
 
         # ── Stitch legs (remove duplicated boundary points) ───────────────────
         full_route: List[Tuple[float, float]] = (
