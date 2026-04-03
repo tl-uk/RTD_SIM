@@ -423,7 +423,7 @@ def _tram_stop_coord(stop_id: str) -> Optional[Tuple[float, float]]:
 
 def _nearest_tram_stop(
     coord: Tuple[float, float],
-    max_km: float = 1.5,
+    max_km: float = 2.5,
 ) -> Optional[str]:
     """
     Return the ID of the nearest Edinburgh tram stop within max_km.
@@ -433,14 +433,12 @@ def _nearest_tram_stop(
     corridor (e.g. agents in Balerno, Musselburgh, Bo'ness).
 
     DfT walking distance standard for tram/LRT: 700m (modal shift model).
-    We use 1.5km as a generous upper limit that also captures Ingliston
-    P&R, Gogar, and Edinburgh Park (all reachable by short feeder bus or
-    car drop-off).  Beyond 1.5km the access overhead makes tram non-
-    competitive with bus or car for Edinburgh distances.
+    We use 2.5km — Edinburgh tram stops are up to ~2.3km from agents placed
+    in outer suburbs (Balgreen, Slateford, Longstone). 1.5km was too tight.
 
     Args:
         coord:  (lon, lat)
-        max_km: Maximum walk/access distance to nearest stop (default 1.5km).
+        max_km: Maximum walk/access distance to nearest stop (default 2.5km).
     """
     lon, lat = coord
     best_id   = None
@@ -471,14 +469,16 @@ def _nearest_tram_stop(
 def route_via_tram_stops(
     origin: Tuple[float, float],
     dest: Tuple[float, float],
-    max_access_km: float = 1.5,
+    max_access_km: float = 2.5,
 ) -> Optional[List[Tuple[float, float]]]:
     """
     Build a realistic Edinburgh tram route as a list of (lon, lat) waypoints.
 
     Returns None when either origin or destination is outside the tram
-    corridor catchment (default 1.5km from nearest stop).  Callers must
+    corridor catchment (default 2.5km from nearest stop).  Callers must
     check for None and fall back to make_synthetic_route or skip tram.
+    A route with only 2 points (origin, dest) is also treated as None by
+    the caller — it means the routing failed, not that tram is viable.
 
     Strategy:
       1. Find nearest tram stop within max_access_km of origin.
@@ -489,7 +489,7 @@ def route_via_tram_stops(
     Args:
         origin:         (lon, lat)
         dest:           (lon, lat)
-        max_access_km:  Maximum walk/feeder distance to tram stop (default 1.5km).
+        max_access_km:  Maximum walk/feeder distance to tram stop (default 2.5km).
     """
     origin_stop_id = _nearest_tram_stop(origin, max_km=max_access_km)
     dest_stop_id   = _nearest_tram_stop(dest,   max_km=max_access_km)
@@ -499,9 +499,11 @@ def route_via_tram_stops(
         return None
 
     if origin_stop_id == dest_stop_id:
-        # Both ends snap to the same stop — trip too short for tram
-        coord = _tram_stop_coord(origin_stop_id)
-        return [origin, coord, dest] if coord else [origin, dest]
+        # Both ends snap to the same stop — trip too short for tram.
+        # Return None rather than a 2-point list: a 2-point route is
+        # indistinguishable from "routing failed" and would be shown
+        # as a straight diagonal on the map.
+        return None
 
     # Find indices in the ordered stop list
     try:
@@ -721,7 +723,7 @@ def route_via_stations(
     # Returns None when origin/dest are outside the tram corridor catchment
     # (>1.5km from any stop).  Callers must handle None.
     if mode == 'tram':
-        return route_via_tram_stops(origin, dest)
+        return route_via_tram_stops(origin, dest, max_access_km=2.5)
 
     # Select station types based on mode
     if mode in ('intercity_train', 'freight_rail'):

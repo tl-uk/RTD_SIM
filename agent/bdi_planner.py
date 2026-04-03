@@ -580,11 +580,19 @@ class BDIPlanner:
                 routing_results[mode] = "no_route_computed"
                 continue
 
-            # Accept 2-point routes for very short trips
+            # A 2-point route (just [origin, dest]) means routing failed and
+            # returned a bare straight line.  Accept it only for very short
+            # trips where a straight line IS a reasonable approximation.
+            # For trips >0.5km a 2-point route indicates the mode is not
+            # reachable (no tram stop within catchment, no GTFS path, etc.)
+            # and must be rejected so the BDI planner skips it.
             if len(route) == 2 and straight_line_distance > 0.5:
-                # Only warn for longer routes with just 2 points
-                logger.warning(f"         ⚠️  Short route ({len(route)} points) for {straight_line_distance:.1f}km trip")
-                # Don't reject - accept the route
+                logger.warning(
+                    f"         ⚠️  Rejecting 2-point route for {mode} "
+                    f"({straight_line_distance:.1f}km trip — mode not reachable)"
+                )
+                routing_results[mode] = "unreachable_2pt_route"
+                continue
                 
             # Check actual route distance
             from simulation.spatial.coordinate_utils import route_distance_km
