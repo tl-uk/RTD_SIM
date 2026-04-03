@@ -343,22 +343,30 @@ class Router:
             weight_key = self._apply_generalised_weights(graph, mode, policy)
             
             # Attempt strict directed routing (respecting one-way streets)
+            # route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight=weight_key)
+            # coords = self._extract_geometry(graph, route_nodes)
+            # return self._interpolate(coords, max_segment_km=0.05)
+
+            # Attempt to find the path on the actual road/rail graph
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight=weight_key)
-            coords = self._extract_geometry(graph, route_nodes)
-            return self._interpolate(coords, max_segment_km=0.05)
+            return self._extract_geometry(graph, route_nodes)
 
         except nx.NetworkXNoPath:
+            # CRITICAL: Do NOT return [origin, dest]. 
+            # Return an invalid route so the BDI planner knows this mode is impossible.
+            logger.warning(f"No physical path for {agent_id} using {mode}")
+            return self._get_invalid_route(origin, dest)
             # If directed routing fails (e.g. one-way bridge traps), fall back to undirected.
             # This guarantees the bus stays on the physical road geometry rather than flying over water!
-            try:
-                G_un = graph.to_undirected()
-                route_nodes = nx.shortest_path(G_un, orig_node, dest_node, weight=weight_key)
-                coords = self._extract_geometry(G_un, route_nodes)
-                return self._interpolate(coords, max_segment_km=0.05)
-            except Exception:
-                logger.warning("❌ %s: Absolute no physical road path for %s. Rejecting.", agent_id, mode)
-                # STRICT ECONOMIC REJECTION - Do not draw a straight line!
-                return self._get_invalid_route(origin, dest)
+            # try:
+            #     G_un = graph.to_undirected()
+            #     route_nodes = nx.shortest_path(G_un, orig_node, dest_node, weight=weight_key)
+            #     coords = self._extract_geometry(G_un, route_nodes)
+            #     return self._interpolate(coords, max_segment_km=0.05)
+            # except Exception:
+            #     logger.warning("❌ %s: Absolute no physical road path for %s. Rejecting.", agent_id, mode)
+            #     # STRICT ECONOMIC REJECTION - Do not draw a straight line!
+            #     return self._get_invalid_route(origin, dest)
                 
         except Exception as exc:
             logger.error("❌ %s: Road routing failed: %s", agent_id, exc)
