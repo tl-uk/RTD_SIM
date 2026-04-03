@@ -73,7 +73,8 @@ except ImportError:
     ROUTE_ALTERNATIVE_AVAILABLE = False
 
 # ── Modes that route on the rail graph (not drive) ───────────────────────────
-_RAIL_MODES = frozenset({'local_train', 'intercity_train', 'freight_rail'})
+# Add 'tram' so it routes on OpenRailMap tracks when GTFS is disabled
+_RAIL_MODES = frozenset({'local_train', 'intercity_train', 'freight_rail', 'tram'})
 
 # ── Modes that route on the GTFS transit graph when available ─────────────────
 # When no GTFS graph is loaded these fall back to _compute_road_route (drive

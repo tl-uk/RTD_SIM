@@ -542,10 +542,13 @@ class GraphManager:
             else:
                 logger.info("✅ Graph projected to EPSG:27700 (no elevation → grades=0)")
 
-            # Store projected graph — downstream routing uses it transparently
-            self.graphs[network_type] = G_proj
+            # PATCH 3. Project BACK to WGS84 so the Router, GTFS, and Visualizer don't crash
+            G_wgs84 = ox.project_graph(G_proj, to_crs='EPSG:4326')
+
+            # Store the WGS84 graph — downstream routing uses it transparently
+            self.graphs[network_type] = G_wgs84 # was self.graphs[network_type] = G_proj
             if network_type == 'drive':
-                self.primary_graph = G_proj
+                self.primary_graph = G_wgs84  # was self.primary_graph = G_proj
 
             # Clear nearest-node cache — projected coordinates differ from WGS84
             self._nearest_node_cache.pop(network_type, None)
