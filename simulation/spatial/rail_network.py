@@ -101,34 +101,40 @@ def fetch_rail_graph(
     bbox: Tuple[float, float, float, float],
 ) -> Optional[object]:
     """
-    Download unified rail/tram graph from OSM, preserving tags for filtering.
+    Download unified rail/tram graph from OSM, preserving tags for filtering,
+    and ensuring bi-directional topology for routing.
     """
     if not _OX:
         logger.warning("fetch_rail_graph: OSMnx not available")
         return None
 
-    # 1. Configure OSMnx to keep the 'railway' tag so router.py can filter it
+    # 1. Preserve the 'railway' tag so router.py can filter by track type
     useful_tags = list(ox.settings.useful_tags_way)
     if 'railway' not in useful_tags:
         useful_tags.append('railway')
         ox.settings.useful_tags_way = useful_tags
 
     north, south, east, west = bbox
-    # 2. Match standard mainline rail, tram, subway, and light_rail
     rail_filter = '["railway"~"rail|tram|subway|light_rail"]'
 
     try:
         # OSMnx 2.0+ API
-        G_rail = ox.graph_from_bbox(
+        G_directed = ox.graph_from_bbox(
             bbox=(north, south, east, west),
             custom_filter=rail_filter,
             simplify=True,
             retain_all=True,
         )
-        G_rail.graph['name'] = 'rail' # Tag the graph for the router
-        
+
+        # CRITICAL FIX FOR ECONOMIC ROUTING:
+        # Convert to an undirected graph, then back to directed.
+        # This guarantees bi-directional edges everywhere, preventing
+        # shortest_path from failing due to arbitrary OSM drawing directions.
+        G_rail = G_directed.to_undirected().to_directed()
+        G_rail.graph['name'] = 'rail'
+
         logger.info(
-            "✅ Rail graph fetched: %d nodes, %d edges",
+            "✅ Bi-directional Rail graph fetched: %d nodes, %d edges",
             len(G_rail.nodes), len(G_rail.edges),
         )
         return G_rail
@@ -136,22 +142,20 @@ def fetch_rail_graph(
     except TypeError:
         # OSMnx 1.x legacy API fallback
         try:
-            G_rail = ox.graph_from_bbox(
+            G_directed = ox.graph_from_bbox(
                 north, south, east, west,
                 custom_filter=rail_filter,
                 retain_all=True,
                 simplify=True,
             )
+            G_rail = G_directed.to_undirected().to_directed()
             G_rail.graph['name'] = 'rail'
-            logger.info(
-                "✅ Rail graph fetched (legacy API): %d nodes, %d edges",
-                len(G_rail.nodes), len(G_rail.edges),
-            )
+            
+            logger.info("✅ Rail graph fetched (legacy API): %d nodes", len(G_rail.nodes))
             return G_rail
         except Exception as exc:
-            logger.error("fetch_rail_graph (legacy API) failed: %s", exc)
+            logger.error("fetch_rail_graph (legacy) failed: %s", exc)
             return None
-
     except Exception as exc:
         logger.error("fetch_rail_graph failed: %s", exc)
         return None
