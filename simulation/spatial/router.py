@@ -448,13 +448,10 @@ class Router:
     def _transit_fallback(self, agent_id: str, origin: Tuple[float, float], dest: Tuple[float, float], mode: str, policy: Dict) -> List[Tuple[float, float]]:
         """Clean fallback when GTFS graph is missing or routing fails."""
         if mode == 'tram':
-            logger.debug("%s: GTFS tram failed — spine fallback", agent_id)
-            try:
-                from simulation.spatial.rail_spine import route_via_tram_stops
-                spine_route = route_via_tram_stops(origin, dest, max_access_km=1.5)
-                return spine_route if spine_route else self._get_invalid_route(origin, dest)
-            except Exception:
-                return self._get_invalid_route(origin, dest)
+            logger.debug("%s: GTFS missing — routing tram directly on physical OSM tracks", agent_id)
+            # Use the intermodal logic which routes strictly on the OpenRailMap graph
+            return self._compute_intermodal_route(agent_id, origin, dest, mode, policy)
+            
         elif mode in ('ferry_diesel', 'ferry_electric', 'local_train', 'intercity_train'):
             return self._get_invalid_route(origin, dest)
         else:
@@ -1393,6 +1390,9 @@ class Router:
         speed_km_h  = self.speeds_km_min.get(mode, 0.5) * 60.0
         emit_kg_km  = _EMISSIONS_G_KM.get(mode, 100) / 1000.0
 
+        # Check if we are operating on the rail graph
+        is_rail_graph = graph.graph.get('name') == 'rail'
+
         for u, v, key, data in graph.edges(keys=True, data=True):
             dist_km = data.get('length', 0.0) / 1000.0
 
@@ -1412,6 +1412,22 @@ class Router:
                 + dist_km * e_price
                 + dist_km * emit_kg_km * c_tax
             )
+
+            # --- STRICT INFRASTRUCTURE FILTERING ---
+            if is_rail_graph:
+                rw = data.get('railway', '')
+                # Handle OSMnx lists (if multiple edges were simplified)
+                if isinstance(rw, list): 
+                    rw = rw[0]
+
+                if mode == 'tram' and rw not in ['tram', 'light_rail', 'subway']:
+                    # Block trams from mainline rail
+                    gen_cost = float('inf')
+                elif mode in ['local_train', 'intercity_train', 'freight_rail'] and rw in ['tram', 'light_rail']:
+                    # Block heavy rail from tram lines
+                    gen_cost = float('inf')
+
+            data['gen_cost'] = gen_cost
 
         return 'gen_cost'
 

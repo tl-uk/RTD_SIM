@@ -101,22 +101,32 @@ def fetch_rail_graph(
     bbox: Tuple[float, float, float, float],
 ) -> Optional[object]:
     """
-    Download rail/tram graph from OpenStreetMap (OpenRailMap tag filters).
+    Download unified rail/tram graph from OSM, preserving tags for filtering.
     """
     if not _OX:
         logger.warning("fetch_rail_graph: OSMnx not available")
         return None
 
+    # 1. Configure OSMnx to keep the 'railway' tag so router.py can filter it
+    useful_tags = list(ox.settings.useful_tags_way)
+    if 'railway' not in useful_tags:
+        useful_tags.append('railway')
+        ox.settings.useful_tags_way = useful_tags
+
     north, south, east, west = bbox
+    # 2. Match standard mainline rail, tram, subway, and light_rail
     rail_filter = '["railway"~"rail|tram|subway|light_rail"]'
 
     try:
         # OSMnx 2.0+ API
         G_rail = ox.graph_from_bbox(
-            bbox=(west, south, east, north),
+            bbox=(north, south, east, west),
             custom_filter=rail_filter,
             simplify=True,
+            retain_all=True,
         )
+        G_rail.graph['name'] = 'rail' # Tag the graph for the router
+        
         logger.info(
             "✅ Rail graph fetched: %d nodes, %d edges",
             len(G_rail.nodes), len(G_rail.edges),
@@ -124,7 +134,7 @@ def fetch_rail_graph(
         return G_rail
 
     except TypeError:
-        # Older OSMnx 1.x positional fallback
+        # OSMnx 1.x legacy API fallback
         try:
             G_rail = ox.graph_from_bbox(
                 north, south, east, west,
@@ -132,6 +142,7 @@ def fetch_rail_graph(
                 retain_all=True,
                 simplify=True,
             )
+            G_rail.graph['name'] = 'rail'
             logger.info(
                 "✅ Rail graph fetched (legacy API): %d nodes, %d edges",
                 len(G_rail.nodes), len(G_rail.edges),
