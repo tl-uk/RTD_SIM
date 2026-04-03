@@ -120,7 +120,7 @@ def fetch_rail_graph(
     try:
         # OSMnx 2.0+ API
         G_directed = ox.graph_from_bbox(
-            bbox=(north, south, east, west),
+            bbox=(west, south, east, north),   # ← matches OSMnx 2.x (left, bottom, right, top)
             custom_filter=rail_filter,
             simplify=True,
             retain_all=True,
@@ -130,7 +130,15 @@ def fetch_rail_graph(
         # Convert to an undirected graph, then back to directed.
         # This guarantees bi-directional edges everywhere, preventing
         # shortest_path from failing due to arbitrary OSM drawing directions.
-        G_rail = G_directed.to_undirected().to_directed()
+        # G_rail = G_directed.to_undirected().to_directed()
+        for u, v, key, data in list(G_directed.edges(keys=True, data=True)):
+            if not G_directed.has_edge(v, u):
+                rev = dict(data)
+                if 'geometry' in rev and hasattr(rev['geometry'], 'coords'):
+                    from shapely.geometry import LineString
+                    rev['geometry'] = LineString(reversed(list(rev['geometry'].coords)))
+                G_directed.add_edge(v, u, **rev)
+        G_rail = G_directed
         G_rail.graph['name'] = 'rail'
 
         logger.info(

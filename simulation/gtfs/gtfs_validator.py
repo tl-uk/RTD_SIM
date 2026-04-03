@@ -440,8 +440,14 @@ def render_gtfs_validation_panel(results=None) -> None:
 #   Bus Open Data:    https://data.bus-data.dft.gov.uk/  (England, free API key)
 # ─────────────────────────────────────────────────────────────────────────────
 
+import os
+from dotenv import load_dotenv
+# Load environment variables from the .env file
+load_dotenv()
+
 TRANSITLAND_API_BASE = "https://transit.land/api/v2"
-DEFAULT_API_KEY = "2gZcYiXnEihN0la3DTXYi79SvDEE8IkB" #"2bbaf55b-fb97-450b-bd07-fa8c12adc36b"
+# Fetch the key, defaulting to an empty string if not found
+DEFAULT_API_KEY = os.getenv("TRANSITLAND_API_KEY", "")
 
 # Well-known UK operator IDs for the city dropdown
 UK_GTFS_OPERATORS = {

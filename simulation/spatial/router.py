@@ -208,19 +208,18 @@ class Router:
 
         policy = {**_DEFAULT_POLICY, **(policy_context or {})}
 
-        # Rail: three-leg intermodal route (access road → rail spine/OSM → egress road)
-        if mode in _RAIL_MODES:
-            return self._compute_intermodal_route(
-                agent_id, origin, dest, mode, policy
-            )
+        # Tram: prefer GTFS when available, fall back to rail spine
+        if mode == 'tram':
+            return self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+
+        if mode in _RAIL_MODES:   # local_train, intercity_train, freight_rail only
+            return self._compute_intermodal_route(agent_id, origin, dest, mode, policy)
 
         # Transit (bus/tram/ferry): GTFS four-leg route when graph loaded,
         # road-graph proxy otherwise.  Headway cost makes infrequent services
         # correctly expensive vs frequent ones in the BDI generalised cost.
-        if mode in _TRANSIT_MODES:
-            return self._compute_gtfs_route(
-                agent_id, origin, dest, mode, policy
-            )
+        if mode in _TRANSIT_MODES:   # bus, ferry
+            return self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
 
         return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
@@ -349,7 +348,7 @@ class Router:
 
             # Attempt to find the path on the actual road/rail graph
             route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight=weight_key)
-            return self._extract_geometry(graph, route_nodes)
+            return self._interpolate(self._extract_geometry(graph, route_nodes), max_segment_km=0.05)
 
         except nx.NetworkXNoPath:
             # CRITICAL: Do NOT return [origin, dest]. 
@@ -456,7 +455,7 @@ class Router:
         By sending the agent 10 degrees off-map, the cost becomes infinite.
         """
         penalty_waypoint = (origin[0] + 10.0, origin[1] + 10.0)
-        return [origin, penalty_waypoint, dest]
+        return []   # callers: `if not route or len(route) < 2: use fallback`
 
     def _transit_fallback(self, agent_id: str, origin: Tuple[float, float], dest: Tuple[float, float], mode: str, policy: Dict) -> List[Tuple[float, float]]:
         """Clean fallback when GTFS graph is missing or routing fails."""
@@ -1307,21 +1306,14 @@ class Router:
                 + dist_km * emit_kg_km * c_tax
             )
 
-            # --- STRICT INFRASTRUCTURE FILTERING ---
             if is_rail_graph:
                 rw = data.get('railway', '')
-                # Handle OSMnx lists (if multiple edges were simplified)
-                if isinstance(rw, list): 
+                if isinstance(rw, list):
                     rw = rw[0]
-
-                if mode == 'tram' and rw not in ['tram', 'light_rail', 'subway']:
-                    # Block trams from mainline rail
-                    gen_cost = float('inf')
-                elif mode in ['local_train', 'intercity_train', 'freight_rail'] and rw in ['tram', 'light_rail']:
-                    # Block heavy rail from tram lines
-                    gen_cost = float('inf')
-
-            data['gen_cost'] = gen_cost
+                if mode == 'tram' and rw not in ('tram', 'light_rail', 'subway'):
+                    data['gen_cost'] = float('inf')      # overwrite in-place
+                elif mode in ('local_train', 'intercity_train', 'freight_rail') and rw in ('tram', 'light_rail'):
+                    data['gen_cost'] = float('inf')
 
         return 'gen_cost'
 
@@ -1342,7 +1334,11 @@ class Router:
                 coords.append(
                     (float(graph.nodes[u]['x']), float(graph.nodes[u]['y']))
                 )
-            edge_data = graph.get_edge_data(u, v)
+            edge_dict = graph.get_edge_data(u, v) or {}
+            edge_data = ( # pick the edge with the best geometry, falling back to shortest:
+                next((d for d in edge_dict.values() if 'geometry' in d), None)
+                or next(iter(edge_dict.values()), None)
+            )
             if edge_data and isinstance(edge_data, dict) and 0 in edge_data:
                 edge_data = edge_data[0]
             if edge_data and 'geometry' in edge_data:

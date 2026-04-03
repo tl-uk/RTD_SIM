@@ -431,12 +431,12 @@ class GTFSLoader:
 
     # ── Shape lookup ──────────────────────────────────────────────────────────
 
-    def get_shape_for_trip(self, trip_id: str) -> Optional[List[Tuple[float, float]]]:
+    def get_shape_for_trip(self, trip_id: str) -> List[Tuple[float, float]]:
         """Return the (lon, lat) shape coords for a trip_id, or None."""
         trip = self.trips.get(trip_id, {})
         shape_id = trip.get('shape_id', '')
-        return self.shapes.get(shape_id)
-
+        return self.shapes.get(shape_id, [])
+    
     def get_route_for_stop_pair(
         self,
         stop_id_from: str,

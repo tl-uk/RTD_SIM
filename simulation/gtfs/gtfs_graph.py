@@ -142,6 +142,8 @@ class GTFSGraph:
 
         for trip_id, stops in loader.stop_times.items():
             trip    = loader.trips.get(trip_id, {})
+            if trip is None:          # wrong service day — not in self.trips
+                continue
             route_id = trip.get('route_id', '')
             route   = loader.routes.get(route_id, {})
             mode    = route.get('mode', 'bus')
@@ -193,7 +195,7 @@ class GTFSGraph:
             route_ids = list({r['route_id'] for r in records})
             mode      = records[0]['mode']        # all records share mode (same stop pair)
             fuel_type = records[0]['fuel_type']
-            shape     = records[0]['shape_coords'] or []
+            shape = next((r['shape_coords'] for r in records if r.get('shape_coords')), [])
 
             # ── Resolve human-readable service names for tooltip display ──────
             # GTFSLoader may store these as 'short_name'/'long_name' (normalised)
@@ -300,23 +302,44 @@ class GTFSGraph:
 
             walk_time_s = dist_m / walk_speed_m_s
 
-            for u, v in [(stop_id, walk_node), (walk_node, stop_id)]:
-                target_graph = G_walk if u == walk_node else G_transit
-                if not target_graph.has_node(u) or not target_graph.has_node(v):
+            # for u, v in [(stop_id, walk_node), (walk_node, stop_id)]:
+            #     target_graph = G_walk if u == walk_node else G_transit
+            #     if not target_graph.has_node(u) or not target_graph.has_node(v):
+            #         continue
+            #     if not G_walk.has_edge(u, v) and not G_transit.has_edge(u, v):
+            #         G_walk.add_edge(
+            #             u, v,
+            #             length         = dist_m,
+            #             travel_time_s  = walk_time_s,
+            #             headway_s      = 0,
+            #             highway        = 'transfer',
+            #             mode           = 'walk',
+            #             fuel_type      = 'electric',
+            #             emissions_g_km = 0.0,
+            #             gen_cost       = walk_time_s / 3600.0 * 10.0,
+            #         )
+            # added += 1
+            for stop_id, data in G_transit.nodes(data=True):
+                lon, lat = data.get('x', 0), data.get('y', 0)
+                try:
+                    walk_node = ox.distance.nearest_nodes(G_walk, lon, lat)
+                except Exception:
                     continue
-                if not G_walk.has_edge(u, v) and not G_transit.has_edge(u, v):
-                    G_walk.add_edge(
-                        u, v,
-                        length         = dist_m,
-                        travel_time_s  = walk_time_s,
-                        headway_s      = 0,
-                        highway        = 'transfer',
-                        mode           = 'walk',
-                        fuel_type      = 'electric',
-                        emissions_g_km = 0.0,
-                        gen_cost       = walk_time_s / 3600.0 * 10.0,
-                    )
-            added += 1
+                walk_data  = G_walk.nodes.get(walk_node, {})
+                dist_m     = _haversine_m(lon, lat, walk_data.get('x', lon), walk_data.get('y', lat))
+                if dist_m > max_snap_m:
+                    continue
+                walk_time_s = dist_m / walk_speed_m_s
+                # Add stop as a reachable node in the walk graph
+                if not G_walk.has_node(stop_id):
+                    G_walk.add_node(stop_id, x=lon, y=lat, stop_id=stop_id)
+                G_walk.add_edge(walk_node, stop_id, length=dist_m,
+                                travel_time_s=walk_time_s, highway='transfer', mode='walk',
+                                gen_cost=walk_time_s / 3600.0 * 10.0)
+                G_walk.add_edge(stop_id, walk_node, length=dist_m,
+                                travel_time_s=walk_time_s, highway='transfer', mode='walk',
+                                gen_cost=walk_time_s / 3600.0 * 10.0)
+                added += 1
 
         logger.info(
             "GTFSGraph: %d transfer edges added (stop → walk_node)",
@@ -359,10 +382,9 @@ class GTFSGraph:
 
             if mode_filter is not None:
                 # Check if any edge at this stop carries the requested mode
-                served_modes = {
-                    G_transit.edges[e].get('mode', '')
-                    for e in G_transit.edges(stop_id, keys=True)
-                }
+                out_modes = {G_transit.edges[e].get('mode','') for e in G_transit.out_edges(stop_id, keys=True)}
+                in_modes  = {G_transit.edges[e].get('mode','') for e in G_transit.in_edges(stop_id, keys=True)}
+                served_modes = out_modes | in_modes
                 if mode_filter not in served_modes:
                     continue
 
