@@ -9,7 +9,7 @@ git add -A && git commit -m "... comments ..." && git push https://github.com/tl
 tail -f /Users/theolim/AppDev/RTD_SIM/logs/simulation_*.log | grep -E "(LLM|CPG|OLMo|olmo|extraction|fallback|plan|backend)"
 
 # Report project structure
-find /Users/theolim/AppDev/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
+find /Users/theo/Dev/Python/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
   grep -v __pycache__ | grep -v .git | sort > project_structure_current.txt && \
   echo "Done: $(wc -l < project_structure_current.txt) files"
 

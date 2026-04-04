@@ -17,6 +17,7 @@
 /Users/theo/Dev/Python/RTD_SIM/agent/job_contexts/passenger_special.yaml
 /Users/theo/Dev/Python/RTD_SIM/agent/job_contexts/port_operations.yaml
 /Users/theo/Dev/Python/RTD_SIM/agent/job_contexts/rail_operations.yaml
+/Users/theo/Dev/Python/RTD_SIM/agent/job_contexts/taxi_operations.yaml
 /Users/theo/Dev/Python/RTD_SIM/agent/job_contexts/transit_passenger.yaml
 /Users/theo/Dev/Python/RTD_SIM/agent/job_stories.py
 /Users/theo/Dev/Python/RTD_SIM/agent/job_templates.py
@@ -83,6 +84,8 @@
 /Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/default_policies.yaml
 /Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/grangemouth_port_decarbonisation.yaml
 /Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/grid_demand_surge_2035.yaml
+/Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/gtfs_bus_electrification.yaml
+/Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/gtfs_frequency_doubling.yaml
 /Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/hgv_phase_out_2035_2040.yaml
 /Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/last_mile_consolidation_hubs.yaml
 /Users/theo/Dev/Python/RTD_SIM/scenarios/combined_configs/nhs_logistics_ev_priority.yaml
@@ -132,6 +135,11 @@
 /Users/theo/Dev/Python/RTD_SIM/simulation/execution/simulation_loop.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/execution/system_dynamics_integration.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/execution/timeseries.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/gtfs/__init__.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/gtfs/gtfs_analytics.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/gtfs/gtfs_graph.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/gtfs/gtfs_loader.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/gtfs/gtfs_validator.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/infrastructure/__init__.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/infrastructure/charging/__init__.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/infrastructure/charging/availability_tracker.py
@@ -165,6 +173,7 @@
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/coordinate_utils.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/graph_manager.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/metrics_calculator.py
+/Users/theo/Dev/Python/RTD_SIM/simulation/spatial/naptan_loader.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/rail_network.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/rail_spine.py
 /Users/theo/Dev/Python/RTD_SIM/simulation/spatial/router.py
@@ -174,6 +183,7 @@
 /Users/theo/Dev/Python/RTD_SIM/ui/__init__.py
 /Users/theo/Dev/Python/RTD_SIM/ui/animation_controls.py
 /Users/theo/Dev/Python/RTD_SIM/ui/components/__init__.py
+/Users/theo/Dev/Python/RTD_SIM/ui/components/gtfs_visualizer.py
 /Users/theo/Dev/Python/RTD_SIM/ui/components/rail_visualizer.py
 /Users/theo/Dev/Python/RTD_SIM/ui/components/synthetic_events_settings.py
 /Users/theo/Dev/Python/RTD_SIM/ui/components/temporal_settings.py
@@ -193,6 +203,7 @@
 /Users/theo/Dev/Python/RTD_SIM/ui/tabs/combination_report_tab.py
 /Users/theo/Dev/Python/RTD_SIM/ui/tabs/combined_scenarios_tab.py
 /Users/theo/Dev/Python/RTD_SIM/ui/tabs/environmental_tab.py
+/Users/theo/Dev/Python/RTD_SIM/ui/tabs/gtfs_analytics_tab.py
 /Users/theo/Dev/Python/RTD_SIM/ui/tabs/impact_tab.py
 /Users/theo/Dev/Python/RTD_SIM/ui/tabs/infrastructure_tab.py
 /Users/theo/Dev/Python/RTD_SIM/ui/tabs/map_tab.py
@@ -208,7 +219,6 @@
 /Users/theo/Dev/Python/RTD_SIM/ui/widgets/policy_parameter_controls.py
 /Users/theo/Dev/Python/RTD_SIM/ui/widgets/policy_status_widget.py
 /Users/theo/Dev/Python/RTD_SIM/utils/__init__.py
-/Users/theo/Dev/Python/RTD_SIM/utils/combination_report.py
 /Users/theo/Dev/Python/RTD_SIM/visualiser/__init__.py
 /Users/theo/Dev/Python/RTD_SIM/visualiser/animation_controller.py
 /Users/theo/Dev/Python/RTD_SIM/visualiser/data_adapters.py
