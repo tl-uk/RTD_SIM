@@ -461,14 +461,14 @@ def modal_shift_threshold_analysis(
     if near_frac > 0.3:
         policy_levers['frequency_increase'] = (
             f"{near_frac:.0%} of car users flippable with ≤5 min headway reduction — "
-            "doubling peak frequency likely to produce measurable modal shift." \
-            "Private car travel could technically be replaced by " \
-            "public transport if the service were frequent enough. " \
-            "Reducing this by 5 minutes or more significantly cuts down" \
-            "on waiting time, which is often the biggest deterrent " \
-            "for car users. Increase the number of vehicles running " \
-            "during the busiest times of day (e.g., from 4 buses per hour to 8)." \
-            "This is often the most cost-effective way to achieve modal shift, " \
+            "doubling peak frequency likely to produce measurable modal shift. " 
+            "Private car travel could technically be replaced by "
+            "public transport if the service were frequent enough. "
+            "Reducing this by 5 minutes or more significantly cuts down "
+            "on waiting time, which is often the biggest deterrent "
+            "for car users. Increase the number of vehicles running "
+            "during the busiest times of day (e.g., from 4 buses per hour to 8). "
+            "This is often the most cost-effective way to achieve modal shift, "
             "compared to building new transit routes or infrastructure."
         )
     if flip_counts.get('5-15min', 0) / max(n_road, 1) > 0.2:
