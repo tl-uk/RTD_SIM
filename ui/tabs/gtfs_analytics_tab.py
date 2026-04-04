@@ -161,15 +161,7 @@ def _render_kpi_strip(report: Dict) -> None:
     col2.metric(
         "Near modal-shift threshold",
         f"{shift.get('near_tipping_pct', 0):.1f}%",
-        help="Car users flippable with ≤5 min headway improvement. " \
-        "Private car travel could technically be replaced by " \
-        "public transport if the service were frequent enough. " \
-        "Reducing this by 5 minutes or more significantly cuts down" \
-        "on waiting time, which is often the biggest deterrent " \
-        "for car users. Increase the number of vehicles running " \
-        "during the busiest times of day (e.g., from 4 buses per hour to 8)." \
-        "This is often the most cost-effective way to achieve modal shift, " \
-        "compared to building new transit routes or infrastructure.",
+        help="Car users flippable with ≤5 min headway improvement.",
     )
     col3.metric(
         "Top route saving",
