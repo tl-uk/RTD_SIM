@@ -148,9 +148,16 @@ class SpatialEnvironment:
         Returns:
             True if rail graph loaded successfully, False otherwise.
         """
-        if self.graph_manager.get_graph('rail') is not None:
-            logger.debug("Rail graph already loaded — skipping")
+        # if self.graph_manager.get_graph('rail') is not None:
+        #     logger.debug("Rail graph already loaded — skipping")
+        #     return True
+        from simulation.spatial.rail_network import get_or_fallback_rail_graph
+        G_rail = get_or_fallback_rail_graph(env=self)
+        if G_rail is not None:
+            self.graph_manager.graphs['rail'] = G_rail   # always overwrite
+            logger.info("Rail graph loaded: %d nodes", len(G_rail.nodes))
             return True
+        # return False
 
         from simulation.spatial.rail_network import fetch_rail_graph
 

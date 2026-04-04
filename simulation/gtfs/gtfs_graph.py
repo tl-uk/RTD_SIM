@@ -3,42 +3,56 @@ simulation/gtfs/gtfs_graph.py
 
 Builds a NetworkX MultiDiGraph from a parsed GTFSLoader.
 
-The graph is a transit network layer that sits alongside (never merged with)
-the OSM road and rail graphs in GraphManager.  Nodes are GTFS stops; edges
-carry scheduled travel times, headways, shape geometry, and fuel type so the
-Router can compute a fully-loaded generalised cost.
+The graph is a transit network layer that sits alongside (never merged
+with) the OSM road and rail graphs in GraphManager.  Nodes are GTFS
+stops; edges carry scheduled travel times, headways, shape geometry, and
+fuel type so the Router can compute a fully-loaded generalised cost.
 
-Graph conventions (matching OSMnx / rail_spine conventions throughout):
-  Node attributes:
-    x          = longitude (float)
-    y          = latitude  (float)
-    stop_id    = GTFS stop_id (str)
-    name       = stop_name (str)
-    wheelchair = bool
-    route_types = frozenset of GTFS route_type ints served at this stop
+Graph conventions (matching OSMnx / rail_spine conventions throughout)
+----------------------------------------------------------------------
+Node attributes:
+    x            = longitude  (float)
+    y            = latitude   (float)
+    stop_id      = GTFS stop_id (str)
+    name         = stop_name (str)
+    wheelchair   = bool
+    route_types  = frozenset of GTFS route_type ints served at this stop
 
-  Edge attributes:
-    travel_time_s  = scheduled in-vehicle seconds (float)
-    headway_s      = average headway in seconds (float)  — waiting cost
-    shape_coords   = [(lon, lat), ...] from shapes.txt   — render geometry
-    route_ids      = [route_id, ...]
-    mode           = RTD_SIM mode string (e.g. 'bus', 'local_train')
-    fuel_type      = 'electric' | 'diesel' | 'hydrogen' | 'hybrid'
-    emissions_g_km = float (per-km CO₂e, derived from fuel_type)
-    length         = approximate edge length in metres (haversine)
-    gen_cost       = float stub (overwritten by Router._apply_generalised_weights)
+Edge attributes:
+    travel_time_s    = scheduled in-vehicle seconds (float)
+    headway_s        = average headway in seconds   (float)
+    shape_coords     = [(lon, lat), …] from shapes.txt
+    route_ids        = [route_id, …]
+    route_short_names = [str, …]  — for tooltip display
+    route_long_names  = [str, …]
+    mode             = RTD_SIM mode string ('bus', 'local_train', …)
+    fuel_type        = 'electric' | 'diesel' | 'hydrogen' | 'hybrid'
+    emissions_g_km   = float (per-km CO₂e, from fuel_type)
+    length           = approximate edge length in metres (haversine)
+    gen_cost         = float stub (overwritten by Router at routing time)
 
-Transfer nodes:
-  build_transfer_edges() snaps each stop to its nearest OSM walk-graph node
-  and adds a 'transfer' edge so the Router's intermodal logic can route
-  access/egress legs on foot.
+Ghost-trip guard
+----------------
+GTFSLoader.stop_times contains ALL trips that touch the map bbox,
+including trips from the wrong service day (the calendar filter applies
+only to GTFSLoader.trips).  Every edge-building loop therefore checks
+``loader.trips.get(trip_id)`` and skips rows where the result is falsy
+(None or empty dict) — i.e. the trip is not active on the service date.
 
-Fuel → emissions mapping (g CO₂e / km):
-  electric  →  35  (UK grid carbon intensity, 2024 — update yearly)
-  diesel    → 130  (GB average diesel bus, measured)
-  hydrogen  →   0  (green hydrogen; conservative: 20 if grey hydrogen)
-  hybrid    →  80  (plug-in hybrid average)
-  unknown   → 100  (conservative default)
+Transfer nodes
+--------------
+build_transfer_edges() snaps each stop to its nearest OSM walk-graph
+node and adds a pair of 'transfer' edges (stop→walk, walk→stop).  This
+is the glue that lets the Router chain walk → board transit → ride →
+alight → walk intermodal routes.
+
+Fuel → emissions mapping (g CO₂e / km)
+---------------------------------------
+    electric  →  35  (UK grid carbon intensity, 2024)
+    diesel    → 130  (GB average diesel bus, measured)
+    hydrogen  →   0  (green hydrogen; conservative: 20 if grey)
+    hybrid    →  80  (plug-in hybrid average)
+    unknown   → 100  (conservative default)
 """
 
 from __future__ import annotations
@@ -72,12 +86,17 @@ _EMISSIONS_BY_FUEL: Dict[str, float] = {
 }
 
 
-def _haversine_m(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-    """Haversine distance in metres."""
+def _haversine_m(
+    lon1: float, lat1: float, lon2: float, lat2: float
+) -> float:
+    """Haversine distance in metres between two (lon, lat) points."""
     R = 6_371_000.0
     dp = math.radians(lat2 - lat1)
     dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dl / 2) ** 2
+    a  = (math.sin(dp / 2) ** 2
+          + math.cos(math.radians(lat1))
+          * math.cos(math.radians(lat2))
+          * math.sin(dl / 2) ** 2)
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
@@ -85,33 +104,60 @@ class GTFSGraph:
     """
     Builds a transit NetworkX graph from a GTFSLoader.
 
-    Usage:
-        loader = GTFSLoader('gtfs.zip').load()
+    Usage
+    -----
+        loader   = GTFSLoader('gtfs.zip').load()
         headways = loader.compute_headways()
-        builder = GTFSGraph(loader, headways)
-        G_transit = builder.build()          # full graph
-        builder.build_transfer_edges(G_transit, G_walk)   # stitch to OSM walk
+        builder  = GTFSGraph(loader, headways)
+        G        = builder.build()
+        builder.build_transfer_edges(G, G_walk)   # stitch to OSM walk graph
     """
 
     def __init__(
         self,
-        loader: Any,    # GTFSLoader
+        loader: Any,
         headways: Optional[Dict[Tuple[str, str], int]] = None,
     ):
+        """
+        Args:
+            loader:   GTFSLoader instance (already loaded).
+            headways: Pre-computed {(route_id, stop_id): avg_headway_s} dict
+                      from loader.compute_headways().  Pass None or {} to use
+                      the per-service 1-hour default for all edges.
+        """
         self.loader   = loader
         self.headways = headways or {}
 
-    # ── Main build ────────────────────────────────────────────────────────────
+    # =========================================================================
+    # MAIN BUILD
+    # =========================================================================
 
     def build(self) -> Optional[Any]:
         """
         Build and return the transit NetworkX MultiDiGraph.
 
         Each edge represents a consecutive stop pair served by at least one
-        trip.  Parallel trips (same stops, different schedules) are merged
-        into a single edge whose headway_s is the average of all services.
+        calendar-active trip.  Parallel trips (same stop pair, different
+        schedules) are merged into a single edge whose headway_s is the
+        average of all services.
 
-        Returns None if NetworkX is unavailable.
+        Ghost-trip guard
+        ----------------
+        GTFSLoader.stop_times includes trips from wrong service days.
+        We skip any trip_id that is not present in loader.trips (the
+        calendar-filtered set) using ``if not trip: continue``.  This
+        prevents wrong-day trips from contributing bus mode / diesel fuel
+        and empty shape_coords to edges that belong to tram or rail routes.
+
+        shape_coords selection
+        ----------------------
+        When multiple records exist for a stop pair, the first record that
+        has a non-empty shape_coords is used.  This avoids taking a shape
+        from a dead-run or positioning trip (which often lack a shape_id)
+        when a later, revenue-service trip has correct geometry.
+
+        Returns:
+            NetworkX MultiDiGraph or None if NetworkX is unavailable.
         """
         if not _NX:
             return None
@@ -133,44 +179,45 @@ class GTFSGraph:
                 stop_id     = stop_id,
                 name        = stop['name'],
                 wheelchair  = stop['wheelchair'],
-                route_types = set(),    # populated below
+                route_types = set(),   # populated during edge accumulation
             )
 
-        # ── Collect edges from stop_times ─────────────────────────────────────
-        # edge_data[(u, v)]: list of {travel_time_s, route_id, shape_coords, mode, fuel_type}
+        # ── Accumulate edges from stop_times ──────────────────────────────────
+        # One entry per (u, v) stop pair per trip:
+        # {(u, v): [{travel_time_s, route_id, mode, fuel_type, shape_coords}]}
         edge_accumulator: Dict[Tuple[str, str], List[Dict]] = defaultdict(list)
 
         for trip_id, stops in loader.stop_times.items():
-            trip    = loader.trips.get(trip_id, {})
-            if trip is None:          # wrong service day — not in self.trips
+            # GHOST-TRIP GUARD: skip trips not active on the service date.
+            trip = loader.trips.get(trip_id)
+            if not trip:
                 continue
-            route_id = trip.get('route_id', '')
-            route   = loader.routes.get(route_id, {})
-            mode    = route.get('mode', 'bus')
-            fuel    = route.get('fuel_type', 'diesel')
-            rtype   = route.get('route_type', 3)
 
+            route_id = trip.get('route_id', '')
+            route    = loader.routes.get(route_id, {})
+            mode     = route.get('mode', 'bus')
+            fuel     = route.get('fuel_type', 'diesel')
+            rtype    = route.get('route_type', 3)
+
+            # get_shape_for_trip always returns a list (never None).
             shape_coords = loader.get_shape_for_trip(trip_id)
 
             for i in range(len(stops) - 1):
                 u_st = stops[i]
                 v_st = stops[i + 1]
-
-                u = u_st['stop_id']
-                v = v_st['stop_id']
+                u    = u_st['stop_id']
+                v    = v_st['stop_id']
 
                 if u not in G.nodes or v not in G.nodes:
                     continue
 
-                dep_s = u_st['departure_s']
-                arr_s = v_st['arrival_s']
+                dep_s    = u_st['departure_s']
+                arr_s    = v_st['arrival_s']
                 travel_s = max(0, arr_s - dep_s) if arr_s >= dep_s else 60
 
-                # Annotate node with route types
                 G.nodes[u]['route_types'].add(rtype)
                 G.nodes[v]['route_types'].add(rtype)
 
-                # Slice shape geometry relevant to this edge
                 seg_shape = self._slice_shape(
                     shape_coords,
                     G.nodes[u]['x'], G.nodes[u]['y'],
@@ -191,15 +238,17 @@ class GTFSGraph:
                 continue
 
             avg_travel_s = sum(r['travel_time_s'] for r in records) / len(records)
+            route_ids    = list({r['route_id'] for r in records})
+            mode         = records[0]['mode']
+            fuel_type    = records[0]['fuel_type']
 
-            route_ids = list({r['route_id'] for r in records})
-            mode      = records[0]['mode']        # all records share mode (same stop pair)
-            fuel_type = records[0]['fuel_type']
-            shape = next((r['shape_coords'] for r in records if r.get('shape_coords')), [])
+            # Take the first shape that has real content — avoids empty shapes
+            # from dead-run / positioning trips swamping real revenue trips.
+            shape = next(
+                (r['shape_coords'] for r in records if r.get('shape_coords')),
+                [],
+            )
 
-            # ── Resolve human-readable service names for tooltip display ──────
-            # GTFSLoader may store these as 'short_name'/'long_name' (normalised)
-            # or as the raw GTFS keys 'route_short_name'/'route_long_name'.
             route_short_names: List[str] = []
             route_long_names:  List[str] = []
             for rid in route_ids:
@@ -209,21 +258,20 @@ class GTFSGraph:
                 if sn: route_short_names.append(str(sn))
                 if ln: route_long_names.append(str(ln))
 
-            # Average headway from pre-computed table (fall back to per-service spacing)
-            # Use the first route_id that has a headway entry
+            # Use the pre-computed headway for the first matching route/stop.
             headway_s = 3600
             for rid in route_ids:
-                hw = self.headways.get((rid, u), None)
+                hw = self.headways.get((rid, u))
                 if hw is not None:
                     headway_s = hw
                     break
 
             u_data = G.nodes[u]
             v_data = G.nodes[v]
-            dist_m = _haversine_m(u_data['x'], u_data['y'], v_data['x'], v_data['y'])
-            dist_km = dist_m / 1000.0
-
-            emit = _EMISSIONS_BY_FUEL.get(fuel_type, 100.0)
+            dist_m = _haversine_m(
+                u_data['x'], u_data['y'], v_data['x'], v_data['y']
+            )
+            emit   = _EMISSIONS_BY_FUEL.get(fuel_type, 100.0)
 
             G.add_edge(
                 u, v,
@@ -237,12 +285,14 @@ class GTFSGraph:
                 fuel_type          = fuel_type,
                 emissions_g_km     = emit,
                 length             = dist_m,
-                gen_cost           = avg_travel_s / 3600.0 * 10.0,  # stub (£10/h VoT)
+                gen_cost           = avg_travel_s / 3600.0 * 10.0,  # VoT stub
             )
 
-        # Freeze route_types to frozenset for hashability
+        # Freeze route_types to frozenset for hashability.
         for node in G.nodes:
-            G.nodes[node]['route_types'] = frozenset(G.nodes[node].get('route_types', set()))
+            G.nodes[node]['route_types'] = frozenset(
+                G.nodes[node].get('route_types', set())
+            )
 
         logger.info(
             "GTFSGraph built: %d stop nodes, %d transit edges",
@@ -250,7 +300,9 @@ class GTFSGraph:
         )
         return G
 
-    # ── Transfer edge creation ────────────────────────────────────────────────
+    # =========================================================================
+    # TRANSFER EDGE CREATION
+    # =========================================================================
 
     def build_transfer_edges(
         self,
@@ -260,20 +312,26 @@ class GTFSGraph:
         max_snap_m: float = 500.0,
     ) -> int:
         """
-        Add bidirectional transfer edges between each GTFS stop and its
-        nearest OSM walk-graph node.
+        Add bidirectional transfer edges between each GTFS stop and its nearest
+        OSM walk-graph node.
 
-        This is the "glue" that lets the intermodal router chain
-        walk → board transit → ride → alight → walk.
+        This is the glue that lets the intermodal Router chain:
+            walk → board transit → ride → alight → walk.
+
+        Each stop is added as a node in G_walk (if not already present) and
+        connected to its nearest walk-graph node with a synthetic 'transfer'
+        edge in both directions.  The walk_time_s is the haversine distance
+        divided by walk_speed_m_s.
 
         Args:
-            G_transit:      The transit graph from build()
-            G_walk:         OSMnx walk graph from GraphManager
-            walk_speed_m_s: Walking speed in m/s (default 1.2 = 4.3 km/h)
-            max_snap_m:     Ignore stops >500m from any walk node
+            G_transit:      The transit graph from build().
+            G_walk:         OSMnx walk graph from GraphManager.
+            walk_speed_m_s: Walking speed in m/s (default 1.2 ≈ 4.3 km/h).
+            max_snap_m:     Stops further than this from any walk node are
+                            skipped (default 500 m).
 
         Returns:
-            Number of transfer edges added.
+            Number of stops successfully linked to the walk graph.
         """
         if not _NX or not _OX:
             return 0
@@ -293,61 +351,40 @@ class GTFSGraph:
                 continue
 
             walk_data = G_walk.nodes.get(walk_node, {})
-            wlon = float(walk_data.get('x', lon))
-            wlat = float(walk_data.get('y', lat))
-            dist_m = _haversine_m(lon, lat, wlon, wlat)
-
+            dist_m    = _haversine_m(
+                lon, lat,
+                walk_data.get('x', lon),
+                walk_data.get('y', lat),
+            )
             if dist_m > max_snap_m:
                 continue
 
             walk_time_s = dist_m / walk_speed_m_s
 
-            # for u, v in [(stop_id, walk_node), (walk_node, stop_id)]:
-            #     target_graph = G_walk if u == walk_node else G_transit
-            #     if not target_graph.has_node(u) or not target_graph.has_node(v):
-            #         continue
-            #     if not G_walk.has_edge(u, v) and not G_transit.has_edge(u, v):
-            #         G_walk.add_edge(
-            #             u, v,
-            #             length         = dist_m,
-            #             travel_time_s  = walk_time_s,
-            #             headway_s      = 0,
-            #             highway        = 'transfer',
-            #             mode           = 'walk',
-            #             fuel_type      = 'electric',
-            #             emissions_g_km = 0.0,
-            #             gen_cost       = walk_time_s / 3600.0 * 10.0,
-            #         )
-            # added += 1
-            for stop_id, data in G_transit.nodes(data=True):
-                lon, lat = data.get('x', 0), data.get('y', 0)
-                try:
-                    walk_node = ox.distance.nearest_nodes(G_walk, lon, lat)
-                except Exception:
-                    continue
-                walk_data  = G_walk.nodes.get(walk_node, {})
-                dist_m     = _haversine_m(lon, lat, walk_data.get('x', lon), walk_data.get('y', lat))
-                if dist_m > max_snap_m:
-                    continue
-                walk_time_s = dist_m / walk_speed_m_s
-                # Add stop as a reachable node in the walk graph
-                if not G_walk.has_node(stop_id):
-                    G_walk.add_node(stop_id, x=lon, y=lat, stop_id=stop_id)
-                G_walk.add_edge(walk_node, stop_id, length=dist_m,
-                                travel_time_s=walk_time_s, highway='transfer', mode='walk',
-                                gen_cost=walk_time_s / 3600.0 * 10.0)
-                G_walk.add_edge(stop_id, walk_node, length=dist_m,
-                                travel_time_s=walk_time_s, highway='transfer', mode='walk',
-                                gen_cost=walk_time_s / 3600.0 * 10.0)
-                added += 1
+            # Register the stop as a node in the walk graph so the Router
+            # can terminate a walk shortest-path at a transit stop.
+            if not G_walk.has_node(stop_id):
+                G_walk.add_node(stop_id, x=lon, y=lat, stop_id=stop_id)
+
+            edge_attrs = dict(
+                length        = dist_m,
+                travel_time_s = walk_time_s,
+                highway       = 'transfer',
+                mode          = 'walk',
+                gen_cost      = walk_time_s / 3600.0 * 10.0,
+            )
+            G_walk.add_edge(walk_node, stop_id, **edge_attrs)
+            G_walk.add_edge(stop_id, walk_node, **edge_attrs)
+            added += 1
 
         logger.info(
-            "GTFSGraph: %d transfer edges added (stop → walk_node)",
-            added,
+            "GTFSGraph: %d transfer edges added (stop ↔ walk_node)", added
         )
         return added
 
-    # ── Nearest stop query ────────────────────────────────────────────────────
+    # =========================================================================
+    # NEAREST STOP QUERY
+    # =========================================================================
 
     def nearest_stop(
         self,
@@ -357,14 +394,22 @@ class GTFSGraph:
         max_distance_m: float = 2000.0,
     ) -> Optional[str]:
         """
-        Return the stop_id of the nearest transit stop to (lon, lat) coord.
+        Return the stop_id of the nearest transit stop to (lon, lat).
+
+        Mode filter
+        -----------
+        When mode_filter is set, only stops that serve that mode are
+        considered.  Both outgoing AND incoming edges are checked so that
+        terminal stops (which have no outgoing service edges) are not
+        incorrectly excluded.
 
         Args:
-            G_transit:      The transit graph from build()
-            coord:          (lon, lat)
-            mode_filter:    If set, only consider stops that serve this RTD_SIM mode
-                            (e.g. 'bus', 'local_train').
-            max_distance_m: Return None if nearest is further than this.
+            G_transit:      The transit graph from build().
+            coord:          (lon, lat).
+            mode_filter:    RTD_SIM mode string, e.g. 'bus', 'local_train'.
+                            None means any stop is eligible.
+            max_distance_m: Return None when the nearest stop is further
+                            than this (default 2 km).
 
         Returns:
             stop_id string or None.
@@ -381,11 +426,17 @@ class GTFSGraph:
             slon = data.get('x', 0)
 
             if mode_filter is not None:
-                # Check if any edge at this stop carries the requested mode
-                out_modes = {G_transit.edges[e].get('mode','') for e in G_transit.out_edges(stop_id, keys=True)}
-                in_modes  = {G_transit.edges[e].get('mode','') for e in G_transit.in_edges(stop_id, keys=True)}
-                served_modes = out_modes | in_modes
-                if mode_filter not in served_modes:
+                # Check both outgoing and incoming edges so terminal stops
+                # (which have no outgoing service edges) are not skipped.
+                out_modes = {
+                    G_transit.edges[e].get('mode', '')
+                    for e in G_transit.out_edges(stop_id, keys=True)
+                }
+                in_modes = {
+                    G_transit.edges[e].get('mode', '')
+                    for e in G_transit.in_edges(stop_id, keys=True)
+                }
+                if mode_filter not in (out_modes | in_modes):
                     continue
 
             d = _haversine_m(lon, lat, slon, slat)
@@ -397,20 +448,21 @@ class GTFSGraph:
             return None
         return best_id
 
-    # ── Pydeck layer data ─────────────────────────────────────────────────────
+    # =========================================================================
+    # PYDECK LAYER DATA
+    # =========================================================================
 
     def get_stop_pydeck_data(self, G_transit: Any) -> List[Dict]:
         """
         Return stop list as pydeck-compatible dicts for a ScatterplotLayer.
 
-        Each dict: lon, lat, name, mode, fuel_type, wheelchair, tooltip_html
+        Each dict: lon, lat, name, stop_id, wheelchair, tooltip_html.
         """
         if G_transit is None:
             return []
         data = []
         for stop_id, attrs in G_transit.nodes(data=True):
-            # Collect route short names served at this stop (from outgoing edges)
-            served_shorts: list = []
+            served_shorts: List[str] = []
             for _, _, edata in G_transit.edges(stop_id, data=True):
                 if edata.get('mode', 'walk') == 'walk':
                     continue
@@ -429,7 +481,8 @@ class GTFSGraph:
                     f"<b>{attrs.get('name', stop_id)}</b><br/>"
                     + (f"Routes: {routes_str}<br/>" if routes_str else '')
                     + f"Stop ID: {stop_id}"
-                    + ("<br/>♿ Wheelchair accessible" if attrs.get('wheelchair') else "")
+                    + ("<br/>♿ Wheelchair accessible"
+                       if attrs.get('wheelchair') else "")
                 ),
             })
         return data
@@ -439,18 +492,18 @@ class GTFSGraph:
         Return route lines as pydeck-compatible dicts for a PathLayer.
 
         Uses shape_coords from edge attributes when available; falls back
-        to straight lines between stop nodes.
+        to straight stop-to-stop lines.
         """
         if G_transit is None:
             return []
 
         _MODE_COLORS = {
-            'bus':             [245, 158, 11],  # amber
-            'tram':            [255, 193, 7],   # yellow
-            'local_train':     [33, 150, 243],  # blue
-            'intercity_train': [63, 81, 181],   # indigo
-            'ferry_diesel':    [0, 150, 136],   # teal
-            'ferry_electric':  [0, 188, 212],   # cyan
+            'bus':             [245, 158, 11],
+            'tram':            [255, 193,  7],
+            'local_train':     [ 33, 150, 243],
+            'intercity_train': [ 63,  81, 181],
+            'ferry_diesel':    [  0, 150, 136],
+            'ferry_electric':  [  0, 188, 212],
         }
 
         data = []
@@ -466,13 +519,10 @@ class GTFSGraph:
                     [v_d.get('x', 0), v_d.get('y', 0)],
                 ]
 
-            color = _MODE_COLORS.get(mode, [128, 128, 128])
-            fuel  = attrs.get('fuel_type', 'diesel')
-            # Electric routes get a distinct visual — slightly brighter
-            if fuel == 'electric':
+            color = list(_MODE_COLORS.get(mode, [128, 128, 128]))
+            if attrs.get('fuel_type') == 'electric':
                 color = [min(255, c + 40) for c in color]
 
-            # Build a concise service label: "26 / X27" or "Intercity Train"
             short_names = attrs.get('route_short_names', [])
             long_names  = attrs.get('route_long_names',  [])
             if short_names:
@@ -482,73 +532,58 @@ class GTFSGraph:
             else:
                 service_label = mode.replace('_', ' ').title()
 
-            headway_s = attrs.get('headway_s', 3600)
-            headway_str = f"{headway_s // 60} min" if headway_s > 0 else "on-demand"
+            headway_s   = attrs.get('headway_s', 3600)
+            headway_str = (f"{headway_s // 60} min"
+                           if headway_s > 0 else "on-demand")
 
             data.append({
-                'path':    [[lon, lat] for lon, lat in shape],
-                'color':   color,
-                'mode':    mode,
-                'fuel':    fuel,
+                'path':  [[lon, lat] for lon, lat in shape],
+                'color': color,
+                'mode':  mode,
+                'fuel':  attrs.get('fuel_type', 'diesel'),
                 'headway': headway_s,
                 'tooltip_html': (
                     f"<b>{service_label}</b><br/>"
-                    f"{mode.replace('_', ' ').title()} · {fuel}<br/>"
+                    f"{mode.replace('_', ' ').title()} · "
+                    f"{attrs.get('fuel_type', 'diesel')}<br/>"
                     f"Headway: {headway_str}"
                 ),
             })
         return data
 
-    # ── Internal helpers ──────────────────────────────────────────────────────
+    # =========================================================================
+    # INTERNAL HELPERS
+    # =========================================================================
 
-    # @staticmethod
-    # def _slice_shape(
-    #     shape_coords: Optional[List[Tuple[float, float]]],
-    #     u_lon: float, u_lat: float,
-    #     v_lon: float, v_lat: float,
-    #     window_m: float = 200.0,
-    # ) -> List[Tuple[float, float]]:
-    #     """
-    #     Return the sub-sequence of shape_coords between stops u and v.
-
-    #     Finds the two shape points closest to u and v, then extracts
-    #     everything between them.  Falls back to a 2-point straight line
-    #     if no shape or points outside window.
-    #     """
-    #     if not shape_coords or len(shape_coords) < 2:
-    #         return [(u_lon, u_lat), (v_lon, v_lat)]
-
-    #     def nearest_idx(lon: float, lat: float) -> int:
-    #         best_i, best_d = 0, float('inf')
-    #         for i, (slon, slat) in enumerate(shape_coords):
-    #             d = _haversine_m(lon, lat, slon, slat)
-    #             if d < best_d:
-    #                 best_d, best_i = d, i
-    #         return best_i if best_d < window_m else -1
-
-    #     i_u = nearest_idx(u_lon, u_lat)
-    #     i_v = nearest_idx(v_lon, v_lat)
-
-    #     if i_u < 0 or i_v < 0 or i_u == i_v:
-    #         return [(u_lon, u_lat), (v_lon, v_lat)]
-
-    #     start, end = min(i_u, i_v), max(i_u, i_v)
-    #     sliced = shape_coords[start: end + 1]
-
-    #     # Ensure direction matches u→v
-    #     if i_u > i_v:
-    #         sliced = list(reversed(sliced))
-
-    #     return sliced if sliced else [(u_lon, u_lat), (v_lon, v_lat)]
     @staticmethod
     def _slice_shape(
         shape_coords: Optional[List[Tuple[float, float]]],
         u_lon: float, u_lat: float,
         v_lon: float, v_lat: float,
-        window_m: float = 1500.0,  # <-- MASSIVE INCREASE for UK BODS inaccuracies
+        window_m: float = 1500.0,
     ) -> List[Tuple[float, float]]:
         """
         Return the sub-sequence of shape_coords between stops u and v.
+
+        Finds the shape point closest to each stop within window_m, then
+        extracts the polyline between them.  Falls back to a 2-point
+        straight line when the shape is absent or the stops cannot be
+        matched (router.py then maps the segment to the road network for
+        bus modes, or interpolates for tram/ferry).
+
+        The window_m default is 1500 m — larger than the original 200 m —
+        to handle inaccurate stop coordinates in BODS feeds where the
+        declared stop position may be hundreds of metres from the nearest
+        shape point.
+
+        Args:
+            shape_coords: Full trip shape from shapes.txt, or [] / None.
+            u_lon, u_lat: Departure stop coordinates.
+            v_lon, v_lat: Arrival stop coordinates.
+            window_m:     Maximum acceptable snap distance in metres.
+
+        Returns:
+            List of (lon, lat) tuples.
         """
         if not shape_coords or len(shape_coords) < 2:
             return [(u_lon, u_lat), (v_lon, v_lat)]
@@ -564,15 +599,12 @@ class GTFSGraph:
         i_u = nearest_idx(u_lon, u_lat)
         i_v = nearest_idx(v_lon, v_lat)
 
-        # VISUAL FIX: If we couldn't snap the stops to the shape, return a 2-point
-        # line. router.py will intercept this and map it to the physical road network!
         if i_u < 0 or i_v < 0 or i_u == i_v:
             return [(u_lon, u_lat), (v_lon, v_lat)]
 
         start, end = min(i_u, i_v), max(i_u, i_v)
         sliced = shape_coords[start: end + 1]
 
-        # Ensure direction matches u→v
         if i_u > i_v:
             sliced = list(reversed(sliced))
 
