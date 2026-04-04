@@ -153,11 +153,14 @@ class SpatialEnvironment:
         #     return True
         from simulation.spatial.rail_network import get_or_fallback_rail_graph, fetch_rail_graph
         G_rail = get_or_fallback_rail_graph(env=self)
-        if G_rail is not None:
-            self.graph_manager.graphs['rail'] = G_rail   # always overwrite
-            logger.info("Rail graph loaded: %d nodes", len(G_rail.nodes))
-            return True
-        return False
+        try:
+            if G_rail is not None:
+                self.graph_manager.graphs['rail'] = G_rail   # always overwrite
+                logger.info("Rail graph loaded: %d nodes", len(G_rail.nodes))
+                return True
+        except Exception as exc: 
+                logger.error("load_rail_graph failed: %s", exc)
+                return False
 
         # if bbox is None:
         #     drive = self.graph_manager.get_graph('drive')
