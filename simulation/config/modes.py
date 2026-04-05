@@ -54,6 +54,7 @@ MODES: Dict[str, Dict[str, Any]] = {
         'emissions_g_km': 0,
         'speed_kmh':      20,
         'routeable':      True,
+        'range_km':       10,   # typical e-scooter range on a single charge
     },
     'cargo_bike': {
         'network':       'bike',
