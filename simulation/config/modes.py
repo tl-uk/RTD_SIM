@@ -84,17 +84,23 @@ MODES: Dict[str, Dict[str, Any]] = {
     },
     'tram': {
         # Edinburgh Trams runs on a dedicated corridor not represented in the
-        # generic OSMnx drive graph.  Setting routeable=True with network='tram'
-        # causes Router.compute_route() to call get_graph('tram') → None →
-        # silent fallback to [origin, dest] straight line.
+        # generic OSMnx drive graph.
         #
-        # KEEP routeable=False so the abstract guard in bdi_planner fires and
-        # dispatches to route_via_tram_stops() (Edinburgh tram stop spine) with
-        # the 1.5km catchment filter.
+        # routeable=True is correct.  router.py dispatches tram at the TOP of
+        # compute_route() via the explicit "if mode == 'tram'" branch which
+        # calls _compute_gtfs_route() — it NEVER reaches _compute_road_route()
+        # or get_graph('tram').  Contrary to the old comment, get_graph('tram')
+        # is not called for tram because the router intercepts before that path.
         #
-        # Phase 10c: when a GTFS feed is loaded, Router._compute_gtfs_route()
-        # handles tram via the transit graph — routeable=True is correct THEN.
-        # Until a GTFS feed is provided, routeable=False is the safe default.
+        # Dispatch chain:
+        #   bdi_planner: is_routeable('tram')==True → calls env.compute_route()
+        #   router.compute_route: mode=='tram' → _compute_gtfs_route()
+        #   _compute_gtfs_route: GTFS loaded → nearest_stop(mode_filter='tram')
+        #   Fallback (no GTFS):  _transit_fallback → route_via_tram_stops() spine
+        #
+        # routeable=False was WRONG — it triggered the bdi_planner abstract guard
+        # BEFORE env.compute_route() was called, so tram agents never reached the
+        # GTFS transit graph or the spine router at all.
         'network':       'tram',
         'emissions_g_km': 35,
         'speed_kmh':      25,

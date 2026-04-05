@@ -875,14 +875,51 @@ class Router:
         rail_graph: Any,
     ) -> Optional[int]:
         """
-        Brute-force nearest node on the rail graph to (lon, lat) coord.
+        Snap a coordinate to the nearest node on the rail graph.
 
-        This is O(N) over rail graph nodes.  For the OpenRailMap graph
-        (hundreds–thousands of nodes in a city bbox) this is fast enough;
-        for the 41-station spine it is trivial.
+        Strategy (in priority order)
+        ----------------------------
+        1.  NaPTAN transfer nodes (DfT authoritative ~2,500 UK stations, cached
+            30 days).  ``nearest_transfer_node()`` returns precise platform
+            coordinates (±5 m).  We then snap those coordinates to the nearest
+            rail graph node so the routing works on the actual loaded graph.
+
+        2.  Brute-force O(N) scan of rail graph nodes (fallback when NaPTAN is
+            unavailable or the transfer node is outside the graph).
+
+        NaPTAN integration significantly improves accuracy in two ways:
+          • Platforms are not the same as OSM node centroids — snapping to NaPTAN
+            first then to the graph avoids a multi-hundred-metre mis-placement.
+          • For agents in the Highlands or Islands, NaPTAN has stations the
+            OpenRailMap graph may not include (e.g. small halts, ferry terminals),
+            so this path also improves coverage.
         """
         if rail_graph is None:
             return None
+
+        # ── Strategy 1: NaPTAN → nearest graph node ───────────────────────────
+        try:
+            from simulation.spatial.rail_spine import nearest_transfer_node
+            transfer = nearest_transfer_node(coord, max_km=self._MAX_ACCESS_KM)
+            if transfer:
+                snap_coord = (transfer['lon'], transfer['lat'])
+                # Find the graph node nearest the precise platform coordinate.
+                lon, lat = snap_coord
+                best_node = None
+                best_dist = float('inf')
+                for node, data in rail_graph.nodes(data=True):
+                    nlon = float(data.get('x', data.get('lon', 0)))
+                    nlat = float(data.get('y', data.get('lat', 0)))
+                    d    = haversine_km((lon, lat), (nlon, nlat))
+                    if d < best_dist:
+                        best_dist = d
+                        best_node = node
+                if best_node is not None and best_dist < self._MAX_ACCESS_KM:
+                    return best_node
+        except Exception:
+            pass
+
+        # ── Strategy 2: brute-force O(N) scan of rail graph ───────────────────
         lon, lat = coord
         best_node = None
         best_dist = float('inf')

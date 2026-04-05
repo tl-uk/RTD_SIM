@@ -445,13 +445,25 @@ class GTFSGraph:
             if mode_filter is not None:
                 # Check both outgoing and incoming edges so terminal stops
                 # (which have no outgoing service edges) are not skipped.
+                #
+                # CORRECT MultiDiGraph iteration: use data=True, keys=True
+                # and unpack as (u, v, key, data_dict).  The previous pattern
+                # of G_transit.edges[e].get('mode','') where e=(u,v,key) was
+                # ambiguous across NetworkX versions — EdgeView.__getitem__
+                # does not reliably unpack a 3-tuple on all builds, meaning
+                # mode_filter never matched and nearest_stop always returned
+                # None for tram/rail queries even when stops existed.
                 out_modes = {
-                    G_transit.edges[e].get('mode', '')
-                    for e in G_transit.out_edges(stop_id, keys=True)
+                    d.get('mode', '')
+                    for _, _, _, d in G_transit.out_edges(
+                        stop_id, data=True, keys=True
+                    )
                 }
                 in_modes = {
-                    G_transit.edges[e].get('mode', '')
-                    for e in G_transit.in_edges(stop_id, keys=True)
+                    d.get('mode', '')
+                    for _, _, _, d in G_transit.in_edges(
+                        stop_id, data=True, keys=True
+                    )
                 }
                 if mode_filter not in (out_modes | in_modes):
                     continue

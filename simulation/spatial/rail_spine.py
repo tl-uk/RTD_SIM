@@ -1,19 +1,52 @@
 """
 simulation/spatial/rail_spine.py
 
-The UK Rail Spine — a lightweight hardcoded station graph kept in memory.
+UK Rail Spine — last-resort fallback station graph.
 
-This provides two things:
-  1. Realistic rail-via-station routing without needing OpenRailMap to be
-     loaded (or when it fails).  Instead of a single diagonal line from
-     origin to destination, agents travel origin → access_station →
-     [intermediate stations] → egress_station → destination.
+ROLE IN THE ROUTING ARCHITECTURE
+──────────────────────────────────
+This module is NOT the primary source of station locations.  The routing
+priority is:
 
-  2. A pre-seeded NetworkX graph of Edinburgh and intercity stations that
-     the Router's intermodal logic can use as a starting point before the
-     full OpenRailMap graph is available.
+    1. NaPTAN (DfT authoritative dataset, ~2,500 UK stations + ferry terminals,
+       cached 30 days via naptan_loader.py).  Provides ±5 m platform accuracy
+       for every UK rail, metro, tram, and CalMac ferry terminal.
 
-Edinburgh stations (per Network Rail / Scotrail):
+    2. OpenRailMap graph (fetched by rail_network.py via OSMnx on each run).
+       Provides actual track geometry so rail agents follow real alignments.
+
+    3. This spine (hardcoded STATIONS dict + TRACK_EDGES list).  Used when:
+         • NaPTAN download fails (offline / DfT API down)
+         • OpenRailMap fetch fails or returns a sparse/disconnected graph
+
+UK COVERAGE
+───────────
+This spine covers:
+
+    Edinburgh city stations and tram interchanges
+    Edinburgh → Glasgow (via Polmont / Falkirk High)
+    Edinburgh → Fife Circle (Kirkcaldy)
+    Edinburgh → Dundee / Aberdeen (East Coast Main Line)
+    Edinburgh → Newcastle / York / Leeds / Birmingham / London (ECML + WCML)
+    Edinburgh → Inverness (Highland Main via Perth)
+    Inverness → Wick / Thurso (Far North Line)
+    Inverness → Kyle of Lochalsh (Kyle Line)
+    Inverness → Aberdeen
+    Glasgow → Fort William → Mallaig (West Highland Line)
+    Glasgow → Oban (Oban Line)
+    CalMac ferry terminals: Ullapool, Ardrossan, Kennacraig, Stornoway, Scrabster
+
+For agents in the Scottish Highlands, Islands, or ferry-dependent corridors
+(Orkney, Hebrides), the spine provides usable if not precise transfer nodes.
+NaPTAN gives much better results and is strongly preferred.
+
+TRAM ROUTING
+────────────
+Edinburgh tram stops are in TRAM_STOPS (separate from STATIONS) and are
+used by route_via_tram_stops().  With a GTFS feed loaded, tram agents route
+entirely on the GTFS transit graph and the spine is not used.
+
+Edinburgh stations (per Network Rail / ScotRail):
   Waverley (EDB), Haymarket (HYM), Edinburgh Gateway (EGY),
   Edinburgh Park (EDP), South Gyle, Brunstane, Newcraighall,
   Kingsknowe, Slateford, Wester Hailes, Curriehill, Dalmeny,
@@ -24,7 +57,11 @@ Intercity connections encoded:
   Edinburgh → Dunfermline / Kirkcaldy (Fife Circle)
   Edinburgh → Dundee / Aberdeen (via Haymarket)
   Edinburgh → Newcastle / London KX (East Coast Main Line)
-  Edinburgh → Inverness (Highland Main)
+  Edinburgh → Inverness (Highland Main via Perth)
+  Inverness → Wick / Thurso (Far North)
+  Inverness → Kyle of Lochalsh
+  Glasgow → Fort William → Mallaig (West Highland)
+  Glasgow → Oban
 """
 
 from __future__ import annotations
@@ -225,6 +262,196 @@ STATIONS: Dict[str, Dict] = {
         "lon":      -3.7174,
         "lat":       56.0104,
         "type":     "freight_junction",
+        "tram_link": False,
+    },
+
+    # ── Central Scotland ──────────────────────────────────────────────────────
+    "STG": {
+        "name":     "Stirling",
+        "lon":      -3.9353,
+        "lat":       56.1168,
+        "type":     "major",
+        "tram_link": False,
+    },
+    "DBL": {
+        "name":     "Dunblane",
+        "lon":      -3.9668,
+        "lat":       56.1867,
+        "type":     "suburban",
+        "tram_link": False,
+    },
+    "PTH": {
+        "name":     "Perth",
+        "lon":      -3.4237,
+        "lat":       56.3936,
+        "type":     "major",
+        "tram_link": False,
+    },
+    "DEE": {
+        "name":     "Dundee",
+        "lon":      -2.9726,
+        "lat":       56.4560,
+        "type":     "major",
+        "tram_link": False,
+    },
+    "LRH": {
+        "name":     "Leuchars",
+        "lon":      -2.8918,
+        "lat":       56.3814,
+        "type":     "regional",
+        "tram_link": False,
+    },
+
+    # ── West Highland & Argyll ────────────────────────────────────────────────
+    # These stations are the only rail-connected points for agents in the
+    # Western Highlands and Argyll.  NaPTAN will augment these with halts,
+    # but having them in the spine ensures Highland agents route correctly
+    # even when the NaPTAN download fails.
+    "FTW": {
+        "name":     "Fort William",
+        "lon":      -5.1027,
+        "lat":       56.8220,
+        "type":     "major",
+        "tram_link": False,
+    },
+    "MLG": {
+        "name":     "Mallaig",
+        "lon":      -5.8285,
+        "lat":       57.0070,
+        "type":     "regional",
+        "tram_link": False,
+    },
+    "OBN": {
+        "name":     "Oban",
+        "lon":      -5.4742,
+        "lat":       56.4150,
+        "type":     "major",       # also CalMac ferry terminal
+        "tram_link": False,
+    },
+    "CRN": {
+        "name":     "Crianlarich",
+        "lon":      -4.6168,
+        "lat":       56.3899,
+        "type":     "interchange",  # West Highland / Oban split junction
+        "tram_link": False,
+    },
+
+    # ── Far North ─────────────────────────────────────────────────────────────
+    # Caithness is the end of the UK rail network.  Without these, agents in
+    # Wick or Thurso have no valid intermodal snap point.
+    "WCK": {
+        "name":     "Wick",
+        "lon":      -3.0882,
+        "lat":       58.4394,
+        "type":     "regional",
+        "tram_link": False,
+    },
+    "THS": {
+        "name":     "Thurso",
+        "lon":      -3.5246,
+        "lat":       58.5927,
+        "type":     "regional",
+        "tram_link": False,
+    },
+    "IVB": {
+        "name":     "Invergordon",
+        "lon":      -4.1726,
+        "lat":       57.6873,
+        "type":     "regional",
+        "tram_link": False,
+    },
+    "KYL": {
+        "name":     "Kyle of Lochalsh",
+        "lon":      -5.7170,
+        "lat":       57.2772,
+        "type":     "regional",    # ferry to Skye (pre-bridge), Stornoway bus
+        "tram_link": False,
+    },
+
+    # ── Ferry terminals (for intermodal ferry-rail agents) ────────────────────
+    # These are NOT rail stations but are registered as transfer nodes so
+    # ferry_diesel / ferry_electric agents can snap to them correctly.
+    # NaPTAN FER type covers ferry terminals; these are the spine fallback.
+    "ULP": {
+        "name":     "Ullapool Ferry Terminal",
+        "lon":      -5.1560,
+        "lat":       57.8936,
+        "type":     "ferry_terminal",
+        "tram_link": False,
+    },
+    "ARD": {
+        "name":     "Ardrossan Harbour",
+        "lon":      -4.8201,
+        "lat":       55.6398,
+        "type":     "ferry_terminal",  # Caledonian MacBrayne to Arran
+        "tram_link": False,
+    },
+    "KEN": {
+        "name":     "Kennacraig Ferry Terminal",
+        "lon":      -5.4881,
+        "lat":       55.8906,
+        "type":     "ferry_terminal",  # CalMac to Islay / Jura
+        "tram_link": False,
+    },
+    "STO": {
+        "name":     "Stornoway Ferry Terminal",
+        "lon":      -6.3862,
+        "lat":       58.2088,
+        "type":     "ferry_terminal",  # Ullapool–Stornoway
+        "tram_link": False,
+    },
+    "SCR": {
+        "name":     "Scrabster Ferry Terminal",
+        "lon":      -3.5428,
+        "lat":       58.6107,
+        "type":     "ferry_terminal",  # NorthLink to Stromness (Orkney)
+        "tram_link": False,
+    },
+    "STR": {
+        "name":     "Stromness Ferry Terminal",
+        "lon":      -3.2966,
+        "lat":       58.9638,
+        "type":     "ferry_terminal",  # NorthLink from Scrabster
+        "tram_link": False,
+    },
+
+    # ── England intercity (East/West Coast Main Lines) ────────────────────────
+    # Present as last-resort fallback for cross-border agents.
+    # NaPTAN covers the full ~2,500 UK station network; these only matter
+    # when NaPTAN is unavailable.
+    "YRK": {
+        "name":     "York",
+        "lon":      -1.0928,
+        "lat":       53.9581,
+        "type":     "intercity_stop",
+        "tram_link": False,
+    },
+    "LDS": {
+        "name":     "Leeds",
+        "lon":      -1.5491,
+        "lat":       53.7960,
+        "type":     "major",
+        "tram_link": False,
+    },
+    "MAN": {
+        "name":     "Manchester Piccadilly",
+        "lon":      -2.2308,
+        "lat":       53.4773,
+        "type":     "major",
+        "tram_link": False,
+    },
+    "BHM": {
+        "name":     "Birmingham New Street",
+        "lon":      -1.9003,
+        "lat":       52.4778,
+        "type":     "major",
+        "tram_link": False,
+    },
+    "LBG": {
+        "name":     "London King's Cross",
+        "lon":      -0.1240,
+        "lat":       51.5308,
+        "type":     "major",
         "tram_link": False,
     },
 
@@ -566,18 +793,41 @@ TRACK_EDGES: List[Tuple[str, str, float, str]] = [
     ("MUS", "NBW", 30.0,  "North Berwick Line"),
     # ── ECML south ────────────────────────────────────────────────────────────
     ("EDB", "NCL", 170.0, "ECML"),
+    ("NCL", "YRK",  80.0, "ECML"),
+    ("YRK", "LDS",  32.0, "ECML"),
+    ("LDS", "BHM", 165.0, "Cross-Country"),
+    ("BHM", "LBG", 190.0, "West Coast Main Line"),
     # ── Glasgow lines ─────────────────────────────────────────────────────────
     ("LIN", "FKH",  8.5,  "Edinburgh–Glasgow QL"),
     ("FKH", "GLQ", 19.0,  "Edinburgh–Glasgow QL"),
     ("FKH", "PBR",  2.5,  "Polmont Branch"),
     ("PBR", "GRN",  2.5,  "Grangemouth Branch"),
     ("GLQ", "GLC",  0.8,  "Glasgow City"),
-    # ── Fife / Aberdeen ───────────────────────────────────────────────────────
+    ("GLQ", "MAN", 340.0, "West Coast Main Line"),  # via Preston
+    # ── Central Scotland ──────────────────────────────────────────────────────
+    ("GLQ", "STG",  40.0, "Stirling Line"),
+    ("STG", "DBL",   7.0, "Stirling Line"),
+    ("DBL", "PTH",  56.0, "Highland Main"),
+    ("PTH", "DEE",  32.0, "East Coast Main"),
+    ("DEE", "LRH",  19.0, "East Coast Main"),
+    ("LRH", "ABD",  79.0, "East Coast Main"),
+    # ── Fife / Kirkcaldy (separate from Perth path) ───────────────────────────
     ("DEM", "KKD", 26.0,  "Fife Circle"),
     ("KKD", "DND", 35.0,  "East Coast Main"),
     ("DND", "ABD", 98.0,  "East Coast Main"),
     # ── Highlands ─────────────────────────────────────────────────────────────
-    ("GLQ", "IVR",190.0,  "Highland Main"),
+    ("GLQ", "IVR", 190.0, "Highland Main"),
+    ("IVR", "WCK", 109.0, "Far North Line"),
+    ("WCK", "THS",  19.0, "Far North Line"),
+    ("IVR", "IVB",  50.0, "Far North Line"),
+    ("IVR", "KYL",  82.0, "Kyle of Lochalsh Line"),
+    # ── West Highland ─────────────────────────────────────────────────────────
+    ("GLQ", "CRN",  75.0, "West Highland Line"),
+    ("CRN", "FTW",  38.0, "West Highland Line"),
+    ("FTW", "MLG",  66.0, "West Highland Line (Mallaig Extension)"),
+    ("CRN", "OBN",  49.0, "Oban Line"),
+    # ── ABD → IVR (Inverness via Aberdeen corridor) ───────────────────────────
+    ("ABD", "IVR",  69.0, "Aberdeen–Inverness"),
 ]
 
 

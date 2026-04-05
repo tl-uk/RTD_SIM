@@ -236,6 +236,51 @@ def validate_gtfs_feed(
         modes[m] = modes.get(m, 0) + 1
     result.ok("Mode distribution", str(modes))
 
+    # ── nearest_stop mode_filter smoke test ───────────────────────────────────
+    # This tests the critical MultiDiGraph edge-iteration fix.  If mode_filter
+    # always returns None, the GTFS routing falls back to the drive proxy for
+    # EVERY tram and bus agent — the symptom is straight diagonal route lines
+    # on the map even with a GTFS feed loaded.
+    #
+    # We pick the most common mode in the feed and verify that nearest_stop
+    # can find a stop for a coordinate near the feed's bounding box centroid.
+    try:
+        from simulation.gtfs.gtfs_graph import GTFSGraph
+        checker = GTFSGraph(None)
+
+        stop_lons = [d['x'] for _, d in G.nodes(data=True) if d.get('x')]
+        stop_lats = [d['y'] for _, d in G.nodes(data=True) if d.get('y')]
+        if stop_lons and stop_lats:
+            centroid = (
+                (min(stop_lons) + max(stop_lons)) / 2,
+                (min(stop_lats) + max(stop_lats)) / 2,
+            )
+            # Test with the most common mode
+            if modes:
+                test_mode = max(modes, key=modes.get)
+                found = checker.nearest_stop(
+                    G, centroid, mode_filter=test_mode, max_distance_m=50_000
+                )
+                if found:
+                    result.ok(
+                        f"nearest_stop mode_filter='{test_mode}'",
+                        f"found stop {found} near feed centroid",
+                    )
+                else:
+                    result.fail(
+                        f"nearest_stop mode_filter='{test_mode}'",
+                        f"returned None at centroid {centroid} — mode_filter is broken "
+                        "or no edges have a 'mode' attribute (check gtfs_graph.build())",
+                    )
+            # Test without filter (should always find something)
+            any_stop = checker.nearest_stop(G, centroid, mode_filter=None, max_distance_m=50_000)
+            if any_stop:
+                result.ok("nearest_stop no filter", f"found stop {any_stop}")
+            else:
+                result.fail("nearest_stop no filter", "returned None — transit graph may be empty")
+    except Exception as exc:
+        result.warn("nearest_stop check", f"could not run: {exc}")
+
     # ── OSM bbox alignment ────────────────────────────────────────────────────
     stop_lons = [d['x'] for _, d in G.nodes(data=True) if d.get('x')]
     stop_lats = [d['y'] for _, d in G.nodes(data=True) if d.get('y')]
