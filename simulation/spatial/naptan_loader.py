@@ -88,6 +88,10 @@ from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+import os
+from pathlib import Path
+from typing import List
+
 # ── Project-local data directory ───────────────────────────────────────────────
 # naptan_loader.py lives at simulation/spatial/naptan_loader.py.
 # Project root is therefore three parents up.
@@ -99,17 +103,21 @@ _CACHE_DIR    = _DATA_DIR / "cache"
 _NATIONAL_CSV = _DATA_DIR / "NAPTAN_National_Stops.csv"
 _NPTG_CSV     = _DATA_DIR / "NPTG_Localities.csv"
 
-# Additional search paths for pre-existing CSV files outside the project.
-_CSV_SEARCH_PATHS: List[Path] = [
-    _NATIONAL_CSV,
-    Path.home() / "Dev" / "Python" / "GTFS" / "NAPTAN_National_Stops.csv",
-    Path("/Users/theo/Dev/Python/GTFS/NAPTAN_National_Stops.csv"),
-]
-_NPTG_SEARCH_PATHS: List[Path] = [
-    _NPTG_CSV,
-    Path.home() / "Dev" / "Python" / "GTFS" / "NPTG_Localities.csv",
-    Path("/Users/theo/Dev/Python/GTFS/NPTG_Localities.csv"),
-]
+# 1. Start with the standard project paths
+_CSV_SEARCH_PATHS: List[Path] = [_NATIONAL_CSV]
+_NPTG_SEARCH_PATHS: List[Path] = [_NPTG_CSV]
+
+# 2. Allow machine-agnostic overrides via Environment Variables
+# A developer can set RTD_SIM_GTFS_DIR on their specific machine if they keep data elsewhere.
+_CUSTOM_DATA_DIR = os.getenv("RTD_SIM_GTFS_DIR")
+
+if _CUSTOM_DATA_DIR:
+    custom_path = Path(_CUSTOM_DATA_DIR)
+    
+    # Prepend or append depending on your priority. 
+    # Appending makes it a fallback; prepending makes it an override.
+    _CSV_SEARCH_PATHS.append(custom_path / "NAPTAN_National_Stops.csv")
+    _NPTG_SEARCH_PATHS.append(custom_path / "NPTG_Localities.csv")
 
 CACHE_MAX_AGE_DAYS = 30
 

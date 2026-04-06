@@ -199,164 +199,6 @@ def get_or_fallback_rail_graph(env=None) -> Optional[object]:
         logger.error("rail_spine fallback also failed: %s", exc)
         return None
 
-# =============================================================================
-# FERRY ROUTES
-# Hardcoded UK ferry terminal pairs (lon, lat) for offline fallback
-# =============================================================================
-_UK_FERRY_ROUTES = [
-    ("Cairnryan_Belfast",         (-5.012, 55.003), (-5.930, 54.612)),
-    ("Cairnryan_Larne",           (-5.012, 55.003), (-5.820, 54.858)),
-    ("Holyhead_Dublin",           (-4.620, 53.306), (-6.222, 53.341)),
-    ("Pembroke_Rosslare",         (-4.930, 51.673), (-6.340, 52.254)),
-    ("Dover_Calais",              (1.357,  51.124), (1.850,  50.972)),
-    ("Dover_Dunkirk",             (1.357,  51.124), (2.374,  51.038)),
-    ("Portsmouth_Santander",      (-1.105, 50.798), (-3.794, 43.463)),
-    ("Plymouth_Roscoff",          (-4.143, 50.367), (-3.983, 48.724)),
-    ("Newcastle_Amsterdam",       (-1.594, 54.970), (4.900,  52.413)),
-    ("Hull_Rotterdam",            (-0.200, 53.740), (4.460,  51.890)),
-    ("Scrabster_Stromness",       (-3.543, 58.613), (-3.295, 58.958)),
-    ("Aberdeen_Lerwick",          (-2.079, 57.151), (-1.139, 60.153)),
-    ("Ullapool_Stornoway",        (-5.157, 57.896), (-6.374, 58.209)),
-    ("Oban_Craignure",            (-5.478, 56.413), (-5.698, 56.463)),
-    ("Gourock_Dunoon",            (-4.817, 55.963), (-4.924, 55.949)),
-    ("Portsmouth_Fishbourne",     (-1.105, 50.798), (-1.124, 50.732)),
-    ("Southampton_Cowes",         (-1.404, 50.897), (-1.297, 50.762)),
-    ("SouthQueensferry_North",    (-3.398, 55.990), (-3.393, 56.001)),  # Forth Ferry
-]
-
-def fetch_ferry_graph(bbox):
-    """
-    Fetch ferry route relations from OSM Overpass API.
-    Returns NetworkX MultiDiGraph keyed as 'ferry', or None.
-    Nodes carry x (lon) / y (lat) / name.
-    Edges carry shape_coords, mode='ferry_diesel', length_km.
-    """
-    import urllib.request, json
-    try:
-        import networkx as nx
-    except ImportError:
-        return None
-
-    north, south, east, west = bbox
-    query = (
-        f"[out:json][timeout:30];"
-        f"("
-        f'  relation["route"="ferry"]({south},{west},{north},{east});'
-        f'  way["route"="ferry"]({south},{west},{north},{east});'
-        f'  way["ferry"="yes"]({south},{west},{north},{east});'
-        f");"
-        f"out body;>;out skel qt;"
-    )
-    url = "https://overpass-api.de/api/interpreter"
-    try:
-        req = urllib.request.Request(
-            url, data=query.encode(), method="POST",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-    except Exception as exc:
-        logger.warning("Overpass ferry fetch failed: %s", exc)
-        return None
-
-    elements = data.get("elements", [])
-    nodes_by_id = {
-        el["id"]: (el["lon"], el["lat"])
-        for el in elements if el["type"] == "node"
-    }
-    ways = [el for el in elements if el["type"] == "way"]
-
-    G = nx.MultiDiGraph()
-    G.graph["name"] = "ferry"
-
-    node_id_counter = 0
-    def _get_or_add_node(lon, lat, name=""):
-        nonlocal node_id_counter
-        # round to 4 dp to deduplicate near-identical terminals
-        key = (round(lon, 4), round(lat, 4))
-        for nid, nd in G.nodes(data=True):
-            if round(nd.get("x", 0), 4) == key[0] and round(nd.get("y", 0), 4) == key[1]:
-                return nid
-        nid = node_id_counter
-        node_id_counter += 1
-        G.add_node(nid, x=lon, y=lat, name=name)
-        return nid
-
-    from simulation.spatial.coordinate_utils import haversine_km
-    for way in ways:
-        coords = [nodes_by_id[n] for n in way.get("nodes", []) if n in nodes_by_id]
-        if len(coords) < 2:
-            continue
-        u_nid = _get_or_add_node(*coords[0])
-        v_nid = _get_or_add_node(*coords[-1])
-        if u_nid == v_nid:
-            continue
-        try:
-            from shapely.geometry import LineString
-            geom = LineString(coords)
-        except Exception:
-            geom = None
-        dist_km = haversine_km(coords[0], coords[-1])
-        tags = way.get("tags", {})
-        G.add_edge(u_nid, v_nid,
-                   shape_coords=coords, geometry=geom,
-                   mode="ferry_diesel", length=dist_km * 1000,
-                   length_km=dist_km,
-                   name=tags.get("name", ""),
-                   operator=tags.get("operator", ""))
-        # bi-directional
-        G.add_edge(v_nid, u_nid,
-                   shape_coords=list(reversed(coords)), geometry=geom,
-                   mode="ferry_diesel", length=dist_km * 1000,
-                   length_km=dist_km)
-
-    logger.info("Ferry graph (Overpass): %d nodes, %d edges", G.number_of_nodes(), G.number_of_edges())
-    return G if G.number_of_nodes() > 1 else None
-
-
-def build_hardcoded_ferry_graph():
-    """Build a lightweight ferry graph from the hardcoded UK route list."""
-    try:
-        import networkx as nx
-        from simulation.spatial.coordinate_utils import haversine_km
-    except ImportError:
-        return None
-
-    G = nx.MultiDiGraph()
-    G.graph["name"] = "ferry"
-    for name, (olon, olat), (dlon, dlat) in _UK_FERRY_ROUTES:
-        u = f"port_{olon:.3f}_{olat:.3f}"
-        v = f"port_{dlon:.3f}_{dlat:.3f}"
-        G.add_node(u, x=olon, y=olat, name=name.split("_")[0])
-        G.add_node(v, x=dlon, y=dlat, name=name.split("_")[-1])
-        dist_km = haversine_km((olon, olat), (dlon, dlat))
-        # 10 intermediate great-circle points for smooth display
-        coords = [(olon + (dlon - olon) * t / 9, olat + (dlat - olat) * t / 9) for t in range(10)]
-        for u2, v2, c in [(u, v, coords), (v, u, list(reversed(coords)))]:
-            G.add_edge(u2, v2, shape_coords=c, mode="ferry_diesel",
-                       length=dist_km * 1000, length_km=dist_km, name=name)
-    logger.info("Ferry spine (hardcoded): %d routes", len(_UK_FERRY_ROUTES))
-    return G
-
-
-def get_or_fallback_ferry_graph(env=None):
-    """Try Overpass; fall back to hardcoded spine."""
-    bbox = None
-    if env is not None:
-        drive = getattr(env, "graph_manager", None) and env.graph_manager.get_graph("drive")
-        if drive and len(drive.nodes) > 0:
-            xs = [d["x"] for _, d in drive.nodes(data=True)]
-            ys = [d["y"] for _, d in drive.nodes(data=True)]
-            # Expand bbox by 2° to capture cross-sea routes
-            bbox = (max(ys) + 2.0, min(ys) - 2.0, max(xs) + 2.0, min(xs) - 2.0)
-    if bbox is None:
-        bbox = (60.0, 49.0, 5.0, -10.0)  # Full UK + Irish Sea
-
-    G = fetch_ferry_graph(bbox)
-    if G and G.number_of_nodes() > 1:
-        return G
-    logger.warning("Ferry Overpass failed — using hardcoded spine")
-    return build_hardcoded_ferry_graph()
 
 def link_to_road_network(
     G_rail: object,
@@ -428,3 +270,307 @@ def link_to_road_network(
         "link_to_road_network: transfer edges added for %d / %d stations",
         links_added, len(stations),
     )
+
+
+# =============================================================================
+# FERRY GRAPH
+# =============================================================================
+
+# Hardcoded UK ferry terminal pairs — (route_name, (origin_lon, origin_lat), (dest_lon, dest_lat))
+# Used as offline fallback when the Overpass query fails.
+# Covers all major domestic crossings, Irish Sea, North Sea, and English Channel.
+_UK_FERRY_ROUTES = [
+    # Irish Sea — Scotland
+    ("Cairnryan_Belfast",           (-5.012, 55.003), (-5.930, 54.612)),
+    ("Cairnryan_Larne",             (-5.012, 55.003), (-5.820, 54.858)),
+    # Irish Sea — Wales / England
+    ("Holyhead_Dublin",             (-4.620, 53.306), (-6.222, 53.341)),
+    ("Holyhead_DunLaoghaire",       (-4.620, 53.306), (-6.135, 53.300)),
+    ("Pembroke_Rosslare",           (-4.930, 51.673), (-6.340, 52.254)),
+    ("Fishguard_Rosslare",          (-4.979, 51.994), (-6.340, 52.254)),
+    ("Liverpool_Dublin",            (-3.002, 53.408), (-6.222, 53.341)),
+    # English Channel
+    ("Dover_Calais",                (1.357,  51.124), (1.850,  50.972)),
+    ("Dover_Dunkirk",               (1.357,  51.124), (2.374,  51.038)),
+    ("Newhaven_Dieppe",             (0.058,  50.793), (1.076,  49.920)),
+    ("Portsmouth_Cherbourg",        (-1.105, 50.798), (-1.625, 49.645)),
+    ("Portsmouth_Caen",             (-1.105, 50.798), (-0.362, 49.182)),
+    ("Portsmouth_StMalo",           (-1.105, 50.798), (-2.026, 48.649)),
+    ("Portsmouth_Santander",        (-1.105, 50.798), (-3.794, 43.463)),
+    ("Plymouth_Roscoff",            (-4.143, 50.367), (-3.983, 48.724)),
+    ("Plymouth_Santander",          (-4.143, 50.367), (-3.794, 43.463)),
+    ("Poole_Cherbourg",             (-1.992, 50.719), (-1.625, 49.645)),
+    # North Sea
+    ("Newcastle_Amsterdam",         (-1.594, 54.970), (4.900,  52.413)),
+    ("Hull_Rotterdam",              (-0.200, 53.740), (4.460,  51.890)),
+    ("Hull_Zeebrugge",              (-0.200, 53.740), (3.200,  51.330)),
+    ("Harwich_HoekVanHolland",      (1.281,  51.947), (4.123,  51.978)),
+    ("Harwich_Esbjerg",             (1.281,  51.947), (8.460,  55.467)),
+    # Scottish Northern Isles
+    ("Aberdeen_Lerwick",            (-2.079, 57.151), (-1.139, 60.153)),
+    ("Aberdeen_Kirkwall",           (-2.079, 57.151), (-2.965, 58.988)),
+    ("Scrabster_Stromness",         (-3.543, 58.613), (-3.295, 58.958)),
+    ("Gill_Kirkwall",               (-2.920, 58.627), (-2.965, 58.988)),
+    # Hebrides & West Scotland
+    ("Ullapool_Stornoway",          (-5.157, 57.896), (-6.374, 58.209)),
+    ("Oban_Craignure",              (-5.478, 56.413), (-5.698, 56.463)),
+    ("Oban_Colonsay",               (-5.478, 56.413), (-6.188, 56.064)),
+    ("Oban_Castlebay",              (-5.478, 56.413), (-7.493, 57.003)),
+    ("Oban_Lochboisdale",           (-5.478, 56.413), (-7.323, 57.155)),
+    ("Mallaig_Armadale",            (-5.827, 57.007), (-5.897, 57.068)),
+    ("Tarbert_Portavadie",          (-5.409, 55.868), (-5.315, 55.877)),
+    ("Gourock_Dunoon",              (-4.817, 55.963), (-4.924, 55.949)),
+    ("Wemyss_Rothesay",             (-4.886, 55.874), (-5.053, 55.838)),
+    ("Ardrossan_Brodick",           (-4.825, 55.641), (-5.141, 55.576)),
+    ("Kennacraig_PortEllen",        (-5.488, 55.803), (-6.190, 55.633)),
+    ("Kennacraig_PortAskaig",       (-5.488, 55.803), (-6.107, 55.850)),
+    # Firth of Clyde
+    ("Gourock_Kilcreggan",          (-4.817, 55.963), (-4.684, 55.982)),
+    # Firth of Forth
+    ("SouthQueensferry_NorthQF",    (-3.398, 55.990), (-3.393, 56.001)),
+    # Isle of Wight
+    ("Portsmouth_Fishbourne",       (-1.105, 50.798), (-1.124, 50.732)),
+    ("Southampton_Cowes",           (-1.404, 50.897), (-1.297, 50.762)),
+    ("Lymington_Yarmouth",          (-1.549, 50.775), (-1.499, 50.709)),
+    # Isles of Scilly
+    ("Penzance_StMarys",            (-5.534, 50.120), (-6.296, 49.919)),
+]
+
+
+def _great_circle_waypoints(
+    origin: Tuple[float, float],
+    dest: Tuple[float, float],
+    n: int = 12,
+) -> list:
+    """Return n evenly-spaced great-circle interpolation points between origin and dest."""
+    return [
+        (origin[0] + (dest[0] - origin[0]) * i / (n - 1),
+         origin[1] + (dest[1] - origin[1]) * i / (n - 1))
+        for i in range(n)
+    ]
+
+
+def fetch_ferry_graph(
+    bbox: Tuple[float, float, float, float],
+) -> Optional[object]:
+    """
+    Download ferry route geometry from the OpenStreetMap Overpass API.
+
+    Queries for:
+      • route=ferry relations
+      • way[route=ferry] ways
+      • way[ferry=yes] ways
+
+    Each OSM way/relation is turned into a bi-directional pair of edges in a
+    NetworkX MultiDiGraph keyed as ``graph['name'] == 'ferry'``.  Nodes
+    represent port terminals (or intermediate waypoints for long crossings).
+    Edges carry:
+      shape_coords  — list of (lon, lat) tuples for visualisation
+      mode          — 'ferry_diesel'
+      length        — edge length in metres (haversine)
+      name          — operator/route name from OSM tags
+
+    Args:
+        bbox: (north, south, east, west) — RTD_SIM internal convention.
+              Internally expanded by 2° to capture cross-sea routes whose
+              terminals may lie just outside the drive graph extent.
+
+    Returns:
+        NetworkX MultiDiGraph tagged graph['name']='ferry', or None on failure.
+    """
+    if not _NX:
+        return None
+
+    import urllib.request
+    import json
+
+    north, south, east, west = bbox
+    # Expand by 2° to capture terminals that sit outside the drive graph bbox
+    north, south, east, west = north + 2.0, south - 2.0, east + 2.0, west - 2.0
+
+    query = (
+        "[out:json][timeout:30];"
+        "("
+        f'  relation["route"="ferry"]({south},{west},{north},{east});'
+        f'  way["route"="ferry"]({south},{west},{north},{east});'
+        f'  way["ferry"="yes"]({south},{west},{north},{east});'
+        ");"
+        "out body;>;out skel qt;"
+    )
+    overpass_url = "https://overpass-api.de/api/interpreter"
+    try:
+        req = urllib.request.Request(
+            overpass_url,
+            data=query.encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(req, timeout=35) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        logger.warning("Overpass ferry query failed: %s", exc)
+        return None
+
+    elements   = data.get("elements", [])
+    osm_nodes  = {
+        el["id"]: (float(el["lon"]), float(el["lat"]))
+        for el in elements
+        if el["type"] == "node"
+    }
+    ways = [el for el in elements if el["type"] == "way"]
+
+    if not ways:
+        logger.warning("fetch_ferry_graph: Overpass returned 0 ferry ways")
+        return None
+
+    G = nx.MultiDiGraph()
+    G.graph["name"] = "ferry"
+
+    _node_index: dict = {}   # (lon4, lat4) → node_id
+    _next_id: list = [0]
+
+    def _get_node(lon: float, lat: float, name: str = "") -> int:
+        key = (round(lon, 4), round(lat, 4))
+        if key in _node_index:
+            return _node_index[key]
+        nid = _next_id[0]
+        _next_id[0] += 1
+        G.add_node(nid, x=lon, y=lat, name=name)
+        _node_index[key] = nid
+        return nid
+
+    from simulation.spatial.coordinate_utils import haversine_km as _hav
+
+    added = 0
+    for way in ways:
+        node_refs = way.get("nodes", [])
+        coords    = [osm_nodes[n] for n in node_refs if n in osm_nodes]
+        if len(coords) < 2:
+            continue
+        tags     = way.get("tags", {})
+        name_tag = tags.get("name") or tags.get("operator") or ""
+
+        try:
+            from shapely.geometry import LineString as _LS
+            geom_fwd = _LS(coords)
+            geom_rev = _LS(list(reversed(coords)))
+        except Exception:
+            geom_fwd = geom_rev = None
+
+        u_nid = _get_node(*coords[0])
+        v_nid = _get_node(*coords[-1])
+        if u_nid == v_nid:
+            continue
+
+        dist_m = _hav(coords[0], coords[-1]) * 1000.0
+        G.add_edge(u_nid, v_nid,
+                   shape_coords=coords,
+                   geometry=geom_fwd,
+                   mode="ferry_diesel",
+                   length=dist_m,
+                   name=name_tag,
+                   operator=tags.get("operator", ""))
+        G.add_edge(v_nid, u_nid,
+                   shape_coords=list(reversed(coords)),
+                   geometry=geom_rev,
+                   mode="ferry_diesel",
+                   length=dist_m,
+                   name=name_tag)
+        added += 1
+
+    logger.info(
+        "✅ Ferry graph (Overpass): %d terminals, %d routes",
+        G.number_of_nodes(), added,
+    )
+    return G if G.number_of_nodes() > 1 else None
+
+
+def build_hardcoded_ferry_graph() -> Optional[object]:
+    """
+    Build a lightweight ferry graph from the hardcoded ``_UK_FERRY_ROUTES`` list.
+
+    Used as offline fallback when the Overpass query fails.  Each route is
+    represented by 12 great-circle interpolation points so ferry paths are
+    rendered as smooth arcs rather than single straight lines.
+
+    Returns:
+        NetworkX MultiDiGraph tagged graph['name']='ferry'.
+    """
+    if not _NX:
+        return None
+
+    import networkx as nx
+    from simulation.spatial.coordinate_utils import haversine_km as _hav
+
+    G = nx.MultiDiGraph()
+    G.graph["name"] = "ferry"
+
+    for route_name, (olon, olat), (dlon, dlat) in _UK_FERRY_ROUTES:
+        u = f"port_{olon:.4f}_{olat:.4f}"
+        v = f"port_{dlon:.4f}_{dlat:.4f}"
+
+        origin_label = route_name.split("_")[0]
+        dest_label   = "_".join(route_name.split("_")[1:])
+
+        if not G.has_node(u):
+            G.add_node(u, x=olon, y=olat, name=origin_label)
+        if not G.has_node(v):
+            G.add_node(v, x=dlon, y=dlat, name=dest_label)
+
+        dist_m = _hav((olon, olat), (dlon, dlat)) * 1000.0
+        waypoints_fwd = _great_circle_waypoints((olon, olat), (dlon, dlat))
+        waypoints_rev = list(reversed(waypoints_fwd))
+
+        for u2, v2, wpts in [(u, v, waypoints_fwd), (v, u, waypoints_rev)]:
+            G.add_edge(u2, v2,
+                       shape_coords=wpts,
+                       mode="ferry_diesel",
+                       length=dist_m,
+                       name=route_name)
+
+    logger.info(
+        "✅ Ferry spine (hardcoded): %d terminals, %d routes",
+        G.number_of_nodes(), len(_UK_FERRY_ROUTES),
+    )
+    return G
+
+
+def get_or_fallback_ferry_graph(env=None) -> Optional[object]:
+    """
+    Try Overpass ferry fetch; fall back to hardcoded UK spine.
+
+    The bbox is derived from the drive graph nodes when *env* is supplied.
+    A 2° expansion is applied inside ``fetch_ferry_graph`` so terminals
+    outside the simulation region are still captured.
+
+    Args:
+        env: SpatialEnvironment — used to derive the bbox.
+             Pass None to use a full-UK bounding box.
+
+    Returns:
+        NetworkX MultiDiGraph (Overpass result or hardcoded spine).
+    """
+    bbox = None
+
+    if env is not None:
+        gm = getattr(env, "graph_manager", None)
+        if gm is not None:
+            drive = gm.get_graph("drive")
+            if drive is not None and len(drive.nodes) > 0:
+                xs   = [d["x"] for _, d in drive.nodes(data=True)]
+                ys   = [d["y"] for _, d in drive.nodes(data=True)]
+                bbox = (max(ys), min(ys), max(xs), min(xs))
+
+    if bbox is None:
+        # Full UK + Ireland + near-Continent
+        bbox = (61.0, 49.0, 6.0, -11.0)
+        logger.info("get_or_fallback_ferry_graph: no drive graph — using full-UK bbox")
+
+    G = fetch_ferry_graph(bbox)
+    if G is not None and G.number_of_nodes() > 1:
+        return G
+
+    logger.warning(
+        "Overpass ferry fetch failed or empty — falling back to hardcoded spine"
+    )
+    return build_hardcoded_ferry_graph()

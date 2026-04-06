@@ -202,6 +202,12 @@ def setup_environment(
         progress_callback(0.16, "✅ Road networks loaded")
 
     # ── 3.5 Ferry graph ───────────────────────────────────────────────────────
+    # Load ferry route geometry from Overpass API (or hardcoded UK spine as
+    # fallback).  Registered as graphs['ferry'] on the GraphManager so both the
+    # Router and the Visualiser can access it.  Ferry routes are always shown on
+    # the OSM map regardless of whether GTFS is loaded — they are infrastructure
+    # layers, not GTFS layers.  A 2° bbox expansion inside fetch_ferry_graph()
+    # ensures cross-sea terminals outside the drive graph area are captured.
     if progress_callback:
         progress_callback(0.155, "⛴️ Loading ferry network…")
     try:
@@ -211,11 +217,14 @@ def setup_environment(
             env.graph_manager.graphs['ferry'] = G_ferry
             logger.info(
                 "✅ Ferry graph: %d terminals, %d routes",
-                G_ferry.number_of_nodes(), G_ferry.number_of_edges() // 2,
+                G_ferry.number_of_nodes(),
+                G_ferry.number_of_edges() // 2,   # bi-directional, so halve
             )
+        else:
+            logger.warning("⚠️  Ferry graph returned None — ferry routing uses great-circle lines")
     except Exception as exc:
         logger.warning("Ferry graph load failed (non-fatal): %s", exc)
-        
+
     # ── 4. Rail graph (OpenRailMap + largest-component extraction) ────────────
     if progress_callback:
         progress_callback(0.17, "🚆 Loading rail network…")

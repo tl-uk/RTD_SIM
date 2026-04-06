@@ -233,24 +233,38 @@ class SpatialEnvironment:
     def get_rail_graph(self) -> Optional[Any]:
         """Return the loaded rail graph, or None.  Used by visualization."""
         return self.graph_manager.get_graph('rail')
-    
-    # =========================================================================
-    #  FERRY GRAPH LOADING
-    # =========================================================================
+
     def load_ferry_graph(self) -> bool:
-        from simulation.spatial.rail_network import get_or_fallback_ferry_graph
-        G = get_or_fallback_ferry_graph(self)
-        if G:
-            self.graph_manager.graphs['ferry'] = G
-            return True
-        return False
+        """
+        Load the ferry route graph from Overpass API (or hardcoded UK spine).
 
-    def get_ferry_graph(self):
+        Registers the result as graphs['ferry'] so the Router and Visualiser
+        can retrieve it via graph_manager.get_graph('ferry').  Call this from
+        environment_setup.py after the bike graph is loaded.
+
+        Returns:
+            True if a ferry graph was loaded and registered, False otherwise.
+        """
+        try:
+            from simulation.spatial.rail_network import get_or_fallback_ferry_graph
+            G_ferry = get_or_fallback_ferry_graph(self)
+            if G_ferry is not None:
+                self.graph_manager.graphs['ferry'] = G_ferry
+                logger.info(
+                    "✅ Ferry graph registered: %d terminals, %d routes",
+                    G_ferry.number_of_nodes(),
+                    G_ferry.number_of_edges() // 2,
+                )
+                return True
+            logger.warning("load_ferry_graph: returned None")
+            return False
+        except Exception as exc:
+            logger.error("load_ferry_graph failed: %s", exc)
+            return False
+
+    def get_ferry_graph(self) -> Optional[Any]:
+        """Return the ferry route graph, or None if not yet loaded."""
         return self.graph_manager.get_graph('ferry')
-
-    # =========================================================================
-    # GTFS TRANSIT LOADING
-    # =========================================================================
 
     def load_gtfs_graph(
         self,

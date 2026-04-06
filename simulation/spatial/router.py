@@ -234,6 +234,252 @@ class Router:
 
         return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
+    def compute_route_with_segments(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy_context: Optional[Dict] = None,
+    ) -> Tuple[List[Tuple[float, float]], List[Dict]]:
+        """
+        Compute a route and return it together with per-segment mode metadata.
+
+        This is the preferred API for agents that need multi-modal colour-coding
+        on the map.  The BDI planner should store ``route_segments`` on the
+        agent state so visualization.py can split PathLayer per segment.
+
+        Returns
+        -------
+        (flat_route, segments)
+
+        flat_route  : List[Tuple[float, float]] — same as compute_route()
+        segments    : List[dict], each with keys:
+                        path   — List[Tuple[float, float]] for this segment
+                        mode   — transport mode string (e.g. 'walk', 'local_train')
+                        label  — human-readable label (e.g. 'ScotRail', 'walk')
+
+        For non-PT modes (car, ev, bike, walk) segments == [{'path': route, 'mode': mode}].
+        For intermodal rail: access-walk / rail / egress-walk segments.
+        For GTFS transit:    access-walk / transit / egress-walk segments.
+        For ferry:           access-walk / ferry / egress-walk segments.
+
+        Callers may always fall back to the flat_route when segments is empty.
+        """
+        if not (is_valid_lonlat(origin) and is_valid_lonlat(dest)):
+            return [], []
+
+        policy = {**_DEFAULT_POLICY, **(policy_context or {})}
+
+        # ── Rail intermodal ────────────────────────────────────────────────────
+        if mode in _RAIL_MODES:
+            return self._intermodal_with_segments(agent_id, origin, dest, mode, policy)
+
+        # ── Ferry ──────────────────────────────────────────────────────────────
+        if mode in ('ferry_diesel', 'ferry_electric'):
+            return self._ferry_with_segments(agent_id, origin, dest, mode, policy)
+
+        # ── GTFS transit (bus, tram) ───────────────────────────────────────────
+        if mode == 'tram' or mode == 'bus':
+            return self._gtfs_with_segments(agent_id, origin, dest, mode, policy)
+
+        # ── All other modes: single segment ───────────────────────────────────
+        route = self.compute_route(agent_id, origin, dest, mode, policy_context)
+        segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
+        return route, segments
+
+    def _intermodal_with_segments(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> Tuple[List, List]:
+        """Intermodal rail route split into (walk, rail, walk) segments."""
+        # Compute the full route; then re-derive segment boundaries from access
+        # and egress leg lengths.
+        rail_graph = self._get_rail_graph()
+        if rail_graph is None:
+            route = self._get_invalid_route(origin, dest)
+            return route, []
+
+        orig_node = self._nearest_rail_node(origin, rail_graph)
+        dest_node = self._nearest_rail_node(dest,   rail_graph)
+        if orig_node is None or dest_node is None or orig_node == dest_node:
+            return [], []
+
+        orig_coord = (float(rail_graph.nodes[orig_node].get('x', 0)),
+                      float(rail_graph.nodes[orig_node].get('y', 0)))
+        dest_coord = (float(rail_graph.nodes[dest_node].get('x', 0)),
+                      float(rail_graph.nodes[dest_node].get('y', 0)))
+
+        if (haversine_km(origin, orig_coord) > self._MAX_ACCESS_KM
+                or haversine_km(dest_coord, dest) > self._MAX_ACCESS_KM):
+            return [], []
+
+        access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_coord)
+        egress_leg = self._compute_access_leg(agent_id + '_egress', dest_coord, dest)
+
+        try:
+            wk = self._apply_generalised_weights(rail_graph, mode, policy)
+            rail_nodes = nx.shortest_path(rail_graph, orig_node, dest_node, weight=wk)
+            rail_coords = self._interpolate(
+                self._extract_geometry(rail_graph, rail_nodes), max_segment_km=0.2,
+            )
+        except Exception:
+            return [], []
+
+        segments = []
+        if access_leg and len(access_leg) >= 2:
+            segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to station'})
+        if rail_coords and len(rail_coords) >= 2:
+            segments.append({'path': rail_coords, 'mode': mode, 'label': mode.replace('_', ' ').title()})
+        if egress_leg and len(egress_leg) >= 2:
+            segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from station'})
+
+        full_route = (
+            (access_leg[:-1] if access_leg else [])
+            + rail_coords
+            + (egress_leg[1:] if len(egress_leg) > 1 else [])
+        )
+        return full_route, segments
+
+    def _ferry_with_segments(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> Tuple[List, List]:
+        """Ferry route split into (walk to port, ferry, walk from port) segments."""
+        G_ferry = self.graph_manager.get_graph('ferry')
+        ferry_coords: List = []
+
+        if G_ferry is not None and G_ferry.number_of_nodes() > 1:
+            try:
+                import osmnx as ox
+                orig_node = ox.distance.nearest_nodes(G_ferry, origin[0], origin[1])
+                dest_node = ox.distance.nearest_nodes(G_ferry, dest[0],   dest[1])
+                if orig_node != dest_node:
+                    path_nodes = nx.shortest_path(G_ferry, orig_node, dest_node, weight='length')
+                    for i in range(len(path_nodes) - 1):
+                        u, v = path_nodes[i], path_nodes[i + 1]
+                        edge_map = G_ferry.get_edge_data(u, v) or {}
+                        best_shape: list = []
+                        for ed in edge_map.values():
+                            s = ed.get('shape_coords') or []
+                            if len(s) > len(best_shape):
+                                best_shape = s
+                        if best_shape:
+                            ferry_coords.extend(best_shape if i == 0 else best_shape[1:])
+                        else:
+                            ux = G_ferry.nodes[u].get('x', 0)
+                            uy = G_ferry.nodes[u].get('y', 0)
+                            vx = G_ferry.nodes[v].get('x', 0)
+                            vy = G_ferry.nodes[v].get('y', 0)
+                            if i == 0:
+                                ferry_coords.append((ux, uy))
+                            ferry_coords.append((vx, vy))
+                    ferry_coords = self._interpolate(ferry_coords, max_segment_km=0.2)
+            except Exception as exc:
+                logger.debug("Ferry segment routing failed: %s", exc)
+
+        if not ferry_coords:
+            ferry_coords = self._interpolate([origin, dest], max_segment_km=0.2)
+
+        # Access/egress: walk to/from nearest terminal
+        if G_ferry is not None and G_ferry.number_of_nodes() > 1:
+            try:
+                import osmnx as ox
+                orig_n   = ox.distance.nearest_nodes(G_ferry, origin[0], origin[1])
+                dest_n   = ox.distance.nearest_nodes(G_ferry, dest[0],   dest[1])
+                orig_pos = (G_ferry.nodes[orig_n].get('x', origin[0]),
+                            G_ferry.nodes[orig_n].get('y', origin[1]))
+                dest_pos = (G_ferry.nodes[dest_n].get('x', dest[0]),
+                            G_ferry.nodes[dest_n].get('y', dest[1]))
+                access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_pos)
+                egress_leg = self._compute_access_leg(agent_id + '_egress', dest_pos, dest)
+            except Exception:
+                access_leg = egress_leg = []
+        else:
+            access_leg = egress_leg = []
+
+        segments = []
+        if access_leg and len(access_leg) >= 2:
+            segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to port'})
+        if ferry_coords and len(ferry_coords) >= 2:
+            label = 'Ferry (electric)' if 'electric' in mode else 'Ferry'
+            segments.append({'path': ferry_coords, 'mode': mode, 'label': label})
+        if egress_leg and len(egress_leg) >= 2:
+            segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from port'})
+
+        full_route = (
+            (access_leg[:-1] if access_leg else [])
+            + ferry_coords
+            + (egress_leg[1:] if len(egress_leg) > 1 else [])
+        )
+        if not full_route:
+            full_route = ferry_coords
+        return full_route, segments
+
+    def _gtfs_with_segments(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> Tuple[List, List]:
+        """GTFS route split into (walk, transit, walk) segments."""
+        # Compute full route via standard GTFS path; we reconstruct the access
+        # and egress legs to determine split points.
+        G_transit = self._get_transit_graph()
+        if G_transit is None:
+            route = self._transit_fallback(agent_id, origin, dest, mode, policy)
+            segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
+            return route, segments
+
+        try:
+            from simulation.gtfs.gtfs_graph import GTFSGraph
+            builder = GTFSGraph(None)
+            origin_stop = builder.nearest_stop(G_transit, origin, mode_filter=mode, max_distance_m=2000)
+            dest_stop   = builder.nearest_stop(G_transit, dest,   mode_filter=mode, max_distance_m=2000)
+        except Exception:
+            route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+            segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
+            return route, segments
+
+        if not origin_stop or not dest_stop or origin_stop == dest_stop:
+            route = self._transit_fallback(agent_id, origin, dest, mode, policy)
+            segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
+            return route, segments
+
+        first_d     = G_transit.nodes.get(origin_stop, {})
+        first_coord = (float(first_d.get('x', origin[0])), float(first_d.get('y', origin[1])))
+        last_d      = G_transit.nodes.get(dest_stop, {})
+        last_coord  = (float(last_d.get('x', dest[0])), float(last_d.get('y', dest[1])))
+
+        access_leg  = self._compute_access_leg(agent_id + '_access', origin, first_coord)
+        egress_leg  = self._compute_access_leg(agent_id + '_egress', last_coord, dest)
+        transit_route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+
+        # Extract the transit-only portion (strip access/egress) for clean segment
+        access_len  = len(access_leg) - 1 if access_leg else 0
+        egress_len  = len(egress_leg) - 1 if egress_leg else 0
+        transit_mid = transit_route[access_len: len(transit_route) - egress_len] if transit_route else transit_route
+
+        segments = []
+        if access_leg and len(access_leg) >= 2:
+            segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop'})
+        if transit_mid and len(transit_mid) >= 2:
+            segments.append({'path': transit_mid, 'mode': mode, 'label': mode.replace('_', ' ').title()})
+        if egress_leg and len(egress_leg) >= 2:
+            segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop'})
+
+        return transit_route, segments
+
     def compute_alternatives(
         self,
         agent_id: str,
@@ -559,73 +805,98 @@ class Router:
         if mode == 'tram':
             return self._compute_intermodal_route(agent_id, origin, dest, mode, policy)
         if mode in ('ferry_diesel', 'ferry_electric'):
-            # Great-circle straight line — visible on map, honest about lack of schedule data
+            # Provide a visible great-circle line — never silent [] for ferry.
             logger.debug("%s: ferry — no GTFS/graph, using great-circle interpolation", agent_id)
             return self._interpolate([origin, dest], max_segment_km=0.2)
         return self._compute_road_route(agent_id, origin, dest, mode, policy)
-    
-    # =========================================================================
-    # FERRY ROUTING
-    # =========================================================================
-    def _compute_ferry_route(self, agent_id, origin, dest, mode, policy):
+
+    def _compute_ferry_route(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy: Dict,
+    ) -> List[Tuple[float, float]]:
         """
-        Ferry route: GTFS → ferry graph → great-circle interpolation.
-        Never returns [] — always provides at least a visible straight line.
+        Three-tier ferry route.
+
+        1. GTFS transit graph (if loaded and contains ferry service edges).
+        2. Ferry graph from Overpass API / hardcoded UK spine.
+        3. Great-circle interpolation — always produces a visible line.
+
+        Ferry routes are NEVER returned as [] — the great-circle fallback
+        ensures ferry agents are always visible on the map even when no
+        GTFS or graph data is available.
         """
-        # 1. Try GTFS if available
+        # ── Tier 1: GTFS transit graph ────────────────────────────────────────
         G_transit = self._get_transit_graph()
         if G_transit is not None:
-            route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
-            if route and len(route) >= 2:
-                return route
+            try:
+                gtfs_route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+                if gtfs_route and len(gtfs_route) >= 2:
+                    return gtfs_route
+            except Exception:
+                pass
 
-        # 2. Try ferry graph (Overpass or hardcoded spine)
+        # ── Tier 2: Ferry graph (Overpass or hardcoded spine) ─────────────────
         G_ferry = self.graph_manager.get_graph('ferry')
         if G_ferry is not None and G_ferry.number_of_nodes() > 1:
             try:
-                import networkx as nx
-                from simulation.spatial.coordinate_utils import haversine_km
                 import osmnx as ox
-                # Snap to nearest ferry terminal
-                orig_node = ox.distance.nearest_nodes(G_ferry,
-                    origin[0], origin[1])
-                dest_node = ox.distance.nearest_nodes(G_ferry,
-                    dest[0], dest[1])
+                orig_node = ox.distance.nearest_nodes(G_ferry, origin[0], origin[1])
+                dest_node = ox.distance.nearest_nodes(G_ferry, dest[0],   dest[1])
                 if orig_node != dest_node:
                     path_nodes = nx.shortest_path(G_ferry, orig_node, dest_node, weight='length')
-                    coords = []
+                    coords: List[Tuple[float, float]] = []
                     for i in range(len(path_nodes) - 1):
-                        u, v = path_nodes[i], path_nodes[i+1]
-                        edge_data = G_ferry.get_edge_data(u, v)
-                        best_shape = []
-                        for ed in (edge_data or {}).values():
+                        u, v    = path_nodes[i], path_nodes[i + 1]
+                        edge_map = G_ferry.get_edge_data(u, v) or {}
+                        best_shape: list = []
+                        for ed in edge_map.values():
                             s = ed.get('shape_coords') or []
                             if len(s) > len(best_shape):
                                 best_shape = s
-                        if best_shape and len(best_shape) >= 2:
+                        if best_shape:
                             coords.extend(best_shape if i == 0 else best_shape[1:])
                         else:
-                            ux = G_ferry.nodes[u].get('x', 0)
-                            uy = G_ferry.nodes[u].get('y', 0)
-                            vx = G_ferry.nodes[v].get('x', 0)
-                            vy = G_ferry.nodes[v].get('y', 0)
+                            ux = float(G_ferry.nodes[u].get('x', 0))
+                            uy = float(G_ferry.nodes[u].get('y', 0))
+                            vx = float(G_ferry.nodes[v].get('x', 0))
+                            vy = float(G_ferry.nodes[v].get('y', 0))
                             if i == 0:
                                 coords.append((ux, uy))
                             coords.append((vx, vy))
-                    if len(coords) >= 2:
-                        logger.info("✅ %s: ferry graph route %.1fkm (%d pts)",
-                            agent_id, route_distance_km(coords), len(coords))
-                        return self._interpolate(coords, max_segment_km=0.2)
-            except Exception as exc:
-                logger.debug("Ferry graph routing failed (%s) — great-circle fallback", exc)
 
-        # 3. Great-circle interpolation (always gives a visible line)
-        logger.debug("%s: ferry great-circle fallback", agent_id)
+                    # Access leg: origin → nearest terminal (walk graph or straight line)
+                    orig_pos = (float(G_ferry.nodes[orig_node].get('x', origin[0])),
+                                float(G_ferry.nodes[orig_node].get('y', origin[1])))
+                    dest_pos = (float(G_ferry.nodes[dest_node].get('x', dest[0])),
+                                float(G_ferry.nodes[dest_node].get('y', dest[1])))
+                    access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_pos)
+                    egress_leg = self._compute_access_leg(agent_id + '_egress', dest_pos, dest)
+
+                    coords = self._interpolate(coords, max_segment_km=0.2)
+                    full: List[Tuple[float, float]] = (
+                        (access_leg[:-1] if access_leg else [])
+                        + coords
+                        + (egress_leg[1:] if len(egress_leg) > 1 else [])
+                    )
+                    if len(full) >= 2:
+                        logger.info(
+                            "✅ %s: ferry graph %.1fkm (%d pts)",
+                            agent_id, route_distance_km(full), len(full),
+                        )
+                        return full
+            except nx.NetworkXNoPath:
+                logger.debug("%s: no ferry graph path — great-circle fallback", agent_id)
+            except Exception as exc:
+                logger.debug("%s: ferry graph routing failed (%s) — great-circle fallback", agent_id, exc)
+
+        # ── Tier 3: Great-circle interpolation ───────────────────────────────
+        logger.debug("%s: ferry great-circle fallback (%.1fkm)", agent_id, haversine_km(origin, dest))
         return self._interpolate([origin, dest], max_segment_km=0.2)
 
-    # =========================================================================
-    # ACCESS LEG COMPUTATION
-    # =========================================================================
     def _compute_access_leg(
         self,
         agent_id: str,
@@ -667,13 +938,13 @@ class Router:
 
         if dist_km <= max_straight_km:
             logger.debug(
-                "%s: walk path not found (%.2fkm) — interpolated line",  # was: "walk graph absent"
+                "%s: walk path unavailable (%.2fkm) — interpolated straight line",
                 agent_id, dist_km,
             )
             return self._interpolate([origin, dest], max_segment_km=0.05)
 
         logger.debug(
-            "%s: walk graph absent, access leg %.2fkm > %.2fkm — drive proxy",
+            "%s: walk path unavailable (%.2fkm > %.2fkm) — drive proxy",
             agent_id, dist_km, max_straight_km,
         )
         drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
@@ -686,9 +957,6 @@ class Router:
         )
         return self._interpolate([origin, dest], max_segment_km=0.05)
 
-    # =========================================================================
-    # GTFS ROUTING
-    # =========================================================================
     def _compute_gtfs_route(
         self,
         agent_id: str,
