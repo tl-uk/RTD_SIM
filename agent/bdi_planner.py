@@ -562,7 +562,7 @@ class BDIPlanner:
             # carbon_tax, energy_price, boarding_penalty_min, value_of_time.
             # Without this, policy changes never reach the edge weights.
             try:
-                route = env.compute_route_with_segments(
+                route = env.compute_route(
                     agent_id=agent_id,
                     origin=origin,
                     dest=dest,
