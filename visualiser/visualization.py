@@ -100,6 +100,11 @@ _MODE_EMOJI = {
     'flight_domestic': '✈️', 'flight_electric': '✈️',
 }
 
+_PT_MODES = frozenset({
+    'bus', 'tram', 'local_train', 'intercity_train',
+    'ferry_diesel', 'ferry_electric',
+})
+
 
 def render_map(
     agent_states: List[Dict],
@@ -110,6 +115,7 @@ def render_map(
     show_gtfs: bool = False,
     show_gtfs_stops: bool = False,
     gtfs_electric_only: bool = False,
+    show_gtfs_electric_only: bool = False,
     infrastructure_manager: Optional[Any] = None,
     env: Optional[Any] = None,
     center_lon: float = -3.19,
@@ -178,10 +184,8 @@ def render_map(
         if G_transit is not None:
             try:
                 if show_gtfs:
-                    svc_layer = create_gtfs_service_layer(
-                        G_transit,
-                        show_electric_only=gtfs_electric_only,
-                    )
+                    svc_layer = create_gtfs_service_layer(G_transit, 
+                            show_electric_only=show_gtfs_electric_only)
                     if svc_layer:
                         layers.insert(0, svc_layer)
                         logger.info(
@@ -194,6 +198,40 @@ def render_map(
                         logger.info(
                             "✅ GTFS stops layer added (%d stops)", G_transit.number_of_nodes()
                         )
+                if show_rail or True:  # Ferry layer is always shown when available
+                    G_ferry = None
+                    if env is not None and hasattr(env, 'get_ferry_graph'):
+                        G_ferry = env.get_ferry_graph()
+                    if G_ferry is None and infrastructure_manager is not None:
+                        gm = getattr(infrastructure_manager, 'graph_manager', None)
+                        if gm: G_ferry = gm.get_graph('ferry')
+
+                    if G_ferry is not None:
+                        ferry_routes = []
+                        seen = set()
+                        for u, v, data in G_ferry.edges(data=True):
+                            key = (min(u,v), max(u,v))  # deduplicate bi-directional pairs
+                            if key in seen: continue
+                            seen.add(key)
+                            shape = data.get('shape_coords')
+                            if shape and len(shape) >= 2:
+                                ferry_routes.append({
+                                    'path': [[float(c[0]), float(c[1])] for c in shape],
+                                    'name': data.get('name', 'Ferry route'),
+                                })
+                        if ferry_routes:
+                            ferry_df = pd.DataFrame(ferry_routes)
+                            ferry_layer = pdk.Layer(
+                                'PathLayer',
+                                data=ferry_df,
+                                get_path='path',
+                                get_color=[0, 150, 136, 200],   # Teal
+                                width_min_pixels=2,
+                                width_max_pixels=5,
+                                dash_array=[8, 4],               # Dashed like standard maps
+                                pickable=True,
+                            )
+                            layers.insert(0, ferry_layer)  # Under all other layers
             except Exception as exc:
                 logger.warning("GTFS layer failed: %s", exc)
         elif show_gtfs:
@@ -303,43 +341,81 @@ def render_map(
             if route and len(route) >= 2:
                 mode = state.get('mode', 'walk')
                 agent_id = state.get('agent_id', f'agent_{idx}')
+
+                if mode not in _PT_MODES:
+                    continue  # Only show routes for public transport agents
                 
-                try:
-                    path = [[float(pt[0]), float(pt[1])] for pt in route 
-                           if isinstance(pt, (list, tuple)) and len(pt) == 2]
+                # Use route_segments if available (multi-modal colour coding)
+                route_segments = state.get('route_segments')
+                if route_segments:
+                    for seg in route_segments:
+                        seg_mode = seg.get('mode', mode)
+                        seg_path = seg.get('path', [])
+                        if len(seg_path) >= 2:
+                            color = MODE_COLORS_RGB.get(seg_mode, [128, 128, 128])
+                            route_data.append({...})
+                else:
+
+                    try:
+                        path = [[float(pt[0]), float(pt[1])] for pt in route 
+                            if isinstance(pt, (list, tuple)) and len(pt) == 2]
+                        
+                        if len(path) >= 2:
+                            color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+                            
+                            # Add color variation to distinguish overlapping routes
+                            # When many agents use same mode, subtle variations make routes visible
+                            variation = (idx % 12) * 10  # 0-110 variation
+                            r = min(255, max(40, color_rgb[0] + (variation if idx % 2 == 0 else -variation//2)))
+                            g = min(255, max(40, color_rgb[1] + (variation if idx % 3 == 1 else -variation//2)))
+                            b = min(255, max(40, color_rgb[2] + (variation if idx % 4 == 2 else -variation//2)))
+                            
+                            mode_label = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
+                            route_tooltip = (
+                                f'<b>{agent_id}</b><br/>'
+                                f'Route: {mode_label}<br/>'
+                                f'{len(path)} waypoints'
+                            )
+                            route_data.append({
+                                'path': path,
+                                'r': int(r),
+                                'g': int(g),
+                                'b': int(b),
+                                'mode': mode,
+                                'agent_id': agent_id,
+                                'tooltip_html': route_tooltip,
+                            })
+                            
+                            # Log first 3 routes for debugging
+                            if idx < 3:
+                                logger.info(f"🔍 Route {idx}: agent={agent_id}, mode={mode}, points={len(path)}, color=[{r},{g},{b}]")
                     
-                    if len(path) >= 2:
-                        color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
-                        
-                        # Add color variation to distinguish overlapping routes
-                        # When many agents use same mode, subtle variations make routes visible
-                        variation = (idx % 12) * 10  # 0-110 variation
-                        r = min(255, max(40, color_rgb[0] + (variation if idx % 2 == 0 else -variation//2)))
-                        g = min(255, max(40, color_rgb[1] + (variation if idx % 3 == 1 else -variation//2)))
-                        b = min(255, max(40, color_rgb[2] + (variation if idx % 4 == 2 else -variation//2)))
-                        
-                        mode_label = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
-                        route_tooltip = (
-                            f'<b>{agent_id}</b><br/>'
-                            f'Route: {mode_label}<br/>'
-                            f'{len(path)} waypoints'
-                        )
-                        route_data.append({
-                            'path': path,
-                            'r': int(r),
-                            'g': int(g),
-                            'b': int(b),
-                            'mode': mode,
-                            'agent_id': agent_id,
-                            'tooltip_html': route_tooltip,
-                        })
-                        
-                        # Log first 3 routes for debugging
-                        if idx < 3:
-                            logger.info(f"🔍 Route {idx}: agent={agent_id}, mode={mode}, points={len(path)}, color=[{r},{g},{b}]")
-                
-                except Exception as e:
-                    logger.warning(f"⚠️  Route {idx} failed: {e}")
+                    except Exception as e:
+                        logger.warning(f"⚠️  Route {idx} failed: {e}")
+
+                    origin_name = state.get('origin_name', '')
+                    dest_name = state.get('destination_name', '')
+                    service = state.get('service_id', '')
+                    dest_stop = state.get('destination_stop', '')
+                    
+                    route_info = ''
+                    if service:
+                        route_info += f'<br/>🚌 Service: {service}'
+                    if dest_stop:
+                        route_info += f'<br/>📍 To: {dest_stop}'
+                    origin_dest = ''
+                    if origin_name or dest_name:
+                        origin_dest = f'<br/>🏠 From: {origin_name or "?"}<br/>🏁 To: {dest_name or "?"}'
+
+                    tooltip_html = (
+                        f'<b>{agent_id}</b><br/>'
+                        f'Mode: {mode_label}<br/>'
+                        f'Status: {status_html}'
+                        f'{origin_dest}'
+                        f'{route_info}<br/>'
+                        f'Distance: {distance:.1f} km<br/>'
+                        f'Emissions: {emissions:.0f} g CO₂'
+                    )
         
         logger.info(f"📊 ROUTE SUMMARY: Created {len(route_data)} route entries from {len(agent_states)} agents")
         

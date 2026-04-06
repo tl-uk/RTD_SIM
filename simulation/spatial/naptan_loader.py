@@ -1,96 +1,207 @@
 """
 simulation/spatial/naptan_loader.py
 
-NaPTAN (National Public Transport Access Nodes) loader for Phase 10b.
+NaPTAN (National Public Transport Access Nodes) loader.
 
-NaPTAN is the UK government's authoritative dataset of every station, bus stop,
-tram stop, and ferry terminal.  It provides the "Transfer Nodes" that stitch
-together the road and rail graphs in the layered super-graph architecture.
+NaPTAN is the UK government's authoritative dataset of every rail station,
+bus stop, tram stop, and ferry terminal (~430,000 stops total; ~2,500 rail,
+metro, tram, and ferry stops relevant to RTD_SIM intermodal routing).
 
-Why NaPTAN matters for RTD_SIM
-───────────────────────────────
-The layered super-graph approach (road + rail + bus + tram, connected only
-at Transfer Nodes) is the architecture required to model genuine modal shift
-(the 'S' in ASI).  An agent's cost calculation for Drive→Rail+Walk must include:
+DATA DIRECTORY
+──────────────
+NaPTAN data lives in the project tree, not the user home directory:
 
-    drive cost (origin → Park & Ride)
-  + walk cost  (P&R → platform)
-  + rail cost  (platform → destination station)
-  + walk cost  (destination station → final destination)
+    RTD_SIM/
+    └── data/
+        └── naptan/
+            ├── NAPTAN_National_Stops.csv   ← 102 MB DfT bulk download
+            ├── NPTG_Localities.csv         ←   5 MB locality name lookup
+            └── cache/
+                ├── national.json           ← full UK cache (auto-built)
+                └── <atco_codes>.json       ← per-region cache files
 
-NaPTAN gives us the exact WGS84 coordinates of every UK platform / stop so
-the Transfer Nodes are placed on real geography, not approximated centroids.
+The cache directory is created automatically.  The CSV files must be placed
+manually (or are downloaded automatically on first run).
 
-Data sources
-────────────
-• NaPTAN: https://naptan.api.dft.gov.uk/v1/access-nodes
-  (Department for Transport open data, CSV / JSON)
-• OpenRailMap / OSM: rail attributes (electrification, max speed, signal type)
-• OS MRN (Ordnance Survey Multi-modal Routing Network): pre-connected
-  road+rail+ferry graph — the ideal backbone for Phase 10c.
+LOADING PRIORITY
+────────────────
+  1. Per-region disk cache  (data/naptan/cache/<codes>.json, 30-day TTL)
+  2. National disk cache    (data/naptan/cache/national.json, 30-day TTL)
+  3. Local CSV files        (data/naptan/NAPTAN_National_Stops.csv)
+     Also looks in  ~/Dev/Python/GTFS/ for pre-downloaded CSVs.
+  4. DfT HTTPS API — targeted by ATCO area codes for the simulation bbox
+     Endpoint: GET /v1/access-nodes?atcoAreaCodes=629,630&dataFormat=csv
+     This downloads only the relevant region (~1-5 MB vs ~102 MB national).
+  5. DfT HTTPS API — national fallback (no ATCO codes — downloads all ~102 MB)
+  6. rail_spine fallback    (hardcoded UK stations — always works offline)
 
-Current implementation
-──────────────────────
-Phase 10b stub:  download_naptan() fetches the DfT NaPTAN API and returns
-a filtered list of rail station stop points as (name, crs, lon, lat) tuples.
+ATCO AREA CODE AUTO-SELECTION
+──────────────────────────────
+When the simulation bbox is known (derived from the OSMnx drive graph),
+the loader selects the ATCO area codes whose geographic centroids fall
+inside the bbox.  Edinburgh → codes 629 (Lothian), 630 (Fife), 710 (Central).
+Highlands → codes 659 (Highland), 669 (Western Isles), 679 (Orkney), etc.
 
-This is used by the Router to:
-  1. Snap agent origins/destinations to their nearest NaPTAN transfer node.
-  2. Build Transfer Edges between the rail spine and the road graph.
+This means a Highland & Islands simulation downloads only the ~3,000 stops
+for that region rather than all 430,000 national stops.
 
-Caching
-───────
-NaPTAN data changes infrequently (new stations, renaming).  We cache the
-download to ~/.rtd_sim_cache/naptan/ and refresh only when the cache is older
-than CACHE_MAX_AGE_DAYS (default 30).
+SSL ISSUES ON macOS
+─────────────────────
+macOS Python often lacks the intermediate cert for naptan.api.dft.gov.uk.
+Fix options (in order of preference):
+  A. Place the CSV in data/naptan/ (then no API call is ever made).
+  B. Run:  /Applications/Python 3.x/Install Certificates.command
+  C. Set env var:  NAPTAN_SKIP_SSL_VERIFY=1  (disables cert check for this loader)
+
+DfT API REFERENCE
+──────────────────
+  GET /v1/access-nodes?atcoAreaCodes=629,659&dataFormat=csv
+  GET /v1/access-nodes?dataFormat=csv              ← national (102 MB)
+  GET /v1/nptg/localities                          ← locality names (5 MB CSV)
+
+UK ATCO AREA CODES
+───────────────────
+  629 Lothian (Edinburgh)      659 Highland (Inverness/Fort William)
+  630 Fife                     669 Western Isles (Stornoway)
+  639 Tayside (Dundee/Perth)   679 Orkney
+  649 Grampian (Aberdeen)      689 Shetland
+  610 Strathclyde (Glasgow)    699 Dumfries & Galloway
+  710 Central (Stirling)       700 Borders
+  720 Wales                    010 Greater London
+  (Full list in ATCO_AREAS below)
 """
 
 from __future__ import annotations
 
 import csv
+import io
 import json
 import logging
 import math
+import os
+import ssl
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ── Cache configuration ────────────────────────────────────────────────────────
-_CACHE_DIR     = Path.home() / ".rtd_sim_cache" / "naptan"
-_CACHE_FILE    = _CACHE_DIR / "rail_stops.json"
+# ── Project-local data directory ───────────────────────────────────────────────
+# naptan_loader.py lives at simulation/spatial/naptan_loader.py.
+# Project root is therefore three parents up.
+_HERE         = Path(__file__).resolve()
+_PROJECT_ROOT = _HERE.parent.parent.parent   # RTD_SIM/
+
+_DATA_DIR     = _PROJECT_ROOT / "data" / "naptan"
+_CACHE_DIR    = _DATA_DIR / "cache"
+_NATIONAL_CSV = _DATA_DIR / "NAPTAN_National_Stops.csv"
+_NPTG_CSV     = _DATA_DIR / "NPTG_Localities.csv"
+
+# Additional search paths for pre-existing CSV files outside the project.
+_CSV_SEARCH_PATHS: List[Path] = [
+    _NATIONAL_CSV,
+    Path.home() / "Dev" / "Python" / "GTFS" / "NAPTAN_National_Stops.csv",
+    Path("/Users/theo/Dev/Python/GTFS/NAPTAN_National_Stops.csv"),
+]
+_NPTG_SEARCH_PATHS: List[Path] = [
+    _NPTG_CSV,
+    Path.home() / "Dev" / "Python" / "GTFS" / "NPTG_Localities.csv",
+    Path("/Users/theo/Dev/Python/GTFS/NPTG_Localities.csv"),
+]
+
 CACHE_MAX_AGE_DAYS = 30
 
-# ── NaPTAN API (DfT open data) ─────────────────────────────────────────────────
-# As of 2024 the DfT provides NaPTAN via a REST API.
-# The CSV bulk download is at:
-#   https://naptan.api.dft.gov.uk/v1/access-nodes?dataFormat=csv
-# The JSON endpoint is:
-#   https://naptan.api.dft.gov.uk/v1/access-nodes?dataFormat=json
-_NAPTAN_API_URL = "https://naptan.api.dft.gov.uk/v1/access-nodes"
+# ── DfT API ────────────────────────────────────────────────────────────────────
+_NAPTAN_API_BASE  = "https://naptan.api.dft.gov.uk/v1"
+_ACCESS_NODES_URL = f"{_NAPTAN_API_BASE}/access-nodes"
+_NPTG_LOCAL_URL   = f"{_NAPTAN_API_BASE}/nptg/localities"
 
-# ── Station type filter ────────────────────────────────────────────────────────
-# NaPTAN StopType codes for rail / metro / ferry / tram stops
+# ── StopType filter ────────────────────────────────────────────────────────────
 _RAIL_STOP_TYPES = frozenset({
     'RLY',   # Railway station entrance / stop
     'MET',   # Metro / underground station
     'FER',   # Ferry terminal
     'TMU',   # Tram / metro / underground stop
     'LCB',   # Light rail / cable car
-    'BCE',   # Bus / coach station entrance (for intermodal)
+    'BCE',   # Bus / coach station entrance (intermodal hubs)
 })
 
+# ── ATCO area code registry ────────────────────────────────────────────────────
+# Each entry: code -> {name, centroid_lon, centroid_lat}
+# Centroids are approximate geographic centres of each administrative area.
+# Used to auto-select relevant codes from the simulation bbox.
+ATCO_AREAS: Dict[str, Dict] = {
+    # Scotland
+    '610': {'name': 'Strathclyde (Glasgow)',      'lon': -4.25,  'lat': 55.86},
+    '629': {'name': 'Lothian (Edinburgh)',         'lon': -3.19,  'lat': 55.95},
+    '630': {'name': 'Fife',                        'lon': -3.15,  'lat': 56.22},
+    '639': {'name': 'Tayside (Dundee/Perth)',      'lon': -3.20,  'lat': 56.45},
+    '649': {'name': 'Grampian (Aberdeen)',         'lon': -2.09,  'lat': 57.14},
+    '659': {'name': 'Highland (Inverness/FW)',     'lon': -4.75,  'lat': 57.50},
+    '669': {'name': 'Western Isles (Stornoway)',   'lon': -6.38,  'lat': 58.21},
+    '679': {'name': 'Orkney',                      'lon': -3.10,  'lat': 58.96},
+    '689': {'name': 'Shetland',                    'lon': -1.30,  'lat': 60.30},
+    '699': {'name': 'Dumfries & Galloway',         'lon': -3.95,  'lat': 55.07},
+    '700': {'name': 'Scottish Borders',            'lon': -2.80,  'lat': 55.55},
+    '710': {'name': 'Central (Stirling/Falkirk)',  'lon': -3.94,  'lat': 56.12},
+    # Wales
+    '720': {'name': 'Wales',                       'lon': -3.70,  'lat': 52.10},
+    # North England
+    '070': {'name': 'Tyne & Wear (Newcastle)',     'lon': -1.61,  'lat': 54.97},
+    '110': {'name': 'Northumberland',              'lon': -1.95,  'lat': 55.20},
+    '120': {'name': 'Durham',                      'lon': -1.58,  'lat': 54.78},
+    '130': {'name': 'Tees Valley',                 'lon': -1.22,  'lat': 54.57},
+    '030': {'name': 'Greater Manchester',          'lon': -2.23,  'lat': 53.48},
+    '040': {'name': 'West Yorkshire',              'lon': -1.55,  'lat': 53.80},
+    '050': {'name': 'South Yorkshire',             'lon': -1.47,  'lat': 53.38},
+    '060': {'name': 'Merseyside',                  'lon': -2.98,  'lat': 53.41},
+    '140': {'name': 'Humber (Hull)',               'lon': -0.33,  'lat': 53.74},
+    # Midlands
+    '020': {'name': 'West Midlands',               'lon': -1.90,  'lat': 52.48},
+    '150': {'name': 'East Midlands',               'lon': -1.12,  'lat': 52.94},
+    '160': {'name': 'Nottinghamshire',             'lon': -1.16,  'lat': 53.00},
+    '170': {'name': 'Derbyshire',                  'lon': -1.47,  'lat': 53.10},
+    '230': {'name': 'Leicestershire',              'lon': -1.13,  'lat': 52.63},
+    # East England
+    '240': {'name': 'Norfolk',                     'lon':  1.30,  'lat': 52.66},
+    '250': {'name': 'Suffolk',                     'lon':  1.00,  'lat': 52.24},
+    '260': {'name': 'Cambridgeshire',              'lon':  0.12,  'lat': 52.20},
+    '290': {'name': 'Essex',                       'lon':  0.47,  'lat': 51.74},
+    # South / London
+    '010': {'name': 'Greater London',              'lon': -0.12,  'lat': 51.51},
+    '300': {'name': 'Kent',                        'lon':  0.52,  'lat': 51.28},
+    '310': {'name': 'East Sussex',                 'lon':  0.27,  'lat': 50.91},
+    '320': {'name': 'West Sussex',                 'lon': -0.46,  'lat': 50.93},
+    '330': {'name': 'Surrey',                      'lon': -0.40,  'lat': 51.26},
+    '340': {'name': 'Hampshire',                   'lon': -1.30,  'lat': 51.07},
+    '350': {'name': 'Berkshire',                   'lon': -1.10,  'lat': 51.46},
+    '360': {'name': 'Oxfordshire',                 'lon': -1.26,  'lat': 51.75},
+    '430': {'name': 'Gloucestershire',             'lon': -2.08,  'lat': 51.86},
+    '440': {'name': 'Bristol',                     'lon': -2.60,  'lat': 51.45},
+    '400': {'name': 'Devon',                       'lon': -3.79,  'lat': 50.72},
+    '410': {'name': 'Cornwall',                    'lon': -4.70,  'lat': 50.32},
+}
 
-# ── NaPTAN stop dataclass ──────────────────────────────────────────────────────
+
+# ── NaPTAN stop record ─────────────────────────────────────────────────────────
 
 class NaptanStop:
     """Lightweight NaPTAN stop record."""
     __slots__ = ('atco_code', 'common_name', 'stop_type',
                  'lon', 'lat', 'crs_code', 'status')
 
-    def __init__(self, atco_code: str, common_name: str, stop_type: str,
-                 lon: float, lat: float, crs_code: str = '', status: str = 'act'):
+    def __init__(
+        self,
+        atco_code:   str,
+        common_name: str,
+        stop_type:   str,
+        lon:         float,
+        lat:         float,
+        crs_code:    str = '',
+        status:      str = 'act',
+    ):
         self.atco_code   = atco_code
         self.common_name = common_name
         self.stop_type   = stop_type
@@ -116,181 +227,392 @@ class NaptanStop:
             atco_code   = d['atco_code'],
             common_name = d['common_name'],
             stop_type   = d['stop_type'],
-            lon         = d['lon'],
-            lat         = d['lat'],
+            lon         = float(d['lon']),
+            lat         = float(d['lat']),
             crs_code    = d.get('crs_code', ''),
             status      = d.get('status', 'act'),
         )
 
     def __repr__(self) -> str:
-        return (f"NaptanStop({self.common_name!r}, type={self.stop_type}, "
-                f"lon={self.lon:.4f}, lat={self.lat:.4f})")
+        return (
+            f"NaptanStop({self.common_name!r}, type={self.stop_type}, "
+            f"lon={self.lon:.4f}, lat={self.lat:.4f})"
+        )
 
 
-# ── Download and parse ─────────────────────────────────────────────────────────
+# ── Public API ─────────────────────────────────────────────────────────────────
 
 def download_naptan(
-    bbox: Optional[Tuple[float, float, float, float]] = None,
-    stop_types: Optional[frozenset] = None,
+    bbox:          Optional[Tuple[float, float, float, float]] = None,
+    stop_types:    Optional[frozenset] = None,
     force_refresh: bool = False,
 ) -> List[NaptanStop]:
     """
-    Download NaPTAN rail/metro/ferry stop data.
-
-    Results are cached to disk for CACHE_MAX_AGE_DAYS days.
-    On failure, falls back to the hardcoded Edinburgh stations from rail_spine.py.
+    Load NaPTAN rail/metro/ferry/tram stops for the simulation region.
 
     Args:
-        bbox:          Optional (north, south, east, west) spatial filter.
-                       When None, downloads all UK stops (large — ~400k rows).
-        stop_types:    NaPTAN StopType codes to include.
-                       Default: _RAIL_STOP_TYPES.
-        force_refresh: Bypass the disk cache and re-download.
+        bbox:          (north, south, east, west) spatial filter.  Used to
+                       auto-select ATCO area codes for targeted API download.
+        stop_types:    NaPTAN StopType codes (default _RAIL_STOP_TYPES).
+        force_refresh: Ignore all caches and reload from source.
 
     Returns:
         List of NaptanStop records.
     """
-    stop_types = stop_types or _RAIL_STOP_TYPES
+    stop_types  = stop_types or _RAIL_STOP_TYPES
+    _ensure_dirs()
 
-    # ── Try disk cache ─────────────────────────────────────────────────────────
-    if not force_refresh and _cache_is_fresh():
+    # Auto-select ATCO codes from bbox
+    atco_codes = _atco_codes_for_bbox(bbox) if bbox else set()
+    cache_key  = _cache_key(atco_codes)
+    cache_file = _CACHE_DIR / f"{cache_key}.json"
+
+    # ── 1 & 2: Disk cache ─────────────────────────────────────────────────────
+    if not force_refresh:
+        cached = _try_load_cache(cache_file, bbox, stop_types)
+        if cached is not None:
+            return cached
+        # Also try national cache (covers any region)
+        national_cache = _CACHE_DIR / "national.json"
+        if national_cache != cache_file:
+            cached = _try_load_cache(national_cache, bbox, stop_types)
+            if cached is not None:
+                return cached
+
+    # ── 3: Local CSV ───────────────────────────────────────────────────────────
+    csv_path  = _find_file(_CSV_SEARCH_PATHS)
+    nptg_path = _find_file(_NPTG_SEARCH_PATHS)
+
+    if csv_path:
         try:
-            stops = _load_cache()
-            if bbox:
-                stops = _filter_bbox(stops, bbox)
-            logger.info(
-                "NaPTAN: loaded %d stops from cache (bbox filter=%s)",
-                len(stops), bbox is not None,
-            )
-            return stops
+            stops = _load_from_csv(csv_path, stop_types, nptg_path)
+            if stops:
+                _save_cache(stops, _CACHE_DIR / "national.json")
+                result = _filter_bbox(stops, bbox) if bbox else stops
+                logger.info(
+                    "NaPTAN: %d/%d stops from local CSV (%s)",
+                    len(result), len(stops), csv_path.name,
+                )
+                return result
         except Exception as exc:
-            logger.warning("NaPTAN cache load failed: %s — re-downloading", exc)
+            logger.warning("NaPTAN CSV load failed (%s) — trying API", exc)
+    else:
+        logger.info(
+            "NaPTAN: no local CSV found. "
+            "Place NAPTAN_National_Stops.csv in %s to avoid API downloads.",
+            _DATA_DIR,
+        )
 
-    # ── Download from DfT API ──────────────────────────────────────────────────
+    # ── 4: DfT API — targeted by ATCO codes ───────────────────────────────────
+    if atco_codes:
+        try:
+            stops = _fetch_api_by_codes(atco_codes, stop_types, nptg_path)
+            if stops:
+                _save_cache(stops, cache_file)
+                result = _filter_bbox(stops, bbox) if bbox else stops
+                logger.info(
+                    "NaPTAN: %d stops from API (ATCO codes: %s)",
+                    len(result), ','.join(sorted(atco_codes)),
+                )
+                return result
+        except Exception as exc:
+            logger.warning(
+                "NaPTAN regional API failed (%s) — trying national download", exc
+            )
+
+    # ── 5: DfT API — national ─────────────────────────────────────────────────
     try:
-        stops = _fetch_from_api(stop_types)
+        stops = _fetch_api_national(stop_types, nptg_path)
         if stops:
-            _save_cache(stops)
-            logger.info("NaPTAN: downloaded and cached %d stops", len(stops))
-        if bbox:
-            stops = _filter_bbox(stops, bbox)
-        return stops
+            _save_cache(stops, _CACHE_DIR / "national.json")
+            result = _filter_bbox(stops, bbox) if bbox else stops
+            logger.info(
+                "NaPTAN: %d/%d stops from national API download",
+                len(result), len(stops),
+            )
+            return result
     except Exception as exc:
-        logger.error("NaPTAN download failed: %s — using rail_spine fallback", exc)
-        return _fallback_from_spine()
+        logger.error(
+            "NaPTAN national API failed: %s — using rail_spine fallback.\n"
+            "  To fix: place NAPTAN_National_Stops.csv in %s",
+            exc, _DATA_DIR,
+        )
+
+    # ── 6: rail_spine fallback ─────────────────────────────────────────────────
+    return _fallback_from_spine()
 
 
-# def _fetch_from_api(stop_types: frozenset) -> List[NaptanStop]:
-#     """Download from DfT NaPTAN API (JSON format)."""
-#     try:
-#         import urllib.request
-#         url = f"{_NAPTAN_API_URL}?dataFormat=json"
-        
-#         # HACK: User-Agent spoofing to bypass DfT firewalls, and 120s timeout for large payload
-#         headers = {
-#             'Accept': 'application/json',
-#             'User-Agent': 'RTD-SIM/1.0 (freight-decarbonisation-simulator)'
-#         }
-#         req = urllib.request.Request(url, headers=headers)
-        
-#         logger.info("Fetching NaPTAN data from DfT API (this may take up to 2 minutes)...")
-#         with urllib.request.urlopen(req, timeout=120) as resp:
-#             data = json.loads(resp.read().decode('utf-8'))
-#     except Exception as exc:
-#         raise RuntimeError(f"NaPTAN API request failed: {exc}") from exc
+# ── ATCO code selection ────────────────────────────────────────────────────────
 
-#     stops: List[NaptanStop] = []
-#     raw_list = data if isinstance(data, list) else data.get('stopPoints', [])
+def _atco_codes_for_bbox(
+    bbox:        Tuple[float, float, float, float],
+    padding_deg: float = 0.2,
+) -> Set[str]:
+    """
+    Return ATCO area codes whose centroids fall within the bbox.
 
-#     for item in raw_list:
-#         stop_type = item.get('stopType', '')
-#         if stop_type not in stop_types:
-#             continue
-#         status = item.get('status', 'act')
-#         if status not in ('act', 'active'):
-#             continue
-#         try:
-#             lon = float(item.get('longitude', item.get('lon', 0)))
-#             lat = float(item.get('latitude',  item.get('lat', 0)))
-#         except (TypeError, ValueError):
-#             continue
-#         if lon == 0 and lat == 0:
-#             continue
+    Adds padding_deg to each edge so that areas just outside the drive
+    graph boundary (e.g. Fife when simulating Edinburgh) are included.
+    """
+    north, south, east, west = bbox
+    north += padding_deg
+    south -= padding_deg
+    east  += padding_deg
+    west  -= padding_deg
 
-#         stops.append(NaptanStop(
-#             atco_code   = item.get('atcoCode', ''),
-#             common_name = item.get('commonName', item.get('name', '')),
-#             stop_type   = stop_type,
-#             lon         = lon,
-#             lat         = lat,
-#             crs_code    = item.get('crsCode', ''),
-#             status      = status,
-#         ))
+    codes: Set[str] = set()
+    for code, info in ATCO_AREAS.items():
+        if (south <= info['lat'] <= north
+                and west <= info['lon'] <= east):
+            codes.add(code)
 
-#     return stops
-def _fetch_from_api(stop_types: frozenset) -> List[NaptanStop]:
-    """Download from DfT NaPTAN API (CSV format - much more stable than JSON)."""
-    import urllib.request
-    import csv
-    import io
-    
+    if codes:
+        names = ', '.join(ATCO_AREAS[c]['name'] for c in sorted(codes))
+        logger.info("NaPTAN: ATCO codes %s (%s)", sorted(codes), names)
+    else:
+        logger.debug(
+            "NaPTAN: no ATCO centroids in bbox — will use national dataset"
+        )
+    return codes
+
+
+def get_atco_codes_for_place(place_name: str) -> List[str]:
+    """
+    Return suggested ATCO codes for a named place.
+
+    Supports named groupings: 'Scotland', 'Highlands', 'Highlands and Islands',
+    'Edinburgh', 'Glasgow', 'Aberdeen', 'Dundee', 'Inverness', 'Fife',
+    'London', 'Wales'.
+
+    Also does a fuzzy substring match on ATCO_AREAS names for other places.
+    """
+    name_lower = place_name.lower()
+    _GROUPS: Dict[str, List[str]] = {
+        'highlands and islands': ['659', '669', '679', '689', '649'],
+        'highlands':             ['659', '669', '679', '689'],
+        'scotland':              ['610', '629', '630', '639', '649',
+                                  '659', '669', '679', '689', '699', '700', '710'],
+        'edinburgh':             ['629'],
+        'glasgow':               ['610'],
+        'aberdeen':              ['649'],
+        'dundee':                ['639'],
+        'inverness':             ['659'],
+        'fife':                  ['630'],
+        'london':                ['010'],
+        'wales':                 ['720'],
+        'yorkshire':             ['040', '050'],
+        'manchester':            ['030'],
+        'birmingham':            ['020'],
+        'bristol':               ['440'],
+    }
+    for group_key, group_codes in _GROUPS.items():
+        if group_key in name_lower:
+            return group_codes
+
+    # Fallback: substring match on individual area names
+    return [
+        code for code, info in ATCO_AREAS.items()
+        if name_lower in info['name'].lower()
+    ]
+
+
+# ── API fetchers ───────────────────────────────────────────────────────────────
+
+def _fetch_api_by_codes(
+    codes:      Set[str],
+    stop_types: frozenset,
+    nptg_path:  Optional[Path] = None,
+) -> List[NaptanStop]:
+    """Download NaPTAN for specific ATCO area codes via the DfT CSV endpoint."""
+    codes_param = ','.join(sorted(codes))
+    url = f"{_ACCESS_NODES_URL}?atcoAreaCodes={codes_param}&dataFormat=csv"
+    logger.info(
+        "NaPTAN: fetching from DfT API (ATCO codes: %s)…", codes_param
+    )
+    data = _api_get(url)
+    return _parse_csv_bytes(data, stop_types, nptg_path)
+
+
+def _fetch_api_national(
+    stop_types: frozenset,
+    nptg_path:  Optional[Path] = None,
+) -> List[NaptanStop]:
+    """Download the full national NaPTAN dataset (~102 MB CSV)."""
+    url = f"{_ACCESS_NODES_URL}?dataFormat=csv"
+    logger.info(
+        "NaPTAN: fetching national dataset from DfT API (~102 MB, please wait)…"
+    )
+    data = _api_get(url)
+
+    # Save as local CSV so future runs skip the download.
     try:
-        url = f"{_NAPTAN_API_URL}?dataFormat=csv"
-        
-        # Spoof standard browser to bypass DfT bot protection
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
-        }
-        req = urllib.request.Request(url, headers=headers)
-        
-        logger.info("Fetching NaPTAN data from DfT CSV API (this is large, please wait)...")
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            # Read and decode CSV stream
-            csv_text = resp.read().decode('utf-8-sig')
-            
+        _ensure_dirs()
+        _NATIONAL_CSV.write_bytes(data)
+        logger.info(
+            "NaPTAN: saved national CSV to %s (%d MB)",
+            _NATIONAL_CSV, len(data) // (1024 * 1024),
+        )
+    except Exception as exc:
+        logger.debug("NaPTAN: could not save national CSV: %s", exc)
+
+    return _parse_csv_bytes(data, stop_types, nptg_path)
+
+
+def _api_get(url: str) -> bytes:
+    """
+    HTTP GET from the DfT NaPTAN API.
+
+    SSL handling: set NAPTAN_SKIP_SSL_VERIFY=1 if cert verification fails
+    on macOS (common when stdlib ssl store lacks DfT intermediate cert).
+    """
+    skip_verify = os.environ.get('NAPTAN_SKIP_SSL_VERIFY', '').lower() in (
+        '1', 'true', 'yes',
+    )
+    req = urllib.request.Request(
+        url,
+        headers={
+            'Accept':     'text/csv,application/csv,text/plain,*/*',
+            'User-Agent': 'RTD_SIM/1.0 (transport research)',
+        },
+    )
+    try:
+        if skip_verify:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode    = ssl.CERT_NONE
+            resp_ctx: object = urllib.request.urlopen(req, timeout=60, context=ctx)
+        else:
+            resp_ctx = urllib.request.urlopen(req, timeout=60)
+
+        with resp_ctx as resp:
+            return resp.read()
+
+    except ssl.SSLError as exc:
+        raise RuntimeError(
+            f"NaPTAN API SSL error: {exc}\n"
+            f"  Fix A: place NAPTAN_National_Stops.csv in {_DATA_DIR}\n"
+            f"  Fix B: export NAPTAN_SKIP_SSL_VERIFY=1\n"
+            f"  Fix C: run /Applications/Python 3.x/Install Certificates.command"
+        ) from exc
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"NaPTAN API HTTP {exc.code}: {url}") from exc
     except Exception as exc:
         raise RuntimeError(f"NaPTAN API request failed: {exc}") from exc
 
+
+# ── CSV parsing ────────────────────────────────────────────────────────────────
+
+def _load_from_csv(
+    csv_path:   Path,
+    stop_types: frozenset,
+    nptg_path:  Optional[Path] = None,
+) -> List[NaptanStop]:
+    """Parse a local NAPTAN_National_Stops.csv file."""
+    logger.info("NaPTAN: reading %s…", csv_path)
+    data = csv_path.read_bytes()
+    return _parse_csv_bytes(data, stop_types, nptg_path)
+
+
+def _parse_csv_bytes(
+    data:       bytes,
+    stop_types: frozenset,
+    nptg_path:  Optional[Path] = None,
+) -> List[NaptanStop]:
+    """
+    Parse CSV bytes (DfT NaPTAN format) into NaptanStop records.
+
+    Handles UTF-8 BOM.  Column names are lower-cased for robustness.
+    """
+    locality_map: Dict[str, str] = {}
+    if nptg_path and nptg_path.exists():
+        try:
+            locality_map = _load_nptg_localities(nptg_path)
+            logger.debug("NPTG: %d localities loaded", len(locality_map))
+        except Exception as exc:
+            logger.debug("NPTG load failed (%s)", exc)
+
+    text   = data.decode('utf-8-sig', errors='replace')
+    reader = csv.DictReader(io.StringIO(text))
+
+    if reader.fieldnames:
+        reader.fieldnames = [h.strip().lower() for h in reader.fieldnames]
+
     stops: List[NaptanStop] = []
-    reader = csv.DictReader(io.StringIO(csv_text))
-    
+    skipped = 0
+
     for row in reader:
-        stop_type = row.get('StopType', '')
+        stop_type = row.get('stoptype', row.get('stop_type', '')).strip()
         if stop_type not in stop_types:
             continue
-        status = row.get('Status', 'act')
-        if status not in ('act', 'active'):
-            continue
-            
-        try:
-            lon = float(row.get('Longitude', 0))
-            lat = float(row.get('Latitude', 0))
-        except (TypeError, ValueError):
-            continue
-            
-        if lon == 0 and lat == 0:
+
+        status_raw = row.get('status', 'active').strip().lower()
+        if status_raw not in ('active', 'act', '1', 'true'):
+            skipped += 1
             continue
 
+        try:
+            lon = float(row.get('longitude', row.get('lon', '')) or '0')
+            lat = float(row.get('latitude',  row.get('lat', '')) or '0')
+        except ValueError:
+            skipped += 1
+            continue
+        if lon == 0.0 and lat == 0.0:
+            skipped += 1
+            continue
+
+        common_name   = row.get('commonname', row.get('common_name', '')).strip()
+        locality_code = row.get('nptglocalitycode', '').strip()
+        if locality_code and locality_code in locality_map:
+            locality = locality_map[locality_code]
+            if locality and locality.lower() not in common_name.lower():
+                common_name = f"{common_name}, {locality}"
+
+        atco_code = row.get('atcocode', row.get('atco_code', '')).strip()
+        crs_code  = row.get(
+            'crsref', row.get('crscode', row.get('crs_code', row.get('crs', '')))
+        ).strip()
+
         stops.append(NaptanStop(
-            atco_code   = row.get('ATCOCode', ''),
-            common_name = row.get('CommonName', ''),
+            atco_code   = atco_code,
+            common_name = common_name,
             stop_type   = stop_type,
             lon         = lon,
             lat         = lat,
-            crs_code    = row.get('CrsCode', ''),
-            status      = status,
+            crs_code    = crs_code,
+            status      = 'act',
         ))
 
+    logger.debug(
+        "NaPTAN CSV: %d stops kept, %d skipped (inactive/bad coords)",
+        len(stops), skipped,
+    )
     return stops
 
 
+def _load_nptg_localities(path: Path) -> Dict[str, str]:
+    """Parse NPTG_Localities.csv -> {NptgLocalityCode: LocalityName}."""
+    result: Dict[str, str] = {}
+    data   = path.read_bytes()
+    text   = data.decode('utf-8-sig', errors='replace')
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames:
+        reader.fieldnames = [h.strip().lower() for h in reader.fieldnames]
+    for row in reader:
+        code = row.get('nptglocalitycode', '').strip()
+        name = row.get('localityname', row.get('locality_name', '')).strip()
+        if code and name:
+            result[code] = name
+    return result
+
+
+# ── rail_spine fallback ────────────────────────────────────────────────────────
+
 def _fallback_from_spine() -> List[NaptanStop]:
-    """Return NaptanStop objects derived from the hardcoded rail_spine.py."""
+    """Return NaptanStop objects from the hardcoded rail_spine STATIONS dict."""
     try:
         from simulation.spatial.rail_spine import STATIONS
-        stops = []
-        for crs, info in STATIONS.items():
-            stops.append(NaptanStop(
+        stops = [
+            NaptanStop(
                 atco_code   = crs,
                 common_name = info['name'],
                 stop_type   = 'RLY',
@@ -298,20 +620,24 @@ def _fallback_from_spine() -> List[NaptanStop]:
                 lat         = info['lat'],
                 crs_code    = crs,
                 status      = 'act',
-            ))
-        logger.info("NaPTAN: using rail_spine fallback (%d stations)", len(stops))
+            )
+            for crs, info in STATIONS.items()
+            if info.get('type') not in ('tram_stop', 'tram_terminus', 'ferry_terminal')
+        ]
+        logger.info("NaPTAN: rail_spine fallback — %d stations", len(stops))
         return stops
     except Exception as exc:
         logger.error("NaPTAN spine fallback failed: %s", exc)
         return []
 
 
-# ── Bbox filter ────────────────────────────────────────────────────────────────
+# ── Spatial filter ─────────────────────────────────────────────────────────────
 
 def _filter_bbox(
     stops: List[NaptanStop],
-    bbox: Tuple[float, float, float, float],
+    bbox:  Tuple[float, float, float, float],
 ) -> List[NaptanStop]:
+    """Filter stops to (north, south, east, west) bounding box."""
     north, south, east, west = bbox
     return [
         s for s in stops
@@ -321,42 +647,70 @@ def _filter_bbox(
 
 # ── Cache helpers ──────────────────────────────────────────────────────────────
 
-def _cache_is_fresh() -> bool:
-    if not _CACHE_FILE.exists():
-        return False
-    age_days = (time.time() - _CACHE_FILE.stat().st_mtime) / 86400.0
-    return age_days < CACHE_MAX_AGE_DAYS
+def _cache_key(codes: Set[str]) -> str:
+    return "_".join(sorted(codes)) if codes else "national"
 
 
-def _save_cache(stops: List[NaptanStop]) -> None:
+def _try_load_cache(
+    cache_file: Path,
+    bbox:       Optional[Tuple],
+    stop_types: frozenset,
+) -> Optional[List[NaptanStop]]:
+    """Load and filter cache file; return None if stale/missing/invalid."""
+    if not cache_file.exists():
+        return None
+    age_days = (time.time() - cache_file.stat().st_mtime) / 86400.0
+    if age_days >= CACHE_MAX_AGE_DAYS:
+        logger.debug(
+            "NaPTAN: cache %s is %.0f days old — refreshing",
+            cache_file.name, age_days,
+        )
+        return None
+    try:
+        with open(cache_file, 'r', encoding='utf-8') as f:
+            raw = json.load(f)
+        stops  = [NaptanStop.from_dict(d) for d in raw
+                  if d.get('stop_type') in stop_types]
+        result = _filter_bbox(stops, bbox) if bbox else stops
+        logger.info(
+            "NaPTAN: %d/%d stops from cache %s",
+            len(result), len(stops), cache_file.name,
+        )
+        return result
+    except Exception as exc:
+        logger.debug("NaPTAN: cache read failed (%s) — will re-fetch", exc)
+        return None
+
+
+def _save_cache(stops: List[NaptanStop], cache_file: Path) -> None:
+    _ensure_dirs()
+    with open(cache_file, 'w', encoding='utf-8') as f:
+        json.dump([s.to_dict() for s in stops], f, separators=(',', ':'))
+    logger.debug("NaPTAN: cached %d stops to %s", len(stops), cache_file.name)
+
+
+def _ensure_dirs() -> None:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    with open(_CACHE_FILE, 'w', encoding='utf-8') as f:
-        json.dump([s.to_dict() for s in stops], f)
 
 
-def _load_cache() -> List[NaptanStop]:
-    with open(_CACHE_FILE, 'r', encoding='utf-8') as f:
-        return [NaptanStop.from_dict(d) for d in json.load(f)]
+def _find_file(search_paths: List[Path]) -> Optional[Path]:
+    for p in search_paths:
+        if p.exists():
+            return p
+    return None
 
 
-# ── Transfer node integration ──────────────────────────────────────────────────
+# ── Transfer node bridge ───────────────────────────────────────────────────────
 
 def build_transfer_nodes(
     bbox: Optional[Tuple[float, float, float, float]] = None,
 ) -> List[Dict]:
     """
-    Build transfer node dicts for use in the Router intermodal snap.
+    Return transfer node dicts for the Router intermodal snap.
 
-    Each dict has: lon, lat, name, crs, stop_type, atco_code.
-    These are used by Router._nearest_rail_node() to snap agent origins /
-    destinations to the nearest station before routing on the rail graph.
-
-    Args:
-        bbox: Spatial filter (north, south, east, west).  When None returns
-              all downloaded stops (use sparingly — ~2,500 rail stops UK-wide).
-
-    Returns:
-        List of dicts compatible with rail-spine station format.
+    Each dict: {lon, lat, name, crs, stop_type, atco_code}
+    Includes rail (RLY), metro (MET), and tram (TMU) stops.
     """
     stops = download_naptan(bbox=bbox)
     return [
@@ -369,40 +723,37 @@ def build_transfer_nodes(
             'atco_code': s.atco_code,
         }
         for s in stops
-        if s.stop_type in ('RLY', 'MET')   # rail + metro only for now
+        if s.stop_type in ('RLY', 'MET', 'TMU')
     ]
 
 
-# ── Haversine (standalone, no external deps) ───────────────────────────────────
-
-def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-    R = 6371.0
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a  = (math.sin(dp / 2) ** 2
-          + math.cos(math.radians(lat1))
-          * math.cos(math.radians(lat2))
-          * math.sin(dl / 2) ** 2)
-    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
+# ── Nearest stop query ─────────────────────────────────────────────────────────
 
 def nearest_naptan_stop(
-    coord: Tuple[float, float],
-    stops: List[NaptanStop],
+    coord:  Tuple[float, float],
+    stops:  List[NaptanStop],
     max_km: float = 30.0,
 ) -> Optional[NaptanStop]:
-    """
-    Return the nearest NaptanStop to (lon, lat) coord within max_km.
-
-    Used by the Router to snap agents to transfer nodes before
-    computing the rail or ferry leg.
-    """
+    """Return the nearest NaptanStop to (lon, lat) within max_km."""
     lon, lat = coord
-    best: Optional[NaptanStop] = None
-    best_dist = float('inf')
+    best:      Optional[NaptanStop] = None
+    best_dist: float = float('inf')
     for s in stops:
         d = _haversine_km(lon, lat, s.lon, s.lat)
         if d < best_dist:
             best_dist = d
             best = s
     return best if best_dist <= max_km else None
+
+
+# ── Haversine ──────────────────────────────────────────────────────────────────
+
+def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    R   = 6371.0
+    dp  = math.radians(lat2 - lat1)
+    dl  = math.radians(lon2 - lon1)
+    a   = (math.sin(dp / 2) ** 2
+           + math.cos(math.radians(lat1))
+           * math.cos(math.radians(lat2))
+           * math.sin(dl / 2) ** 2)
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))

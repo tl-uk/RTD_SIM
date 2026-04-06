@@ -228,6 +228,8 @@ class Router:
             return self._compute_intermodal_route(agent_id, origin, dest, mode, policy)
 
         if mode in _TRANSIT_MODES:
+            if mode in ('ferry_diesel', 'ferry_electric'):
+                return self._compute_ferry_route(agent_id, origin, dest, mode, policy)
             return self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
 
         return self._compute_road_route(agent_id, origin, dest, mode, policy)
@@ -557,9 +559,73 @@ class Router:
         if mode == 'tram':
             return self._compute_intermodal_route(agent_id, origin, dest, mode, policy)
         if mode in ('ferry_diesel', 'ferry_electric'):
-            return self._get_invalid_route(origin, dest)
+            # Great-circle straight line — visible on map, honest about lack of schedule data
+            logger.debug("%s: ferry — no GTFS/graph, using great-circle interpolation", agent_id)
+            return self._interpolate([origin, dest], max_segment_km=0.2)
         return self._compute_road_route(agent_id, origin, dest, mode, policy)
+    
+    # =========================================================================
+    # FERRY ROUTING
+    # =========================================================================
+    def _compute_ferry_route(self, agent_id, origin, dest, mode, policy):
+        """
+        Ferry route: GTFS → ferry graph → great-circle interpolation.
+        Never returns [] — always provides at least a visible straight line.
+        """
+        # 1. Try GTFS if available
+        G_transit = self._get_transit_graph()
+        if G_transit is not None:
+            route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+            if route and len(route) >= 2:
+                return route
 
+        # 2. Try ferry graph (Overpass or hardcoded spine)
+        G_ferry = self.graph_manager.get_graph('ferry')
+        if G_ferry is not None and G_ferry.number_of_nodes() > 1:
+            try:
+                import networkx as nx
+                from simulation.spatial.coordinate_utils import haversine_km
+                import osmnx as ox
+                # Snap to nearest ferry terminal
+                orig_node = ox.distance.nearest_nodes(G_ferry,
+                    origin[0], origin[1])
+                dest_node = ox.distance.nearest_nodes(G_ferry,
+                    dest[0], dest[1])
+                if orig_node != dest_node:
+                    path_nodes = nx.shortest_path(G_ferry, orig_node, dest_node, weight='length')
+                    coords = []
+                    for i in range(len(path_nodes) - 1):
+                        u, v = path_nodes[i], path_nodes[i+1]
+                        edge_data = G_ferry.get_edge_data(u, v)
+                        best_shape = []
+                        for ed in (edge_data or {}).values():
+                            s = ed.get('shape_coords') or []
+                            if len(s) > len(best_shape):
+                                best_shape = s
+                        if best_shape and len(best_shape) >= 2:
+                            coords.extend(best_shape if i == 0 else best_shape[1:])
+                        else:
+                            ux = G_ferry.nodes[u].get('x', 0)
+                            uy = G_ferry.nodes[u].get('y', 0)
+                            vx = G_ferry.nodes[v].get('x', 0)
+                            vy = G_ferry.nodes[v].get('y', 0)
+                            if i == 0:
+                                coords.append((ux, uy))
+                            coords.append((vx, vy))
+                    if len(coords) >= 2:
+                        logger.info("✅ %s: ferry graph route %.1fkm (%d pts)",
+                            agent_id, route_distance_km(coords), len(coords))
+                        return self._interpolate(coords, max_segment_km=0.2)
+            except Exception as exc:
+                logger.debug("Ferry graph routing failed (%s) — great-circle fallback", exc)
+
+        # 3. Great-circle interpolation (always gives a visible line)
+        logger.debug("%s: ferry great-circle fallback", agent_id)
+        return self._interpolate([origin, dest], max_segment_km=0.2)
+
+    # =========================================================================
+    # ACCESS LEG COMPUTATION
+    # =========================================================================
     def _compute_access_leg(
         self,
         agent_id: str,
@@ -601,7 +667,7 @@ class Router:
 
         if dist_km <= max_straight_km:
             logger.debug(
-                "%s: walk graph absent, access leg %.2fkm — interpolated line",
+                "%s: walk path not found (%.2fkm) — interpolated line",  # was: "walk graph absent"
                 agent_id, dist_km,
             )
             return self._interpolate([origin, dest], max_segment_km=0.05)
@@ -620,6 +686,9 @@ class Router:
         )
         return self._interpolate([origin, dest], max_segment_km=0.05)
 
+    # =========================================================================
+    # GTFS ROUTING
+    # =========================================================================
     def _compute_gtfs_route(
         self,
         agent_id: str,

@@ -201,6 +201,21 @@ def setup_environment(
     if progress_callback:
         progress_callback(0.16, "✅ Road networks loaded")
 
+    # ── 3.5 Ferry graph ───────────────────────────────────────────────────────
+    if progress_callback:
+        progress_callback(0.155, "⛴️ Loading ferry network…")
+    try:
+        from simulation.spatial.rail_network import get_or_fallback_ferry_graph
+        G_ferry = get_or_fallback_ferry_graph(env)
+        if G_ferry is not None:
+            env.graph_manager.graphs['ferry'] = G_ferry
+            logger.info(
+                "✅ Ferry graph: %d terminals, %d routes",
+                G_ferry.number_of_nodes(), G_ferry.number_of_edges() // 2,
+            )
+    except Exception as exc:
+        logger.warning("Ferry graph load failed (non-fatal): %s", exc)
+        
     # ── 4. Rail graph (OpenRailMap + largest-component extraction) ────────────
     if progress_callback:
         progress_callback(0.17, "🚆 Loading rail network…")

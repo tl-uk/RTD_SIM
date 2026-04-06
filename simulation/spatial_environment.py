@@ -233,6 +233,20 @@ class SpatialEnvironment:
     def get_rail_graph(self) -> Optional[Any]:
         """Return the loaded rail graph, or None.  Used by visualization."""
         return self.graph_manager.get_graph('rail')
+    
+    # =========================================================================
+    #  FERRY GRAPH LOADING
+    # =========================================================================
+    def load_ferry_graph(self) -> bool:
+        from simulation.spatial.rail_network import get_or_fallback_ferry_graph
+        G = get_or_fallback_ferry_graph(self)
+        if G:
+            self.graph_manager.graphs['ferry'] = G
+            return True
+        return False
+
+    def get_ferry_graph(self):
+        return self.graph_manager.get_graph('ferry')
 
     # =========================================================================
     # GTFS TRANSIT LOADING
