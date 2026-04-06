@@ -218,6 +218,19 @@ class Router:
 
         if haversine_km(origin, dest) < 0.1:
             return [origin, dest]
+        
+        dist_km = haversine_km(origin, dest)
+        if dist_km < 0.1:
+            return [origin, dest]
+
+        # PATCH: Enforce absolute maximum ranges for active modes
+        # This stops the BDI planner from plotting 15km e-scooter or walk trips
+        if mode == 'e_scooter' and dist_km > 10.0:
+            return self._get_invalid_route(origin, dest)
+        if mode == 'walk' and dist_km > 10.0:
+            return self._get_invalid_route(origin, dest)
+        if mode in ('bike', 'cargo_bike') and dist_km > 25.0:
+            return self._get_invalid_route(origin, dest)
 
         policy = {**_DEFAULT_POLICY, **(policy_context or {})}
 
@@ -554,10 +567,13 @@ class Router:
         Ferries: return [] — no road proxy for water crossings.
         Buses:  fall back to drive graph.
         """
-        if mode == 'tram':
+        # PATCH: Force trams AND heavy rail onto the physical rail track intermodal router 
+        # when GTFS is disabled, preventing them from disappearing.
+        if mode in ('tram', 'local_train', 'intercity_train'):
             return self._compute_intermodal_route(agent_id, origin, dest, mode, policy)
         if mode in ('ferry_diesel', 'ferry_electric'):
             return self._get_invalid_route(origin, dest)
+        # Buses gracefully fall back to the standard physical drive graph
         return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
     def _compute_access_leg(
