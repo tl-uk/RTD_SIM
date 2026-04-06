@@ -1,0 +1,412 @@
+================================================================================
+RTD_SIM ROUTING DEBUG — SESSION HANDOFF
+Generated: 2026-04-06
+Session transcript: /mnt/transcripts/2026-04-06-10-33-37-rtd-sim-routing-debug.txt
+================================================================================
+
+PROJECT OVERVIEW
+----------------
+RTD_SIM is a UK-wide agent-based transport decarbonisation simulator (Edinburgh
+development/test focus). Stack: Python, OSMnx, NetworkX, GTFS/BODS, Streamlit/
+pydeck, BDI agents. Models modal shift across road / rail / tram / subway / bus / ferry /
+air modes for decarbonisation policy research.
+
+Goal: Every agent route must follow real physical infrastructure — roads on the
+road graph, rail on OpenRailMap tracks, trams on tram tracks, subway on subway lines, ferries on ferry
+routes. Multi-modal agents must show colour-coded segments per transport mode.
+OSM must render ferry/shipping routes. Routing must work for the entire UK
+including the Highlands and Islands.
+
+================================================================================
+WHAT HAS BEEN ACHIEVED IN THIS SESSION
+================================================================================
+
+FILES DELIVERED (all confirmed clean, returned to user as downloads):
+
+  simulation/spatial/spatial_environment.py   — fully rewritten
+  simulation/setup/environment_setup.py       — fully rewritten
+  simulation/spatial/router.py                — fully rewritten (1212 lines)
+  simulation/gtfs/gtfs_graph.py               — confirmed correct (no changes needed)
+
+  NOTE: gtfs_graph.py was reviewed in detail. It is correct as uploaded.
+  The build(), build_transfer_edges(), nearest_stop(), _slice_shape() and
+  pydeck layer helpers are all correct. No rewrite needed.
+
+  router.py and gtfs_graph.py were in progress at the end of the PREVIOUS
+  session and are now COMPLETE. router.py was written to /home/claude/router.py
+  (1212 lines) in this session. gtfs_graph.py was reviewed and confirmed clean.
+
+BUGS FIXED (cumulative across both sessions):
+
+  Bug 1  router.py _apply_generalised_weights — NameError: gen_cost unset on
+         non-rail branches. Fixed: base gen_cost written unconditionally first,
+         track-type filter only overwrites.
+
+  Bug 2  rail_network.py fetch_rail_graph — bbox passed as (N,S,E,W) but
+         OSMnx 2.x expects (W,S,E,N). Fixed.
+
+  Bug 3  rail_network.py — to_undirected().to_directed() destroys Shapely edge
+         geometry. Fixed: iterate edges and add reverse with reversed coords.
+
+  Bug 4  gtfs_graph.py build_transfer_edges — nested loop inside outer loop
+         produced zero transfer edges. Fixed: single flat loop.
+
+  Bug 5  router.py — 'tram' in _RAIL_MODES caused trams to route on mainline
+         OpenRailMap. Fixed: tram dispatches to _compute_gtfs_route first.
+
+  Bug 6  gtfs_graph.py — shape_coords always taken from records[0] (often a
+         dead-run/ghost trip). Fixed: next(...if r.get('shape_coords')).
+
+  Bug 7  router.py — _interpolate not called in _compute_road_route. Fixed.
+
+  Bug 8  router.py — _extract_geometry always picked edge key 0. Fixed: prefer
+         edge with 'geometry' attribute.
+
+  Bug 9  router.py — _get_invalid_route returned [origin, (+10°), dest]. Fixed:
+         returns [].
+
+  Bug 10 gtfs_graph.py nearest_stop — only checked outgoing edges, excluding
+         terminal stops. Fixed: out_edges | in_edges.
+
+  Bug 11 gtfs_graph.py — ghost trips from wrong service days corrupted mode/
+         fuel/shape. Fixed: if not trip: continue (not if trip is None).
+
+  Bug 12 gtfs_loader.py — get_shape_for_trip returned None. Fixed: returns [].
+
+  Bug A  gtfs_graph.py ghost-trip filter used `if trip is None` (never fires
+         since .get() returns {}). Fixed: `if not trip`.
+
+  Bug B  build_transfer_edges nested loop. Fixed: flat loop.
+
+  Bug C  spatial_environment.py — Rail JIT spine loaded before env.load_rail_graph(),
+         permanently blocking OpenRailMap. Fixed: register_rail_graph() on
+         GraphManager resets _rail_load_attempted; load_rail_graph() always
+         overwrites.
+
+  ARCHITECTURE FIXES:
+  • Rail graph LCC extraction: largest weakly connected component kept after
+    download. Eliminates all "track topology fragmented" errors from isolated
+    sidings, depot stubs, buffer stops.
+  • GTFS bbox padding: increased from 0.05° to 0.30° (~30 km) to capture
+    cross-Forth routes (E1 airport express, X56/X57, ScotRail Fife Circle).
+  • Walk graph now loaded in environment_setup.py (was never loaded). Critical
+    for proper pedestrian access/egress legs to stops/stations.
+  • Bike graph now loaded in environment_setup.py. Required for bike/cargo_bike/
+    e_scooter routing (were silently failing and returning []).
+  • NaPTAN integration: environment_setup.py calls naptan_loader.download_naptan()
+    and stores result as env.naptan_stops. router._nearest_rail_node() uses
+    NaPTAN platform coordinates for precise station snapping before OpenRailMap
+    node scan.
+  • router.py _compute_access_leg: walk graph routed with weight='length'
+    (physical distance) not hop count. Prevents circuitous walk routes.
+  • gtfs_graph.py geometry: edge with longest shape_coords selected (most
+    detailed) rather than edge key 0 (often a dead-run).
+  • _get_invalid_route() returns [] — BDI planner checks if not route.
+  • Charging station snapping: infrastructure stations snapped to nearest OSM
+    road node, never placed in the sea or on hillsides.
+
+ARCHITECTURE DECISIONS (stable, do not revisit):
+  • Three parallel graphs, NEVER merged: drive, rail, transit.
+  • Walk and bike loaded separately.
+  • 'tram' NOT in _RAIL_MODES. Dispatches to _compute_gtfs_route first.
+  • tram spine fallback is Edinburgh-only (correct: only GTFS-served Scottish
+    tram network). Edinburgh tram hardcoding in rail_spine.py is appropriate.
+  • rail_spine.py STATIONS hardcoding (41 stations) limits UK-wide fallback scope
+    but spine is only used when OpenRailMap download fails.
+
+================================================================================
+WHAT IS STILL BROKEN / TODO
+================================================================================
+
+CRITICAL — ROUTING VISUALISATION (agent routes do not follow infrastructure):
+
+  PROBLEM 1: No-GTFS rail routes still show straight diagonal segments.
+  CAUSE: With walk graph now loaded, access/egress legs should be fixed. But
+    the "track topology fragmented" warnings indicate agents still snap to
+    disconnected rail sub-graphs (sidings, buffer stops). LCC extraction in
+    load_rail_graph() should address this — needs verification after next run.
+  STATUS: Fix implemented (LCC extraction in spatial_environment.py). Not yet
+    confirmed working in test — needs a fresh run with the new files.
+
+  PROBLEM 2: With-GTFS bus routes show straight-line segments crossing sea.
+  CAUSE A: GTFS shape_coords absent for some stop pairs (dead-run trips, BODS
+    feed quality issues). Bus fallback is road proxy which correctly routes on
+    roads — but the road graph has no path across the Forth, so the proxy
+    produces a 2-point fallback line.
+  CAUSE B: Some routes genuinely cross the Forth by bus (E1 airport express
+    via Forth Road Bridge). The road proxy SHOULD work for these once the
+    bbox captures the Ferrytoll P&R stop. bbox is now 0.3° padding — needs
+    verification.
+  FIX NEEDED: In router.py _compute_gtfs_route, for bus segments where the
+    road proxy fails (returns []), try routing via the drive graph including
+    both sides of the Forth. The drive graph does include the Forth Road Bridge
+    and Queensferry Crossing — verify the road proxy is attempting to use them.
+
+  PROBLEM 3: Multi-modal agent route colour does not change per transport mode.
+  CAUSE: The visualiser/visualization.py PathLayer currently colours entire
+    route by the agent's final mode choice. Each route segment needs to carry
+    mode metadata for per-segment colouring.
+  FIX NEEDED: router.py must return a structured route object (or annotated
+    coordinate list) that tags each segment with its mode. visualization.py
+    must split the PathLayer per mode segment and apply MODE_COLORS_HEX.
+  FILES TO CHANGE: simulation/spatial/router.py, visualiser/visualization.py,
+    possibly simulation/route_alternative.py.
+
+  PROBLEM 4: Ferry agent (1 generated in default test) does not appear on map.
+  CAUSE A: Ferry routes use _compute_gtfs_route → if no GTFS, _transit_fallback
+    returns [] (correct — no road proxy for water). Agent has no route → not
+    visualised.
+  CAUSE B: Even with GTFS, ferry stops may not have shape_coords in the BODS
+    feed, and the straight interpolation between stops is then filtered out
+    as a "crossing water" invalid route. No ferry routes visible at all.
+  FIX NEEDED:
+    (a) OSM ferry/shipping routes need to be downloaded and added as a separate
+        'ferry' graph layer in GraphManager. OSM has highway=ferry and
+        route=ferry relations for all UK ferry crossings.
+    (b) Router needs a _compute_ferry_route() method that routes on this layer
+        (like _compute_intermodal_route does for rail).
+    (c) Visualisation needs a ferry PathLayer with the correct colour (teal).
+
+  PROBLEM 5: OSM display does not show ferry and shipping routes.
+  CAUSE: environment_setup.py only loads network_type='drive', 'walk', 'bike'.
+    OSMnx has no 'ferry' network_type — ferry routes in OSM are encoded as
+    relations with route=ferry and must be fetched via a custom Overpass query.
+  FIX NEEDED: Add fetch_ferry_routes() in rail_network.py (alongside
+    fetch_rail_graph) using ox.graph_from_xml or overpass query for
+    route=ferry relations. Register as graph_manager.graphs['ferry'].
+    Add ferry layer to pydeck visualisation.
+
+  PROBLEM 6: GTFS auto-loading from Transitland not working.
+  STATUS: User is using static GTFS files. Transitland integration has not been
+    implemented. Remains TODO.
+  FIX NEEDED: Implement gtfs_loader.py fetch_from_transitland() method using
+    the Transitland v2 API (https://www.transit.land/api/v2/). Key parameters:
+    bbox, agencies filter (Lothian Buses: o-gcpv-lothianbuses, ScotRail, etc.)
+    API key required (free tier available). Feeds are returned as GTFS zip URLs
+    which can then be passed to the existing GTFSLoader.
+
+MEDIUM — RAIL SPINE UK COVERAGE:
+
+  PROBLEM: rail_spine.py STATIONS dict covers only Edinburgh + sparse intercity
+    connections. Missing: entire West Coast Main Line, Caledonian Sleeper
+    (Fort William, Kyle of Lochalsh, Wick/Thurso, Oban), Borders Railway,
+    Welsh Valley lines, Greater Anglia, Trans-Pennine, all of England south of
+    Newcastle, Northern Ireland, all island ferry connections.
+  SEVERITY: Medium — spine is only used when OpenRailMap download fails. When
+    OpenRailMap works (which it now does), the full UK network is available.
+  FIX (two options):
+    Option A (recommended): Auto-populate spine from NaPTAN on first load.
+      naptan_loader.py already downloads ~2,500 UK rail stations with CRS codes.
+      build_rail_spine_graph() should call download_naptan() and build the
+      NetworkX graph from the result rather than STATIONS. TRACK_EDGES still
+      needs to be populated — either hardcoded for major corridors or from
+      OpenRailMap shapes.
+    Option B: Expand STATIONS dict manually (not recommended — becomes stale).
+
+FILES REVIEWED BUT NOT YET CLEANED/RETURNED:
+
+  simulation/gtfs/gtfs_analytics.py    — reviewed, NO bugs found. Clean as-is.
+  ui/tabs/gtfs_analytics_tab.py        — reviewed, NO bugs found. Clean as-is.
+  simulation/gtfs/gtfs_validator.py    — reviewed, check 7 is Edinburgh-specific
+                                         but otherwise clean.
+  simulation/spatial/rail_spine.py     — reviewed, Edinburgh tram correct.
+                                         STATIONS limited for UK-wide fallback
+                                         (see PROBLEM 6 above).
+  simulation/setup/agent_creation.py   — reviewed, clean as-is.
+  simulation/setup/network_setup.py    — reviewed, clean as-is.
+
+  NOTE: gtfs_analytics.py, gtfs_analytics_tab.py, and gtfs_validator.py are
+  all functionally correct and do not need rewriting. The main limitation of
+  gtfs_validator.py is that check 7 (Edinburgh tram corridor alignment) is
+  Edinburgh-specific but this is appropriate for development.
+
+================================================================================
+WHAT TO TELL THE NEW CLAUDE CHAT
+================================================================================
+
+Opening message (copy-paste this):
+
+---
+I am continuing work on RTD_SIM, a UK-wide agent-based transport decarbonisation
+simulator. I have a session handoff document that summarises all bugs fixed,
+architecture decisions, and remaining work. Please read it carefully before
+anything else.
+
+The three most urgent remaining problems are:
+
+1. ROUTE GEOMETRY: Agent routes for rail, bus, tram, and ferry modes do not
+   follow their respective physical infrastructure (railway lines, tram tracks,
+   road network for buses, ferry routes). Some straight-line artefacts remain.
+
+2. MULTI-MODAL COLOUR CODING: When an agent uses multiple transport modes
+   (e.g. walk → bus → walk), the route visualisation must show each segment
+   in the colour of that segment's mode. Currently the entire route is one colour.
+
+3. FERRY ROUTES MISSING: (a) Ferry agent routes are not visible at all in the
+   visualisation. (b) OSM does not show ferry/shipping route lines on the map.
+   These are essential for a decarbonisation project covering Scotland's islands.
+
+Secondary issues:
+4. GTFS auto-loading from Transitland is not yet implemented (using static files).
+5. rail_spine.py hardcoded fallback covers only Edinburgh — needs NaPTAN
+   auto-population for UK-wide coverage when OpenRailMap download fails.
+
+Files I am providing:
+  [list the files below]
+---
+
+================================================================================
+FILES TO PROVIDE TO THE NEW CHAT
+================================================================================
+
+ESSENTIAL — provide all of these:
+
+  simulation/spatial/router.py              ← the NEW version from this session
+  simulation/spatial/spatial_environment.py ← the NEW version from this session
+  simulation/setup/environment_setup.py     ← the NEW version from this session
+  simulation/gtfs/gtfs_graph.py             ← current version (confirmed clean)
+  simulation/gtfs/gtfs_analytics.py         ← current version (confirmed clean)
+  simulation/spatial/rail_spine.py          ← current version (needs NaPTAN expansion)
+  simulation/spatial/naptan_loader.py       ← current version (fully implemented)
+  visualiser/visualization.py               ← NEEDED for ferry + multi-modal colour fix
+  simulation/spatial/graph_manager.py       ← needed for ferry graph registration
+  simulation/spatial/rail_network.py        ← needed for ferry Overpass fetch
+  simulation/gtfs/gtfs_loader.py            ← needed for Transitland integration
+
+USEFUL TO PROVIDE IF POSSIBLE:
+
+  ui/tabs/gtfs_analytics_tab.py             ← confirmed clean, provide for context
+  simulation/gtfs/gtfs_validator.py         ← confirmed clean
+  simulation/setup/agent_creation.py        ← confirmed clean
+  simulation/config/simulation_config.py    ← needed to understand config fields
+  ui/tabs/map_tab.py                        ← needed to understand map rendering
+  simulation/simulation_runner.py           ← needed to understand results structure
+
+ALSO PROVIDE:
+
+  A fresh simulation log (after running with the new files) so the new Claude
+  can see what warnings and errors remain. Key lines to look for:
+    • "walk graph absent" — should not appear if walk graph loaded correctly
+    • "track topology fragmented" — should be eliminated by LCC extraction
+    • "no GTFS stop pair" — indicates missing stops or wrong bbox
+    • "ferry" agent routing — currently [] / not visualised
+
+================================================================================
+KEY FILES CHANGED IN THIS SESSION — SUMMARY OF CHANGES
+================================================================================
+
+spatial_environment.py:
+  • load_rail_graph(): LCC extraction after download eliminates isolated sidings.
+  • load_gtfs_graph(): bbox padding 0.05° → 0.30° for cross-Forth routes.
+  • GTFS loader.summary() called and logged after load for diagnostics.
+
+environment_setup.py:
+  • Walk graph loaded (network_type='walk') immediately after drive graph.
+    This is the single most impactful change — eliminates pedestrian access
+    leg straight-line artefacts.
+  • Bike graph loaded (network_type='bike') for bike/cargo_bike/e_scooter.
+  • NaPTAN stop data downloaded and stored as env.naptan_stops.
+  • Loading sequence is now: drive → walk → bike → rail → NaPTAN → GTFS.
+
+router.py (complete rewrite):
+  • _nearest_rail_node(): NaPTAN-aware snapping. Uses NaPTAN platform
+    coordinates as precision snap target before brute-force graph scan.
+  • _compute_access_leg(): walk graph routed with weight='length' not hop count.
+  • _compute_gtfs_route(): selects edge with longest shape_coords (not key 0).
+  • _compute_intermodal_route(): unchanged logic, cleaned docstrings.
+  • All weight helper methods preserved and cleaned.
+  • 1212 lines total.
+
+gtfs_graph.py: NO CHANGES. Confirmed clean in this session.
+
+================================================================================
+CURRENT TEST STATUS
+================================================================================
+
+Last test run: 2026-04-04 (before new files deployed)
+  OpenRailMap: ✅ 423 nodes, 1075 edges downloaded
+  Rail routing: ❌ "track topology fragmented" — LCC fix not yet tested
+  Walk graph: ❌ not loaded (fix deployed this session, not yet tested)
+  Bike graph: ❌ not loaded (fix deployed this session, not yet tested)
+  GTFS (With-GTFS run): ✅ stops load, ❌ many straight-line bus segments
+  Ferry: ❌ agent exists, route = [], not visualised
+  NaPTAN: ✅ implemented, not yet called from setup (fix deployed this session)
+
+Next test should show:
+  • "walk graph absent" warnings eliminated
+  • "track topology fragmented" warnings eliminated or greatly reduced
+  • Bus straight-line segments reduced (0.3° bbox captures cross-Forth stops)
+  • NaPTAN station snap logged
+
+Still expected to fail after next test:
+  • Ferry route geometry (no ferry graph loaded, no ferry PathLayer)
+  • Multi-modal route colour coding
+  • Transitland auto-loading
+
+================================================================================
+PROJECT FILE LOCATIONS (key files)
+================================================================================
+
+simulation/spatial/router.py
+simulation/spatial/graph_manager.py
+simulation/spatial/rail_network.py
+simulation/spatial/rail_spine.py
+simulation/spatial/naptan_loader.py
+simulation/spatial/spatial_environment.py    (at simulation/spatial_environment.py)
+simulation/setup/environment_setup.py
+simulation/setup/agent_creation.py
+simulation/gtfs/gtfs_graph.py
+simulation/gtfs/gtfs_loader.py
+simulation/gtfs/gtfs_analytics.py
+simulation/gtfs/gtfs_validator.py
+ui/tabs/gtfs_analytics_tab.py
+ui/tabs/map_tab.py
+visualiser/visualization.py
+simulation/simulation_runner.py
+simulation/config/simulation_config.py
+
+================================================================================
+IMPLEMENTATION PLAN FOR NEW SESSION (priority order)
+================================================================================
+
+STEP 1 — Verify fixes from this session work (fresh test run first)
+  Check log for: walk graph loaded, no "walk graph absent", LCC logged,
+  NaPTAN stops count, reduced "track topology fragmented".
+  Files needed: simulation log from fresh run.
+
+STEP 2 — Ferry graph and routes (requires visualization.py, graph_manager.py,
+  rail_network.py)
+  a. Add fetch_ferry_routes() to rail_network.py using OSM Overpass query for
+     route=ferry relations. Register as graphs['ferry'].
+  b. Load in environment_setup.py after bike graph.
+  c. Add _compute_ferry_route() to router.py (similar to _compute_intermodal_route
+     but on ferry graph). Ferry nodes are port terminals, not rail stations.
+  d. Add ferry PathLayer (teal, dashed) to visualization.py.
+  e. Add ferry layer to OSM map display (shipping lanes + ferry crossings).
+
+STEP 3 — Multi-modal colour coding (requires router.py, visualization.py)
+  a. Define RouteSegment dataclass: [(coords, mode, fuel_type), ...]
+  b. router.py returns List[RouteSegment] instead of flat List[Tuple].
+     OR: annotate the coordinate list with mode tags at boundary points.
+     (Option B is less invasive — check how agent.state.route is consumed
+     before deciding.)
+  c. visualization.py splits PathLayer by mode segment and applies MODE_COLORS.
+
+STEP 4 — Remaining bus straight-line segments
+  After bbox fix, check which stops are still outside bbox.
+  If road proxy fails for cross-Forth segments, ensure drive graph includes
+  both sides of Forth and Queensferry Crossing (it should — verify bbox).
+
+STEP 5 — NaPTAN spine auto-population for UK-wide fallback
+  Modify build_rail_spine_graph() in rail_spine.py to call download_naptan()
+  and populate STATIONS dynamically instead of using hardcoded dict.
+  TRACK_EDGES still needs to come from somewhere — use major UK corridors
+  hardcoded as minimum viable set for fallback.
+
+STEP 6 — Transitland GTFS auto-loading (lower priority, user has static files)
+  Implement gtfs_loader.py fetch_from_transitland() using Transitland v2 API.
+  Store API key in config. Cache downloaded zip locally.
+
+================================================================================
+END OF HANDOFF
+================================================================================
