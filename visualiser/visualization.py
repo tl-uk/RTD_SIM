@@ -110,25 +110,34 @@ def render_map(
     show_gtfs: bool = False,
     show_gtfs_stops: bool = False,
     show_gtfs_electric_only: bool = False,
+    show_naptan_stops: bool = False,
     infrastructure_manager: Optional[Any] = None,
     env: Optional[Any] = None,
     center_lon: float = -3.19,
     center_lat: float = 55.95,
     zoom: int = 13,
+    map_style: Optional[str] = None,
     **kwargs,
 ) -> pdk.Deck:
     """
     Render interactive map with agents, routes, and infrastructure.
     
     Args:
-        agent_states: List of agent state dicts
-        show_agents: Show agent markers
-        show_routes: Show agent routes
-        show_infrastructure: Show charging stations
-        infrastructure_manager: InfrastructureManager instance
-        center_lon: Map center longitude
-        center_lat: Map center latitude
-        zoom: Map zoom level
+        agent_states:              List of agent state dicts
+        show_agents:               Show agent markers
+        show_routes:               Show agent route polylines
+        show_infrastructure:       Show charging station markers
+        show_rail:                 Overlay rail network (OpenRailMap or spine)
+        show_gtfs:                 Overlay GTFS service route lines
+        show_gtfs_stops:           Overlay GTFS stop markers
+        show_gtfs_electric_only:   Filter GTFS to electric services only
+        show_naptan_stops:         Overlay NaPTAN rail/ferry/tram station markers
+        infrastructure_manager:    InfrastructureManager instance
+        env:                       SpatialEnvironment (for rail/GTFS/NaPTAN graphs)
+        center_lon:                Map centre longitude
+        center_lat:                Map centre latitude
+        zoom:                      Initial zoom level
+        map_style:                 GL JSON style URL. None = Carto Positron default.
     
     Returns:
         pydeck.Deck instance
