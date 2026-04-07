@@ -557,18 +557,31 @@ class BDIPlanner:
                 routing_results[mode] = "infrastructure_failed"
                 continue
             
-            # Compute actual route — pass agent_context as policy_context so
-            # the router's generalised cost formula uses scenario-adjusted
-            # carbon_tax, energy_price, boarding_penalty_min, value_of_time.
-            # Without this, policy changes never reach the edge weights.
+            # Compute actual route — prefer compute_route_with_segments() when
+            # the router supports it so per-leg colour metadata is available to
+            # the visualiser without a second routing call.  Falls back to the
+            # standard compute_route() for routers that have not been updated.
+            # policy_context is passed in both cases so scenario-adjusted edge
+            # weights (carbon_tax, energy_price, boarding_penalty_min, VoT)
+            # reach the generalised cost formula.
             try:
-                route = env.compute_route(
-                    agent_id=agent_id,
-                    origin=origin,
-                    dest=dest,
-                    mode=mode,
-                    policy_context=context,   # generalised cost params from agent_context
-                )
+                if hasattr(env, 'compute_route_with_segments'):
+                    route, _segments = env.compute_route_with_segments(
+                        agent_id=agent_id,
+                        origin=origin,
+                        dest=dest,
+                        mode=mode,
+                        policy_context=context,
+                    )
+                else:
+                    route = env.compute_route(
+                        agent_id=agent_id,
+                        origin=origin,
+                        dest=dest,
+                        mode=mode,
+                        policy_context=context,
+                    )
+                    _segments = []
             except Exception as e:
                 logger.error(f"         Routing exception: {e}")
                 routing_results[mode] = f"exception: {e}"
@@ -637,6 +650,12 @@ class BDIPlanner:
             params = {}
             if mode in self.EV_RANGE_KM and self.has_infrastructure:
                 params = self._get_ev_params(origin, dest, route, context)
+
+            # Embed per-segment colouring metadata so cognitive_abm._maybe_plan
+            # can store it on agent.state.route_segments without a second call.
+            if _segments:
+                params['route_segments'] = _segments
+
             # For freight modes, we could add additional parameters here, such as 
             # load capacity, delivery time windows, etc.
             actions.append(Action(mode=mode, route=route, params=params))

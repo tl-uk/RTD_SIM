@@ -51,7 +51,25 @@ class AgentState:
     mode_history: List[str] = field(default_factory=list)
     mode_costs: Dict[str, float] = field(default_factory=dict)
     consecutive_same_mode: int = 0
-    action_params: Dict[str, Any] = field(default_factory=dict)  # NEW: Store action params
+    action_params: Dict[str, Any] = field(default_factory=dict)
+
+    # Per-segment route metadata produced by router.compute_route_with_segments().
+    # Each item: {'path': [(lon,lat),...], 'mode': str, 'label': str}
+    # Consumed by visualization.py to colour each leg of a multimodal journey
+    # independently.  Empty list when compute_route_with_segments is unavailable.
+    route_segments: List[Dict] = field(default_factory=list)
+
+    # Human-readable origin / destination labels (set by StoryDrivenAgent or
+    # agent_creation.py from place names / NaPTAN stop names).  Always present
+    # in the step() return dict so tooltips show them even mid-journey or after
+    # a mode change triggered by a social/environmental event.
+    origin_name: str = ''
+    destination_name: str = ''
+
+    # Active service / stop metadata for PT modes (set by the planner when a
+    # GTFS stop pair is resolved).  Displayed in the map tooltip.
+    service_id: str = ''
+    destination_stop: str = ''
 
 class CognitiveAgent:
     """Toy cognitive agent + planner + movement + arrival + dwell tracking.
@@ -156,6 +174,16 @@ class CognitiveAgent:
                 s.route_index = 0
                 s.route_offset_km = 0.0
                 s.mode = best.mode
+
+                # Per-segment colouring metadata — populated when the router
+                # supports compute_route_with_segments().  Stored on state so
+                # visualization.py can colour each walk/transit/ferry leg
+                # independently without re-computing the route.
+                s.route_segments = best.params.get('route_segments', [])
+
+                # PT service / stop labels for map tooltip
+                s.service_id       = best.params.get('service_id', '')
+                s.destination_stop = best.params.get('destination_stop', '')
                 
                 # Store the cost evaluation for social influence
                 s.mode_costs = {score.action.mode: score.cost for score in scores}
@@ -336,6 +364,17 @@ class CognitiveAgent:
             'distance_km': round(s.distance_km, 4),
             'emissions_g': round(s.emissions_g, 3),
             'dwell_time_min': round(s.dwell_time_min, 3),
+            # Route geometry + per-segment colouring for visualization.py
+            'route': s.route,
+            'route_segments': s.route_segments,
+            # Origin / destination names — always present so tooltips can
+            # show them regardless of whether the agent has arrived or has
+            # changed mode due to a social / environmental event.
+            'origin_name': s.origin_name,
+            'destination_name': s.destination_name,
+            # PT service details for map tooltip (empty for private modes)
+            'service_id': s.service_id,
+            'destination_stop': s.destination_stop,
         }
 
 # Utility function to clip values between a lower and upper bound, used for cognitive 

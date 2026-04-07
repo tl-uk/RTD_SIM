@@ -1,5 +1,7 @@
+# visualiser/visualization.py
+
 """
-visualiser/visualization.py
+visualization.py
 
 All visualization logic separated from UI orchestration.
 Handles map rendering, charts, infrastructure visualization, and animation controls.
@@ -358,138 +360,190 @@ def render_map(
             layers.append(agent_layer)
     
     # ========================================================================
-    # Routes Layer — public transport agents only, per-segment colour coding
+    # Routes Layer — all agents, per-segment colour coding
     # ========================================================================
-    # Only public-transport agents show routes.  Private vehicle routes
-    # (car, ev, van, truck, hgv, bike, walk) are hidden to keep the map
-    # readable.  When an agent carries `route_segments` metadata from
+    # Routes are displayed for ALL transport modes.  RTD_SIM agents use
+    # Bayesian and Markov models and may switch between private and public
+    # transport mid-journey in response to social or environmental events.
+    # Hiding any mode would misrepresent that multimodal behaviour.
+    #
+    # Styling is differentiated by mode category so the map remains readable:
+    #   • Active travel (walk, bike, e_scooter, cargo_bike) — thin, dashed
+    #   • Private vehicle (car, ev, van, truck, hgv)        — medium, solid
+    #   • Public transport (bus, tram, train, ferry)        — bold, solid
+    #
+    # When an agent's state carries `route_segments` metadata from
     # compute_route_with_segments(), each walk/transit/ferry leg is rendered
-    # in its own colour.  Without segments the whole route uses the mode colour.
+    # with its own correct colour.  Without segments the whole route uses the
+    # agent's current mode colour.
+
+    _ACTIVE_MODES  = frozenset({'walk', 'bike', 'e_scooter', 'cargo_bike'})
+    _PRIVATE_MODES = frozenset({
+        'car', 'ev', 'taxi_ev', 'taxi_diesel',
+        'van_electric', 'van_diesel',
+        'truck_electric', 'truck_diesel',
+        'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+    })
     _PT_MODES = frozenset({
-        'bus', 'tram', 'local_train', 'intercity_train', 'freight_rail',
+        'bus', 'tram',
+        'local_train', 'intercity_train', 'freight_rail',
         'ferry_diesel', 'ferry_electric',
+        'flight_domestic', 'flight_electric',
     })
 
     if show_routes and agent_states:
         logger.info(
-            "🔍 ROUTE RENDERING: processing %d agents (PT-only)",
+            "🔍 ROUTE RENDERING: %d agents (all modes)",
             len(agent_states),
         )
-        route_data = []
+
+        # Collect per-segment route rows keyed by mode for batched PathLayers.
+        # {mode_str: [{path, r, g, b, agent_id, tooltip_html}, ...]}
+        segment_rows: Dict[str, list] = {}
 
         for idx, state in enumerate(agent_states):
-            mode = state.get('mode', 'walk')
-            if mode not in _PT_MODES:
-                continue   # skip private vehicles, walk, bike
-
+            mode      = state.get('mode', 'walk')
             agent_id  = state.get('agent_id', f'agent_{idx}')
-            route     = state.get('route')
-            segments  = state.get('route_segments')   # set by compute_route_with_segments
+            arrived   = state.get('arrived', False)
+            distance  = state.get('distance_km', 0.0)
+            emissions = state.get('emissions_g', 0.0)
 
-            # Build a tooltip for the route path
-            origin_name = state.get('origin_name', '') or state.get('home_name', '')
-            dest_name   = state.get('destination_name', '') or state.get('dest_name', '')
-            service_id  = state.get('service_id', '') or state.get('route_id', '')
-            dest_stop   = state.get('destination_stop', '') or state.get('alighting_stop', '')
-            mode_emoji  = _MODE_EMOJI.get(mode, '🚌')
-            svc_label   = f'{service_id} {dest_stop}'.strip() if (service_id or dest_stop) else mode.replace('_', ' ').title()
+            # ── Rich tooltip ────────────────────────────────────────────────
+            mode_label    = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
+            status_html   = '✅ Arrived' if arrived else '🔄 En route'
+            origin_name   = state.get('origin_name', '') or state.get('home_name', '')
+            dest_name     = state.get('destination_name', '') or state.get('dest_name', '')
+            service_id    = state.get('service_id', '') or state.get('route_id', '')
+            dest_stop     = state.get('destination_stop', '') or state.get('alighting_stop', '')
 
-            route_tooltip = (
-                f'<b>{agent_id}</b><br/>'
-                f'{mode_emoji} {svc_label}'
-            )
+            od_html = ''
             if origin_name or dest_name:
-                route_tooltip += (
-                    f'<br/>🏠 {origin_name or "?"} → 🏁 {dest_name or "?"}'
+                od_html = (
+                    f'<br/>🏠 From: {origin_name or "?"}'
+                    f'<br/>🏁 To: {dest_name or "?"}'
                 )
+            svc_html = ''
+            if service_id or dest_stop:
+                svc_html = f'<br/>{_MODE_EMOJI.get(mode,"🚌")} {(service_id + " " + dest_stop).strip()}'
 
-            try:
-                if segments and len(segments) > 0:
-                    # Multi-segment: one PathLayer row per segment
-                    for seg in segments:
-                        seg_mode  = seg.get('mode', mode)
-                        seg_path  = seg.get('path', [])
-                        seg_label = seg.get('label', seg_mode)
-                        if not seg_path or len(seg_path) < 2:
-                            continue
-                        path = [[float(pt[0]), float(pt[1])] for pt in seg_path
-                                if isinstance(pt, (list, tuple)) and len(pt) == 2]
-                        if len(path) < 2:
-                            continue
-                        seg_color = MODE_COLORS_RGB.get(seg_mode, [128, 128, 128])
-                        seg_tooltip = (
-                            f'<b>{agent_id}</b><br/>'
-                            f'{_MODE_EMOJI.get(seg_mode, "🚌")} {seg_label}'
-                        )
-                        if origin_name or dest_name:
-                            seg_tooltip += f'<br/>🏠 {origin_name or "?"} → 🏁 {dest_name or "?"}'
-                        route_data.append({
-                            'path': path,
-                            'r': int(seg_color[0]),
-                            'g': int(seg_color[1]),
-                            'b': int(seg_color[2]),
-                            'mode': seg_mode,
-                            'agent_id': agent_id,
-                            'tooltip_html': seg_tooltip,
-                        })
-
-                elif route and len(route) >= 2:
-                    # Single-colour fallback (no segment metadata)
-                    path = [[float(pt[0]), float(pt[1])] for pt in route
-                            if isinstance(pt, (list, tuple)) and len(pt) == 2]
-                    if len(path) < 2:
-                        continue
-                    color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
-                    # Subtle per-agent variation so overlapping routes stay distinguishable
-                    variation = (idx % 12) * 8
-                    r = min(255, max(40, color_rgb[0] + (variation if idx % 2 == 0 else -variation // 2)))
-                    g = min(255, max(40, color_rgb[1] + (variation if idx % 3 == 1 else -variation // 2)))
-                    b = min(255, max(40, color_rgb[2] + (variation if idx % 4 == 2 else -variation // 2)))
-                    route_data.append({
-                        'path': path,
-                        'r': int(r),
-                        'g': int(g),
-                        'b': int(b),
-                        'mode': mode,
-                        'agent_id': agent_id,
-                        'tooltip_html': route_tooltip,
-                    })
-
-            except Exception as e:
-                logger.warning("Route %d failed: %s", idx, e)
-
-        logger.info("📊 ROUTE SUMMARY: %d route segments from PT agents", len(route_data))
-
-        if route_data:
-            # Split into per-mode DataFrames so each mode layer can use its
-            # own styling — walk legs are thin/transparent, transit legs bold.
-            route_df_all = pd.DataFrame(route_data)
-            _WALK_MODES  = {'walk'}
-            _FERRY_MODES = {'ferry_diesel', 'ferry_electric'}
-
-            for seg_mode_key, seg_df in route_df_all.groupby('mode'):
-                is_walk  = seg_mode_key in _WALK_MODES
-                is_ferry = seg_mode_key in _FERRY_MODES
-                route_layer = pdk.Layer(
-                    'PathLayer',
-                    data=seg_df.to_dict('records'),
-                    get_path='path',
-                    get_color='[r, g, b, 150]'  if is_walk  else '[r, g, b, 210]',
-                    width_min_pixels=1            if is_walk  else (3 if is_ferry else 2),
-                    width_max_pixels=3            if is_walk  else (7 if is_ferry else 5),
-                    width_scale=1,
-                    opacity=0.55                  if is_walk  else 0.92,
-                    pickable=True,
-                    auto_highlight=True,
-                    **({"dash_array": [6, 4]} if is_walk else {}),
-                )
-                layers.append(route_layer)
-            logger.info(
-                "✅ PT route layers added: %d segments across %d mode types",
-                len(route_data), route_df_all['mode'].nunique(),
+            base_tooltip = (
+                f'<b>{agent_id}</b><br/>'
+                f'Mode: {mode_label}<br/>'
+                f'Status: {status_html}'
+                f'{od_html}'
+                f'{svc_html}<br/>'
+                f'Distance: {distance:.1f} km<br/>'
+                f'Emissions: {emissions:.0f} g CO₂'
             )
-        else:
-            logger.info("ℹ️  No PT agents with routes at this timestep")
+
+            # ── Try per-segment colouring first ──────────────────────────────
+            route_segments = state.get('route_segments')
+            if route_segments and isinstance(route_segments, list) and len(route_segments) > 0:
+                for seg in route_segments:
+                    seg_mode  = seg.get('mode', mode)
+                    seg_label = seg.get('label', seg_mode.replace('_', ' ').title())
+                    seg_path  = seg.get('path', [])
+                    if not seg_path or len(seg_path) < 2:
+                        continue
+                    try:
+                        path_list = [
+                            [float(pt[0]), float(pt[1])]
+                            for pt in seg_path
+                            if isinstance(pt, (list, tuple)) and len(pt) == 2
+                        ]
+                    except Exception:
+                        continue
+                    if len(path_list) < 2:
+                        continue
+                    color = MODE_COLORS_RGB.get(seg_mode, [128, 128, 128])
+                    seg_tooltip = (
+                        f'<b>{agent_id}</b><br/>'
+                        f'{_MODE_EMOJI.get(seg_mode, "🚗")} {seg_label}'
+                        f'{od_html}'
+                        f'{svc_html}'
+                    )
+                    if seg_mode not in segment_rows:
+                        segment_rows[seg_mode] = []
+                    segment_rows[seg_mode].append({
+                        'path': path_list,
+                        'r': int(color[0]), 'g': int(color[1]), 'b': int(color[2]),
+                        'agent_id': agent_id,
+                        'tooltip_html': seg_tooltip,
+                    })
+                continue   # segments handled — skip flat-route fallback
+
+            # ── Flat route fallback ──────────────────────────────────────────
+            route = state.get('route')
+            if not route or len(route) < 2:
+                continue
+            try:
+                path_list = [
+                    [float(pt[0]), float(pt[1])]
+                    for pt in route
+                    if isinstance(pt, (list, tuple)) and len(pt) == 2
+                ]
+            except Exception as exc:
+                logger.warning("Route %d parse failed: %s", idx, exc)
+                continue
+            if len(path_list) < 2:
+                continue
+
+            color_rgb = MODE_COLORS_RGB.get(mode, [128, 128, 128])
+            # Subtle per-agent variation to distinguish overlapping same-mode routes
+            v = (idx % 10) * 12
+            r = min(255, max(40, color_rgb[0] + (v if idx % 2 == 0 else -v // 2)))
+            g = min(255, max(40, color_rgb[1] + (v if idx % 3 == 1 else -v // 2)))
+            b = min(255, max(40, color_rgb[2] + (v if idx % 4 == 2 else -v // 2)))
+
+            if mode not in segment_rows:
+                segment_rows[mode] = []
+            segment_rows[mode].append({
+                'path': path_list,
+                'r': int(r), 'g': int(g), 'b': int(b),
+                'agent_id': agent_id,
+                'tooltip_html': base_tooltip,
+            })
+
+        # ── Build one PathLayer per mode — styling matched to category ───────
+        total_segs = sum(len(v) for v in segment_rows.values())
+        logger.info(
+            "📊 ROUTE SUMMARY: %d route segments across %d mode types",
+            total_segs, len(segment_rows),
+        )
+
+        for seg_mode, rows in segment_rows.items():
+            if not rows:
+                continue
+            is_active  = seg_mode in _ACTIVE_MODES
+            is_private = seg_mode in _PRIVATE_MODES
+            is_pt      = seg_mode in _PT_MODES
+            # Active travel: thin dashed. Private: medium. PT/ferry: bold.
+            w_min   = 1 if is_active else (2 if is_private else 3)
+            w_max   = 3 if is_active else (5 if is_private else 7)
+            opacity = 0.50 if is_active else (0.70 if is_private else 0.92)
+            alpha   = 130  if is_active else (170 if is_private else 210)
+
+            layer_kwargs: Dict = dict(
+                data=rows,
+                get_path='path',
+                get_color=f'[r, g, b, {alpha}]',
+                width_min_pixels=w_min,
+                width_max_pixels=w_max,
+                width_scale=1,
+                opacity=opacity,
+                pickable=True,
+                auto_highlight=True,
+            )
+            if is_active:
+                layer_kwargs['dash_array'] = [6, 4]
+
+            layers.append(pdk.Layer('PathLayer', **layer_kwargs))
+            logger.info(
+                "✅ Route layer [%s/%s]: %d segments",
+                seg_mode,
+                'active' if is_active else ('private' if is_private else 'PT'),
+                len(rows),
+            )
 
     elif show_routes and not agent_states:
         logger.warning("show_routes=True but agent_states is empty")

@@ -213,13 +213,17 @@ def setup_environment(
     try:
         from simulation.spatial.rail_network import get_or_fallback_ferry_graph
         G_ferry = get_or_fallback_ferry_graph(env)
-        if G_ferry is not None:
+        if G_ferry is not None and hasattr(G_ferry, 'number_of_nodes') and G_ferry.number_of_nodes() > 0:
             env.graph_manager.graphs['ferry'] = G_ferry
             logger.info(
                 "✅ Ferry graph: %d terminals, %d routes",
                 G_ferry.number_of_nodes(),
                 G_ferry.number_of_edges() // 2,   # bi-directional, so halve
             )
+        elif G_ferry is not None:
+            # Graph object returned but lacks NetworkX API — store anyway
+            env.graph_manager.graphs['ferry'] = G_ferry
+            logger.info("✅ Ferry graph registered")
         else:
             logger.warning("⚠️  Ferry graph returned None — ferry routing uses great-circle lines")
     except Exception as exc:
