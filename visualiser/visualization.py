@@ -111,6 +111,7 @@ def render_map(
     show_gtfs_stops: bool = False,
     show_gtfs_electric_only: bool = False,
     show_naptan_stops: bool = False,
+    show_ferry_routes: bool = True,
     infrastructure_manager: Optional[Any] = None,
     env: Optional[Any] = None,
     center_lon: float = -3.19,
@@ -158,7 +159,7 @@ def render_map(
         if _gm is not None:
             _ferry_graph = _gm.get_graph('ferry')
 
-    if _ferry_graph is not None and _ferry_graph.number_of_nodes() > 1:
+    if show_ferry_routes and _ferry_graph is not None and _ferry_graph.number_of_nodes() > 1:
         try:
             ferry_routes = []
             seen_pairs: set = set()
@@ -262,7 +263,7 @@ def render_map(
     # ========================================================================
     # Agents Layer
     # ========================================================================
-    if agent_states:
+    if show_agents and agent_states:
         agent_data = []
 
         # Pre-build the set of agents currently charging so we can annotate
@@ -329,12 +330,26 @@ def render_map(
                 if operator:
                     pt_lines += f'<br/>🏢 {operator}'
 
+                # Multimodal journey summary — show all leg modes so users
+                # understand the full itinerary even when the agent is mid-leg.
+                segments_html = ''
+                route_segs = state.get('route_segments', [])
+                if route_segs and isinstance(route_segs, list) and len(route_segs) > 1:
+                    seg_labels = []
+                    for seg in route_segs:
+                        sm = seg.get('mode', '')
+                        sl = seg.get('label', sm.replace('_', ' ').title())
+                        emoji = _MODE_EMOJI.get(sm, '🚌')
+                        seg_labels.append(f'{emoji} {sl}')
+                    segments_html = '<br/>🗺️ <b>Journey:</b> ' + ' → '.join(seg_labels)
+
                 tooltip_html = (
                     f'<b>{agent_id}</b><br/>'
                     f'Mode: {mode_label}<br/>'
                     f'Status: {status_html}'
                     f'{od_lines}'
-                    f'{pt_lines}<br/>'
+                    f'{pt_lines}'
+                    f'{segments_html}<br/>'
                     f'Distance: {distance:.1f} km<br/>'
                     f'Emissions: {emissions:.0f} g CO₂'
                     f'{ev_line}'
@@ -668,7 +683,71 @@ def render_map(
                     pickable=True,
                 )
                 layers.insert(0, hotspot_layer)   # below stations so rings show around them
-    
+
+    # ========================================================================
+    # NaPTAN Station Markers
+    # ========================================================================
+    # NaPTAN is the UK government's authoritative stop dataset: rail stations,
+    # ferry terminals, tram/LRB stops.  Rendered as colour-coded dots (blue=rail,
+    # cyan=ferry, amber=tram) independent of the GTFS feed — NaPTAN works even
+    # when no GTFS file is loaded.
+    if show_naptan_stops and env is not None:
+        naptan_stops = getattr(env, 'naptan_stops', None)
+        if naptan_stops:
+            try:
+                naptan_data = []
+                for stop in naptan_stops:
+                    try:
+                        lon  = float(stop.get('lon') or stop.get('longitude') or stop.get('x', 0))
+                        lat  = float(stop.get('lat') or stop.get('latitude')  or stop.get('y', 0))
+                        if lon == 0 and lat == 0:
+                            continue
+                        stype = (stop.get('stop_type') or stop.get('type') or '').lower()
+                        name  = stop.get('name') or stop.get('stop_name') or stop.get('station_name', '')
+                        # Colour by stop type
+                        if any(t in stype for t in ('rail', 'train', 'station')):
+                            r, g, b = 33, 150, 243     # blue
+                            icon = '🚆'
+                        elif any(t in stype for t in ('ferry', 'port', 'harbour')):
+                            r, g, b = 0, 188, 212      # cyan
+                            icon = '⛴️'
+                        elif any(t in stype for t in ('tram', 'metro', 'underground')):
+                            r, g, b = 255, 193, 7      # amber
+                            icon = '🚋'
+                        else:
+                            r, g, b = 33, 150, 243     # default blue
+                            icon = '📍'
+                        naptan_data.append({
+                            'lon': lon, 'lat': lat,
+                            'r': r, 'g': g, 'b': b,
+                            'tooltip_html': (
+                                f'<b>{icon} {name or "NaPTAN stop"}</b><br/>'
+                                f'Type: {stype.title() or "Stop"}'
+                            ),
+                        })
+                    except Exception:
+                        continue
+
+                if naptan_data:
+                    naptan_df    = pd.DataFrame(naptan_data)
+                    naptan_layer = pdk.Layer(
+                        'ScatterplotLayer',
+                        data=naptan_df,
+                        get_position='[lon, lat]',
+                        get_fill_color='[r, g, b, 200]',
+                        get_radius=7,
+                        radius_min_pixels=4,
+                        radius_max_pixels=12,
+                        pickable=True,
+                        stroked=True,
+                        get_line_color=[255, 255, 255, 180],
+                        line_width_min_pixels=1,
+                    )
+                    layers.append(naptan_layer)
+                    logger.info("✅ NaPTAN layer: %d stops", len(naptan_data))
+            except Exception as exc:
+                logger.warning("NaPTAN layer failed: %s", exc)
+
     # ========================================================================
     # View State
     # ========================================================================
@@ -686,30 +765,37 @@ def render_map(
         pitch=0,
         bearing=0
     )
+
+    # ── Resolve map style ──────────────────────────────────────────────────────
+    # Use the caller-supplied style URL when provided (e.g. from MapTiler).
+    # Fall back to Carto Positron so the map always renders without a key.
+    _default_style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+    _map_style     = map_style or _default_style
     
     # ========================================================================
     # Create Deck
     # ========================================================================
-    # Tooltip shows different fields depending on what's available:
-    # - Agents have: agent_id, mode, arrived
-    # - Stations have: station_id, type, occupancy, free_ports, total_ports
+    # pydeck>=0.8 accepts tooltip as a dict; older stubs type it as bool.
+    # We pass it as Any to satisfy both runtime behaviour and strict type
+    # checkers without suppressing real errors elsewhere.
+    from typing import cast, Any as _Any
+    _tooltip = cast(_Any, {
+        'html':  '{tooltip_html}',
+        'style': {
+            'backgroundColor': 'rgba(0,0,0,0.85)',
+            'color':           'white',
+            'fontSize':        '13px',
+            'padding':         '8px 12px',
+            'borderRadius':    '6px',
+            'lineHeight':      '1.6',
+        },
+    })
+
     deck = pdk.Deck(
         layers=layers,
         initial_view_state=view_state,
-        tooltip={
-            # Each row pre-renders its own HTML so agents and stations show
-            # context-appropriate info without cross-layer field pollution.
-            'html': '{tooltip_html}',
-            'style': {
-                'backgroundColor': 'rgba(0,0,0,0.85)',
-                'color': 'white',
-                'fontSize': '13px',
-                'padding': '8px 12px',
-                'borderRadius': '6px',
-                'lineHeight': '1.6',
-            }
-        },
-        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+        tooltip=_tooltip,
+        map_style=_map_style,
     )
     
     return deck

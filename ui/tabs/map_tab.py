@@ -260,6 +260,7 @@ def _render_map_fragment(agent_states, results, env):
         show_gtfs_stops     = ss.get('show_gtfs_stops',         D['gtfs_stops']),
         gtfs_electric_only  = ss.get('show_gtfs_electric_only', D['gtfs_electric_only']),
         show_naptan_stops   = ss.get('show_naptan_stops',       D['naptan_stops']),
+        show_ferry_routes   = ss.get('show_ferry_routes',       D['ferry_routes']),
         infrastructure_manager = results.infrastructure,
         env                 = env,
         map_style           = map_style_url,
