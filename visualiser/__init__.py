@@ -17,7 +17,7 @@ from visualiser.data_adapters import (
     TimeSeriesStorage,
 )
 from visualiser.style_config import (
-    MODE_COLORS,
+    MODE_COLORS_RGB,
     MODE_COLORS_HEX,
     get_congestion_color,
     get_congestion_width,
@@ -30,7 +30,7 @@ __all__ = [
     'RouteDataAdapter',
     'CongestionDataAdapter',
     'TimeSeriesStorage',
-    'MODE_COLORS',
+    'MODE_COLORS_RGB',
     'MODE_COLORS_HEX',
     'get_congestion_color',
     'get_congestion_width',
