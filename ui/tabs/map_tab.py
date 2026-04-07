@@ -1,120 +1,268 @@
 """
 ui/tabs/map_tab.py
 
-Map visualization tab with fragment-based rendering.
-Map updates reactively without full page rerun
+Map visualization tab.
+
+Layout
+──────
+  Left column (controls, 1/4 width):
+    • Map Style selector — Carto (no key) and MapTiler styles (free key)
+    • MapTiler API key input (only shown when a MapTiler style is selected)
+    • Layer toggles, grouped:
+        Agents & Routes
+        Transport Infrastructure (chargers)
+        Transit Network (rail, GTFS, NaPTAN, ferry)
+        Environment (congestion)
+
+  Right column (map, 3/4 width):
+    • pydeck map rendered as @st.fragment so toggles don't trigger full reruns
+    • KPI strip (arrivals, most popular mode, emissions, agents with routes)
+    • Policy status widget (when policy active)
+
+NaPTAN without GTFS
+───────────────────
+NaPTAN station markers work independently of GTFS.  When toggled on, the
+authoritative UK rail/ferry/tram stop markers are overlaid from env.naptan_stops
+(loaded during setup_environment()).  GTFS is not required.
+
+MapTiler key
+────────────
+Free tier: 100k tile requests/month.  Sufficient for local development.
+Register at https://cloud.maptiler.com/auth/widget?mode=signup
+Store key in:
+  • Streamlit sidebar input (session_state['maptiler_key'])
+  • Environment variable: MAPTILER_API_KEY
 """
 
+from __future__ import annotations
+
+import os
 import streamlit as st
-from visualiser.visualization import (
-    render_map,
-    get_current_stats,
+
+from visualiser.visualization import render_map, get_current_stats
+from visualiser.style_config import (
+    MAP_STYLES,
+    DEFAULT_MAP_STYLE_NAME,
+    LAYER_DEFAULTS,
+    LAYER_LABELS,
+    get_map_style_url,
 )
 from ui.widgets.policy_status_widget import render_policy_status_widget
 
-# Note: This tab is designed to be lightweight and reactive, with the map rendered as a 
-# fragment that updates independently when display options change. This allows users to 
-# toggle visibility of agents, routes, and infrastructure without triggering a full page 
-# rerun, ensuring a smoother user experience.
+
 def render_map_tab(results, anim, current_data):
     """
-    Render map visualization tab.
-    
+    Render the Map tab.
+
     Args:
-        results: SimulationResults
-        anim: AnimationController
-        current_data: Current timestep data
+        results:      SimulationResults
+        anim:         AnimationController
+        current_data: Current timestep data dict
     """
-    
     agent_states = current_data['agent_states']
-    metrics = current_data.get('metrics', {})
-    
-    # Get config from session state
-    config = st.session_state.get('last_config')
-    
-    # Build header with temporal info if available
-    header = f"Live View - Step {anim.current_step + 1}/{anim.total_steps}"
-    
+    metrics      = current_data.get('metrics', {})
+    config       = st.session_state.get('last_config')
+    env          = (getattr(results, 'env', None)
+                    or getattr(results, 'spatial_environment', None))
+
+    # ── Header ─────────────────────────────────────────────────────────────────
+    header = f"Live View — Step {anim.current_step + 1}/{anim.total_steps}"
     if hasattr(results, 'temporal_engine') and results.temporal_engine:
-        time_info = results.temporal_engine.get_time_info(anim.current_step)
-        header += f" | 📅 {time_info['date']} {time_info['time'][:5]}"
-    
+        ti = results.temporal_engine.get_time_info(anim.current_step)
+        header += f"  ·  📅 {ti['date']}  {ti['time'][:5]}"
     st.subheader(header)
-    
-    # All display toggles are controlled from the sidebar Map Display section
-    # (sidebar_config.py) and written to session_state.  Read them here so the
-    # map fragment refreshes whenever a checkbox changes.
-    show_rail              = st.session_state.get('show_rail',              True)
-    show_gtfs              = st.session_state.get('show_gtfs',              True)
-    show_gtfs_stops        = st.session_state.get('show_gtfs_stops',        False)
-    show_gtfs_electric_only = st.session_state.get('show_gtfs_electric_only', False)
 
-    # Resolve the SpatialEnvironment so render_map can fetch rail + transit graphs.
-    env = getattr(results, 'env', None) or getattr(results, 'spatial_environment', None)
+    # ── Two-column layout ──────────────────────────────────────────────────────
+    col_controls, col_map = st.columns([1, 3], gap="small")
 
-    render_map_fragment(
-        agent_states, results.infrastructure, show_rail, env=env,
-        show_gtfs=show_gtfs,
-        show_gtfs_stops=show_gtfs_stops,
-        show_gtfs_electric_only=show_gtfs_electric_only,
-    )
-    
+    with col_controls:
+        _render_map_controls(results, env)
+
+    with col_map:
+        _render_map_fragment(agent_states, results, env)
+
+    # ── KPI strip ──────────────────────────────────────────────────────────────
     st.markdown("---")
-    
-    # Current stats
     stats = get_current_stats(agent_states, metrics)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Arrivals", stats['arrivals'])
-    col2.metric("Most Popular", stats['most_popular_mode'])
-    col3.metric("Emissions", stats['total_emissions'])
-    col4.metric("Agents w/ Routes", stats['agents_with_routes'])
-    
-    st.markdown("---")
-    
-    # Policy Status Widget (if policy active)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Arrivals",         stats['arrivals'])
+    c2.metric("Most Popular",     stats['most_popular_mode'])
+    c3.metric("Emissions",        stats['total_emissions'])
+    c4.metric("Agents w/ Routes", stats['agents_with_routes'])
+
+    # ── Policy widget ──────────────────────────────────────────────────────────
     if config and hasattr(results, 'policy_status') and results.policy_status:
+        st.markdown("---")
         render_policy_status_widget(results, anim.current_step, config)
 
-# Fragment for map rendering - updates independently when display options change
-# This prevents full page reruns when checkboxes are toggled, improving performance and 
-# user experience.
-@st.fragment
-def render_map_fragment(
-    agent_states,
-    infrastructure_manager,
-    show_rail,
-    env=None,
-    show_gtfs: bool = True,
-    show_gtfs_stops: bool = False,
-    show_gtfs_electric_only: bool = False,
+
+# ── Controls panel ─────────────────────────────────────────────────────────────
+
+def _render_map_controls(results, env):
+    """Render the left-column map controls panel."""
+
+    # ── Map style selector ─────────────────────────────────────────────────────
+    st.markdown("**🗺️ Map style**")
+
+    style_names    = list(MAP_STYLES.keys())
+    current_style  = st.session_state.get('map_style_name', DEFAULT_MAP_STYLE_NAME)
+
+    selected_style = st.selectbox(
+        "Basemap",
+        options=style_names,
+        index=style_names.index(current_style) if current_style in style_names else 0,
+        key="_map_style_select",
+        label_visibility="collapsed",
+        help="Carto styles work without an API key. MapTiler styles need a free key.",
+    )
+    st.session_state['map_style_name'] = selected_style
+    style_info = MAP_STYLES[selected_style]
+    st.caption(style_info["description"])
+    if style_info.get("ferry_lanes"):
+        st.caption("✅ Shows ferry lanes & maritime routes")
+
+    # MapTiler API key (only when a MapTiler style is selected)
+    if style_info["key_required"]:
+        stored_key = (st.session_state.get('maptiler_key', '')
+                      or os.environ.get('MAPTILER_API_KEY', ''))
+        api_key = st.text_input(
+            "MapTiler API key",
+            value=stored_key,
+            type="password",
+            key="_maptiler_key_input",
+            placeholder="Get free key at cloud.maptiler.com",
+            help=(
+                "Free tier: 100k requests/month.\n"
+                "https://cloud.maptiler.com/auth/widget?mode=signup\n"
+                "Or set env var: MAPTILER_API_KEY"
+            ),
+        )
+        st.session_state['maptiler_key'] = api_key
+        if not api_key:
+            st.warning("No key → Carto Voyager fallback")
+
+    st.markdown("---")
+
+    # ── Agents & Routes ────────────────────────────────────────────────────────
+    st.markdown("**Agents & Routes**")
+    _toggle("agents")
+    _toggle("routes")
+    st.markdown("---")
+
+    # ── Infrastructure ─────────────────────────────────────────────────────────
+    st.markdown("**Infrastructure**")
+    has_infra = results.infrastructure is not None
+    _toggle("infrastructure", disabled=not has_infra,
+            disabled_reason="No infrastructure loaded")
+    st.markdown("---")
+
+    # ── Transport network ──────────────────────────────────────────────────────
+    st.markdown("**Transport Network**")
+
+    has_rail = (
+        env is not None
+        and hasattr(env, 'graph_manager')
+        and env.graph_manager.get_graph('rail') is not None
+    )
+    _toggle("rail", disabled=not has_rail,
+            disabled_reason="Rail graph not loaded (OpenRailMap offline)")
+
+    has_gtfs = (
+        env is not None
+        and hasattr(env, 'get_transit_graph')
+        and env.get_transit_graph() is not None
+    )
+    _toggle("gtfs_routes", disabled=not has_gtfs, disabled_reason="No GTFS feed loaded")
+    _toggle("gtfs_stops",  disabled=not has_gtfs, disabled_reason="No GTFS feed loaded")
+    if (st.session_state.get('show_gtfs_routes')
+            or st.session_state.get('show_gtfs_stops')):
+        _toggle("gtfs_electric_only")
+
+    naptan_stops = (env is not None and hasattr(env, 'naptan_stops')
+                    and getattr(env, 'naptan_stops', None))
+    has_naptan = bool(naptan_stops)
+    _toggle(
+        "naptan_stops",
+        disabled=not has_naptan,
+        disabled_reason=(
+            "NaPTAN not loaded. "
+            "Place NAPTAN_National_Stops.csv in data/naptan/"
+        ),
+    )
+    if has_naptan and st.session_state.get('show_naptan_stops'):
+        st.caption(f"📍 {len(naptan_stops)} NaPTAN stops")
+
+    _toggle("ferry_routes")
+    if (st.session_state.get('show_ferry_routes')
+            and not style_info.get("ferry_lanes")):
+        st.caption("💡 MapTiler OSM or Ocean shows built-in ferry lanes")
+
+    st.markdown("---")
+
+    # ── Environment ────────────────────────────────────────────────────────────
+    st.markdown("**Environment**")
+    has_cong = (env is not None and hasattr(env, 'congestion_manager')
+                and env.congestion_manager is not None)
+    _toggle("congestion", disabled=not has_cong,
+            disabled_reason="Enable congestion in Advanced Settings")
+
+
+def _toggle(
+    layer_key:       str,
+    disabled:        bool = False,
+    disabled_reason: str  = "",
 ):
     """
-    Render map as a fragment — updates independently when display options change.
+    Render a single layer toggle checkbox, persisted in session_state.
 
-    All 7 display toggles (agents/routes/infra + rail/gtfs/stops/electric) should be
-    read from session_state in render_map_tab() and passed in as arguments so
-    that @st.fragment re-renders only this section when a checkbox changes.
-
-    Args:
-        agent_states:              Current agent state list.
-        infrastructure_manager:    InfrastructureManager instance.
-        show_rail:                 Render OpenRailMap / station spine layer.
-        env:                       SpatialEnvironment — carries rail + transit graphs.
-        show_gtfs:                 Render GTFS service path layer.
-        show_gtfs_stops:           Render GTFS stop marker layer.
-        show_gtfs_electric_only:   Filter GTFS layer to zero-emission routes only.
+    Uses a unique key per layer so Streamlit widget state is stable across reruns.
     """
+    info    = LAYER_LABELS[layer_key]
+    ss_key  = f"show_{layer_key}"
+    default = LAYER_DEFAULTS.get(layer_key, False)
+    current = st.session_state.get(ss_key, default)
+    label   = f"{info['emoji']} {info['label']}"
+
+    if disabled:
+        st.checkbox(label, value=False, key=f"_lyr_{layer_key}",
+                    disabled=True, help=disabled_reason)
+        st.session_state[ss_key] = False
+    else:
+        new_val = st.checkbox(label, value=current,
+                              key=f"_lyr_{layer_key}", help=info["help"])
+        st.session_state[ss_key] = new_val
+
+
+# ── Map fragment ───────────────────────────────────────────────────────────────
+
+@st.fragment
+def _render_map_fragment(agent_states, results, env):
+    """
+    Render pydeck map as a Streamlit fragment.
+
+    Fragment isolation means checkbox toggles only re-run this function,
+    not the entire page, giving a smooth UI when switching layers.
+    """
+    style_name   = st.session_state.get('map_style_name', DEFAULT_MAP_STYLE_NAME)
+    maptiler_key = st.session_state.get('maptiler_key', '')
+    map_style_url = get_map_style_url(style_name, maptiler_key)
+
+    ss = st.session_state
+    D  = LAYER_DEFAULTS
+
     deck = render_map(
-        agent_states=agent_states,
-        show_agents=st.session_state.get('show_agents', True),
-        show_routes=st.session_state.get('show_routes', True),
-        show_infrastructure=st.session_state.get('show_infrastructure', True),
-        show_rail=show_rail,
-        infrastructure_manager=infrastructure_manager,
-        env=env,
-        show_gtfs=show_gtfs,
-        show_gtfs_stops=show_gtfs_stops,
-        show_gtfs_electric_only=show_gtfs_electric_only,
+        agent_states        = agent_states,
+        show_agents         = ss.get('show_agents',             D['agents']),
+        show_routes         = ss.get('show_routes',             D['routes']),
+        show_infrastructure = ss.get('show_infrastructure',     D['infrastructure']),
+        show_rail           = ss.get('show_rail',               D['rail']),
+        show_gtfs           = ss.get('show_gtfs_routes',        D['gtfs_routes']),
+        show_gtfs_stops     = ss.get('show_gtfs_stops',         D['gtfs_stops']),
+        gtfs_electric_only  = ss.get('show_gtfs_electric_only', D['gtfs_electric_only']),
+        show_naptan_stops   = ss.get('show_naptan_stops',       D['naptan_stops']),
+        infrastructure_manager = results.infrastructure,
+        env                 = env,
+        map_style           = map_style_url,
     )
+
     st.pydeck_chart(deck, width='stretch')
