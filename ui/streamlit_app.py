@@ -117,16 +117,27 @@ def init_session_state():
         'simulation_run': False,
         'results': None,
         'animation_controller': None,
-        # ── Map display toggles (all 7 keys must be pre-populated so
-        #    sidebar_config.py and map_tab.py never raise KeyError) ──────────
+        # ── Map display toggles ────────────────────────────────────────────────
+        # Sidebar (sidebar_config.py) is the single writer.  All keys must be
+        # pre-populated here so no code path ever raises KeyError on first load.
+        # ── Agents / Routes / Infra ───────────────────────────────────────────
         'show_agents':              True,
         'show_routes':              True,
         'show_infrastructure':      True,
-        'show_rail':                True,
-        'show_gtfs':                True,
+        # ── Transport network ─────────────────────────────────────────────────
+        'show_rail':                False,
+        'show_gtfs_routes':         False,   # canonical key (sidebar writes this)
+        'show_gtfs':                False,   # backward-compat alias kept in sync
         'show_gtfs_stops':          False,
         'show_gtfs_electric_only':  False,
-        # ────────────────────────────────────────────────────────────────────
+        'show_naptan_stops':        False,
+        'show_ferry_routes':        True,    # Ferry lanes on by default
+        # ── Environment ───────────────────────────────────────────────────────
+        'show_congestion':          False,
+        # ── Basemap ───────────────────────────────────────────────────────────
+        'map_style_name':           'Light (Carto Positron)',
+        'maptiler_key':             '',
+        # ── Other ─────────────────────────────────────────────────────────────
         'current_region': None,
         'policy_engine': None,
         'combined_scenario_active': False,

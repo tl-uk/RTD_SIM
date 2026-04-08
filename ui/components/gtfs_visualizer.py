@@ -27,12 +27,16 @@ except ImportError:
     logger.warning("pydeck not available — GTFS layers disabled")
 
 # ── Straight-line threshold for edges without shape geometry ─────────────────
-# BODS shapes.txt is incomplete for many cross-Forth and long inter-urban
-# routes (X24, X26, X27 etc).  When shape_coords is missing the fallback is a
-# 2-point straight line between stops, which draws visibly across open water.
-# Any 2-point edge whose crow-flies distance exceeds this threshold is skipped
-# in the PathLayer to prevent Forth-crossing artefacts.
-_MAX_SHAPELESS_KM: float = 0.3
+# BODS shapes.txt is incomplete for many routes.  When shape_coords is missing
+# the fallback is a 2-point straight line between stops, which draws visibly
+# across roads, parks and open water.
+#
+# 0.08 km (80 m) — only render shapeless edges for stops that are essentially
+# adjacent (e.g. two stops on the same block).  Anything longer produces a
+# visible straight diagonal that misrepresents the real route.  The previous
+# value of 0.3 km let 300 m diagonals through, causing the "routes crossing
+# land" artefact seen in the GTFS display PDF.
+_MAX_SHAPELESS_KM: float = 0.08
 
 
 def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
@@ -87,6 +91,11 @@ def create_gtfs_service_layer(
         return None
 
     path_data = []
+    # Deduplicate: when multiple parallel edges share the same stop pair AND the
+    # same shape geometry (common for services with multiple trips), only render
+    # once.  This reduces PathLayer row count from ~10k to a few hundred for
+    # typical BODS feeds, which dramatically improves map rendering performance.
+    _seen_paths: set = set()
 
     for u, v, attrs in G_transit.edges(data=True):
         mode     = attrs.get('mode', 'bus')
@@ -115,6 +124,14 @@ def create_gtfs_service_layer(
             shape = [[u_lon, u_lat], [v_lon, v_lat]]
 
         color = _mode_color(mode, fuel)
+
+        # Deduplicate: skip if this (u, v, mode) combination already rendered.
+        # Parallel edges for the same stop pair and mode add visual noise without
+        # information value — only the first (best-shape) edge is needed.
+        _edge_key = (u, v, mode)
+        if _edge_key in _seen_paths:
+            continue
+        _seen_paths.add(_edge_key)
 
         # ── Build a meaningful service label ────────────────────────────────
         short_names = attrs.get('route_short_names', [])

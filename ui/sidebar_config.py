@@ -264,54 +264,144 @@ def render_sidebar_config():
             use_container_width=True  # TODO: change to width='stretch' after Streamlit ≥ 1.44
         )
 
-    # ── Map Display Toggles ──────────────────────────────────────────────────
-    # OUTSIDE the form so checkboxes update the map immediately.
-    # All keys initialized here so map_tab.py never hits a KeyError.
+    # ── Map Display ─────────────────────────────────────────────────────────────
+    # OUTSIDE the form so every toggle refreshes the map immediately.
+    # This block is the single authoritative source of truth for all map layer
+    # state — map_tab.py reads these keys and never writes its own.
     st.markdown("---")
     st.markdown("### 🗺️ Map Display")
 
+    # ── Basemap style ──────────────────────────────────────────────────────────
+    try:
+        from visualiser.style_config import (
+            MAP_STYLES, DEFAULT_MAP_STYLE_NAME, get_map_style_url
+        )
+        _have_styles = True
+    except ImportError:
+        _have_styles = False
+
+    if _have_styles:
+        import os
+        style_names   = list(MAP_STYLES.keys())
+        current_style = st.session_state.get('map_style_name', DEFAULT_MAP_STYLE_NAME)
+        selected_style = st.selectbox(
+            "Basemap style",
+            options=style_names,
+            index=style_names.index(current_style) if current_style in style_names else 0,
+            key="_sidebar_map_style",
+            help="Carto styles need no API key. MapTiler styles need a free key (100k req/month).",
+        )
+        st.session_state['map_style_name'] = selected_style
+        _style_info = MAP_STYLES[selected_style]
+        st.caption(_style_info["description"])
+        if _style_info.get("ferry_lanes"):
+            st.caption("✅ Shows ferry lanes & maritime routes")
+        if _style_info.get("key_required"):
+            _stored_key = (st.session_state.get('maptiler_key', '')
+                           or os.environ.get('MAPTILER_API_KEY', ''))
+            _api_key = st.text_input(
+                "MapTiler API key",
+                value=_stored_key,
+                type="password",
+                key="_sidebar_maptiler_key",
+                placeholder="cloud.maptiler.com — free tier",
+                help="Set env var MAPTILER_API_KEY to avoid re-entering each session.",
+            )
+            st.session_state['maptiler_key'] = _api_key
+            if not _api_key:
+                st.caption("⚠️ No key → Carto Voyager fallback")
+    else:
+        # Minimal style info dict so the rest of the section works without imports
+        _style_info = {"ferry_lanes": False}
+
+    # ── Agents & Routes ────────────────────────────────────────────────────────
+    st.markdown("**Agents & Routes**")
     col1, col2 = st.columns(2)
     with col1:
         st.session_state['show_agents'] = st.checkbox(
-            "Show Agents",
+            "🔵 Show Agents",
             value=st.session_state.get('show_agents', True),
             key="_disp_agents",
-        )
-        st.session_state['show_infrastructure'] = st.checkbox(
-            "Show Chargers",
-            value=st.session_state.get('show_infrastructure', True),
-            key="_disp_infra",
-        )
-        st.session_state['show_rail'] = st.checkbox(
-            "Show Rail Network",
-            value=st.session_state.get('show_rail', True),
-            key="_disp_rail",
-            help="Overlay OpenRailMap / station spine layer",
-        )
-        st.session_state['show_gtfs'] = st.checkbox(
-            "Show Transit Routes (GTFS)",
-            value=st.session_state.get('show_gtfs', True),
-            key="_disp_gtfs",
-            help="Show GTFS service paths (bus/tram/ferry). Requires a GTFS feed.",
+            help="Agent position markers (colour = transport mode).",
         )
     with col2:
         st.session_state['show_routes'] = st.checkbox(
-            "Show Routes",
+            "🛣️ Show Routes",
             value=st.session_state.get('show_routes', True),
             key="_disp_routes",
+            help="Agent route polylines. Multimodal routes show each leg in its mode colour.",
+        )
+
+    # ── Infrastructure ─────────────────────────────────────────────────────────
+    st.markdown("**Infrastructure**")
+    st.session_state['show_infrastructure'] = st.checkbox(
+        "🔌 Show Chargers",
+        value=st.session_state.get('show_infrastructure', True),
+        key="_disp_infra",
+        help="EV charging station markers. Red circles = high utilisation.",
+    )
+
+    # ── Transport Network ──────────────────────────────────────────────────────
+    st.markdown("**Transport Network**")
+    col3, col4 = st.columns(2)
+    with col3:
+        st.session_state['show_rail'] = st.checkbox(
+            "🚆 Rail Network",
+            value=st.session_state.get('show_rail', False),
+            key="_disp_rail",
+            help="OpenRailMap track geometry (or hardcoded station spine when offline).",
+        )
+        # GTFS Routes — key is show_gtfs_routes (NOT show_gtfs)
+        # map_tab.py reads show_gtfs_routes; this is the canonical key.
+        st.session_state['show_gtfs_routes'] = st.checkbox(
+            "🚌 GTFS Routes",
+            value=st.session_state.get('show_gtfs_routes', False),
+            key="_disp_gtfs_routes",
+            help="Bus, tram, and ferry service lines from the loaded GTFS feed.",
         )
         st.session_state['show_gtfs_stops'] = st.checkbox(
-            "Show Transit Stops (GTFS)",
+            "🚏 GTFS Stops",
             value=st.session_state.get('show_gtfs_stops', False),
             key="_disp_gtfs_stops",
-            help="Show GTFS stop markers sized by service frequency.",
+            help="Bus and tram stop markers sized by service frequency.",
         )
+    with col4:
         st.session_state['show_gtfs_electric_only'] = st.checkbox(
-            "Electric routes only",
+            "⚡ Electric only",
             value=st.session_state.get('show_gtfs_electric_only', False),
             key="_disp_electric_only",
-            help="Filter GTFS layer to zero-emission routes only.",
+            help="Filter GTFS layer to zero-emission services only.",
         )
+        st.session_state['show_naptan_stops'] = st.checkbox(
+            "📍 NaPTAN Stations",
+            value=st.session_state.get('show_naptan_stops', False),
+            key="_disp_naptan",
+            help="Authoritative UK rail, metro, tram, and ferry terminal positions.",
+        )
+        st.session_state['show_ferry_routes'] = st.checkbox(
+            "⛴️ Ferry Lanes",
+            value=st.session_state.get('show_ferry_routes', True),
+            key="_disp_ferry",
+            help=(
+                "Ferry route lines from the hardcoded UK spine or Overpass API. "
+                "Always visible regardless of GTFS."
+                + (" MapTiler OSM style shows built-in ferry lanes too."
+                   if _style_info.get("ferry_lanes") else "")
+            ),
+        )
+
+    # ── Environment ────────────────────────────────────────────────────────────
+    st.markdown("**Environment**")
+    st.session_state['show_congestion'] = st.checkbox(
+        "🔴 Congestion",
+        value=st.session_state.get('show_congestion', False),
+        key="_disp_congestion",
+        help="Road congestion heat overlay (requires congestion enabled in Advanced Settings).",
+    )
+
+    # Backward-compat alias: keep show_gtfs in sync with show_gtfs_routes so any
+    # code that still reads show_gtfs doesn't silently get False.
+    st.session_state['show_gtfs'] = st.session_state['show_gtfs_routes']
     # =======================================================================
     config = SimulationConfig(
         steps=steps,
