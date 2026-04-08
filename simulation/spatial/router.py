@@ -803,7 +803,14 @@ class Router:
         Buses:  fall back to drive graph.
         """
         if mode == 'tram':
-            return self._compute_intermodal_route(agent_id, origin, dest, mode, policy)
+            # Tram fallback: route on the drive graph (road-following).
+            # Edinburgh trams run along roads (Princes St, Haymarket Terrace,
+            # Leith Walk) so a drive-graph proxy is a valid approximation.
+            # NEVER use _compute_intermodal_route here — that routes on the
+            # OpenRailMap mainline graph and produces cross-city rail diagonals
+            # that bear no relation to tram tracks.
+            logger.debug("%s: tram — no GTFS/spine, using drive-graph proxy", agent_id)
+            return self._compute_road_route(agent_id, origin, dest, 'car', policy)
         if mode in ('ferry_diesel', 'ferry_electric'):
             # Provide a visible great-circle line — never silent [] for ferry.
             logger.debug("%s: ferry — no GTFS/graph, using great-circle interpolation", agent_id)
