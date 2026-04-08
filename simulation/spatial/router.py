@@ -933,8 +933,27 @@ class Router:
                         self._extract_geometry(G_walk, walk_nodes),
                         max_segment_km=0.05,
                     )
-            except Exception:
-                pass
+                # Same node → origin and dest snap to identical walk node.
+                # Happens when both ends are within ~10 m of each other.
+                # Fall through to straight-line interpolation below.
+            except nx.NetworkXNoPath:
+                # Stop coordinates outside walk graph coverage (e.g. cross-Forth
+                # or Fife stops loaded by GTFS but not covered by the Edinburgh
+                # drive-graph bbox).  Drive-graph proxy handles these.
+                logger.debug(
+                    "%s: walk nx.NetworkXNoPath (%.2fkm) — trying drive proxy",
+                    agent_id, dist_km,
+                )
+            except Exception as _walk_exc:
+                logger.debug(
+                    "%s: walk routing failed (%.2fkm): %s",
+                    agent_id, dist_km, _walk_exc,
+                )
+
+        # Short access legs (< 0.5 km): straight interpolation is correct and faster
+        # than routing on the drive graph, which may pick car-only roads.
+        if dist_km <= 0.5:
+            return self._interpolate([origin, dest], max_segment_km=0.05)
 
         if dist_km <= max_straight_km:
             logger.debug(
