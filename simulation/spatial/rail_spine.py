@@ -845,7 +845,7 @@ def build_rail_spine_graph():
     if not _NX_AVAILABLE:
         return None
 
-    G = nx.MultiDiGraph()
+    G = nx.MultiDiGraph()  # type: ignore
 
     for crs, info in STATIONS.items():
         G.add_node(
@@ -951,7 +951,7 @@ def route_via_stations(
     origin: Tuple[float, float],
     dest: Tuple[float, float],
     mode: str = 'local_train',
-) -> List[Tuple[float, float]]:
+) -> Optional[List[Tuple[float, float]]]:
     """
     Build a realistic rail route as a list of (lon, lat) waypoints.
 
@@ -973,7 +973,10 @@ def route_via_stations(
     # Returns None when origin/dest are outside the tram corridor catchment
     # (>1.5km from any stop).  Callers must handle None.
     if mode == 'tram':
-        return route_via_tram_stops(origin, dest, max_access_km=2.5)
+        tram_route = route_via_tram_stops(origin, dest, max_access_km=2.5)
+        if tram_route is not None:
+            return tram_route
+        return None
 
     # Select station types based on mode
     if mode in ('intercity_train', 'freight_rail'):
@@ -997,7 +1000,7 @@ def route_via_stations(
 
     if origin_crs == dest_crs:
         # Origin and destination are in the same station catchment — short trip
-        return [origin, origin_stn, dest]
+        return [origin] + ([origin_stn] if origin_stn else []) + [dest]
 
     # ── Try to route through intermediate stations on the spine graph ─────────
     intermediate_coords: List[Tuple[float, float]] = []
@@ -1093,7 +1096,7 @@ _naptan_loaded: bool = False
 
 
 def get_transfer_nodes(
-    bbox: Optional[Tuple[float, float, float]] = None,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
     force_spine: bool = False,
 ) -> List[Dict]:
     """

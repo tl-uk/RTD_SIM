@@ -557,6 +557,10 @@ def search_gtfs_feeds_for_bbox(
         })
     return feeds
 
+# ====================================================================================
+# This function is not used in the Streamlit app but can be called from the CLI or 
+# other scripts to fetch GTFS feeds on demand.
+# ===================================================================================
 def download_gtfs_feed(
     operator_id_or_url: str,
     output_dir: str = "/tmp",
