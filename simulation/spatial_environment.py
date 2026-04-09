@@ -255,31 +255,31 @@ class SpatialEnvironment:
         """Return the ferry route graph, or None if not yet loaded."""
         return self.graph_manager.get_graph('ferry')
 
-    # def compute_route_with_segments(
-    #     self,
-    #     agent_id: str,
-    #     origin: Tuple[float, float],
-    #     dest: Tuple[float, float],
-    #     mode: str,
-    #     policy_context: Optional[dict] = None,
-    # ) -> Tuple[List[Tuple[float, float]], List[dict]]:
-    #     """
-    #     Compute route AND per-leg segment metadata for multimodal visualisation.
+    def compute_route_with_segments(
+        self,
+        agent_id: str,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        mode: str,
+        policy_context: Optional[dict] = None,
+    ) -> Tuple[List[Tuple[float, float]], List[dict]]:
+        """
+        Compute route AND per-leg segment metadata for multimodal visualisation.
 
-    #     Returns (flat_route, segments) where each segment is:
-    #         {'path': [(lon,lat),...], 'mode': str, 'label': str}
-    #     segments is [] for single-mode routes or on routing failure.
-    #     """
-    #     if hasattr(self.router, 'compute_route_with_segments'):
-    #         return self.router.compute_route_with_segments(
-    #             agent_id, origin, dest, mode,
-    #             policy_context=policy_context,
-    #         )
-    #     route = self.router.compute_route(
-    #         agent_id, origin, dest, mode,
-    #         policy_context=policy_context,
-    #     )
-    #     return route, []
+        Returns (flat_route, segments) where each segment is:
+            {'path': [(lon,lat),...], 'mode': str, 'label': str}
+        segments is [] for single-mode routes or on routing failure.
+        """
+        if hasattr(self.router, 'compute_route_with_segments'):
+            return self.router.compute_route_with_segments(
+                agent_id, origin, dest, mode,
+                policy_context=policy_context,
+            )
+        route = self.router.compute_route(
+            agent_id, origin, dest, mode,
+            policy_context=policy_context,
+        )
+        return route, []
 
     def load_gtfs_graph(
         self,
@@ -496,47 +496,6 @@ class SpatialEnvironment:
             agent_id, origin, dest, mode,
             policy_context=policy_context,
         )
-
-    def compute_route_with_segments(
-        self,
-        agent_id: str,
-        origin: Tuple[float, float],
-        dest: Tuple[float, float],
-        mode: str,
-        policy_context: Optional[dict] = None,
-    ) -> Tuple[List[Tuple[float, float]], List[dict]]:
-        """
-        Compute route AND per-leg segment metadata for multimodal visualisation.
-
-        This is the preferred API for agents so the visualiser can colour each
-        leg (walk-to-stop / transit / walk-from-stop) independently.  Falls
-        back to compute_route() with an empty segment list when the router
-        does not support this method.
-
-        Args:
-            agent_id:       Identifier for logging.
-            origin:         (lon, lat) start coordinate.
-            dest:           (lon, lat) end coordinate.
-            mode:           Transport mode string.
-            policy_context: Generalised cost parameter overrides.
-
-        Returns:
-            (flat_route, segments) where flat_route is identical to
-            compute_route() output and segments is a list of dicts:
-                {'path': [(lon,lat),...], 'mode': str, 'label': str}
-            segments is [] when single-mode or on routing failure.
-        """
-        if hasattr(self.router, 'compute_route_with_segments'):
-            return self.router.compute_route_with_segments(
-                agent_id, origin, dest, mode,
-                policy_context=policy_context,
-            )
-        # Fallback for older router implementations
-        route = self.router.compute_route(
-            agent_id, origin, dest, mode,
-            policy_context=policy_context,
-        )
-        return route, []
 
     def compute_route_alternatives(
         self,
