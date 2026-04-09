@@ -266,6 +266,18 @@ class SpatialEnvironment:
         """
         Compute route AND per-leg segment metadata for multimodal visualisation.
 
+        This is the preferred API for agents so the visualiser can colour each
+        leg (walk-to-stop / transit / walk-from-stop) independently.  Falls
+        back to compute_route() with an empty segment list when the router
+        does not support this method.
+
+        Args:
+            agent_id:       Identifier for logging.
+            origin:         (lon, lat) start coordinate.
+            dest:           (lon, lat) end coordinate.
+            mode:           Transport mode string.
+            policy_context: Generalised cost parameter overrides.
+
         Returns (flat_route, segments) where each segment is:
             {'path': [(lon,lat),...], 'mode': str, 'label': str}
         segments is [] for single-mode routes or on routing failure.
