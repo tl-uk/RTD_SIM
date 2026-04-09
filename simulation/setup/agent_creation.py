@@ -257,10 +257,6 @@ def create_agents(
                     best = agent.planner.choose_action(scores)
                     agent.state.mode = best.mode
 
-                    # Build route: road and rail routes are (lon, lat) tuples
-                    # returned by env.compute_route() / _compute_intermodal_route.
-                    # Abstract modes (ferry/air) return 2-tuples from
-                    # make_synthetic_route().  All forms are safe to cast below.
                     raw_route = best.route or []
                     safe_route = []
                     for pt in raw_route:
@@ -273,15 +269,10 @@ def create_agents(
                     agent.state.route_offset_km = 0.0
                     agent.state.departed_at_step = 0
 
-                    # Store action params (includes abstract=True, network, trip_distance_km)
                     if hasattr(agent.state, 'action_params'):
                         agent.state.action_params = best.params
 
-                    # ── Per-segment colouring metadata ─────────────────────────
-                    # bdi_planner stores route_segments in best.params when it
-                    # called compute_route_with_segments().  Copy to agent state
-                    # so the visualiser colours walk/transit/ferry legs correctly
-                    # from step 0 rather than waiting for the first replan.
+                    # Per-segment colour metadata for the visualiser
                     if hasattr(agent.state, 'route_segments'):
                         agent.state.route_segments = best.params.get('route_segments', [])
 
@@ -290,30 +281,19 @@ def create_agents(
                         agent.state.service_id       = best.params.get('service_id', '')
                         agent.state.destination_stop = best.params.get('destination_stop', '')
 
-                    # ── Origin / destination labels ────────────────────────────
-                    # Derive human-readable place names from the user/job story
-                    # so tooltips show "From: Portobello → To: Waverley" rather
-                    # than raw coordinates.  StoryDrivenAgent stores the job
-                    # story dict on agent_context; fall back to coordinates.
+                    # Origin / destination labels — derive from job story or coordinates
                     if hasattr(agent.state, 'origin_name') and not agent.state.origin_name:
                         job_ctx = agent.agent_context.get('job_story') or {}
-                        origin_label = ''
-                        dest_label   = ''
-                        if hasattr(job_ctx, 'origin') and job_ctx.origin:
-                            origin_label = str(job_ctx.origin)
-                        elif hasattr(job_ctx, 'start_location') and job_ctx.start_location:
-                            origin_label = str(job_ctx.start_location)
-                        if hasattr(job_ctx, 'destination') and job_ctx.destination:
-                            dest_label = str(job_ctx.destination)
-                        elif hasattr(job_ctx, 'end_location') and job_ctx.end_location:
-                            dest_label = str(job_ctx.end_location)
-                        # If story doesn't carry names, format coords compactly
-                        if not origin_label and origin:
-                            origin_label = f"({origin[1]:.3f}°N, {origin[0]:.3f}°{'E' if origin[0] >= 0 else 'W'})"
-                        if not dest_label and dest:
-                            dest_label = f"({dest[1]:.3f}°N, {dest[0]:.3f}°{'E' if dest[0] >= 0 else 'W'})"
-                        agent.state.origin_name      = origin_label
-                        agent.state.destination_name = dest_label
+                        o_label = (getattr(job_ctx, 'origin', None)
+                                   or getattr(job_ctx, 'start_location', None) or '')
+                        d_label = (getattr(job_ctx, 'destination', None)
+                                   or getattr(job_ctx, 'end_location', None) or '')
+                        if not o_label and origin:
+                            o_label = f"({origin[1]:.3f}°N,{origin[0]:.3f}°{'E' if origin[0]>=0 else 'W'})"
+                        if not d_label and dest:
+                            d_label = f"({dest[1]:.3f}°N,{dest[0]:.3f}°{'E' if dest[0]>=0 else 'W'})"
+                        agent.state.origin_name      = str(o_label)
+                        agent.state.destination_name = str(d_label)
                 
                 # Verify route was assigned
                 if agent.state.route and len(agent.state.route) > 1:
