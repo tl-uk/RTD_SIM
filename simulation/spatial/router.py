@@ -96,6 +96,12 @@ except ImportError:
 _RAIL_MODES    = frozenset({'local_train', 'intercity_train', 'freight_rail'})
 _TRANSIT_MODES = frozenset({'bus', 'ferry_diesel', 'ferry_electric'})
 
+# Minimum walk-leg distance to include in multimodal segment list.
+# Legs shorter than this are real (agent does walk to platform) but are
+# too short to be meaningful on the map and clutter the segment tooltip.
+# Set to 0.15 km (150 m) — anything shorter renders as a dot not a line.
+_MIN_WALK_LEG_KM: float = 0.15
+
 # ── Default policy parameters ─────────────────────────────────────────────────
 _DEFAULT_POLICY: Dict[str, float] = {
     'value_of_time_gbp_h':  10.0,
@@ -331,17 +337,28 @@ class Router:
             return [], []
 
         segments = []
-        if access_leg and len(access_leg) >= 2:
+        # Walk legs are only added when long enough to be meaningful on the
+        # map (≥ _MIN_WALK_LEG_KM).  A 30 m snap to the nearest rail node is
+        # real but renders as a dot and adds no information to the tooltip.
+        access_dist = haversine_km(origin, orig_coord)
+        egress_dist = haversine_km(dest_coord, dest)
+
+        if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to station'})
         if rail_coords and len(rail_coords) >= 2:
             segments.append({'path': rail_coords, 'mode': mode, 'label': mode.replace('_', ' ').title()})
-        if egress_leg and len(egress_leg) >= 2:
+        if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from station'})
 
         full_route = (
             (access_leg[:-1] if access_leg else [])
             + rail_coords
             + (egress_leg[1:] if len(egress_leg) > 1 else [])
+        )
+
+        logger.info(
+            "✅ %s: %s intermodal-segments %.1fkm (%d pts, %d legs)",
+            agent_id, mode, route_distance_km(full_route), len(full_route), len(segments),
         )
         return full_route, segments
 
@@ -390,6 +407,10 @@ class Router:
             ferry_coords = self._interpolate([origin, dest], max_segment_km=0.2)
 
         # Access/egress: walk to/from nearest terminal
+        access_leg = []
+        egress_leg = []
+        orig_pos   = origin
+        dest_pos   = dest
         if G_ferry is not None and G_ferry.number_of_nodes() > 1:
             try:
                 import osmnx as ox
@@ -402,17 +423,17 @@ class Router:
                 access_leg = self._compute_access_leg(agent_id + '_access', origin, orig_pos)
                 egress_leg = self._compute_access_leg(agent_id + '_egress', dest_pos, dest)
             except Exception:
-                access_leg = egress_leg = []
-        else:
-            access_leg = egress_leg = []
+                pass
 
         segments = []
-        if access_leg and len(access_leg) >= 2:
+        access_dist = haversine_km(origin, orig_pos) if G_ferry is not None and G_ferry.number_of_nodes() > 1 else 0.0
+        egress_dist = haversine_km(dest_pos, dest)   if G_ferry is not None and G_ferry.number_of_nodes() > 1 else 0.0
+        if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to port'})
         if ferry_coords and len(ferry_coords) >= 2:
             label = 'Ferry (electric)' if 'electric' in mode else 'Ferry'
             segments.append({'path': ferry_coords, 'mode': mode, 'label': label})
-        if egress_leg and len(egress_leg) >= 2:
+        if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from port'})
 
         full_route = (
@@ -471,11 +492,13 @@ class Router:
         transit_mid = transit_route[access_len: len(transit_route) - egress_len] if transit_route else transit_route
 
         segments = []
-        if access_leg and len(access_leg) >= 2:
+        access_dist = haversine_km(origin, first_coord)
+        egress_dist = haversine_km(last_coord, dest)
+        if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop'})
         if transit_mid and len(transit_mid) >= 2:
             segments.append({'path': transit_mid, 'mode': mode, 'label': mode.replace('_', ' ').title()})
-        if egress_leg and len(egress_leg) >= 2:
+        if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop'})
 
         return transit_route, segments
