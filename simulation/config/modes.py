@@ -200,18 +200,18 @@ MODES: Dict[str, Dict[str, Any]] = {
         'routeable':      True,   # was False
     },
 
-    # ── Ferry – ABSTRACT ─────────────────────────────────────────
+    # ── Ferry – routed via ferry graph / GTFS / great-circle ─────
     'ferry_diesel': {
         'network':       'ferry',
         'emissions_g_km': 115,
         'speed_kmh':      30,    # ~16 knots
-        'routeable':      False,
+        'routeable':      True,  # was False — caused invisible straight-line routes
     },
     'ferry_electric': {
         'network':       'ferry',
         'emissions_g_km': 0,
         'speed_kmh':      25,
-        'routeable':      False,
+        'routeable':      True,  # was False
     },
 
     # ── Aviation – ABSTRACT ───────────────────────────────────────

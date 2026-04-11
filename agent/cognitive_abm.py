@@ -57,6 +57,11 @@ class AgentState:
     # Each item: {'path': [(lon,lat),...], 'mode': str, 'label': str}
     route_segments: List[Dict] = field(default_factory=list)
 
+    # Full multimodal itinerary — updated on every BDI replan.
+    # None until the first successful plan; visualiser reads route_segments
+    # from trip_chain.route_segments when present.
+    trip_chain: Optional[Any] = None   # TripChain | None (imported lazily)
+
     # Origin / destination labels for tooltip display.
     origin_name: str = ''
     destination_name: str = ''
@@ -177,7 +182,13 @@ class CognitiveAgent:
 
                 # Per-segment colour metadata for the visualiser
                 s.route_segments = best.params.get('route_segments', [])
-                # PT service / stop tooltip fields
+                # Promote TripChain from params when available
+                tc = best.params.get('trip_chain')
+                if tc is not None:
+                    s.trip_chain = tc
+                    # Keep route_segments in sync for backward-compat
+                    if hasattr(tc, 'route_segments'):
+                        s.route_segments = tc.route_segments
                 s.service_id       = best.params.get('service_id', '')
                 s.destination_stop = best.params.get('destination_stop', '')
                 
@@ -357,6 +368,8 @@ class CognitiveAgent:
             # Route geometry and per-segment colour data for visualization
             'route':            s.route,
             'route_segments':   s.route_segments,
+            # Full multimodal itinerary (TripChain) — visualiser uses this
+            'trip_chain':       s.trip_chain.to_dict() if s.trip_chain is not None and hasattr(s.trip_chain, 'to_dict') else None,
             # Origin/destination labels for map tooltips
             'origin_name':      s.origin_name,
             'destination_name': s.destination_name,

@@ -50,17 +50,37 @@ class JourneyMetrics:
     # Decision context
     mode_chosen: str
     alternatives_available: List[str]
-    decision_factors: Dict[str, float] = field(default_factory=dict)  # cost, time, comfort, emissions
+    decision_factors: Dict[str, float] = field(default_factory=dict)
     
     # Journey performance
     origin: Optional[Tuple[float, float]] = None
     destination: Optional[Tuple[float, float]] = None
+    origin_name: str = ''
+    destination_name: str = ''
     planned_distance_km: float = 0.0
     actual_distance_km: float = 0.0
     planned_time_min: float = 0.0
     actual_time_min: float = 0.0
     delay_min: float = 0.0
     arrived: bool = False
+
+    # ── Multimodal itinerary ─────────────────────────────────────────────────
+    # Ordered list of legs in this journey.  Each entry mirrors TripLeg.to_dict():
+    #   {'mode': str, 'label': str, 'path': [...], 'origin_name': str,
+    #    'dest_name': str, 'distance_km': float, 'travel_time_min': float,
+    #    'emissions_g': float, 'is_transfer_walk': bool}
+    # Empty for agents that have not been replanned yet or use single mode.
+    legs: List[Dict] = field(default_factory=list)
+
+    # Modes actually used (derived from legs when available, else [mode_chosen])
+    modes_used: List[str] = field(default_factory=list)
+
+    # Transfer points: coordinates where the agent changed mode
+    transfer_points: List[Tuple[float, float]] = field(default_factory=list)
+
+    # Replan events recorded during this step
+    replanned: bool = False
+    replan_reason: str = ''
     
     # Costs
     financial_cost: float = 0.0
@@ -71,16 +91,16 @@ class JourneyMetrics:
     co2e_kg: float = 0.0
     pm25_g: float = 0.0
     nox_g: float = 0.0
-    air_quality_exposure: float = 0.0  # μg/m³·hour
+    air_quality_exposure: float = 0.0
     
     # Weather influence
     temperature: float = 10.0
     precipitation: float = 0.0
     ice_warning: bool = False
-    weather_speed_penalty: float = 0.0  # 0.0 = no penalty, 0.5 = 50% slower
+    weather_speed_penalty: float = 0.0
     
     # Social influence
-    influenced_by: List[str] = field(default_factory=list)  # Agent IDs
+    influenced_by: List[str] = field(default_factory=list)
     influence_strength: float = 0.0
     habit_strength: float = 0.0
     
@@ -152,17 +172,37 @@ class JourneyTracker:
         journey = JourneyMetrics(
             agent_id=agent.state.agent_id,
             step=step,
-            timestamp=step / 60.0,  # Convert to hours
+            timestamp=step / 60.0,
             mode_chosen=state.mode,
             alternatives_available=getattr(agent, 'available_modes', []),
             decision_factors=decision_factors or {},
         )
         
         # Journey performance
-        journey.origin = getattr(state, 'origin', None)
+        journey.origin      = getattr(state, 'origin', None) or getattr(state, 'location', None)
         journey.destination = state.destination
+        journey.origin_name      = getattr(state, 'origin_name', '')
+        journey.destination_name = getattr(state, 'destination_name', '')
         journey.actual_distance_km = state.distance_km
         journey.arrived = state.arrived
+
+        # ── Multimodal itinerary from TripChain ─────────────────────────────
+        # If the agent has a TripChain, populate legs / modes / transfer_points
+        # from it so the tracker records the full itinerary, not just mode_chosen.
+        tc = getattr(state, 'trip_chain', None)
+        if tc is not None and hasattr(tc, 'legs'):
+            journey.legs            = [leg.to_dict() for leg in tc.legs if hasattr(leg, 'to_dict')]
+            journey.modes_used      = tc.modes
+            journey.transfer_points = tc.transfer_points
+        else:
+            # Fall back: derive from route_segments when no TripChain
+            segs = getattr(state, 'route_segments', [])
+            if segs:
+                journey.legs       = [{'mode': s.get('mode','?'), 'label': s.get('label',''),
+                                        'path': s.get('path',[]), 'distance_km': 0.0} for s in segs]
+                journey.modes_used = [s.get('mode', state.mode) for s in segs]
+            else:
+                journey.modes_used = [state.mode]
         
         # Costs (if agent has these attributes)
         if hasattr(state, 'last_trip_cost'):

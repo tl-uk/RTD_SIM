@@ -749,9 +749,93 @@ class ContextualPlanGenerator:
         )
         return modes
 
-    # ========================================================================
-    # LLM-BASED EXTRACTION (Optional Enhancement)
-    # ========================================================================
+    def build_agent_context(
+        self,
+        plan: "ExtractedPlan",
+        user_story: Any,
+        job_story: Any,
+        origin: Tuple[float, float],
+        dest: Tuple[float, float],
+        existing_context: Optional[Dict] = None,
+    ) -> Dict:
+        """
+        Build the full agent_context dict that flows into bdi_planner.
+
+        Adds multimodal planning hints not captured in the flat mode list:
+          - bike_on_train: True when persona cycles and rail is available
+          - origin_name / dest_name: human-readable place labels for tooltips
+          - return_trip: True when job_story is a return journey
+          - preferred_chain: suggested mode chain e.g. ['walk','bus','walk','local_train','walk']
+
+        Args:
+            plan:             ExtractedPlan from extract_plan_from_context()
+            user_story:       UserStory persona object.
+            job_story:        JobStory job context object.
+            origin:           (lon, lat) start.
+            dest:             (lon, lat) end.
+            existing_context: Dict to update (merged, not replaced).
+
+        Returns:
+            Updated agent context dict.
+        """
+        ctx = dict(existing_context or {})
+
+        # ── Place names ──────────────────────────────────────────────────────
+        # Derive from job_story fields when available; format coord otherwise.
+        def _coord_label(c: Tuple[float, float]) -> str:
+            return f"({c[1]:.3f}°N, {c[0]:.3f}°{'E' if c[0] >= 0 else 'W'})"
+
+        if not ctx.get('origin_name'):
+            o_name = (getattr(job_story, 'origin', None)
+                      or getattr(job_story, 'start_location', None)
+                      or getattr(job_story, 'departure', None) or '')
+            ctx['origin_name'] = str(o_name) if o_name else _coord_label(origin)
+
+        if not ctx.get('dest_name'):
+            d_name = (getattr(job_story, 'destination', None)
+                      or getattr(job_story, 'end_location', None)
+                      or getattr(job_story, 'arrival', None) or '')
+            ctx['dest_name'] = str(d_name) if d_name else _coord_label(dest)
+
+        # ── Bike on train ────────────────────────────────────────────────────
+        # True when: the persona regularly cycles AND the job involves rail travel.
+        persona_id  = getattr(user_story, 'persona_id', '') or ''
+        job_id      = getattr(job_story, 'job_id', '') or ''
+        bikes_modes = {'bike', 'cargo_bike', 'e_scooter'}
+        rail_jobs   = {'tourist_scenic_rail', 'commute_flexible', 'morning_commute',
+                       'long_distance_rail', 'intercity_commute'}
+        persona_bikes = any(
+            m in str(getattr(user_story, 'preferred_modes', [])) for m in bikes_modes
+        )
+        job_uses_rail = any(kw in job_id for kw in rail_jobs)
+        ctx['bike_on_train'] = persona_bikes and job_uses_rail
+
+        # ── Return trip ──────────────────────────────────────────────────────
+        ctx['return_trip'] = any(
+            kw in job_id for kw in ('return', 'round_trip', 'commute_flexible')
+        )
+
+        # ── Multimodal preference hint ────────────────────────────────────────
+        # Provide a suggested preferred_chain for TripChainPlanner.
+        # This is a hint; the planner will fall back to single-mode if it fails.
+        from simulation.spatial.coordinate_utils import haversine_km as _hkm
+        dist = _hkm(origin, dest)
+        obj  = plan.primary_objective
+
+        preferred_chain: list = []
+        if ctx['bike_on_train']:
+            preferred_chain = ['bike', 'local_train', 'bike']
+        elif dist > 15 and obj in ('minimize_time', 'minimize_carbon'):
+            preferred_chain = ['walk', 'local_train', 'walk']
+        elif dist > 5 and obj == 'minimize_carbon':
+            preferred_chain = ['walk', 'bus', 'walk']
+        elif dist > 30:
+            preferred_chain = ['walk', 'intercity_train', 'walk']
+
+        if preferred_chain:
+            ctx['preferred_chain'] = preferred_chain
+
+        return ctx
     
     def _extract_with_llm(
         self,

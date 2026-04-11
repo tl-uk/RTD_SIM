@@ -647,6 +647,20 @@ class BDIPlanner:
                 params = self._get_ev_params(origin, dest, route, context)
             if _segments:
                 params['route_segments'] = _segments
+                # Build a TripChain from the segments so cognitive_abm and the
+                # visualiser have a fully structured multimodal itinerary.
+                try:
+                    from simulation.spatial.trip_chain import TripChain
+                    params['trip_chain'] = TripChain.from_route_segments(
+                        origin=origin,
+                        destination=dest,
+                        route_segments=_segments,
+                        origin_name=context.get('origin_name', ''),
+                        dest_name=context.get('dest_name', ''),
+                        planned_at_step=0,
+                    )
+                except Exception:
+                    pass   # TripChain is optional — fall back to route_segments only
             actions.append(Action(mode=mode, route=route, params=params))
         
         # Final summary

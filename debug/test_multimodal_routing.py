@@ -189,11 +189,11 @@ def run_tests():
     print()
 
     try:
-        from simulation.spatial_environment import SpatialEnvironment
         from simulation.config.simulation_config import SimulationConfig
+        from simulation.setup.environment_setup import setup_environment
     except ImportError as e:
         print(_fail(f"Cannot import simulation modules: {e}"))
-        print("  Run from project root: python test_multimodal_routing.py")
+        print("  Run from project root: python debug/test_multimodal_routing.py")
         sys.exit(1)
 
     cfg = SimulationConfig(
@@ -202,12 +202,11 @@ def run_tests():
         steps=1,
         use_osm=True,
     )
-    print(_info("Loading SpatialEnvironment (Edinburgh graph) …"))
-    env = SpatialEnvironment()
+    print(_info("Loading SpatialEnvironment via setup_environment (Edinburgh graph) …"))
     try:
-        env.setup(cfg)
+        env = setup_environment(cfg)
     except Exception as e:
-        print(_fail(f"env.setup failed: {e}"))
+        print(_fail(f"setup_environment failed: {e}"))
         sys.exit(1)
 
     if not env.graph_loaded:
@@ -359,12 +358,21 @@ def _test_bdi_mode_switch(env: Any):
     import dataclasses
     if hasattr(AgentState, '__dataclass_fields__'):
         fields = set(AgentState.__dataclass_fields__.keys())
-        missing = {'route_segments', 'origin_name', 'destination_name'} - fields
+        required = {'route_segments', 'origin_name', 'destination_name', 'trip_chain'}
+        missing = required - fields
         if missing:
             print(_fail(f"AgentState missing fields: {missing}"))
             return
         else:
-            print(_ok("AgentState has route_segments, origin_name, destination_name"))
+            print(_ok(f"AgentState has: {', '.join(sorted(required))}"))
+
+    # Check TripChain is importable
+    try:
+        from simulation.spatial.trip_chain import TripChain, TripChainPlanner, TripLeg
+        print(_ok("trip_chain module imports OK (TripChain, TripChainPlanner, TripLeg)"))
+    except ImportError as e:
+        print(_fail(f"trip_chain import failed: {e}"))
+        return
 
     # Create a simple agent state
     origin = (-3.1892, 55.9525)   # Waverley
