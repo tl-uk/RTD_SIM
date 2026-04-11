@@ -97,9 +97,10 @@ _RAIL_MODES    = frozenset({'local_train', 'intercity_train', 'freight_rail'})
 _TRANSIT_MODES = frozenset({'bus', 'ferry_diesel', 'ferry_electric'})
 
 # Minimum walk-leg distance to include in multimodal segment list.
-# Legs shorter than this are real (agent does walk to platform) but are
-# too short to be meaningful on the map and clutter the segment tooltip.
-# Set to 0.15 km (150 m) — anything shorter renders as a dot not a line.
+# Legs shorter than this exist physically (e.g. 30 m snap to nearest rail node)
+# but render as a dot on the map and clutter the per-segment tooltip.
+# 150 m is the threshold: anything shorter is omitted from route_segments
+# while still being included in the flat full_route for agent movement.
 _MIN_WALK_LEG_KM: float = 0.15
 
 # ── Default policy parameters ─────────────────────────────────────────────────
@@ -336,17 +337,37 @@ class Router:
         except Exception:
             return [], []
 
-        segments = []
-        # Walk legs are only added when long enough to be meaningful on the
-        # map (≥ _MIN_WALK_LEG_KM).  A 30 m snap to the nearest rail node is
-        # real but renders as a dot and adds no information to the tooltip.
+        if not rail_coords or len(rail_coords) < 2:
+            return [], []
+
+        # Sanity-check: reject routes whose rail portion is far more circuitous
+        # than the straight-line distance.  The OpenRailMap graph has isolated
+        # sub-graphs joined by long transfer edges; shortest-path sometimes
+        # threads through them producing impossible sharp bends.
+        rail_straight = haversine_km(orig_coord, dest_coord)
+        rail_actual   = route_distance_km(rail_coords)
+        if rail_straight > 0.5 and rail_actual > rail_straight * 4.0:
+            logger.warning(
+                "%s: %s rail detour too large (%.1fkm rail vs %.1fkm straight, ratio=%.1f) — rejecting",
+                agent_id, mode, rail_actual, rail_straight, rail_actual / rail_straight,
+            )
+            return [], []
+
+        # Only include walk legs that are long enough to be meaningful on the
+        # map (≥ _MIN_WALK_LEG_KM).  A 30 m snap to the nearest platform node
+        # is real but renders as a dot and adds nothing to the tooltip.
         access_dist = haversine_km(origin, orig_coord)
         egress_dist = haversine_km(dest_coord, dest)
 
+        segments: List[Dict] = []
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to station'})
         if rail_coords and len(rail_coords) >= 2:
-            segments.append({'path': rail_coords, 'mode': mode, 'label': mode.replace('_', ' ').title()})
+            segments.append({
+                'path':  rail_coords,
+                'mode':  mode,
+                'label': mode.replace('_', ' ').title(),
+            })
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from station'})
 
@@ -357,8 +378,9 @@ class Router:
         )
 
         logger.info(
-            "✅ %s: %s intermodal-segments %.1fkm (%d pts, %d legs)",
+            "✅ %s: %s intermodal-segments %.1fkm (%d pts, %d legs — access=%.2fkm egress=%.2fkm)",
             agent_id, mode, route_distance_km(full_route), len(full_route), len(segments),
+            access_dist, egress_dist,
         )
         return full_route, segments
 
@@ -409,7 +431,7 @@ class Router:
         # Access/egress: walk to/from nearest terminal
         access_leg = []
         egress_leg = []
-        orig_pos   = origin
+        orig_pos   = origin   # safe defaults if graph lookup fails
         dest_pos   = dest
         if G_ferry is not None and G_ferry.number_of_nodes() > 1:
             try:
@@ -425,9 +447,10 @@ class Router:
             except Exception:
                 pass
 
-        segments = []
-        access_dist = haversine_km(origin, orig_pos) if G_ferry is not None and G_ferry.number_of_nodes() > 1 else 0.0
-        egress_dist = haversine_km(dest_pos, dest)   if G_ferry is not None and G_ferry.number_of_nodes() > 1 else 0.0
+        access_dist = haversine_km(origin, orig_pos)
+        egress_dist = haversine_km(dest_pos, dest)
+
+        segments: List[Dict] = []
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to port'})
         if ferry_coords and len(ferry_coords) >= 2:
@@ -491,9 +514,10 @@ class Router:
         egress_len  = len(egress_leg) - 1 if egress_leg else 0
         transit_mid = transit_route[access_len: len(transit_route) - egress_len] if transit_route else transit_route
 
-        segments = []
         access_dist = haversine_km(origin, first_coord)
         egress_dist = haversine_km(last_coord, dest)
+
+        segments: List[Dict] = []
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop'})
         if transit_mid and len(transit_mid) >= 2:
@@ -826,14 +850,14 @@ class Router:
         Buses:  fall back to drive graph.
         """
         if mode == 'tram':
-            # Tram fallback: route on the drive graph (road-following).
-            # Edinburgh trams run along roads (Princes St, Haymarket Terrace,
-            # Leith Walk) so a drive-graph proxy is a valid approximation.
-            # NEVER use _compute_intermodal_route here — that routes on the
-            # OpenRailMap mainline graph and produces cross-city rail diagonals
-            # that bear no relation to tram tracks.
-            logger.debug("%s: tram — no GTFS/spine, using drive-graph proxy", agent_id)
-            return self._compute_road_route(agent_id, origin, dest, 'car', policy)
+            # Without a GTFS feed or tram-spine match, there is no physical tram
+            # route available for this OD pair.  Return [] so bdi_planner's
+            # viability check (len(route) < 2) rejects tram as a mode choice.
+            # A road-proxy route is NOT acceptable here: it would give the agent
+            # road geometry labelled "tram", rendering as a nonsensical route
+            # on streets that have no tram tracks.
+            logger.debug("%s: tram — no GTFS/spine, rejecting (not viable)", agent_id)
+            return []
         if mode in ('ferry_diesel', 'ferry_electric'):
             # Provide a visible great-circle line — never silent [] for ferry.
             logger.debug("%s: ferry — no GTFS/graph, using great-circle interpolation", agent_id)
