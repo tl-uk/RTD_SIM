@@ -189,8 +189,8 @@ def run_tests():
     print()
 
     try:
-        from simulation.spatial.spatial_environment import SpatialEnvironment
-        from simulation.config.simulation_config import SimulationConfig
+        from RTD_SIM.simulation.spatial import SpatialEnvironment
+        from RTD_SIM.simulation.config.simulation_config import SimulationConfig
     except ImportError as e:
         print(_fail(f"Cannot import simulation modules: {e}"))
         print("  Run from project root: python test_multimodal_routing.py")
