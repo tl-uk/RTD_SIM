@@ -1,5 +1,5 @@
 """
-simulation/spatial/spatial_environment.py
+simulation/spatial_environment.py
 
 Lightweight orchestrator that delegates to specialised subsystems:
 

@@ -189,7 +189,7 @@ def run_tests():
     print()
 
     try:
-        from simulation.spatial import SpatialEnvironment
+        from simulation.spatial_environment import SpatialEnvironment
         from simulation.config.simulation_config import SimulationConfig
     except ImportError as e:
         print(_fail(f"Cannot import simulation modules: {e}"))
