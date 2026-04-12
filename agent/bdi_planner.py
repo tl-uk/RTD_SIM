@@ -74,14 +74,14 @@ except ImportError:
         'ferry_diesel', 'ferry_electric',
         'flight_domestic', 'flight_electric',
     })
-    def is_routeable(m: str) -> bool:
-        return m not in ABSTRACT_MODES
-    def get_network(m: str) -> str:
-        if m in ('local_train', 'intercity_train'):     return 'rail'
-        if m in ('ferry_diesel', 'ferry_electric'):     return 'ferry'
-        if m in ('flight_domestic', 'flight_electric'): return 'air'
+    def is_routeable(mode: str) -> bool:
+        return mode not in ABSTRACT_MODES
+    def get_network(mode: str) -> str:
+        if mode in ('local_train', 'intercity_train'):     return 'rail'
+        if mode in ('ferry_diesel', 'ferry_electric'):     return 'ferry'
+        if mode in ('flight_domestic', 'flight_electric'): return 'air'
         return 'drive'
-    def abstract_distance_km(o, d, m) -> float:
+    def abstract_distance_km(origin, dest, mode) -> float:
         import math
         try:
             # NOTE: (lon, lat) order
@@ -97,9 +97,9 @@ except ImportError:
              * math.cos(math.radians(lat2))
              * math.sin(dl / 2) ** 2)
         return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1.1
-    def make_synthetic_route(o, d, m) -> list:
+    def make_synthetic_route(origin, dest, mode) -> list:
         # NOTE: return 2-tuples
-        return [tuple(o), tuple(d)]
+        return [tuple(origin), tuple(dest)]
 
 # ----- Metrics (CPG instrumentation) -----
 try:
