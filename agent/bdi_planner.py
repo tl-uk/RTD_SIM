@@ -105,9 +105,9 @@ except ImportError:
 try:
     from telemetry_metrics import inc, get
 except Exception:  # fallback if module not available
-    def inc(*args, **kwargs):
+    def inc(*args, **kwargs) -> int:
         return 0
-    def get(*args, **kwargs):
+    def get(*args, **kwargs) -> int:
         return 0
 
 
