@@ -811,7 +811,7 @@ class BDIPlanner:
             'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
             'taxi_ev', 'taxi_diesel',
         }
-        if not _fused_override and vehicle_type == 'personal' and not vehicle_required:
+        if not _fused_allowed and vehicle_type == 'personal' and not vehicle_required:
             before_set = set(modes)
             modes = [m for m in modes if m not in _FREIGHT_MODES]
             removed_freight = before_set - set(modes)
