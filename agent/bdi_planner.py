@@ -97,17 +97,20 @@ except ImportError:
              * math.cos(math.radians(lat2))
              * math.sin(dl / 2) ** 2)
         return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1.1
-    def make_synthetic_route(origin, dest, mode) -> list:
-        # NOTE: return 2-tuples
+    def make_synthetic_route(origin, dest, mode: str = "") -> list:  # noqa: ARG001
+        """Fallback stub — returns straight-line 2-point route. mode unused by stub."""
+        _ = mode  # parameter kept for API compatibility with modes.make_synthetic_route
         return [tuple(origin), tuple(dest)]
 
 # ----- Metrics (CPG instrumentation) -----
 try:
     from telemetry_metrics import inc, get
-except Exception:  # fallback if module not available
-    def inc(*args, **kwargs) -> int:
+except Exception:  # fallback — telemetry_metrics not installed
+    def inc(key: str, amount: int = 1) -> int:  # noqa: ARG001
+        """No-op counter increment (telemetry_metrics unavailable)."""
         return 0
-    def get(*args, **kwargs) -> int:
+    def get(key: str) -> int:  # noqa: ARG001
+        """No-op counter read (telemetry_metrics unavailable)."""
         return 0
 
 
@@ -703,7 +706,9 @@ class BDIPlanner:
         )
 
         if _fused_allowed:
-            modes = list(dict.fromkeys(_fused.allowed_modes))  # ordered, no dups
+            # getattr satisfies type-checker: _fused_allowed already confirmed
+            # _fused is not None and allowed_modes is a non-empty list.
+            modes = list(dict.fromkeys(getattr(_fused, "allowed_modes", [])))  # ordered, no dups
             logger.debug(
                 "FusedIdentity mode override for %s: %s",
                 getattr(_fused, 'agent_label', '?'), modes,
