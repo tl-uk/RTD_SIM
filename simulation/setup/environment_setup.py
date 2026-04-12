@@ -272,7 +272,13 @@ def setup_environment(
             )
 
         naptan_stops = download_naptan(bbox=naptan_bbox)
-        env.naptan_stops = naptan_stops   # stash for Router access
+        env.naptan_stops = naptan_stops   # stash on env for visualisation / NaPTAN layer
+
+        # ── Bridge to graph_manager so Router._nearest_rail_node can read it ──
+        # Router reads self.graph_manager.naptan_stops; environment_setup was only
+        # setting env.naptan_stops.  Copy the reference so both paths work.
+        env.graph_manager.naptan_stops = naptan_stops
+
         logger.info(
             "✅ NaPTAN: %d stops loaded (bbox=%s)",
             len(naptan_stops), naptan_bbox is not None,
@@ -283,6 +289,7 @@ def setup_environment(
             exc,
         )
         env.naptan_stops = []
+        env.graph_manager.naptan_stops = []  # keep graph_manager consistent
 
     # ── 6. GTFS transit graph ─────────────────────────────────────────────────
     gtfs_path = getattr(config, 'gtfs_feed_path', None)

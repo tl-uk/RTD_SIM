@@ -672,8 +672,11 @@ class Router:
 
         NaPTAN-aware snapping
         ---------------------
-        When NaPTAN stop data has been loaded (stored on
-        graph_manager.naptan_stops by environment_setup.py), we:
+        When NaPTAN stop data has been loaded, environment_setup.py stores it
+        on both env.naptan_stops (for the visualiser) and
+        graph_manager.naptan_stops (for the router).  _nearest_rail_node reads
+        from graph_manager.naptan_stops:
+
           1. Find the nearest NaPTAN rail/metro stop to the agent coord.
           2. Use the NaPTAN platform coordinate as the snap target.
           3. Find the nearest OpenRailMap graph node to that platform.
@@ -684,7 +687,7 @@ class Router:
         are accurate to ±5 m for most UK stations.
 
         Falls back to direct brute-force graph node scan when NaPTAN is
-        absent or the nearest NaPTAN stop is beyond 5 km.
+        absent or the nearest NaPTAN stop is beyond _MAX_ACCESS_KM.
         """
         if rail_graph is None:
             return None
@@ -853,10 +856,13 @@ class Router:
             # Without a GTFS feed or tram-spine match, there is no physical tram
             # route available for this OD pair.  Return [] so bdi_planner's
             # viability check (len(route) < 2) rejects tram as a mode choice.
-            # A road-proxy route is NOT acceptable here: it would give the agent
-            # road geometry labelled "tram", rendering as a nonsensical route
-            # on streets that have no tram tracks.
-            logger.debug("%s: tram — no GTFS/spine, rejecting (not viable)", agent_id)
+            # This path is only reached when _compute_gtfs_route has already tried
+            # the spine (with 5km catchment) and found neither origin nor dest
+            # within catchment.
+            logger.debug(
+                "%s: tram — no GTFS/spine match within catchment, not viable",
+                agent_id,
+            )
             return []
         if mode in ('ferry_diesel', 'ferry_electric'):
             # Provide a visible great-circle line — never silent [] for ferry.
@@ -1078,8 +1084,17 @@ class Router:
                 logger.debug("%s: no GTFS — tram spine fallback", agent_id)
                 try:
                     from simulation.spatial.rail_spine import route_via_tram_stops
-                    spine_route = route_via_tram_stops(origin, dest)
+                    # Use a wider catchment (5.0 km) when no GTFS is loaded.
+                    # The default 2.5 km is too tight for Edinburgh: random OD
+                    # pairs commonly have their nearest tram stop 3–5 km away
+                    # (e.g. Colinton → Murrayfield is ~3.8 km).  5 km matches
+                    # the GTFS tram_catchment used when GTFS IS loaded.
+                    spine_route = route_via_tram_stops(origin, dest, max_access_km=5.0)
                     if spine_route and len(spine_route) > 2:
+                        logger.debug(
+                            "%s: tram spine → %d waypoints, road-following each leg",
+                            agent_id, len(spine_route),
+                        )
                         realistic: List[Tuple[float, float]] = []
                         for i in range(len(spine_route) - 1):
                             leg = self._compute_road_route(
@@ -1091,9 +1106,15 @@ class Router:
                                 realistic.append(spine_route[i])
                         realistic.append(spine_route[-1])
                         return realistic
-                    return spine_route if spine_route else []
-                except Exception:
-                    pass
+                    # spine_route is None or 2-point → outside catchment
+                    logger.debug(
+                        "%s: tram spine returned %s — origin/dest outside 5km tram catchment",
+                        agent_id, "None" if spine_route is None else f"{len(spine_route)} pts",
+                    )
+                    return []
+                except Exception as _exc:
+                    logger.debug("%s: tram spine exception: %s", agent_id, _exc)
+                    return []
             return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         try:
