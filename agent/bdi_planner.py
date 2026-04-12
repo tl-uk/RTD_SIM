@@ -68,9 +68,7 @@ try:
         abstract_distance_km, make_synthetic_route,
         ABSTRACT_MODES,
     )
-    _MODES_REGISTRY = True
 except ImportError:
-    _MODES_REGISTRY = False
     ABSTRACT_MODES = frozenset({
         'local_train', 'intercity_train',
         'ferry_diesel', 'ferry_electric',
@@ -647,20 +645,6 @@ class BDIPlanner:
                 params = self._get_ev_params(origin, dest, route, context)
             if _segments:
                 params['route_segments'] = _segments
-                # Build a TripChain from the segments so cognitive_abm and the
-                # visualiser have a fully structured multimodal itinerary.
-                try:
-                    from simulation.spatial.trip_chain import TripChain
-                    params['trip_chain'] = TripChain.from_route_segments(
-                        origin=origin,
-                        destination=dest,
-                        route_segments=_segments,
-                        origin_name=context.get('origin_name', ''),
-                        dest_name=context.get('dest_name', ''),
-                        planned_at_step=0,
-                    )
-                except Exception:
-                    pass   # TripChain is optional — fall back to route_segments only
             actions.append(Action(mode=mode, route=route, params=params))
         
         # Final summary
@@ -712,11 +696,13 @@ class BDIPlanner:
         # STEP 2 multi-modal extension.  STEP 3 distance filter and STEP 3.5
         # non-vehicle removal still apply.
         _fused = context.get('fused_identity')
-        _fused_override = _fused is not None and bool(
-            getattr(_fused, 'allowed_modes', None)
+        _fused_allowed = (
+            _fused is not None
+            and getattr(_fused, 'allowed_modes', None) is not None
+            and len(_fused.allowed_modes) > 0
         )
 
-        if _fused_override:
+        if _fused_allowed:
             modes = list(dict.fromkeys(_fused.allowed_modes))  # ordered, no dups
             logger.debug(
                 "FusedIdentity mode override for %s: %s",
@@ -1007,10 +993,14 @@ class BDIPlanner:
             logger.debug(f"{mode} not feasible: {trip_distance:.1f}km > {max_range*0.9:.1f}km range")
             return False
 
-        # Near‑range realism: if close to range limit, require a charger very near destination (stricter than 5km)
+        # All remaining checks require a live infrastructure manager.
+        # Running without infrastructure (tests, no InfrastructureManager) → skip charger checks.
+        if not self.has_infrastructure or self.infrastructure is None:
+            return True
+
+        # Near-range realism: trips approaching range limit require a charger near destination.
         if mode in self.EV_RANGE_KM:
             dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
-            # Use estimated route km for this threshold
             if est_trip_km > max_range * 0.8:
                 nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
                 if nearest is None:
@@ -1019,13 +1009,9 @@ class BDIPlanner:
                         f"and no charger within {dest_nearby_km:.1f}km of destination"
                     )
                     return False
-        # Effect: trips approaching the EV’s range require a closer charger at the destination, adding realism without 
-        # removing your existing 5 km rule for long trips.
-        
-        # Near‑range realism: if close to range limit, require a charger very near destination.
-        # This complements (does not replace) your existing 5km check for long trips.
+
         if trip_distance > max_range * 0.8:
-            dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))  # stricter than 5km for near-range
+            dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
             nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
             if nearest is None:
                 logger.debug(
@@ -1033,17 +1019,16 @@ class BDIPlanner:
                     f"and no charger within {dest_nearby_km:.1f}km of destination"
                 )
                 return False
-        
-        # Check charger availability for long trips (ONLY for vehicles)
+
+        # Long-trip charger availability (5 km radius)
         if trip_distance > max_range * 0.5:
-            nearest = self.infrastructure.find_nearest_charger(
-                dest, max_distance_km=5.0
-            )
+            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=5.0)
             if nearest is None:
                 logger.debug(f"{mode} not feasible: no charger within 5km of destination")
                 return False
-        
+
         return True
+
     
     # This function gathers detailed parameters about the EV trip, including distance, 
     # nearest charger info, and grid stress factors.

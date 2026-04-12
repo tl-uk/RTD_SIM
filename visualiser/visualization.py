@@ -466,11 +466,21 @@ def render_map(
                     if len(path_list) < 2:
                         continue
                     color = MODE_COLORS_RGB.get(seg_mode, [128, 128, 128])
+
+                    # Segment-level distance from segment dict (TripLeg.to_dict includes it)
+                    seg_dist_km = seg.get('distance_km') or seg.get('dist_km') or 0.0
+                    seg_dist_str = f'{seg_dist_km:.1f} km' if seg_dist_km > 0 else ''
+                    seg_emit_g  = seg.get('emissions_g', 0.0)
+                    seg_emit_str = f' · {seg_emit_g:.0f} g CO₂' if seg_emit_g > 0 else ''
+
                     seg_tooltip = (
                         f'<b>{agent_id}</b><br/>'
-                        f'{_MODE_EMOJI.get(seg_mode, "🚗")} {seg_label}'
-                        f'{od_html}'
-                        f'{svc_html}'
+                        f'{_MODE_EMOJI.get(seg_mode, "🚗")} <b>{seg_label}</b><br/>'
+                        + (f'{seg_dist_str}{seg_emit_str}<br/>' if seg_dist_str else '')
+                        + (f'🏠 {seg.get("origin_name","") or ""}<br/>' if seg.get("origin_name") else '')
+                        + (f'🏁 {seg.get("dest_name","") or ""}<br/>' if seg.get("dest_name") else '')
+                        + (f'{od_html}' if od_html and not seg.get("origin_name") else '')
+                        + svc_html
                     )
                     if seg_mode not in segment_rows:
                         segment_rows[seg_mode] = []

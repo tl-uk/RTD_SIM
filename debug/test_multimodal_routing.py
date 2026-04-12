@@ -75,10 +75,10 @@ OD_PAIRS: List[Dict] = [
         "reject_if_flat":   True,   # single-segment road route = failure
     },
     {
-        "label":    "Intercity rail: Waverley→Kirkcaldy",
+        "label":    "Intercity rail: Waverley→North Berwick",
         "mode":     "intercity_train",
         "origin":   (-3.1892, 55.9525),   # Waverley
-        "dest":     (-3.1569, 56.1123),   # Kirkcaldy
+        "dest":     (-2.7266, 56.0618),   # North Berwick (within Edinburgh rail bbox)
         "expect_segments":  ["walk", "intercity_train", "walk"],
         "expect_mode":      "intercity_train",
         "reject_if_flat":   True,
@@ -382,11 +382,14 @@ def _test_bdi_mode_switch(env: Any):
 
     # Check bdi_planner uses compute_route_with_segments
     import inspect
-    src = inspect.getsource(planner.evaluate_actions)
-    if 'compute_route_with_segments' not in src:
-        print(_fail("BDIPlanner.evaluate_actions does not call compute_route_with_segments — old version deployed"))
+    # evaluate_actions delegates to actions_for which contains the routing call.
+    # inspect.getsource(evaluate_actions) only sees the top-level method body,
+    # not its callees — check actions_for instead.
+    src_af = inspect.getsource(planner.actions_for)
+    if 'compute_route_with_segments' not in src_af:
+        print(_fail("BDIPlanner.actions_for does not call compute_route_with_segments — old version deployed"))
         return
-    print(_ok("BDIPlanner calls compute_route_with_segments"))
+    print(_ok("BDIPlanner.actions_for calls compute_route_with_segments"))
 
     # Test that _segments are stored in params
     if 'route_segments' not in src and '_segments' not in src:

@@ -1005,13 +1005,32 @@ def run_simulation_loop(
             # This MUST be at 12 spaces (inside `for agent in agents`)
             # and MUST be AFTER all agent processing for this step
             agent_states.append({
-                'agent_id': agent.state.agent_id,
-                'location': agent.state.location,
-                'mode': agent.state.mode,
-                'arrived': agent.state.arrived,
-                'route': agent.state.route,
-                'distance_km': agent.state.distance_km,
-                'emissions_g': agent.state.emissions_g,
+                'agent_id':         agent.state.agent_id,
+                'location':         agent.state.location,
+                'mode':             agent.state.mode,
+                'arrived':          agent.state.arrived,
+                'route':            agent.state.route,
+                'distance_km':      agent.state.distance_km,
+                'emissions_g':      agent.state.emissions_g,
+                # ── Multimodal segment colouring ──────────────────────────────
+                # route_segments: list of {'path':…,'mode':…,'label':…} dicts
+                # from _intermodal_with_segments / _gtfs_with_segments.
+                # visualization.py reads this to draw each leg in its own colour.
+                # Without this copy, walk legs are invisible — visualization only
+                # sees state.get('route_segments') from THIS dict, not agent.state.
+                'route_segments':   getattr(agent.state, 'route_segments', []),
+                # trip_chain serialised dict for journey_tracker and analytics
+                'trip_chain':       (
+                    agent.state.trip_chain.to_dict()
+                    if getattr(agent.state, 'trip_chain', None) is not None
+                       and hasattr(agent.state.trip_chain, 'to_dict')
+                    else None
+                ),
+                # ── Tooltip labels ────────────────────────────────────────────
+                'origin_name':      getattr(agent.state, 'origin_name',      ''),
+                'destination_name': getattr(agent.state, 'destination_name', ''),
+                'service_id':       getattr(agent.state, 'service_id',       ''),
+                'destination_stop': getattr(agent.state, 'destination_stop', ''),
             })
         
         # POLICY IMPACT TRACKING
