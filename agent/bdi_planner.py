@@ -85,8 +85,8 @@ except ImportError:
         import math
         try:
             # NOTE: (lon, lat) order
-            lon1, lat1 = float(o[0]), float(o[1])
-            lon2, lat2 = float(d[0]), float(d[1])
+            lon1, lat1 = float(origin[0]), float(origin[1])
+            lon2, lat2 = float(dest[0]), float(dest[1])
         except Exception:
             return 0.0
         R = 6371.0
