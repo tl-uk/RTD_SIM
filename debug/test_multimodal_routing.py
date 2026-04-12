@@ -75,10 +75,10 @@ OD_PAIRS: List[Dict] = [
         "reject_if_flat":   True,   # single-segment road route = failure
     },
     {
-        "label":    "Intercity rail: Waverley→North Berwick",
+        "label":    "Intercity rail: Waverley→Curriehill",
         "mode":     "intercity_train",
         "origin":   (-3.1892, 55.9525),   # Waverley
-        "dest":     (-2.7266, 56.0618),   # North Berwick (within Edinburgh rail bbox)
+        "dest":     (-3.3614, 55.8960),   # Curriehill station — within Edinburgh drive bbox
         "expect_segments":  ["walk", "intercity_train", "walk"],
         "expect_mode":      "intercity_train",
         "reject_if_flat":   True,
@@ -392,7 +392,7 @@ def _test_bdi_mode_switch(env: Any):
     print(_ok("BDIPlanner.actions_for calls compute_route_with_segments"))
 
     # Test that _segments are stored in params
-    if 'route_segments' not in src and '_segments' not in src:
+    if 'route_segments' not in src_af and '_segments' not in src_af:
         print(_fail("BDIPlanner does not store _segments in params"))
     else:
         print(_ok("BDIPlanner stores _segments in params['route_segments']"))
