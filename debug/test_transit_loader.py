@@ -1,4 +1,12 @@
-# debug/test_transit_loader.py
+"""
+debug/test_transit_loader.py
+
+Run:
+    python debug/test_transit_loader.py
+
+Outputs:
+    data/edinburgh_graph.json
+"""
 
 import sys
 from pathlib import Path
@@ -17,7 +25,7 @@ from simulation.spatial.transit_loader import (
 )
 
 print("=" * 72)
-print("RTD_SIM Transit Loader v2 Test")
+print("RTD_SIM Transit Loader Test")
 print("=" * 72)
 
 # ==========================================================
