@@ -87,8 +87,8 @@ except Exception:
 # Test feed IDs
 # -------------------------------------------------------------------
 TEST_FEEDS = [
-    ("Edinburgh Trams", "f-gcpv-edinburghtramsltd"),
-    ("Lothian Buses", "f-gcpv-lothianbuses"),
+    ("UK Bus Open Data", "f-bus~dft~gov~uk"),
+    ("UK Rail", "f-uk~rail"),
 ]
 
 downloaded = False
