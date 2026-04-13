@@ -354,14 +354,23 @@ class Router:
             return [], []
 
         # Only include walk legs that are long enough to be meaningful on the
-        # map (≥ _MIN_WALK_LEG_KM).  A 30 m snap to the nearest platform node
-        # is real but renders as a dot and adds nothing to the tooltip.
+        # map (≥ _MIN_WALK_LEG_KM). Access legs longer than _WALK_ACCESS_KM are
+        # labelled 'car' (drive to station) rather than 'walk' — no agent walks
+        # 2+ km to board a train when a car/taxi is available.
         access_dist = haversine_km(origin, orig_coord)
         egress_dist = haversine_km(dest_coord, dest)
 
+        def _access_mode(dist_km: float) -> str:
+            return 'walk' if dist_km <= self._WALK_ACCESS_KM else 'car'
+
         segments: List[Dict] = []
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
-            segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to station'})
+            a_mode = _access_mode(access_dist)
+            segments.append({
+                'path':  access_leg,
+                'mode':  a_mode,
+                'label': 'Walk to station' if a_mode == 'walk' else 'Drive to station',
+            })
         if rail_coords and len(rail_coords) >= 2:
             segments.append({
                 'path':  rail_coords,
@@ -369,7 +378,12 @@ class Router:
                 'label': mode.replace('_', ' ').title(),
             })
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
-            segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from station'})
+            e_mode = _access_mode(egress_dist)
+            segments.append({
+                'path':  egress_leg,
+                'mode':  e_mode,
+                'label': 'Walk from station' if e_mode == 'walk' else 'Drive from station',
+            })
 
         full_route = (
             (access_leg[:-1] if access_leg else [])
@@ -660,7 +674,12 @@ class Router:
     # Maximum walk-to-station distance: beyond this the graph is too sparse
     # for the area and the route is rejected rather than producing a
     # multi-kilometre "walk" leg mislabelled as a rail route.
-    _MAX_ACCESS_KM: float = 5.0
+    _MAX_ACCESS_KM: float = 3.0   # Maximum station access distance accepted
+    _WALK_ACCESS_KM: float = 1.2  # Above this, access leg is labelled 'car' not 'walk'
+    # Rationale: a 5km _MAX_ACCESS_KM was accepting 4-5km walk legs to stations,
+    # which are unrealistic (no one walks 5km to board a train).  3km is still
+    # generous enough to handle Edinburgh's station spacing while suppressing
+    # topology artefacts where the nearest rail node is far from any real station.
 
     def _nearest_rail_node(
         self,

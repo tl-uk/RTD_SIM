@@ -1137,30 +1137,49 @@ class BDIPlanner:
         # This is separate from the boarding_penalty (already in MetricsCalculator)
         # and captures the agent's *preference* response to that risk.
         #
-        # Only applied to abstract modes — routeable modes have no schedule risk.
+        # IMPORTANT: For job stories whose primary_transport_mode is rail
+        # (tourist_scenic_rail, intercity_commute, long_distance_rail etc.),
+        # the schedule-risk penalty is suppressed — the agent has already chosen
+        # to use the train and the BDI cost should not flip them to EV/car.
+        # Without this, reliability=0.41 gave schedule_risk > EV cost, causing
+        # "tourist_scenic_rail" agents to route by EV instead of train.
         _ABSTRACT_MODES = {
             'local_train', 'intercity_train', 'freight_rail',
             'ferry_diesel', 'ferry_electric',
             'flight_domestic', 'flight_electric',
         }
+        _RAIL_JOB_KEYWORDS = {
+            'rail', 'train', 'intercity', 'scenic', 'transit',
+            'tram', 'metro', 'subway', 'tube',
+        }
         schedule_risk_penalty = 0.0
         if mode in _ABSTRACT_MODES:
-            # Agents who value reliability penalise scheduled modes more
-            w_reliability = desires.get('reliability', desires.get('maximize_reliability', 0.5))
-            # Read scenario-tuned boarding penalty if available; else use defaults
-            _DEFAULT_BOARD = {'local_train': 20, 'intercity_train': 25,
-                              'freight_rail': 30, 'ferry_diesel': 35,
-                              'ferry_electric': 35, 'flight_domestic': 75,
-                              'flight_electric': 75}
-            boarding_min = float(
-                context.get('boarding_penalty_min')
-                or _DEFAULT_BOARD.get(mode, 20)
-            )
-            # Normalise penalty: 20 min → 0.33, 75 min → 1.25
-            schedule_risk_penalty = w_reliability * (boarding_min / 60.0) * 0.5
+            # Suppress penalty when job story is rail-specific
+            job_id = ''
+            if context.get('job_story'):
+                job_id = str(getattr(context['job_story'], 'job_id', '') or
+                             context.get('job_story_id', '')).lower()
+            is_rail_job = any(kw in job_id for kw in _RAIL_JOB_KEYWORDS)
+            vehicle_type = context.get('vehicle_type', 'personal')
+            is_transit_agent = vehicle_type == 'transit'
+
+            if not is_rail_job and not is_transit_agent:
+                w_reliability = desires.get('reliability', desires.get('maximize_reliability', 0.5))
+                _DEFAULT_BOARD = {'local_train': 20, 'intercity_train': 25,
+                                  'freight_rail': 30, 'ferry_diesel': 35,
+                                  'ferry_electric': 35, 'flight_domestic': 75,
+                                  'flight_electric': 75}
+                boarding_min = float(
+                    context.get('boarding_penalty_min')
+                    or _DEFAULT_BOARD.get(mode, 20)
+                )
+                schedule_risk_penalty = w_reliability * (boarding_min / 60.0) * 0.5
             logger.debug(
-                "Schedule risk penalty for %s: %.3f (reliability=%.2f, board=%dmin)",
-                mode, schedule_risk_penalty, w_reliability, boarding_min,
+                "Schedule risk penalty for %s: %.3f (reliability=%.2f, board=%dmin, rail_job=%s)",
+                mode, schedule_risk_penalty,
+                desires.get('reliability', 0.5),
+                float(context.get('boarding_penalty_min') or 20),
+                is_rail_job or is_transit_agent,
             )
 
         # Infrastructure adjustments

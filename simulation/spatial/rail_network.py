@@ -372,8 +372,8 @@ def fetch_ferry_graph(
 
     Args:
         bbox: (north, south, east, west) — RTD_SIM internal convention.
-              Internally expanded by 2° to capture cross-sea routes whose
-              terminals may lie just outside the drive graph extent.
+              Internally expanded by 0.3° to capture cross-boundary terminals
+              without pulling in continental routes outside the simulation region.
 
     Returns:
         NetworkX MultiDiGraph tagged graph['name']='ferry', or None on failure.
@@ -386,7 +386,11 @@ def fetch_ferry_graph(
 
     north, south, east, west = bbox
     # Expand by 2° to capture terminals that sit outside the drive graph bbox
-    north, south, east, west = north + 2.0, south - 2.0, east + 2.0, west - 2.0
+    # 0.3° padding captures cross-boundary terminals without pulling in
+    # continental routes (e.g. Amsterdam/Hook of Holland from an Edinburgh bbox).
+    # The hardcoded _UK_FERRY_ROUTES spine provides long-haul sea freight
+    # routes when they are needed by the simulation scenario.
+    north, south, east, west = north + 0.3, south - 0.3, east + 0.3, west - 0.3
 
     query = (
         "[out:json][timeout:30];"
