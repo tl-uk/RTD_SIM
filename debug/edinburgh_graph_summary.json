@@ -1,0 +1,10 @@
+{
+  "nodes": 20,
+  "edges": 3,
+  "mode_counts": {
+    "tram": 15,
+    "bus": 5
+  },
+  "components": 17,
+  "largest_component": 2
+}
