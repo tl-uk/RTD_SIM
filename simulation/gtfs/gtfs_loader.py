@@ -72,11 +72,11 @@ _ROUTE_TYPE_TO_MODE: Dict[int, str] = {
     2:   'intercity_train',  # Rail (intercity treated as primary)
     3:   'bus',              # Bus
     4:   'ferry_diesel',     # Ferry (assume diesel until tagged electric)
-    5:   'tram',             # Cable Car
-    6:   'tram',             # Gondola / Suspended Cable Car
-    7:   'tram',             # Funicular
-    11:  'tram',             # Trolleybus (electric, reclassified below)
-    12:  'local_train',      # Monorail
+    5:   'cable_car',        # Cable Car
+    6:   'gondola',          # Gondola / Suspended Cable Car
+    7:   'funicular',        # Funicular
+    11:  'trolleybus',       # Trolleybus (electric, reclassified below)
+    12:  'monorail',         # Monorail
     # Extended route types
     100: 'intercity_train',  101: 'intercity_train',  102: 'intercity_train',
     103: 'local_train',      104: 'local_train',       105: 'local_train',

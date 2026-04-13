@@ -87,6 +87,8 @@ GTFS_MODE = {
     5: "cable",
     6: "gondola",
     7: "funicular",
+    11: "trolleybus",
+    12: "monorail",
     200: "coach",
 }
 
