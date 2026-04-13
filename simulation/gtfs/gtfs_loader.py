@@ -78,7 +78,7 @@ _ROUTE_TYPE_TO_MODE: Dict[int, str] = {
     11:  'trolleybus',       # Trolleybus (electric, reclassified below)
     12:  'monorail',         # Monorail
     # Extended route types
-    100: 'intercity_train',  101: 'intercity_train',  102: 'intercity_train',
+    100: 'intercity_train',  101: 'intercity_train',   102: 'intercity_train',
     103: 'local_train',      104: 'local_train',       105: 'local_train',
     106: 'local_train',      107: 'local_train',       108: 'local_train',
     109: 'local_train',      110: 'local_train',
