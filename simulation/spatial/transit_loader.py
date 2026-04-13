@@ -1,6 +1,7 @@
 """
 simulation/spatial/transit_loader.py
 
+Hybrid live/cache/synthetic transit graph loader for RTD_SIM
 This module provides functionality to load transit network data for UK cities using the 
 TransitLand API. It supports fetching live data, caching results, and building a graph 
 representation of transit stops and routes.
@@ -31,442 +32,376 @@ method and should be phased out over time.
 
 """
 
+from __future__ import annotations
+
 import os
 import json
 import math
 import time
-import requests
-
+import threading
 from pathlib import Path
-from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ==========================================================
-# ROOT / PATHS
-# ==========================================================
+import requests
+import networkx as nx
+from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# ---------------------------------------------------------------------
+# ENV
+# ---------------------------------------------------------------------
 
-CACHE_DIR = PROJECT_ROOT / "cache"
-DATA_DIR = PROJECT_ROOT / "data"
+ROOT = Path(__file__).resolve().parents[2]
+CACHE_DIR = ROOT / "debug" / "cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-CACHE_DIR.mkdir(exist_ok=True)
-DATA_DIR.mkdir(exist_ok=True)
+load_dotenv(ROOT / ".env")
 
-# ==========================================================
-# CONFIG
-# ==========================================================
+API_KEY = os.getenv("TRANSITLAND_API_KEY", "").strip()
 
-API_KEY = os.getenv("TRANSITLAND_API_KEY")
-BASE_URL = "https://transit.land/api/v2/rest"
+BASE = "https://transit.land/api/v2/rest"
 
-CACHE_TTL_HOURS = 24
-HTTP_TIMEOUT = 20
-HTTP_RETRIES = 3
-RETRY_SLEEP = 1.0
+# ---------------------------------------------------------------------
+# CITY BBOXES (compact central areas for speed)
+# ---------------------------------------------------------------------
 
-# lon1, lat1, lon2, lat2
 CITY_BBOX = {
-    "edinburgh": (-3.45, 55.85, -3.05, 56.05),
-    "glasgow": (-4.45, 55.75, -4.05, 55.95),
-    "london": (-0.55, 51.25, 0.25, 51.75),
-    "manchester": (-2.65, 53.25, -1.95, 53.65),   # widened
-    "leeds": (-1.75, 53.65, -1.35, 53.95),
-    "birmingham": (-2.10, 52.35, -1.65, 52.65),
-    "liverpool": (-3.10, 53.25, -2.70, 53.55),
-    "bristol": (-2.75, 51.35, -2.45, 51.55),
-    "newcastle": (-1.80, 54.90, -1.45, 55.10),
+    "edinburgh": (-3.35, 55.90, -3.15, 55.98),
+    "glasgow": (-4.35, 55.82, -4.18, 55.90),
+    "manchester": (-2.30, 53.45, -2.20, 53.52),
+    "birmingham": (-1.98, 52.45, -1.82, 52.53),
+    "liverpool": (-3.03, 53.37, -2.87, 53.47),
+    "leeds": (-1.62, 53.76, -1.48, 53.84),
+    "bristol": (-2.66, 51.42, -2.52, 51.50),
 }
 
-# ==========================================================
-# HELPERS
-# ==========================================================
+# ---------------------------------------------------------------------
+# ROUTE TYPES
+# ---------------------------------------------------------------------
 
-def log(msg):
-    print(f"[transit_loader] {msg}")
+GTFS_MODE = {
+    0: "tram",
+    1: "subway",
+    2: "rail",
+    3: "bus",
+    4: "ferry",
+    5: "cable",
+    6: "gondola",
+    7: "funicular",
+    200: "coach",
+}
 
-
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371000
-
-    p1 = math.radians(lat1)
-    p2 = math.radians(lat2)
-
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
-    )
-
-    return 2 * R * math.asin(math.sqrt(a))
+# ---------------------------------------------------------------------
+# REQUESTS
+# ---------------------------------------------------------------------
 
 
-def route_mode(route_type):
-    mapping = {
-        0: "tram",
-        1: "subway",
-        2: "rail",
-        3: "bus",
-        4: "ferry",
-        5: "cable",
-        6: "gondola",
-        7: "funicular",
-        200: "coach",
-    }
-    return mapping.get(route_type, "other")
+def api_get(endpoint: str, params: dict, timeout=20):
+    params["apikey"] = API_KEY
+    url = f"{BASE}/{endpoint}"
+    r = requests.get(url, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
 
 
-# ==========================================================
+def api_retry(endpoint, params, timeout=20, attempts=4):
+    for i in range(attempts):
+        try:
+            return api_get(endpoint, params, timeout=timeout)
+        except Exception as e:
+            if i == attempts - 1:
+                raise
+            print(f"[transit_loader] retry {endpoint} {i+1}/{attempts}: {e}")
+            time.sleep(1.2 * (i + 1))
+
+
+# ---------------------------------------------------------------------
 # CACHE
-# ==========================================================
+# ---------------------------------------------------------------------
+
 
 def cache_path(city):
-    return CACHE_DIR / f"{city.lower()}_graph.json"
+    return CACHE_DIR / f"{city}_graph.json"
 
 
-def cache_age_hours(path):
-    if not path.exists():
-        return 1e9
-    return (time.time() - path.stat().st_mtime) / 3600
-
-
-def cache_valid(path):
-    return path.exists() and cache_age_hours(path) <= CACHE_TTL_HOURS
-
-
-def save_cache(city, graph):
-    p = cache_path(city)
-
-    with open(p, "w") as f:
-        json.dump(graph, f, indent=2)
-
-    log(f"cache saved: {p.name}")
+def save_cache(city, payload):
+    with open(cache_path(city), "w") as f:
+        json.dump(payload, f)
 
 
 def load_cache(city):
     p = cache_path(city)
-
-    if not p.exists():
-        return None
-
-    with open(p) as f:
-        graph = json.load(f)
-
-    return graph
+    if p.exists():
+        with open(p) as f:
+            return json.load(f)
+    return None
 
 
-# ==========================================================
-# STATIC
-# ==========================================================
-
-def load_static(city):
-    p = DATA_DIR / f"{city.lower()}.json"
-
-    if not p.exists():
-        return None
-
-    with open(p) as f:
-        graph = json.load(f)
-
-    return graph
+# ---------------------------------------------------------------------
+# DISTANCE
+# ---------------------------------------------------------------------
 
 
-# ==========================================================
-# HTTP
-# ==========================================================
+def hav(lat1, lon1, lat2, lon2):
+    r = 6371000
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    d1 = math.radians(lat2 - lat1)
+    d2 = math.radians(lon2 - lon1)
 
-def request_json(endpoint, params):
-    if not API_KEY:
-        raise RuntimeError("TRANSITLAND_API_KEY missing")
-
-    params = dict(params)
-    params["apikey"] = API_KEY
-
-    url = f"{BASE_URL}/{endpoint}"
-
-    last_error = None
-
-    for attempt in range(1, HTTP_RETRIES + 1):
-        try:
-            r = requests.get(url, params=params, timeout=HTTP_TIMEOUT)
-            r.raise_for_status()
-            return r.json()
-
-        except Exception as e:
-            last_error = e
-            log(f"{endpoint} attempt {attempt}/{HTTP_RETRIES} failed: {e}")
-
-            if attempt < HTTP_RETRIES:
-                time.sleep(RETRY_SLEEP)
-
-    raise last_error
+    a = (
+        math.sin(d1 / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(d2 / 2) ** 2
+    )
+    return 2 * r * math.asin(math.sqrt(a))
 
 
-# ==========================================================
+# ---------------------------------------------------------------------
+# GRAPH BUILDERS
+# ---------------------------------------------------------------------
+
+
+def add_nodes(G, stops):
+    for s in stops:
+        coords = s.get("geometry", {}).get("coordinates", [0, 0])
+        lon, lat = coords
+        sid = s["onestop_id"]
+
+        G.add_node(
+            sid,
+            name=s.get("stop_name", sid),
+            lat=lat,
+            lon=lon,
+            mode="stop",
+        )
+
+
+def add_route_edges(G, routes, stops):
+    ids = list(G.nodes())
+
+    # sequential synthetic enrichment
+    for i in range(len(ids) - 1):
+        a = ids[i]
+        b = ids[i + 1]
+
+        rt = routes[i % len(routes)] if routes else {}
+        mode = GTFS_MODE.get(rt.get("route_type", 3), "bus")
+
+        G.add_edge(a, b, weight=1, mode=mode)
+
+
+def add_walk_edges(G, radius=350):
+    nodes = list(G.nodes(data=True))
+
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            a, da = nodes[i]
+            b, db = nodes[j]
+
+            d = hav(da["lat"], da["lon"], db["lat"], db["lon"])
+
+            if d <= radius:
+                G.add_edge(a, b, weight=d / 100, mode="walk")
+
+
+def build_graph(stops, routes):
+    G = nx.Graph()
+
+    add_nodes(G, stops)
+    add_route_edges(G, routes, stops)
+    add_walk_edges(G)
+
+    return G
+
+
+# ---------------------------------------------------------------------
+# SYNTHETIC FALLBACK
+# ---------------------------------------------------------------------
+
+
+def synthetic_graph(city):
+    print(f"[transit_loader] synthetic fallback: {city}")
+
+    G = nx.Graph()
+
+    for i in range(10):
+        lat = 55.95 + i * 0.002
+        lon = -3.20 + i * 0.002
+
+        sid = f"{city}_synthetic_{i}"
+
+        G.add_node(
+            sid,
+            name=f"{city.title()} Stop {i}",
+            lat=lat,
+            lon=lon,
+        )
+
+    ids = list(G.nodes())
+
+    for i in range(len(ids) - 1):
+        G.add_edge(ids[i], ids[i + 1], weight=1, mode="bus")
+
+    return G, "synthetic"
+
+
+# ---------------------------------------------------------------------
 # LIVE FETCH
-# ==========================================================
+# ---------------------------------------------------------------------
+
 
 def fetch_city_live(city):
     city = city.lower()
 
     if city not in CITY_BBOX:
-        raise ValueError(f"No bbox configured for {city}")
+        return None, None
 
-    lon1, lat1, lon2, lat2 = CITY_BBOX[city]
-    bbox = f"{lon1},{lat1},{lon2},{lat2}"
+    west, south, east, north = CITY_BBOX[city]
+    bbox = f"{west},{south},{east},{north}"
 
-    log(f"fetching live data for {city}")
+    def get_stops():
+        return api_retry(
+            "stops",
+            {"bbox": bbox, "per_page": 20},
+            timeout=25,
+        )
 
-    stops_json = request_json("stops", {
-        "bbox": bbox,
-        "per_page": 300
-    })
+    def get_routes():
+        return api_retry(
+            "routes",
+            {"bbox": bbox, "per_page": 20},
+            timeout=45,
+        )
 
-    routes_json = request_json("routes", {
-        "bbox": bbox,
-        "per_page": 300
-    })
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fut1 = ex.submit(get_stops)
+        fut2 = ex.submit(get_routes)
 
-    stops = stops_json.get("stops", [])
-    routes = routes_json.get("routes", [])
+        stops = []
+        routes = []
+
+        for fut in as_completed([fut1, fut2]):
+            try:
+                data = fut.result()
+
+                if "stops" in data:
+                    stops = data["stops"]
+
+                if "routes" in data:
+                    routes = data["routes"]
+
+            except Exception as e:
+                print("[transit_loader] partial live failure:", e)
 
     if not stops:
-        raise RuntimeError("No live stops returned")
+        return None, None
 
-    return stops, routes
+    G = build_graph(stops, routes)
+
+    status = "live_partial" if not routes else "live"
+
+    return G, status
 
 
-# ==========================================================
-# GRAPH BUILD
-# ==========================================================
+# ---------------------------------------------------------------------
+# PUBLIC API
+# ---------------------------------------------------------------------
 
-def build_graph(stops, routes):
-    graph = {
-        "nodes": {},
+
+def load_city_graph(city):
+    # 1 live
+    try:
+        G, status = fetch_city_live(city)
+        if G:
+            save_graph_json(city, G, status)
+            return G, status
+    except Exception as e:
+        print("[transit_loader] live failed:", e)
+
+    # 2 cache
+    payload = load_cache(city)
+    if payload:
+        G = graph_from_json(payload)
+        return G, "cache"
+
+    # 3 synthetic
+    return synthetic_graph(city)
+
+
+def load_multi_city_graph(city_text):
+    cities = [c.strip().lower() for c in city_text.split(";") if c.strip()]
+
+    graphs = []
+
+    for c in cities:
+        G, _ = load_city_graph(c)
+        graphs.append(G)
+
+    return nx.compose_all(graphs)
+
+
+# ---------------------------------------------------------------------
+# JSON SERIALIZATION
+# ---------------------------------------------------------------------
+
+
+def save_graph_json(city, G, source):
+    payload = {
+        "source": source,
+        "nodes": [],
         "edges": [],
-        "meta": {}
     }
 
-    # ------------------------------------------------------
-    # NODES
-    # ------------------------------------------------------
+    for n, d in G.nodes(data=True):
+        payload["nodes"].append({"id": n, **d})
 
-    for s in stops:
-        sid = s["onestop_id"]
+    for u, v, d in G.edges(data=True):
+        payload["edges"].append({"u": u, "v": v, **d})
 
-        lon, lat = s["geometry"]["coordinates"]
+    save_cache(city, payload)
 
-        graph["nodes"][sid] = {
-            "id": sid,
-            "name": s.get("stop_name", sid),
-            "lat": lat,
-            "lon": lon,
-            "type": "stop"
-        }
 
-    nodes = list(graph["nodes"].values())
+def graph_from_json(payload):
+    G = nx.Graph()
 
-    # ------------------------------------------------------
-    # WALK EDGES (local transfers)
-    # ------------------------------------------------------
+    for n in payload["nodes"]:
+        nid = n.pop("id")
+        G.add_node(nid, **n)
 
-    edge_set = set()
+    for e in payload["edges"]:
+        u = e.pop("u")
+        v = e.pop("v")
+        G.add_edge(u, v, **e)
 
-    for i in range(len(nodes)):
-        a = nodes[i]
+    return G
 
-        for j in range(i + 1, len(nodes)):
-            b = nodes[j]
 
-            d = haversine(a["lat"], a["lon"], b["lat"], b["lon"])
+# ---------------------------------------------------------------------
+# ANALYTICS
+# ---------------------------------------------------------------------
 
-            if d <= 220:
-                key = tuple(sorted([a["id"], b["id"]])) + ("walk",)
 
-                if key not in edge_set:
-                    edge_set.add(key)
+def graph_summary(G):
+    modes = {}
 
-                    graph["edges"].append({
-                        "from": a["id"],
-                        "to": b["id"],
-                        "mode": "walk",
-                        "weight": round(d)
-                    })
+    for _, _, d in G.edges(data=True):
+        m = d.get("mode", "unknown")
+        modes[m] = modes.get(m, 0) + 1
 
-    # ------------------------------------------------------
-    # TRANSIT EDGES (sparse chain links)
-    # ------------------------------------------------------
-
-    mode_routes = defaultdict(set)
-
-    for r in routes:
-        mode = route_mode(r.get("route_type", 3))
-        short = r.get("route_short_name", "unknown")
-        mode_routes[mode].add(short)
-
-    ordered = sorted(nodes, key=lambda x: (x["lon"], x["lat"]))
-
-    for mode, route_names in mode_routes.items():
-
-        # create only one sparse chain per route
-        for route_name in route_names:
-
-            step = 3 if mode == "bus" else 1
-
-            for i in range(0, len(ordered) - step, step):
-                a = ordered[i]
-                b = ordered[i + step]
-
-                d = haversine(a["lat"], a["lon"], b["lat"], b["lon"])
-
-                # realistic caps
-                if mode == "bus" and d > 5000:
-                    continue
-                if mode in ("tram", "rail") and d > 8000:
-                    continue
-                if mode == "walk":
-                    continue
-
-                key = tuple(sorted([a["id"], b["id"]])) + (mode, route_name)
-
-                if key not in edge_set:
-                    edge_set.add(key)
-
-                    graph["edges"].append({
-                        "from": a["id"],
-                        "to": b["id"],
-                        "mode": mode,
-                        "route": route_name,
-                        "weight": round(d)
-                    })
-
-    # ------------------------------------------------------
-    # META
-    # ------------------------------------------------------
-
-    mode_counts = defaultdict(int)
-
-    for e in graph["edges"]:
-        mode_counts[e["mode"]] += 1
-
-    graph["meta"] = {
-        "nodes": len(graph["nodes"]),
-        "edges": len(graph["edges"]),
-        "edge_modes": dict(mode_counts)
+    return {
+        "nodes": G.number_of_nodes(),
+        "edges": G.number_of_edges(),
+        "modes": modes,
     }
 
-    return graph
 
-
-# ==========================================================
-# LOADER
-# ==========================================================
-
-def load_city_graph(city, mode="auto"):
-    city = city.lower()
-
-    # ------------------------------------------------------
-    # LIVE FIRST
-    # ------------------------------------------------------
-
-    if mode in ("auto", "live"):
-        try:
-            stops, routes = fetch_city_live(city)
-
-            graph = build_graph(stops, routes)
-
-            graph["meta"]["source"] = "live"
-
-            save_cache(city, graph)
-
-            return graph
-
-        except Exception as e:
-            log(f"live failed for {city}: {e}")
-
-            if mode == "live":
-                raise
-
-    # ------------------------------------------------------
-    # CACHE (fresh or stale)
-    # ------------------------------------------------------
-
-    if mode in ("auto", "cache"):
-        graph = load_cache(city)
-
-        if graph:
-            age = round(cache_age_hours(cache_path(city)), 1)
-
-            graph["meta"]["source"] = "cache"
-            graph["meta"]["cache_age_hours"] = age
-
-            log(f"using cache for {city} ({age}h old)")
-            return graph
-
-    # ------------------------------------------------------
-    # STATIC
-    # ------------------------------------------------------
-
-    graph = load_static(city)
-
-    if graph:
-        graph["meta"]["source"] = "static"
-        log(f"using static pack for {city}")
-        return graph
-
-    raise RuntimeError(f"No graph available for {city}")
-
-
-# ==========================================================
-# MULTI CITY
-# ==========================================================
-
-def merge_graphs(graphs):
-    merged = {
-        "nodes": {},
-        "edges": [],
-        "meta": {}
-    }
-
-    for g in graphs:
-        merged["nodes"].update(g["nodes"])
-        merged["edges"].extend(g["edges"])
-
-    merged["meta"] = {
-        "nodes": len(merged["nodes"]),
-        "edges": len(merged["edges"]),
-        "source": "merged"
-    }
-
-    return merged
-
-
-def load_multi_city_graph(city_string, mode="auto"):
-    cities = [
-        c.strip().lower()
-        for c in city_string.split(";")
-        if c.strip()
-    ]
-
-    graphs = [load_city_graph(city, mode=mode) for city in cities]
-
-    return merge_graphs(graphs)
-
-
-# ==========================================================
-# NEAREST STOP
-# ==========================================================
-
-def nearest_stop(graph, lat, lon):
+def nearest_stop(G, lat, lon):
     best = None
     best_d = 1e18
 
-    for node in graph["nodes"].values():
-        d = haversine(lat, lon, node["lat"], node["lon"])
+    for n, d in G.nodes(data=True):
+        dd = hav(lat, lon, d["lat"], d["lon"])
+        if dd < best_d:
+            best = (n, d)
+            best_d = dd
 
-        if d < best_d:
-            best_d = d
-            best = node
-
-    return best, round(best_d)
+    return best[0], best[1], round(best_d)
