@@ -127,7 +127,7 @@ concerned_parent:
   mode_preferences:
     walk: 0.8
     bike: 0.7
-    ev: 0.6            # was car_ev
+    ev: 0.45              # was car_ev (calibrated: cost-sensitive)
     bus: 0.5
     car: 0.3           # was car_petrol
 
@@ -231,7 +231,7 @@ business_commuter:
 
   mode_preferences:
     intercity_train: 0.9  # was train_first_class
-    ev: 0.8               # was car_ev
+    ev: 0.55              # calibrated to 2024 UK EV adoption
     car: 0.7              # was taxi(0.7) and car_petrol(0.6) — take highest
     bus: 0.3
     bike: 0.1
@@ -337,7 +337,7 @@ rural_resident:
 
   mode_preferences:
     car: 0.8            # was car_petrol
-    ev: 0.7             # was car_ev
+    ev: 0.35              # was car_ev (rural charging limited)
     bus: 0.6            # was community_transport(0.6) > bus(0.4) — take highest
     bike: 0.3
     walk: 0.2
@@ -390,7 +390,7 @@ shift_worker:
 
   mode_preferences:
     car: 0.8            # was car_petrol(0.8) and taxi(0.6) — take highest
-    ev: 0.75            # was car_ev
+    ev: 0.40              # shift workers use older petrol/diesel
     bus: 0.4
     bike: 0.2
     walk: 0.1
@@ -692,7 +692,7 @@ frequent_driver:
 
   mode_preferences:
     car: 0.85           # was car_petrol(0.85) and car_diesel(0.65) — take highest
-    ev: 0.75            # was car_ev
+    ev: 0.50              # early adopter segment, not universal
     bus: 0.25
     local_train: 0.35   # was train
     bike: 0.15

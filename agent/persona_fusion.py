@@ -604,9 +604,21 @@ _JOB_MODE_OVERRIDES: Dict[str, Dict[str, Any]] = {
     },
     'tourist_scenic_rail': {
         'abstract_modes': ['local_train', 'intercity_train'],
-        'access_modes':   ['car', 'ev', 'bus'],
+        # car/ev kept for drive-to-station access legs, but rail is primary
+        'access_modes':   ['walk', 'bus', 'car', 'ev'],
         'primary_network': 'rail',
         'intentions':     ['scenic_journey', 'tourism'],
+    },
+
+    # ── Tram jobs ──────────────────────────────────────────────────
+    # accessible_tram_journey: agent's primary mode IS tram.
+    # Without this override, tram agents fell through to persona base_modes
+    # which include ev/car, causing the planner to route by EV on roads.
+    'accessible_tram_journey': {
+        'abstract_modes': ['tram'],
+        'access_modes':   ['walk', 'bus'],   # no car/ev to station — tram IS the mode
+        'primary_network': 'tram',
+        'intentions':     ['board_tram', 'accessible_travel'],
     },
 
     # ── Port jobs ─────────────────────────────────────────────────
