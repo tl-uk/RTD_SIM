@@ -64,7 +64,7 @@ _TRANSFER_HIGHWAY_TAG = 'transfer'
 
 def fetch_rail_graph(
     bbox: Tuple[float, float, float, float],
-) -> Optional[object]:
+) -> Optional[nx.MultiDiGraph]:
     """
     Download a unified, bi-directional rail/tram graph from OpenStreetMap.
 
@@ -139,7 +139,7 @@ def fetch_rail_graph(
     return G_directed
 
 
-def get_or_fallback_rail_graph(env=None) -> Optional[object]:
+def get_or_fallback_rail_graph(env=None) -> Optional[nx.MultiDiGraph]:
     """
     Try to fetch the OpenRailMap graph; fall back to the hardcoded rail spine.
 
@@ -201,8 +201,8 @@ def get_or_fallback_rail_graph(env=None) -> Optional[object]:
 
 
 def link_to_road_network(
-    G_rail: object,
-    G_road: object,
+    G_rail: nx.MultiDiGraph,
+    G_road: nx.MultiDiGraph,
     radius_m: int = 300,
 ) -> None:
     """
@@ -352,7 +352,7 @@ def _great_circle_waypoints(
 
 def fetch_ferry_graph(
     bbox: Tuple[float, float, float, float],
-) -> Optional[object]:
+) -> Optional[nx.MultiDiGraph]:
     """
     Download ferry route geometry from the OpenStreetMap Overpass API.
 
@@ -489,7 +489,7 @@ def fetch_ferry_graph(
     return G if G.number_of_nodes() > 1 else None
 
 
-def build_hardcoded_ferry_graph() -> Optional[object]:
+def build_hardcoded_ferry_graph() -> Optional[nx.MultiDiGraph]:
     """
     Build a lightweight ferry graph from the hardcoded ``_UK_FERRY_ROUTES`` list.
 
@@ -503,7 +503,6 @@ def build_hardcoded_ferry_graph() -> Optional[object]:
     if not _NX:
         return None
 
-    import networkx as nx
     from simulation.spatial.coordinate_utils import haversine_km as _hav
 
     G = nx.MultiDiGraph()
@@ -539,7 +538,7 @@ def build_hardcoded_ferry_graph() -> Optional[object]:
     return G
 
 
-def get_or_fallback_ferry_graph(env=None) -> Optional[object]:
+def get_or_fallback_ferry_graph(env=None) -> Optional[nx.MultiDiGraph]:
     """
     Try Overpass ferry fetch; fall back to hardcoded UK spine.
 
