@@ -488,12 +488,11 @@ def _api_get(url: str) -> bytes:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode    = ssl.CERT_NONE
-            resp_ctx: object = urllib.request.urlopen(req, timeout=60, context=ctx)
+            with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
+                return resp.read()
         else:
-            resp_ctx = urllib.request.urlopen(req, timeout=60)
-
-        with resp_ctx as resp:
-            return resp.read()
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return resp.read()
 
     except ssl.SSLError as exc:
         raise RuntimeError(
