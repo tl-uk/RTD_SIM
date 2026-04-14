@@ -161,39 +161,71 @@ def render_map(
 
     if show_ferry_routes and _ferry_graph is not None and _ferry_graph.number_of_nodes() > 1:
         try:
+            # Derive simulation bbox from agent locations (or env drive graph).
+            # Ferry routes whose geometry lies entirely outside this bbox +
+            # generous margin are continental routes that would zoom the viewport
+            # out to Europe.  Clip them so the map stays centred on the sim region.
+            _sim_bbox = None
+            if _env_arg is not None:
+                _dg = getattr(getattr(_env_arg, 'graph_manager', None), None, None)
+                _dg = getattr(getattr(_env_arg, 'graph_manager', object()), 'get_graph', lambda _: None)('drive')
+                if _dg is not None and _dg.number_of_nodes() > 0:
+                    _xs = [d['x'] for _, d in _dg.nodes(data=True)]
+                    _ys = [d['y'] for _, d in _dg.nodes(data=True)]
+                    _margin = 1.0   # 1° generous margin keeps nearby UK ferries
+                    _sim_bbox = (min(_xs)-_margin, min(_ys)-_margin,
+                                 max(_xs)+_margin, max(_ys)+_margin)
+
             ferry_routes = []
             seen_pairs: set = set()
             for u, v, data in _ferry_graph.edges(data=True):
-                # Deduplicate bi-directional pairs so each route appears once.
                 key = (min(str(u), str(v)), max(str(u), str(v)))
                 if key in seen_pairs:
                     continue
                 seen_pairs.add(key)
                 shape = data.get('shape_coords')
-                if shape and len(shape) >= 2:
-                    route_name = data.get('name', 'Ferry route')
-                    ferry_routes.append({
-                        'path': [[float(c[0]), float(c[1])] for c in shape],
-                        'tooltip_html': f'<b>⛴️ {route_name}</b><br/>Ferry / shipping lane',
-                    })
+                if not shape or len(shape) < 2:
+                    continue
+
+                # Clip: skip routes entirely outside the sim bbox
+                if _sim_bbox is not None:
+                    min_lon = min(c[0] for c in shape)
+                    max_lon = max(c[0] for c in shape)
+                    min_lat = min(c[1] for c in shape)
+                    max_lat = max(c[1] for c in shape)
+                    bbox_w, bbox_s, bbox_e, bbox_n = _sim_bbox
+                    if max_lon < bbox_w or min_lon > bbox_e or max_lat < bbox_s or min_lat > bbox_n:
+                        continue   # continental route — skip
+
+                route_name = data.get('name', 'Ferry route')
+                route_type = data.get('mode', 'ferry_diesel')
+                is_freight = any(kw in route_name.lower()
+                                 for kw in ('freight', 'cargo', 'roro', 'container', 'ro-ro'))
+                color = [0, 130, 110, 200] if not is_freight else [100, 80, 200, 200]
+                ferry_routes.append({
+                    'path':          [[float(c[0]), float(c[1])] for c in shape],
+                    'color':         color,
+                    'tooltip_html':  (
+                        f'<b>⛴️ {route_name}</b><br/>'
+                        f'{"Sea freight" if is_freight else "Passenger ferry"} lane'
+                    ),
+                })
             if ferry_routes:
                 ferry_df    = pd.DataFrame(ferry_routes)
                 ferry_layer = pdk.Layer(
                     'PathLayer',
                     data=ferry_df,
                     get_path='path',
-                    get_color=[0, 150, 136, 210],   # Teal #009688 — matches MODE_COLORS_RGB
+                    get_color='color',
                     width_min_pixels=2,
-                    width_max_pixels=6,
+                    width_max_pixels=5,
                     width_scale=1,
-                    dash_array=[8, 6],               # Dashed — standard map convention
+                    dash_array=[10, 6],   # Dashed — standard nautical chart convention
                     pickable=True,
                     auto_highlight=True,
                 )
                 layers.insert(0, ferry_layer)
-                logger.info(
-                    "✅ Ferry waterway layer: %d routes", len(ferry_routes)
-                )
+                logger.info("✅ Ferry waterway layer: %d routes (clipped to sim bbox)", len(ferry_routes))
         except Exception as _ferr:
             logger.warning("Ferry layer failed: %s", _ferr)
     
@@ -419,8 +451,21 @@ def render_map(
             emissions = state.get('emissions_g', 0.0)
 
             # ── Rich tooltip ────────────────────────────────────────────────
-            mode_label    = f"{_MODE_EMOJI.get(mode, '🚗')} {mode.replace('_', ' ').title()}"
-            status_html   = '✅ Arrived' if arrived else '🔄 En route'
+            # For multimodal agents, derive the primary (dominant) mode from
+            # route_segments rather than the flat state.mode (which may be 'walk'
+            # during access/egress legs and mislead the tooltip).
+            route_segments = state.get('route_segments', [])
+            if route_segments:
+                # Primary mode = longest non-walk segment by point count
+                _non_walk = [(len(s.get('path', [])), s.get('mode', mode))
+                             for s in route_segments
+                             if s.get('mode', 'walk') not in ('walk', 'car')]
+                display_mode = max(_non_walk, key=lambda x: x[0])[1] if _non_walk else mode
+            else:
+                display_mode = mode
+
+            mode_label    = f"{_MODE_EMOJI.get(display_mode, '🚗')} {display_mode.replace('_', ' ').title()}"
+            status_html   = '✅ Arrived' if arrived else f'🔄 En route'
             origin_name   = state.get('origin_name', '') or state.get('home_name', '')
             dest_name     = state.get('destination_name', '') or state.get('dest_name', '')
             service_id    = state.get('service_id', '') or state.get('route_id', '')
