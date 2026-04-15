@@ -1,0 +1,362 @@
+================================================================================
+RTD_SIM ROUTING DEBUG — SESSION HANDOFF 8
+Generated: 2026-04-14
+Prior transcript: /mnt/transcripts/2026-04-14-22-07-25-rtd-sim-routing-visualisation-phase2.txt
+================================================================================
+
+HOW TO START THE NEW SESSION
+================================================================================
+
+Say exactly this:
+
+  "Continue RTD_SIM debug. Load the session transcript at
+  /mnt/transcripts/2026-04-14-22-07-25-rtd-sim-routing-visualisation-phase2.txt
+  for full context. This is handoff 8. The three unresolved critical problems are:
+
+  1. Agent routes do not follow physical infrastructure — straight lines cross
+     buildings and land masses. Root cause confirmed in log: 186 cases of
+     'walk path unavailable — interpolated straight line' because
+     get_nearest_node('walk') returns the SAME node for both origin and dest
+     when they are GTFS stop coordinates near a station (not OSM road nodes).
+     The nx.shortest_path block is never entered.
+
+  2. Ferry layer crashes every render with:
+     'Ferry layer failed: attribute name must be string, not NoneType'
+     Root cause: the _sim_bbox calculation in visualization.py uses a broken
+     getattr chain that returns None, then a DataFrame column receives None
+     values. The bbox clipping code from session 7 introduced this regression.
+
+  3. GTFS tram routes are straight lines between stops (143pts / 32 stops =
+     4.5 pts/stop) because Edinburgh Tram GTFS from BODS has no shape_coords.
+     The fix must use OSM tram track geometry as a fallback when shape_coords
+     is absent from GTFS tram trips.
+
+  Files I am uploading: [list below]"
+
+
+================================================================================
+ARCHITECTURE SUMMARY (confirmed correct, do not change)
+================================================================================
+
+Data flow:
+  bdi_planner.actions_for()
+    → env.compute_route_with_segments()
+    → router._intermodal_with_segments() / _gtfs_with_segments()
+    → returns (flat_route, segments)
+    → stored in params['route_segments'] + params['trip_chain']
+    → cognitive_abm._maybe_plan() propagates to agent.state.route_segments
+    → simulation_loop.py copies ALL multimodal fields to agent_states dict
+    → visualization.py renders per-leg PathLayers
+
+Graph separation (CRITICAL — never merge):
+  drive graph   — OSMnx network_type='drive'   — for cars/buses/EVs
+  walk graph    — OSMnx network_type='walk'    — for pedestrian access legs
+  bike graph    — OSMnx network_type='bike'    — for cyclists
+  rail graph    — OpenRailMap Overpass query   — for local_train/intercity_train
+  transit graph — GTFSGraph                   — for bus/tram when GTFS loaded
+  ferry graph   — OSM route=ferry Overpass    — for ferry_diesel/ferry_electric
+
+All coordinates: (lon, lat). Never (lat, lon).
+
+
+================================================================================
+WHAT WAS FIXED IN SESSIONS 1-7 (do not re-apply)
+================================================================================
+
+simulation_loop.py        — agent_states dict now copies route_segments, trip_chain,
+                            origin_name, destination_name, service_id, destination_stop
+bdi_planner.py            — _fused_override renamed to _fused_allowed (no NameError);
+                            _MODES_REGISTRY removed; find_nearest_charger guards;
+                            schedule risk penalty suppressed for rail/transit jobs;
+                            _RAIL_JOB_KEYWORDS set prevents EV winning over train
+persona_fusion.py         — accessible_tram_journey added to _JOB_MODE_OVERRIDES
+                            with abstract_modes=['tram'], access_modes=['walk','bus']
+personas.yaml             — EV preferences reduced: business_commuter 0.8→0.55,
+                            shift_worker 0.75→0.40, frequent_driver 0.75→0.50,
+                            rural_resident 0.70→0.35, concerned_parent 0.60→0.45
+agent_creation.py         — corridor_od() added: tram/rail job stories get OD pairs
+                            anchored to Edinburgh tram stops / rail stations
+environment_setup.py      — naptan_stops bridged to graph_manager.naptan_stops so
+                            router._nearest_rail_node() sees it
+rail_network.py           — ferry Overpass bbox padding 2.0°→0.3°
+router.py                 — _MAX_ACCESS_KM 5.0→3.0; _WALK_ACCESS_KM=1.2 added;
+                            access legs >1.2km labelled 'car' not 'walk';
+                            tram spine catchment widened to 5.0km
+
+Working correctly in latest run (simulation_20260414_220440.log):
+  ✅ Tram agents generated (14 chose tram) — persona_fusion fix confirmed working
+  ✅ Route segments reaching visualiser — 70 segments across 7 mode types
+  ✅ Walk legs rendering as separate segments (16 walk layers)
+  ✅ accessible_tram_journey: modes=['tram','walk','bus'] confirmed in log
+  ✅ GTFS loaded: 8136 stops, 453 routes, 94884 trips, 2 tram routes, 1 ferry
+  ✅ EV reduced to 44% with GTFS (was ~90% without GTFS)
+  ✅ NaPTAN 116 stops loaded and bridged to graph_manager
+
+
+================================================================================
+THE THREE UNRESOLVED CRITICAL BUGS (priority order)
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+BUG 1 — STRAIGHT-LINE ACCESS/EGRESS LEGS (186 occurrences in latest log)
+─────────────────────────────────────────────────────────────────────────────
+
+SYMPTOM: Routes cut through buildings and land masses instead of following
+roads/paths. Tram routes in PDF show straight diagonal lines. Rail access legs
+show "Drive to station" as straight purple lines.
+
+CONFIRMED LOG EVIDENCE:
+  eco_warrior_morning_commute_1888_access: walk path unavailable (1.62km)
+    — interpolated straight line
+  eco_warrior_morning_commute_1888_egress: walk path unavailable (2.52km)
+    — interpolated straight line
+  186 total occurrences
+
+ROOT CAUSE (confirmed by log analysis):
+  _compute_access_leg() in router.py:
+    G_walk = self.graph_manager.get_graph('walk')   # returns the 55149-node graph
+    orig_node = get_nearest_node(origin, 'walk')
+    dest_node = get_nearest_node(dest,   'walk')
+    if orig_node and dest_node and orig_node != dest_node:
+        # THIS BLOCK IS NEVER ENTERED for 186 cases
+    # Falls through to: "walk path unavailable — interpolated straight line"
+
+  The condition fails because orig_node == dest_node. This happens because:
+  (a) GTFS stop coordinates are often on or very near a rail/tram platform
+      which is the SAME OSM node as a walk graph node adjacent to the station.
+      The origin (station_coord) and dest (a point 1-2km away) both snap to
+      the SAME nearest walk node when the station sits at a network boundary.
+  (b) get_nearest_node uses a k-d tree lookup — if the walk graph node at the
+      station entrance is the nearest to BOTH coords, same node returned.
+
+FIX NEEDED in router.py _compute_access_leg():
+  After orig_node == dest_node, do NOT fall through to straight line.
+  Instead: try a second snap with a wider search (exclude the shared node):
+    if orig_node == dest_node:
+        # Force different nodes by finding second-nearest for dest
+        dest_node = get_nearest_node(dest, 'walk', exclude_node=orig_node)
+        # OR: use drive graph proxy as fallback before interpolation
+  Also: when orig_node != dest_node but nx.shortest_path raises NetworkXNoPath,
+  try the drive graph proxy BEFORE falling back to a straight line.
+  The drive graph always covers roads pedestrians also use.
+
+  Separately: For GTFS stops that are in Fife or outside the walk graph bbox,
+  the drive graph proxy should be attempted first (not straight line fallback).
+  The Forth Road Bridge IS in the drive graph — the proxy will find it.
+
+FILE: simulation/spatial/router.py
+
+─────────────────────────────────────────────────────────────────────────────
+BUG 2 — FERRY LAYER CRASHES: "attribute name must be string, not NoneType"
+─────────────────────────────────────────────────────────────────────────────
+
+SYMPTOM: Ferry lanes never appear on map. Console log shows:
+  WARNING | visualiser.visualization | Ferry layer failed: attribute name must
+  be string, not 'NoneType'
+  (appears 4 times per run, once per render cycle)
+
+ROOT CAUSE: visualization.py ferry layer code (added session 7) has a broken
+_sim_bbox calculation:
+
+  _dg = getattr(getattr(_env_arg, 'graph_manager', object()),
+                'get_graph', lambda _: None)('drive')
+
+This convoluted chain returns None when _env_arg is None or graph_manager is
+None. When _sim_bbox is never set, _sim_bbox remains None.
+Then later, the ferry_routes list contains dicts with color=None because
+the is_freight check fails silently, producing:
+  ferry_routes.append({'path': ..., 'color': None, ...})
+
+pandas DataFrame construction with color=None causes:
+  "attribute name must be string, not 'NoneType'"
+
+Also: pdk.Layer's get_color='color' reads column name 'color' from DataFrame,
+but if color values are Python lists [R,G,B,A] they work, but if color=None
+anywhere it crashes.
+
+FIX NEEDED in visualization.py ferry layer block:
+  1. Simplify _sim_bbox derivation — use agent_states locations (already
+     available) as the bbox source, not the env drive graph:
+       if agent_states:
+           lons = [s['location'][0] for s in agent_states if s.get('location')]
+           lats = [s['location'][1] for s in agent_states if s.get('location')]
+           if lons:
+               _sim_bbox = (min(lons)-1.0, min(lats)-1.0,
+                            max(lons)+1.0, max(lats)+1.0)
+  2. Always assign color as a concrete list, never None:
+       color = [0, 130, 110, 200] if not is_freight else [100, 80, 200, 200]
+     (this is already in the code but the is_freight logic may throw)
+  3. Wrap the entire ferry_routes construction in a try/except with a
+     concrete fallback color.
+
+FILE: visualiser/visualization.py
+
+─────────────────────────────────────────────────────────────────────────────
+BUG 3 — GTFS TRAM ROUTES ARE STRAIGHT LINES (no track geometry)
+─────────────────────────────────────────────────────────────────────────────
+
+SYMPTOM: Tram routes in PDF show straight diagonal brown lines between stops
+going through buildings. In log: "GTFS tram 27.3km (32 stops, 143 pts)" =
+143/32 = 4.5 pts per stop — this is essentially straight-line interpolation
+between each pair of stops with no actual tram track geometry.
+
+ROOT CAUSE: Edinburgh Tram GTFS feed from BODS (TransXChange conversion) has
+no shape.txt entries for tram trips. The GTFSGraph._slice_shape() returns []
+for all tram trip segments → router falls back to interpolated straight lines
+between stop coordinates.
+
+Confirmed by: GTFS bus routes have 748pts/27stops = 27.7 pts/stop (real road
+geometry), while tram has 4.5 pts/stop (no shape data).
+
+FIX NEEDED in router.py _gtfs_with_segments() or _compute_gtfs_route():
+  When shape_coords is empty for a tram segment:
+    1. Try fetching OSM tram track geometry using the Overpass API
+       for the segment bbox. Edinburgh tram tracks are in OSM with
+       railway=tram tags.
+    2. OR: snap the segment to the nearest OSM 'railway=tram' way using
+       the transit graph / a separate tram_graph layer.
+    3. Fallback: route on the drive graph along the nearest road parallel
+       to the tram tracks (Princes Street / Shandwick Place etc.). This
+       is imperfect but better than diagonals through buildings.
+
+  The simplest reliable fix: in environment_setup.py, download an OSM tram
+  graph (network_type='rail' with custom_filter='["railway"~"tram"]') and
+  register it as graph_manager.graphs['tram']. Then in router, when GTFS
+  tram has no shape, route on this tram graph between nearest tram nodes.
+
+FILES: simulation/spatial/router.py, simulation/setup/environment_setup.py
+
+
+================================================================================
+SECONDARY ISSUES (address after the 3 critical bugs)
+================================================================================
+
+ISSUE 4 — EV still 44% with GTFS, ~90% without GTFS
+  With GTFS: 62 EV / 139 total = 44.6%  (better, target ~25%)
+  Without GTFS: ~90% (tram/rail fail → EV wins by default)
+  Root cause remaining: when no GTFS and no tram spine match, ALL non-EV
+  modes return empty routes. EV is the only mode that reliably returns a route
+  on the drive graph. Fix the 3 routing bugs above and EV% will naturally drop.
+  Then tune: budget_student has EV=0.0 in personas.yaml but still gets EV
+  because CPG adds it via 'bus' fallback logic. Check CPG mode narrowing.
+
+ISSUE 5 — Multi-segment colour coding visible in log but not matching map
+  Log shows 70 route segments across 7 mode types (walk/ev/car/bus/tram/bike/
+  intercity_train). Visualization IS splitting per mode. The PDF pages 3-4
+  show "Drive to station" (car mode, purple) separately from the train segment
+  (blue) — this IS working. The remaining visual problem is Bug 1 (straight
+  lines) making the drive-to-station leg appear as a diagonal.
+  Status: PARTIALLY WORKING — multi-segment colouring works when routes have
+  real geometry. Fix Bug 1 and this will be mostly resolved.
+
+ISSUE 6 — Ferry agents invisible
+  With GTFS: 1 ferry route in feed. No ferry agents appear in combination
+  report run. Ferry layer crashes (Bug 2). Fix Bug 2 first.
+  The Leith→Kinghorn test route works in test_multimodal_routing.py (confirmed
+  53 pts), so _ferry_with_segments() is correct. The issue is purely the
+  visualization crash.
+
+ISSUE 7 — Tram for non-tram-job agents (always rejected)
+  concerned_parent_commute_flexible with random OD: tram rejected because OD
+  is outside 5km tram catchment. This is CORRECT behaviour — a person in
+  Colinton should not board the Edinburgh Tram. Non-tram-job agents will only
+  use tram if corridor_od() happens to place them on the corridor. This is
+  working as designed.
+
+
+================================================================================
+EXACT ERROR MESSAGES TO SEARCH FOR IN NEXT LOG
+================================================================================
+
+After applying fixes, these messages should disappear:
+  "walk path unavailable (Xkm) — interpolated straight line"
+  "Ferry layer failed: attribute name must be string, not 'NoneType'"
+
+After applying fixes, these should appear:
+  "walk route: X pts on walk graph (origin_node→dest_node)"
+  "Ferry waterway layer: N routes (clipped to sim bbox)"
+  "tram OSM track geometry: X pts between stops"
+
+These messages are CORRECT and should remain:
+  "tram — no GTFS/spine match within catchment, not viable"
+    (for non-tram-job agents with OD outside corridor)
+  "Drive to station" labels on access legs > 1.2km
+
+
+================================================================================
+FILES TO UPLOAD IN THE NEW SESSION
+================================================================================
+
+MUST UPLOAD (contain the bugs to fix):
+  simulation/spatial/router.py              ← Bug 1: _compute_access_leg
+  visualiser/visualization.py               ← Bug 2: ferry layer crash
+  simulation/setup/environment_setup.py     ← Bug 3: needs tram graph download
+
+UPLOAD FOR CONTEXT (may need minor edits):
+  simulation/spatial/graph_manager.py       ← needed to register tram graph
+  simulation/spatial/rail_network.py        ← may need tram Overpass fetch
+  simulation/gtfs/gtfs_graph.py             ← may need shape fallback logic
+  simulation/execution/simulation_loop.py   ← confirm field copying still intact
+
+USEFUL TO INCLUDE:
+  Any recent simulation log (*.log)         ← for regression verification
+  agent/personas/personas.yaml              ← current EV values after session 7
+
+DO NOT RE-UPLOAD (already confirmed clean and fixed):
+  agent/bdi_planner.py                      ← fixed in sessions 6-7
+  agent/persona_fusion.py                   ← fixed in session 7 (tram override)
+  simulation/setup/agent_creation.py        ← fixed in session 7 (corridor_od)
+  simulation/spatial/environment_setup.py   ← naptan bridge added session 6
+
+
+================================================================================
+FULL BUG FIX HISTORY (sessions 1-7)
+================================================================================
+
+Session 1-2 (from prior handoff):
+  Bug 1-12: router.py, gtfs_graph.py, rail_network.py core routing fixes
+  (see RTD_SIM_HANDOFF_7.txt for full list)
+
+Session 3-5:
+  simulation_loop.py: agent_states dict missing route_segments → all multimodal
+    fields now copied (route_segments, trip_chain, origin_name, etc.)
+  bdi_planner.py: _fused_override NameError silently zeroed all agent routes;
+    fixed → _fused_allowed. This was the cause of 0/50 routes in one run.
+  test_multimodal_routing.py: evaluate_actions false-positive fixed; Kirkcaldy
+    OD replaced with Curriehill (inside Edinburgh bbox)
+
+Session 6:
+  environment_setup.py: naptan_stops written to graph_manager.naptan_stops
+    (was only on env.naptan_stops — router never saw it)
+  router.py: _MAX_ACCESS_KM 5.0→3.0; _WALK_ACCESS_KM=1.2; access >1.2km = car
+  rail_network.py: ferry Overpass bbox 2.0°→0.3° (stopped Amsterdam routes)
+
+Session 7:
+  persona_fusion.py: accessible_tram_journey _JOB_MODE_OVERRIDES entry added
+  personas.yaml: EV preferences calibrated to 2024 UK market reality
+  agent_creation.py: corridor_od() for tram/rail job stories
+  bdi_planner.py: schedule risk suppressed for rail job stories
+  visualization.py: ferry layer bbox clip (BUT introduced NoneType bug — Bug 2)
+  bdi_planner.py: _MODES_REGISTRY removed; find_nearest_charger guards added
+
+
+================================================================================
+TEST COMMAND
+================================================================================
+
+  python debug/test_multimodal_routing.py
+
+Expected results after fixing Bugs 1-3:
+  PASS Rail: Waverley→Haymarket        (local_train, walk+rail+walk legs on tracks)
+  PASS Intercity rail: Waverley→Curriehill  (was failing — should pass now)
+  PASS Tram: Airport→Princes St        (tram spine / OSM tram track geometry)
+  PASS Tram: Cramond→Portobello        (correctly rejected — outside catchment)
+  PASS Bus: Leith Walk→Cameron Toll    (road-following route)
+  PASS Ferry: Leith→Kinghorn           (53 pts, ferry graph)
+  PASS EV: Morningside→Stockbridge     (road-following, 311 pts)
+  PASS Walk: Canongate→Holyrood        (walk graph, 80 pts)
+  8/8 tests passing
+
+================================================================================
+END OF HANDOFF
+================================================================================

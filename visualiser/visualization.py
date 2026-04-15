@@ -161,20 +161,44 @@ def render_map(
 
     if show_ferry_routes and _ferry_graph is not None and _ferry_graph.number_of_nodes() > 1:
         try:
-            # Derive simulation bbox from agent locations (or env drive graph).
-            # Ferry routes whose geometry lies entirely outside this bbox +
-            # generous margin are continental routes that would zoom the viewport
-            # out to Europe.  Clip them so the map stays centred on the sim region.
+            # ── FIX Bug 2: _sim_bbox derivation ──────────────────────────────
+            # The previous getattr chain returned None because it called
+            # getattr(obj, None, None) — attribute name was None, not a string.
+            # That caused "attribute name must be string, not NoneType".
+            #
+            # New strategy: derive bbox from agent_states locations (always
+            # available during a live render).  Fall back to the env drive-graph
+            # bbox if agent_states is empty.  This is simpler, faster, and never
+            # produces a None bbox.
             _sim_bbox = None
-            if _env_arg is not None:
-                _dg = getattr(getattr(_env_arg, 'graph_manager', None), None, None)
-                _dg = getattr(getattr(_env_arg, 'graph_manager', object()), 'get_graph', lambda _: None)('drive')
-                if _dg is not None and _dg.number_of_nodes() > 0:
-                    _xs = [d['x'] for _, d in _dg.nodes(data=True)]
-                    _ys = [d['y'] for _, d in _dg.nodes(data=True)]
-                    _margin = 1.0   # 1° generous margin keeps nearby UK ferries
-                    _sim_bbox = (min(_xs)-_margin, min(_ys)-_margin,
-                                 max(_xs)+_margin, max(_ys)+_margin)
+            try:
+                if agent_states:
+                    _locs = [
+                        s['location'] for s in agent_states
+                        if s.get('location') and len(s['location']) >= 2
+                    ]
+                    if _locs:
+                        _lons = [float(loc[0]) for loc in _locs]
+                        _lats = [float(loc[1]) for loc in _locs]
+                        _margin = 1.0
+                        _sim_bbox = (
+                            min(_lons) - _margin, min(_lats) - _margin,
+                            max(_lons) + _margin, max(_lats) + _margin,
+                        )
+                # Fallback: use env drive-graph bounds (correct getattr chain)
+                if _sim_bbox is None and _env_arg is not None:
+                    _gm  = getattr(_env_arg, 'graph_manager', None)
+                    _dg  = _gm.get_graph('drive') if _gm is not None else None
+                    if _dg is not None and _dg.number_of_nodes() > 0:
+                        _xs = [d['x'] for _, d in _dg.nodes(data=True)]
+                        _ys = [d['y'] for _, d in _dg.nodes(data=True)]
+                        _margin = 1.0
+                        _sim_bbox = (
+                            min(_xs) - _margin, min(_ys) - _margin,
+                            max(_xs) + _margin, max(_ys) + _margin,
+                        )
+            except Exception:
+                _sim_bbox = None   # bbox clipping disabled — all routes shown
 
             ferry_routes = []
             seen_pairs: set = set()
@@ -197,19 +221,30 @@ def render_map(
                     if max_lon < bbox_w or min_lon > bbox_e or max_lat < bbox_s or min_lat > bbox_n:
                         continue   # continental route — skip
 
-                route_name = data.get('name', 'Ferry route')
-                route_type = data.get('mode', 'ferry_diesel')
-                is_freight = any(kw in route_name.lower()
-                                 for kw in ('freight', 'cargo', 'roro', 'container', 'ro-ro'))
-                color = [0, 130, 110, 200] if not is_freight else [100, 80, 200, 200]
-                ferry_routes.append({
-                    'path':          [[float(c[0]), float(c[1])] for c in shape],
-                    'color':         color,
-                    'tooltip_html':  (
-                        f'<b>⛴️ {route_name}</b><br/>'
-                        f'{"Sea freight" if is_freight else "Passenger ferry"} lane'
-                    ),
-                })
+                try:
+                    route_name = str(data.get('name') or 'Ferry route')
+                    route_type = str(data.get('mode') or 'ferry_diesel')
+                    is_freight = any(
+                        kw in route_name.lower()
+                        for kw in ('freight', 'cargo', 'roro', 'container', 'ro-ro')
+                    )
+                    # ── FIX: color is always a concrete list, never None ──────
+                    # The previous code relied on 'is_freight' never throwing;
+                    # if it did, color remained unset (None) which caused
+                    # "attribute name must be string, not NoneType" when pandas
+                    # tried to build a DataFrame column named by the value.
+                    color: list = [0, 130, 110, 200] if not is_freight else [100, 80, 200, 200]
+                    ferry_routes.append({
+                        'path':         [[float(c[0]), float(c[1])] for c in shape],
+                        'color':        color,
+                        'tooltip_html': (
+                            f'<b>⛴️ {route_name}</b><br/>'
+                            f'{"Sea freight" if is_freight else "Passenger ferry"} lane'
+                        ),
+                    })
+                except Exception as _route_exc:
+                    # Skip this edge rather than crashing the whole ferry layer.
+                    logger.debug("Ferry route entry skipped: %s", _route_exc)
             if ferry_routes:
                 ferry_df    = pd.DataFrame(ferry_routes)
                 ferry_layer = pdk.Layer(

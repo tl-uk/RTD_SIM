@@ -167,7 +167,8 @@ class GraphManager:
 
             if not all('length' in data for _, _, data in graph.edges(data=True)):
                 logger.info("Adding missing edge lengths…")
-                graph = ox.distance.add_edge_lengths(graph)
+                if OSMNX_AVAILABLE:
+                    graph = ox.distance.add_edge_lengths(graph)
 
             if use_cache:
                 try:
@@ -243,7 +244,8 @@ class GraphManager:
 
                     if graph is not None:
                         if not all('length' in data for _, _, data in graph.edges(data=True)):
-                            graph = ox.distance.add_edge_lengths(graph)
+                            if OSMNX_AVAILABLE:
+                                graph = ox.distance.add_edge_lengths(graph)
                         logger.info("Graph loaded: %d nodes, %d edges",
                                     len(graph.nodes), len(graph.edges))
                         if use_cache:

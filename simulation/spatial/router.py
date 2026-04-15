@@ -1004,25 +1004,79 @@ class Router:
             try:
                 orig_node = self.graph_manager.get_nearest_node(origin, 'walk')
                 dest_node = self.graph_manager.get_nearest_node(dest,   'walk')
+
+                # ── FIX Bug 1a: same-node snap ────────────────────────────────
+                # When a GTFS stop coordinate lies at (or very near) a walk-graph
+                # network boundary, both origin and dest snap to the SAME nearest
+                # walk node.  The shortest-path block is then never entered and
+                # the leg degrades to a straight-line interpolation.
+                #
+                # Resolution: if orig_node == dest_node and the two coordinates
+                # are more than 50 m apart, find the nearest walk node to dest
+                # that is NOT orig_node by scanning the graph node list sorted by
+                # haversine distance.  The walk graph has ~55k nodes; this scan
+                # is O(N) but runs only for the (typically ≤200) legs that hit
+                # this case per simulation run.
+                if (orig_node is not None and dest_node is not None
+                        and orig_node == dest_node
+                        and dist_km > 0.05):
+                    dest_lon, dest_lat = dest
+                    best_alt: Any     = None
+                    best_alt_d: float = float('inf')
+                    for n, nd in G_walk.nodes(data=True):
+                        if n == orig_node:
+                            continue
+                        d = haversine_km(
+                            (dest_lon, dest_lat),
+                            (float(nd.get('x', 0)), float(nd.get('y', 0))),
+                        )
+                        if d < best_alt_d:
+                            best_alt_d = d
+                            best_alt   = n
+                    if best_alt is not None:
+                        logger.debug(
+                            "%s: same-node snap corrected — dest_node %s→%s "
+                            "(%.0fm to alt node)",
+                            agent_id, orig_node, best_alt, best_alt_d * 1000,
+                        )
+                        dest_node = best_alt
+
                 if orig_node and dest_node and orig_node != dest_node:
                     walk_nodes = nx.shortest_path(
                         G_walk, orig_node, dest_node, weight='length'
                     )
-                    return self._interpolate(
-                        self._extract_geometry(G_walk, walk_nodes),
-                        max_segment_km=0.05,
-                    )
-                # Same node → origin and dest snap to identical walk node.
-                # Happens when both ends are within ~10 m of each other.
-                # Fall through to straight-line interpolation below.
+                    coords = self._extract_geometry(G_walk, walk_nodes)
+                    if coords and len(coords) >= 2:
+                        logger.debug(
+                            "%s: walk route: %d pts on walk graph (%s→%s)",
+                            agent_id, len(coords), orig_node, dest_node,
+                        )
+                        return self._interpolate(coords, max_segment_km=0.05)
+                # If nodes are still equal (graph has only one node in area)
+                # or geometry extraction produced nothing, fall through.
             except nx.NetworkXNoPath:
                 # Stop coordinates outside walk graph coverage (e.g. cross-Forth
-                # or Fife stops loaded by GTFS but not covered by the Edinburgh
-                # drive-graph bbox).  Drive-graph proxy handles these.
+                # or Fife stops).
+                # ── FIX Bug 1b: immediately try drive proxy ───────────────────
+                # Previously the code logged "trying drive proxy" but then fell
+                # through to the straight-line block, producing 186 diagonals.
+                # The drive graph covers the Forth Road Bridge and all roads that
+                # pedestrians actually use for longer access legs.
                 logger.debug(
-                    "%s: walk nx.NetworkXNoPath (%.2fkm) — trying drive proxy",
+                    "%s: walk nx.NetworkXNoPath (%.2fkm) — drive proxy attempt",
                     agent_id, dist_km,
                 )
+                if dist_km > 0.1:
+                    _drive = self._compute_road_route(
+                        agent_id, origin, dest, 'car', _DEFAULT_POLICY,
+                    )
+                    if _drive and len(_drive) > 2:
+                        logger.debug(
+                            "%s: walk→drive proxy: %d pts (%.2fkm)",
+                            agent_id, len(_drive), dist_km,
+                        )
+                        return _drive
+                # Drive proxy also failed — fall through to straight-line below.
             except Exception as _walk_exc:
                 logger.debug(
                     "%s: walk routing failed (%.2fkm): %s",
@@ -1257,10 +1311,50 @@ class Router:
                         transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
             else:
-                # Tram / ferry: straight stop-to-stop interpolation.
-                if i == 0:
-                    transit_coords.append((u_x, u_y))
-                transit_coords.append((v_x, v_y))
+                # ── FIX Bug 3: tram OSM track geometry fallback ───────────────
+                # Edinburgh Tram GTFS from BODS has no shapes.txt entries, so
+                # shape_coords is always empty for tram trips.  Before falling
+                # back to a straight line between stops, try to route on the
+                # OSM tram graph (registered as graphs['tram'] by
+                # environment_setup.py).  This follows actual track geometry
+                # through Princes Street / Shandwick Place / the airport spur
+                # instead of diagonal lines through buildings.
+                _tram_seg_added = False
+                if mode == 'tram':
+                    G_tram = self.graph_manager.get_graph('tram')
+                    if G_tram is not None and G_tram.number_of_nodes() > 1:
+                        try:
+                            import osmnx as ox
+                            tn_orig = ox.distance.nearest_nodes(G_tram, u_x, u_y)
+                            tn_dest = ox.distance.nearest_nodes(G_tram, v_x, v_y)
+                            if tn_orig != tn_dest:
+                                tram_path = nx.shortest_path(
+                                    G_tram, tn_orig, tn_dest, weight='length'
+                                )
+                                tram_seg = self._interpolate(
+                                    self._extract_geometry(G_tram, tram_path),
+                                    max_segment_km=0.05,
+                                )
+                                if tram_seg and len(tram_seg) > 1:
+                                    transit_coords.extend(
+                                        tram_seg if i == 0 else tram_seg[1:]
+                                    )
+                                    _tram_seg_added = True
+                                    logger.debug(
+                                        "%s: tram OSM track geometry: %d pts "
+                                        "between stops %s→%s",
+                                        agent_id, len(tram_seg), u_node, v_node,
+                                    )
+                        except Exception as _tram_exc:
+                            logger.debug(
+                                "%s: tram OSM segment %d failed: %s",
+                                agent_id, i, _tram_exc,
+                            )
+                if not _tram_seg_added:
+                    # Ferry / tram (no OSM graph): straight stop-to-stop line.
+                    if i == 0:
+                        transit_coords.append((u_x, u_y))
+                    transit_coords.append((v_x, v_y))
 
         if not transit_coords:
             return self._transit_fallback(agent_id, origin, dest, mode, policy)

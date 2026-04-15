@@ -201,7 +201,58 @@ def setup_environment(
     if progress_callback:
         progress_callback(0.16, "✅ Road networks loaded")
 
-    # ── 3.5 Ferry graph ───────────────────────────────────────────────────────
+    # ── 3.5 Tram graph (OSM railway=tram geometry) ───────────────────────────
+    # Edinburgh Tram GTFS from BODS has no shapes.txt entries, so GTFS alone
+    # produces straight diagonal lines between stops (143 pts / 32 stops =
+    # 4.5 pts/stop instead of the ~27 pts/stop seen on real bus routes).
+    #
+    # We download the OSM tram track layer as a separate directed graph and
+    # register it as graphs['tram'] so router._compute_gtfs_route() can use
+    # it as a shape fallback: for each stop-pair segment with no shape_coords,
+    # the router snaps to the nearest tram-track nodes and routes along the
+    # track before falling back to straight interpolation.
+    #
+    # custom_filter='["railway"~"tram|light_rail"]' captures both the main
+    # Edinburgh tram line and the light-rail stub at Murrayfield / Gogarburn.
+    if progress_callback:
+        progress_callback(0.162, "🚋 Loading tram track geometry…")
+    try:
+        import osmnx as ox
+        _tram_filter = '["railway"~"tram|light_rail"]'
+        G_tram = None
+        if place:
+            G_tram = ox.graph_from_place(
+                place,
+                custom_filter = _tram_filter,
+                retain_all    = True,
+            )
+        elif bbox:
+            _tn, _ts, _te, _tw = bbox   # (north, south, east, west)
+            G_tram = ox.graph_from_bbox(
+                north         = _tn,
+                south         = _ts,
+                east          = _te,
+                west          = _tw,
+                custom_filter = _tram_filter,
+                retain_all    = True,
+            )
+        if G_tram is not None and G_tram.number_of_nodes() > 0:
+            env.graph_manager.graphs['tram'] = G_tram
+            logger.info(
+                "✅ Tram graph: %d nodes, %d edges (OSM railway=tram)",
+                G_tram.number_of_nodes(), G_tram.number_of_edges(),
+            )
+        else:
+            logger.warning(
+                "⚠️  Tram graph empty — tram routes use straight stop-to-stop "
+                "lines (no OSM tram tracks in bbox)"
+            )
+    except Exception as exc:
+        logger.warning(
+            "Tram graph load failed (non-fatal): %s — tram segments fall back "
+            "to straight interpolation",
+            exc,
+        )
     # Load ferry route geometry from Overpass API (or hardcoded UK spine as
     # fallback).  Registered as graphs['ferry'] on the GraphManager so both the
     # Router and the Visualiser can access it.  Ferry routes are always shown on
