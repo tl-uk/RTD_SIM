@@ -65,7 +65,7 @@ Pass a ``policy_context`` dict to compute_route() with any of:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, cast
 
 from simulation.spatial.coordinate_utils import (
     is_valid_lonlat, haversine_km, route_distance_km,
@@ -872,17 +872,75 @@ class Router:
         Buses:  fall back to drive graph.
         """
         if mode == 'tram':
-            # Without a GTFS feed or tram-spine match, there is no physical tram
-            # route available for this OD pair.  Return [] so bdi_planner's
-            # viability check (len(route) < 2) rejects tram as a mode choice.
-            # This path is only reached when _compute_gtfs_route has already tried
-            # the spine (with 5km catchment) and found neither origin nor dest
-            # within catchment.
-            logger.debug(
-                "%s: tram — no GTFS/spine match within catchment, not viable",
-                agent_id,
-            )
+            logger.debug(f"{agent_id}: No GTFS — attempting Overpass Relation slice.")
+            
+            # Fetch lazily and cache on the graph manager to avoid repeated API calls
+            if not hasattr(self.graph_manager, 'tram_relations'):
+                drive = self.graph_manager.get_graph('drive')
+                if drive:
+                    xs = [d['x'] for _, d in drive.nodes(data=True)]
+                    ys = [d['y'] for _, d in drive.nodes(data=True)]
+                    bbox = (max(ys), min(ys), max(xs), min(xs))
+                else:
+                    bbox = (56.0, 55.85, -3.05, -3.40)
+                
+                from simulation.spatial.rail_network import fetch_tram_relations_overpass
+                setattr(self.graph_manager, 'tram_relations', fetch_tram_relations_overpass(bbox))
+
+            tram_routes = getattr(self.graph_manager, 'tram_relations', [])
+            if not tram_routes:
+                return []
+
+            try:
+                from shapely.geometry import Point, LineString
+                from shapely.ops import substring
+                
+                orig_pt = Point(origin)
+                dest_pt = Point(dest)
+                
+                best_route = []
+                best_dist = float('inf')
+                
+                # Find the tram relation that comes closest to both origin and destination
+                for coords in tram_routes:
+                    if len(coords) < 2: continue
+                    line = LineString(coords)
+                    
+                    # Convert degree distance to approx km for catchment check
+                    d1_km = line.distance(orig_pt) * 111.0 
+                    d2_km = line.distance(dest_pt) * 111.0
+                    
+                    # Must be within 3km of the track to be viable
+                    if d1_km < 3.0 and d2_km < 3.0 and (d1_km + d2_km) < best_dist:
+                        best_dist = (d1_km + d2_km)
+                        
+                        proj1 = line.project(orig_pt)
+                        proj2 = line.project(dest_pt)
+                        
+                        # Slice the physical track between the two points
+                        p_start = min(proj1, proj2)
+                        p_end = max(proj1, proj2)
+                        segment = substring(line, p_start, p_end)
+                        
+                        best_route = list(segment.coords)
+                        if proj1 > proj2:
+                            best_route.reverse()
+
+                if best_route:
+                    # Stitch walk legs to the physical track slice
+                    access = self._compute_access_leg(agent_id, origin, cast(Tuple[float, float], best_route[0]))
+                    egress = self._compute_access_leg(agent_id, cast(Tuple[float, float], best_route[-1]), dest)
+                    best_route_typed: List[Tuple[float, float]] = [cast(Tuple[float, float], pt) for pt in best_route]
+                    full_route = (access[:-1] if access else []) + best_route_typed + (egress[1:] if egress else [])
+                    
+                    logger.info(f"✅ {agent_id}: Snapped to Overpass Tram Relation ({len(best_route)} pts)")
+                    return full_route
+                    
+            except Exception as e:
+                logger.error(f"{agent_id}: Overpass tram slicing failed: {e}")
+                
             return []
+        # ───────────────────────────────────────────────────────────────────
         if mode in ('ferry_diesel', 'ferry_electric'):
             # Provide a visible great-circle line — never silent [] for ferry.
             logger.debug("%s: ferry — no GTFS/graph, using great-circle interpolation", agent_id)

@@ -577,3 +577,43 @@ def get_or_fallback_ferry_graph(env=None) -> Optional[nx.MultiDiGraph]:
         "Overpass ferry fetch failed or empty — falling back to hardcoded spine"
     )
     return build_hardcoded_ferry_graph()
+
+# ──--------- OVERPASS API TRAM RELATIONS ────────────────────────
+def fetch_tram_relations_overpass(bbox: Tuple[float, float, float, float]) -> List[List[Tuple[float, float]]]:
+    """
+    Downloads tram route relations directly via Overpass API.
+    Bypasses NetworkX topology to guarantee perfect physical routing without GTFS.
+    """
+    import requests
+    north, south, east, west = bbox
+    logger.info("Fetching OSM Tram relations via Overpass API...")
+    
+    # Overpass QL query for tram relations and their precise geometry
+    query = f"""
+    [out:json];
+    relation["route"="tram"]({south},{west},{north},{east});
+    out geom;
+    """
+    
+    try:
+        resp = requests.post("https://overpass-api.de/api/interpreter", data={'data': query}, timeout=30)
+        data = resp.json()
+        
+        tram_routes = []
+        for element in data.get('elements', []):
+            route_coords = []
+            for member in element.get('members', []):
+                if member.get('type') == 'way' and 'geometry' in member:
+                    # Overpass returns sequential points for the way
+                    for pt in member['geometry']:
+                        route_coords.append((pt['lon'], pt['lat']))
+            
+            if route_coords:
+                tram_routes.append(route_coords)
+                
+        logger.info(f"✅ Downloaded {len(tram_routes)} physical tram relations via Overpass.")
+        return tram_routes
+    except Exception as e:
+        logger.error(f"❌ Overpass tram relation fetch failed: {e}")
+        return []
+# ───────────────────────────────────────────────────────────────────────────

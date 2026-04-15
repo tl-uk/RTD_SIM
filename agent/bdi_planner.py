@@ -1235,6 +1235,17 @@ class BDIPlanner:
             w_time = 0.7
             w_cost = 0.2
 
+        # ──------------- PATCH: EV Capital / Adoption Friction ────────────
+        # EVs are operationally cheaper and greener, causing them to always win.
+        # We must apply a base "access friction" penalty unless the agent is
+        # highly eco-motivated (representing they already paid the premium for an EV).
+        if mode in self.EV_RANGE_KM and not mode in ['walk', 'bike', 'cargo_bike', 'e_scooter']:
+            if w_eco < 0.7:
+                # Agent is cost/time driven, not eco driven. Add capital friction.
+                infrastructure_penalty += 1.5 
+                logger.debug(f"{getattr(state, 'agent_id', 'agent')}: Added EV adoption friction (+1.5) due to low eco desire ({w_eco:.2f})")
+        # ───────────────────────────────────────────────────────────────────
+
         # Calculate total cost. Total cost is a weighted sum of normalized time, cost, 
         # comfort penalty, risk, and emissions, plus any infrastructure penalties. 
         # Freight mode preference bonuses are applied after the initial cost calculation 
