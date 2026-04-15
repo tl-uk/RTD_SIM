@@ -331,6 +331,19 @@ class Router:
         try:
             wk = self._apply_generalised_weights(rail_graph, mode, policy)
             rail_nodes = nx.shortest_path(rail_graph, orig_node, dest_node, weight=wk)
+            # ── Kinematic guard: reject Dijkstra paths with heading reversals ──
+            # nx.shortest_path is purely topological — it can route through a
+            # triangular junction producing a near-180° bearing change that is
+            # physically impossible for a train at speed (Edinburgh Haymarket /
+            # Waverley throat are common examples).  Reject and return [] so the
+            # BDI planner can fall back to another mode rather than propagating
+            # a physically invalid route.
+            if self._has_heading_reversal(rail_graph, rail_nodes):
+                logger.warning(
+                    "%s: %s heading reversal in path — kinematically invalid, rejecting",
+                    agent_id, mode,
+                )
+                return [], []
             rail_coords = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes), max_segment_km=0.2,
             )
@@ -805,6 +818,13 @@ class Router:
             rail_nodes      = nx.shortest_path(
                 rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key,
             )
+            # ── Kinematic guard ───────────────────────────────────────────────
+            if self._has_heading_reversal(rail_graph, rail_nodes):
+                logger.warning(
+                    "%s: %s heading reversal — kinematically invalid, rejecting",
+                    agent_id, mode,
+                )
+                return self._get_invalid_route(origin, dest)
             rail_coords     = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes),
                 max_segment_km=0.2,

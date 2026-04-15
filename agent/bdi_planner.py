@@ -1235,16 +1235,81 @@ class BDIPlanner:
             w_time = 0.7
             w_cost = 0.2
 
-        # ──------------- PATCH: EV Capital / Adoption Friction ────────────
-        # EVs are operationally cheaper and greener, causing them to always win.
-        # We must apply a base "access friction" penalty unless the agent is
-        # highly eco-motivated (representing they already paid the premium for an EV).
-        if mode in self.EV_RANGE_KM and not mode in ['walk', 'bike', 'cargo_bike', 'e_scooter']:
-            if w_eco < 0.7:
-                # Agent is cost/time driven, not eco driven. Add capital friction.
-                infrastructure_penalty += 1.5 
-                logger.debug(f"{getattr(state, 'agent_id', 'agent')}: Added EV adoption friction (+1.5) due to low eco desire ({w_eco:.2f})")
-        # ───────────────────────────────────────────────────────────────────
+        # ── EV Capital Cost Model ─────────────────────────────────────────────
+        # The original +1.5 binary patch overcorrected: agents with w_eco=0.69
+        # paid full freight while agents at 0.71 paid nothing, creating a cliff.
+        # It also fired twice (once here, once on the infrastructure_penalty
+        # accumulator) for some code paths — visible in the log as two
+        # "Added EV adoption friction (+1.5)" lines per agent.
+        #
+        # REPLACEMENT: two independent, continuous components:
+        #
+        # (A) Per-km capital amortisation — added directly to cost_norm.
+        #     UK 2026 EV purchase premium over equivalent ICE ≈ £8k (SMMT data).
+        #     Typical ownership: 6 years × 15,000 km/yr = 90,000 km.
+        #     → £8k / 90k km = £0.089/km amortised capital.
+        #     Scaled by `cost_desire` (0=wealthy, 1=income-constrained) so a
+        #     budget_student (cost=0.8) pays significantly more effective cost
+        #     than a business_commuter (cost=0.3).
+        #
+        # (B) Technology adoption friction (Rogers diffusion) — flat surcharge.
+        #     Represents uncertainty: range anxiety, unfamiliar charging network,
+        #     social status signal in own social network.  Scales continuously
+        #     from 0 (eco_warrior) to 0.5 (technophobe/late adopter).
+        #     Capped so it never fully blocks EV — policy levers (subsidies,
+        #     congestion charging) can still tip the balance.
+        #
+        # Mode-specific capital premiums (£/km):
+        #   ev:              £0.089  (passenger car)
+        #   van_electric:    £0.110  (light commercial — higher vehicle premium)
+        #   truck_electric:  £0.145  (medium freight — significant premium)
+        #   hgv_electric:    £0.200  (HGV — largest premium, smallest fleet)
+        #
+        # All values are per-km, so longer trips carry proportionally higher cost.
+        _EV_CAPITAL_PER_KM: Dict[str, float] = {
+            'ev':             0.089,
+            'taxi_ev':        0.089,
+            'van_electric':   0.110,
+            'truck_electric': 0.145,
+            'hgv_electric':   0.200,
+            'hgv_hydrogen':   0.180,   # hydrogen: high vehicle cost, lower elec premium
+        }
+        _ev_capital_modes = set(_EV_CAPITAL_PER_KM)
+        if mode in _ev_capital_modes and mode not in {'walk', 'bike', 'cargo_bike', 'e_scooter'}:
+            _trip_km = params.get('trip_distance_km', 0.0)
+            if _trip_km <= 0.0:
+                try:
+                    from simulation.spatial.coordinate_utils import route_distance_km as _rdkm
+                    _trip_km = _rdkm(route)
+                except Exception:
+                    _trip_km = 0.0
+
+            _capital_per_km = _EV_CAPITAL_PER_KM.get(mode, 0.089)
+            _w_cost = desires.get('cost', 0.3)
+
+            # (A) Capital amortisation — income-sensitive, trip-proportional.
+            # Normalise against £5 (same denominator as cost_norm) and weight
+            # by how cost-sensitive this agent is.
+            _capital_contribution = (
+                _capital_per_km * _trip_km * (0.5 + _w_cost)
+            ) / 5.0
+            cost_norm = min(cost_norm + _capital_contribution, 3.0)
+
+            # (B) Adoption friction — eco-desire driven, continuous.
+            # eco_warrior (w_eco=0.9): 0.0.  Budget student (w_eco=0.2): 0.48.
+            _w_eco_val = desires.get('eco', 0.5)
+            _adoption_friction = max(0.0, 0.60 - _w_eco_val) * 0.8
+            infrastructure_penalty += _adoption_friction
+
+            logger.debug(
+                "%s: EV capital model — mode=%s, trip=%.1fkm, "
+                "capital_contrib=%.3f (w_cost=%.2f), "
+                "adoption_friction=%.3f (w_eco=%.2f)",
+                getattr(state, 'agent_id', 'agent'), mode, _trip_km,
+                _capital_contribution, _w_cost,
+                _adoption_friction, _w_eco_val,
+            )
+        # ── End EV Capital Cost Model ─────────────────────────────────────────
 
         # Calculate total cost. Total cost is a weighted sum of normalized time, cost, 
         # comfort penalty, risk, and emissions, plus any infrastructure penalties. 

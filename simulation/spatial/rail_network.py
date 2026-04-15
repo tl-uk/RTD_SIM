@@ -39,7 +39,7 @@ intermodal logic can compute access/egress legs correctly.
 
 from __future__ import annotations
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -578,42 +578,112 @@ def get_or_fallback_ferry_graph(env=None) -> Optional[nx.MultiDiGraph]:
     )
     return build_hardcoded_ferry_graph()
 
-# ──--------- OVERPASS API TRAM RELATIONS ────────────────────────
-def fetch_tram_relations_overpass(bbox: Tuple[float, float, float, float]) -> List[List[Tuple[float, float]]]:
+# Module-level cache so fetch_tram_relations_overpass is only called once per
+# process regardless of how many agents trigger the lazy-load path.
+_TRAM_RELATIONS_CACHE: Optional[List[List[Tuple[float, float]]]] = None
+_TRAM_RELATIONS_FETCHED: bool = False
+
+
+def fetch_tram_relations_overpass(
+    bbox: Tuple[float, float, float, float],
+) -> List[List[Tuple[float, float]]]:
     """
-    Downloads tram route relations directly via Overpass API.
-    Bypasses NetworkX topology to guarantee perfect physical routing without GTFS.
+    Download Edinburgh tram route relations from the Overpass API.
+
+    Returns a list of polylines — one list of (lon, lat) tuples per tram
+    route relation found within the bbox.  Returns [] on any failure.
+
+    Implementation notes
+    --------------------
+    • Uses ``urllib.request`` (stdlib) not ``requests`` — rail_network.py
+      already uses urllib for the ferry Overpass query; keeping the same
+      HTTP client avoids an extra dependency and makes the network call
+      pattern consistent across the module.
+    • The query uses ``out geom;`` on the relation so each member way's
+      geometry is returned inline without a second ``node`` lookup.
+    • A module-level flag prevents repeated API calls across a session.
+      The tram track geometry is static; downloading it once is enough.
+    • HTTP non-200 responses and JSON parse failures both return [] so
+      the caller receives an empty list and falls through to the tram-spine
+      fallback — never crashes the planning pipeline.
+
+    Overpass query
+    --------------
+    ``relation["route"="tram"]`` filtered by bbox with ``out geom`` returns
+    each relation's member ways with their full node coordinates.
     """
-    import requests
+    global _TRAM_RELATIONS_CACHE, _TRAM_RELATIONS_FETCHED  # noqa: PLW0603
+
+    # Return cached result (including empty list from a prior failed fetch)
+    if _TRAM_RELATIONS_FETCHED:
+        return _TRAM_RELATIONS_CACHE or []
+
+    _TRAM_RELATIONS_FETCHED = True
+
+    import urllib.request
+    import json as _json
+
     north, south, east, west = bbox
-    logger.info("Fetching OSM Tram relations via Overpass API...")
-    
-    # Overpass QL query for tram relations and their precise geometry
-    query = f"""
-    [out:json];
-    relation["route"="tram"]({south},{west},{north},{east});
-    out geom;
-    """
-    
+    logger.info("Fetching OSM Tram relations via Overpass API (bbox=%.3f,%.3f,%.3f,%.3f)…",
+                south, west, north, east)
+
+    # Overpass QL: fetch tram route relations with inline geometry.
+    # "out geom" returns each member way's node coordinates so we don't need
+    # a separate node-lookup query.
+    query = (
+        f"[out:json][timeout:30];"
+        f'relation["route"="tram"]({south},{west},{north},{east});'
+        f"out geom;"
+    ).encode("utf-8")
+
+    overpass_url = "https://overpass-api.de/api/interpreter"
     try:
-        resp = requests.post("https://overpass-api.de/api/interpreter", data={'data': query}, timeout=30)
-        data = resp.json()
-        
-        tram_routes = []
-        for element in data.get('elements', []):
-            route_coords = []
-            for member in element.get('members', []):
-                if member.get('type') == 'way' and 'geometry' in member:
-                    # Overpass returns sequential points for the way
-                    for pt in member['geometry']:
-                        route_coords.append((pt['lon'], pt['lat']))
-            
-            if route_coords:
-                tram_routes.append(route_coords)
-                
-        logger.info(f"✅ Downloaded {len(tram_routes)} physical tram relations via Overpass.")
-        return tram_routes
-    except Exception as e:
-        logger.error(f"❌ Overpass tram relation fetch failed: {e}")
+        req = urllib.request.Request(
+            overpass_url,
+            data=query,
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(req, timeout=35) as resp:
+            # Check HTTP status before attempting JSON parse.
+            # Overpass returns 429 (rate limit) or 504 (gateway timeout) as
+            # non-200; reading the empty body then calling json.loads crashes
+            # with "Expecting value: line 1 column 1 (char 0)".
+            status = getattr(resp, 'status', 200)
+            raw = resp.read()
+            if status != 200:
+                logger.warning(
+                    "Overpass tram query returned HTTP %d — "
+                    "falling back to tram graph / spine",
+                    status,
+                )
+                _TRAM_RELATIONS_CACHE = []
+                return []
+            if not raw:
+                logger.warning("Overpass tram query returned empty body")
+                _TRAM_RELATIONS_CACHE = []
+                return []
+            data = _json.loads(raw)
+    except Exception as exc:
+        logger.error("❌ Overpass tram relation fetch failed: %s", exc)
+        _TRAM_RELATIONS_CACHE = []
         return []
-# ───────────────────────────────────────────────────────────────────────────
+
+    tram_routes: List[List[Tuple[float, float]]] = []
+    for element in data.get("elements", []):
+        if element.get("type") != "relation":
+            continue
+        route_coords: List[Tuple[float, float]] = []
+        for member in element.get("members", []):
+            if member.get("type") == "way" and "geometry" in member:
+                for pt in member["geometry"]:
+                    try:
+                        route_coords.append((float(pt["lon"]), float(pt["lat"])))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+        if len(route_coords) >= 2:
+            tram_routes.append(route_coords)
+
+    logger.info("✅ Downloaded %d physical tram relations via Overpass.", len(tram_routes))
+    _TRAM_RELATIONS_CACHE = tram_routes
+    return tram_routes
