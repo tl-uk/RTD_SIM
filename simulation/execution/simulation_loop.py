@@ -65,11 +65,11 @@ try:
 except ImportError:
     SYSTEM_DYNAMICS_AVAILABLE = False
     logger.warning("⚠️ System Dynamics not available")
-    def initialize_system_dynamics(config):
+    def initialize_system_dynamics(config: SimulationConfig) -> Optional[StreamingSystemDynamics]:
         return None
-    def update_system_dynamics(sd, step, agents, infra, dt=1.0):
+    def update_system_dynamics(system_dynamics, step, agents, infrastructure, dt=1.0):
         return []
-    def get_system_dynamics_history(sd):
+    def get_system_dynamics_history(system_dynamics):
         return []
 
 # Story-driven agents and social influence dynamics
@@ -93,6 +93,7 @@ try:
 except ImportError:
     SCENARIOS_AVAILABLE = False
     logger.warning("Scenario framework not available")
+    ScenarioManager = None
 
 # Environmental modules (weathers, emissions, air quality)
 try:
@@ -107,7 +108,7 @@ except ImportError:
     WEATHER_AVAILABLE = False
     logger.warning("⚠️ Weather system modules not found - weather features disabled")
     
-    def create_weather_manager(config):
+    def create_weather_manager(config) -> Optional[object]:
         """Fallback: return None if weather not available."""
         return None
     
@@ -117,9 +118,9 @@ except ImportError:
                  'van_diesel', 'van_electric', 'truck_diesel', 'truck_electric']
         return {mode: 1.0 for mode in modes}
     
-    def apply_seasonal_ev_range_penalty(base_range, temperature):
+    def apply_seasonal_ev_range_penalty(base_range_km, temperature_c):
         """Fallback: return unchanged range."""
-        return base_range
+        return base_range_km
 from environmental.emissions_calculator import LifecycleEmissions
 from environmental.air_quality import create_air_quality_tracker
 
@@ -147,6 +148,10 @@ def apply_scenario_policies(
     
     try:
         # Initialize scenario manager
+        if ScenarioManager is None:
+            logger.error("ScenarioManager not available (import failed)")
+            return None
+        
         scenarios_dir = config.scenarios_dir or (Path(__file__).parent.parent.parent / 'scenarios' / 'configs')
         manager = ScenarioManager(scenarios_dir)
         
@@ -178,7 +183,7 @@ def apply_scenario_policies(
         if manager.active_scenario and config.infrastructure:
             scenario_data = manager.active_scenario
             
-            for policy in scenario_data.get('policies', []):
+            for policy in getattr(scenario_data, 'policies', []):
                 target = policy.get('target', '')
                 
                 if target == 'infrastructure':
@@ -1001,6 +1006,30 @@ def run_simulation_loop(
                     logger.debug("Markov record_step failed: %s", _mce)
             # ── End Phase 3 ──────────────────────────────────────────────────
 
+            # Calculate lifecycle emissions if agent moved
+            if emissions_calc and agent.state.location != prev_location:
+                mode = agent.state.mode
+                distance_traveled = agent.state.distance_km - prev_distance
+                
+                # Only calculate if positive distance (agent actually moved)
+                if distance_traveled > 0:
+                    emissions = emissions_calc.calculate_trip_emissions(
+                        mode=mode,
+                        distance_km=distance_traveled
+                    )
+                    
+                    # Accumulate
+                    lifecycle_emissions_by_mode[mode]['co2e_kg'] += emissions['co2e_kg']
+                    lifecycle_emissions_by_mode[mode]['pm25_g'] += emissions['pm25_g']
+                    lifecycle_emissions_by_mode[mode]['nox_g'] += emissions['nox_g']
+                    
+                    # Add to air quality tracker
+                    if air_quality and agent.state.location:
+                        air_quality.add_emissions(
+                            location=agent.state.location,
+                            emissions=emissions
+                        )
+            
             # Collect agent state at END of agent loop iteration
             # This MUST be at 12 spaces (inside `for agent in agents`)
             # and MUST be AFTER all agent processing for this step

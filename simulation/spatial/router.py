@@ -872,73 +872,129 @@ class Router:
         Buses:  fall back to drive graph.
         """
         if mode == 'tram':
-            logger.debug(f"{agent_id}: No GTFS — attempting Overpass Relation slice.")
-            
-            # Fetch lazily and cache on the graph manager to avoid repeated API calls
+            # ── Tier 1: pre-loaded OSM tram graph (environment_setup.py step 3.5) ──
+            # environment_setup downloads the OSM railway=tram layer at startup and
+            # registers it as graphs['tram'].  Routing on this is fast (no network
+            # call), physically accurate (real track geometry), and never times out.
+            # The Overpass live-fetch is kept as Tier 2 in case the graph is absent.
+            G_tram_local = self.graph_manager.get_graph('tram')
+            if G_tram_local is not None and G_tram_local.number_of_nodes() > 1:
+                try:
+                    import osmnx as ox
+                    tn_orig = ox.distance.nearest_nodes(G_tram_local, origin[0], origin[1])
+                    tn_dest = ox.distance.nearest_nodes(G_tram_local, dest[0], dest[1])
+                    if tn_orig != tn_dest:
+                        orig_xy = (float(G_tram_local.nodes[tn_orig].get('x', 0)),
+                                   float(G_tram_local.nodes[tn_orig].get('y', 0)))
+                        dest_xy = (float(G_tram_local.nodes[tn_dest].get('x', 0)),
+                                   float(G_tram_local.nodes[tn_dest].get('y', 0)))
+                        # 5km catchment: same as GTFS tram_catchment
+                        if (haversine_km(origin, orig_xy) <= 5.0
+                                and haversine_km(dest, dest_xy) <= 5.0):
+                            path_nodes = nx.shortest_path(
+                                G_tram_local, tn_orig, tn_dest, weight='length'
+                            )
+                            tram_geom = self._interpolate(
+                                self._extract_geometry(G_tram_local, path_nodes),
+                                max_segment_km=0.05,
+                            )
+                            if tram_geom and len(tram_geom) > 2:
+                                access = self._compute_access_leg(
+                                    agent_id + '_access', origin, orig_xy)
+                                egress = self._compute_access_leg(
+                                    agent_id + '_egress', dest_xy, dest)
+                                full = (
+                                    (access[:-1] if access else [])
+                                    + tram_geom
+                                    + (egress[1:] if len(egress) > 1 else [])
+                                )
+                                logger.info(
+                                    "✅ %s: tram OSM graph %.1fkm (%d pts) — no GTFS",
+                                    agent_id, route_distance_km(full), len(full),
+                                )
+                                return full
+                except Exception as _tram_exc:
+                    logger.debug("%s: tram OSM graph routing failed: %s", agent_id, _tram_exc)
+
+            # ── Tier 2: Overpass relation slice (cached; used when G_tram absent) ──
+            # fetch_tram_relations_overpass returns a list of polylines, one per
+            # tram route relation.  We cache it on graph_manager after the first
+            # call so it is only downloaded once per session.
             if not hasattr(self.graph_manager, 'tram_relations'):
+                logger.debug("%s: no GTFS, no tram graph — Overpass relation fetch", agent_id)
                 drive = self.graph_manager.get_graph('drive')
-                if drive:
+                if drive is not None:
                     xs = [d['x'] for _, d in drive.nodes(data=True)]
                     ys = [d['y'] for _, d in drive.nodes(data=True)]
                     bbox = (max(ys), min(ys), max(xs), min(xs))
                 else:
                     bbox = (56.0, 55.85, -3.05, -3.40)
-                
-                from simulation.spatial.rail_network import fetch_tram_relations_overpass
-                setattr(self.graph_manager, 'tram_relations', fetch_tram_relations_overpass(bbox))
+                try:
+                    from simulation.spatial.rail_network import fetch_tram_relations_overpass
+                    setattr(self.graph_manager, 'tram_relations',
+                            fetch_tram_relations_overpass(bbox))
+                except Exception as _ov_exc:
+                    logger.debug("Overpass tram fetch exception: %s", _ov_exc)
+                    setattr(self.graph_manager, 'tram_relations', [])
 
             tram_routes = getattr(self.graph_manager, 'tram_relations', [])
-            if not tram_routes:
-                return []
+            if tram_routes:
+                try:
+                    from shapely.geometry import Point, LineString
+                    from shapely.ops import substring
 
+                    orig_pt = Point(origin)
+                    dest_pt = Point(dest)
+                    best_route: list = []
+                    best_dist = float('inf')
+
+                    for coords in tram_routes:
+                        if len(coords) < 2:
+                            continue
+                        line = LineString(coords)
+                        d1_km = line.distance(orig_pt) * 111.0
+                        d2_km = line.distance(dest_pt) * 111.0
+                        if d1_km < 3.0 and d2_km < 3.0 and (d1_km + d2_km) < best_dist:
+                            best_dist = d1_km + d2_km
+                            proj1 = line.project(orig_pt)
+                            proj2 = line.project(dest_pt)
+                            p_start, p_end = min(proj1, proj2), max(proj1, proj2)
+                            if p_end > p_start:
+                                seg = substring(line, p_start, p_end)
+                                best_route = list(seg.coords)
+                                if proj1 > proj2:
+                                    best_route.reverse()
+
+                    if best_route:
+                        access = self._compute_access_leg(
+                            agent_id + '_access', origin,
+                            cast(Tuple[float, float], best_route[0]))
+                        egress = self._compute_access_leg(
+                            agent_id + '_egress',
+                            cast(Tuple[float, float], best_route[-1]), dest)
+                        route_typed: List[Tuple[float, float]] = [
+                            cast(Tuple[float, float], pt) for pt in best_route
+                        ]
+                        full = ((access[:-1] if access else [])
+                                + route_typed
+                                + (egress[1:] if len(egress) > 1 else []))
+                        logger.info(
+                            "✅ %s: tram Overpass relation %.1fkm (%d pts)",
+                            agent_id, route_distance_km(full), len(best_route),
+                        )
+                        return full
+                except Exception as _ov2_exc:
+                    logger.debug("%s: Overpass tram slice failed: %s", agent_id, _ov2_exc)
+
+            # ── Tier 3: tram spine ────────────────────────────────────────────────
+            logger.debug("%s: no GTFS/tram-graph/relations — tram spine fallback", agent_id)
             try:
-                from shapely.geometry import Point, LineString
-                from shapely.ops import substring
-                
-                orig_pt = Point(origin)
-                dest_pt = Point(dest)
-                
-                best_route = []
-                best_dist = float('inf')
-                
-                # Find the tram relation that comes closest to both origin and destination
-                for coords in tram_routes:
-                    if len(coords) < 2: continue
-                    line = LineString(coords)
-                    
-                    # Convert degree distance to approx km for catchment check
-                    d1_km = line.distance(orig_pt) * 111.0 
-                    d2_km = line.distance(dest_pt) * 111.0
-                    
-                    # Must be within 3km of the track to be viable
-                    if d1_km < 3.0 and d2_km < 3.0 and (d1_km + d2_km) < best_dist:
-                        best_dist = (d1_km + d2_km)
-                        
-                        proj1 = line.project(orig_pt)
-                        proj2 = line.project(dest_pt)
-                        
-                        # Slice the physical track between the two points
-                        p_start = min(proj1, proj2)
-                        p_end = max(proj1, proj2)
-                        segment = substring(line, p_start, p_end)
-                        
-                        best_route = list(segment.coords)
-                        if proj1 > proj2:
-                            best_route.reverse()
-
-                if best_route:
-                    # Stitch walk legs to the physical track slice
-                    access = self._compute_access_leg(agent_id, origin, cast(Tuple[float, float], best_route[0]))
-                    egress = self._compute_access_leg(agent_id, cast(Tuple[float, float], best_route[-1]), dest)
-                    best_route_typed: List[Tuple[float, float]] = [cast(Tuple[float, float], pt) for pt in best_route]
-                    full_route = (access[:-1] if access else []) + best_route_typed + (egress[1:] if egress else [])
-                    
-                    logger.info(f"✅ {agent_id}: Snapped to Overpass Tram Relation ({len(best_route)} pts)")
-                    return full_route
-                    
-            except Exception as e:
-                logger.error(f"{agent_id}: Overpass tram slicing failed: {e}")
-                
+                from simulation.spatial.rail_spine import route_via_tram_stops
+                spine_route = route_via_tram_stops(origin, dest, max_access_km=5.0)
+                if spine_route and len(spine_route) > 2:
+                    return spine_route
+            except Exception:
+                pass
             return []
         # ───────────────────────────────────────────────────────────────────
         if mode in ('ferry_diesel', 'ferry_electric'):
@@ -1648,6 +1704,86 @@ class Router:
         except Exception as exc:
             logger.warning("%s: variant %s failed: %s", agent_id, variant, exc)
             return []
+
+    # =========================================================================
+    # RAIL KINEMATICS — HEADING REVERSAL GUARD
+    # =========================================================================
+
+    @staticmethod
+    def _bearing_between(
+        graph: Any,
+        u: Any,
+        v: Any,
+    ) -> float:
+        """
+        Compass bearing (degrees, 0-360) from node u to node v.
+
+        Uses the forward azimuth formula on the WGS-84 spheroid.
+        All node coordinates are (lon, lat) as stored by OSMnx.
+        """
+        import math
+        ux = float(graph.nodes[u].get('x', 0))
+        uy = float(graph.nodes[u].get('y', 0))
+        vx = float(graph.nodes[v].get('x', 0))
+        vy = float(graph.nodes[v].get('y', 0))
+        lat1 = math.radians(uy)
+        lat2 = math.radians(vy)
+        dlon = math.radians(vx - ux)
+        y = math.sin(dlon) * math.cos(lat2)
+        x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+        return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+    def _has_heading_reversal(
+        self,
+        graph: Any,
+        node_list: List,
+        threshold_deg: float = 160.0,
+    ) -> bool:
+        """
+        Return True if any consecutive segment pair has a near-reversal.
+
+        Dijkstra on the OpenRailMap graph is purely kinematic — it doesn't
+        know a train cannot physically reverse direction at a junction without
+        stopping and shunting (~10-15 minutes).  On Edinburgh's complex layout
+        of single-track branches and cross-platform junctions, Dijkstra
+        sometimes routes via a topological triangle that includes an acute
+        switchback (e.g. Waverley→junc_east→back_past_Waverley→Haymarket).
+
+        We check every consecutive triple (A, B, C): if the bearing A→B and
+        B→C differ by more than threshold_deg the path doubles back on itself.
+        The last node is excluded — terminus reversals (train arrives and the
+        journey ends) are legitimate and should not be penalised.
+
+        Args:
+            graph:         The rail NetworkX graph.
+            node_list:     Ordered list of node IDs from nx.shortest_path.
+            threshold_deg: Bearing-change threshold above which we call it a
+                           reversal.  160° catches genuine switchbacks while
+                           allowing the ~15° heading variance at curved junctions
+                           and the mild dogleg at Edinburgh Gateway.
+
+        Returns:
+            True if at least one bearing reversal is found mid-route.
+        """
+        if len(node_list) < 3:
+            return False
+        # Exclude the final node (legitimate terminus reversal is allowed)
+        check_up_to = len(node_list) - 2
+        for i in range(check_up_to - 1):
+            b1 = self._bearing_between(graph, node_list[i],     node_list[i + 1])
+            b2 = self._bearing_between(graph, node_list[i + 1], node_list[i + 2])
+            diff = abs(b2 - b1)
+            if diff > 180:
+                diff = 360 - diff
+            if diff > threshold_deg:
+                logger.warning(
+                    "Heading reversal detected at rail node %s "
+                    "(bearing %.0f° → %.0f°, Δ=%.0f°) — kinematic constraint "
+                    "violation; rejecting route",
+                    node_list[i + 1], b1, b2, diff,
+                )
+                return True
+        return False
 
     # =========================================================================
     # WEIGHT HELPERS

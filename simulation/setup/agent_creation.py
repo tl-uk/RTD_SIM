@@ -148,6 +148,9 @@ def create_agents(
 
         drive_graph = env.graph_manager.get_graph('drive') if env.graph_loaded else None
 
+        origin = (west, south)
+        dest = (east, north)
+
         for _ in range(25):
             raw_origin = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
             raw_dest   = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
@@ -403,11 +406,11 @@ def create_agents(
         time_values = [a.desires.get('time', 0) for a in agents]
         cost_values = [a.desires.get('cost', 0) for a in agents]
         
-        eco_std = statistics.stdev(eco_values) if len(eco_values) > 1 else 0
-        time_std = statistics.stdev(time_values) if len(time_values) > 1 else 0
-        cost_std = statistics.stdev(cost_values) if len(cost_values) > 1 else 0
+        eco_std = statistics.stdev(eco_values) if len(eco_values) > 1 else 0.0
+        time_std = statistics.stdev(time_values) if len(time_values) > 1 else 0.0
+        cost_std = statistics.stdev(cost_values) if len(cost_values) > 1 else 0.0
         
-        desire_std = {'eco': eco_std, 'time': time_std, 'cost': cost_std}
+        desire_std = {'eco': float(eco_std), 'time': float(time_std), 'cost': float(cost_std)}
         
         # Statistics
         vehicle_required_count = sum(
