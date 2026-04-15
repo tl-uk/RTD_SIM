@@ -69,9 +69,9 @@ class EmissionsConfig:
 class EnvironmentalConfig:
     """Combined environmental configuration."""
     
-    weather: WeatherConfig = None
-    air_quality: AirQualityConfig = None
-    emissions: EmissionsConfig = None
+    weather: Optional[WeatherConfig] = None
+    air_quality: Optional[AirQualityConfig] = None
+    emissions: Optional[EmissionsConfig] = None
     
     def __post_init__(self):
         if self.weather is None:
