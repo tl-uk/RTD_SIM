@@ -108,9 +108,15 @@ except ImportError:
     WEATHER_AVAILABLE = False
     logger.warning("⚠️ Weather system modules not found - weather features disabled")
     
+    class _FallbackWeatherManager:
+        """Fallback weather manager when real weather system unavailable."""
+        def get_mode_speed_multiplier(self, mode: str) -> float:
+            """Return neutral multiplier (no weather impact)."""
+            return 1.0
+    
     def create_weather_manager(config) -> Optional[object]:
-        """Fallback: return None if weather not available."""
-        return None
+        """Fallback: return minimal weather manager if weather not available."""
+        return _FallbackWeatherManager()
     
     def get_combined_multipliers(month, day_of_year, day_of_week, hour):
         """Fallback: return neutral multipliers."""
@@ -604,6 +610,14 @@ def run_simulation_loop(
         # Initialize agent states for this step
         agent_states = []
         
+        # Initialize time variables with defaults
+        time_of_day = (step % 1440) / 60.0  # hours (assuming 1 step = 1 min)
+        hour = int(time_of_day)
+        month = config.season_month or 6  # Default to summer
+        day_of_year = config.season_day_of_year or 180
+        day_of_week = (step // 1440) % 7  # Assuming day 0 is Monday
+        current_datetime = None
+        
         # === PHASE 7.1: Get time info from temporal engine ===
         if temporal_engine:
             time_info = temporal_engine.get_time_info(step)
@@ -684,7 +698,15 @@ def run_simulation_loop(
             except Exception as e:
                 logger.error(f"Weather update failed: {e}")
                 # Fallback to current conditions if update fails
-                weather_conditions = weather_manager.current_conditions
+                weather_conditions = getattr(weather_manager, 'current_conditions', {
+                    'temperature': 10.0,
+                    'precipitation': 0.0,
+                    'wind_speed': 10.0,
+                    'ice_warning': False,
+                    'snow_depth': 0.0,
+                    'cloud_cover': 50,
+                    'visibility': 10000,
+                })
             
             # Log weather periodically
             if step % 20 == 0:
@@ -743,6 +765,7 @@ def run_simulation_loop(
             infrastructure.stations.record_all_utilization()
         
         # Apply dynamic policies
+        policy_result = None
         if policy_engine:
             policy_result = apply_dynamic_policies(
                 policy_engine=policy_engine,
@@ -753,7 +776,7 @@ def run_simulation_loop(
             )
             
             # Track policy actions
-            if policy_result.get('actions_taken'):
+            if policy_result and policy_result.get('actions_taken'):
                 policy_actions_taken.extend(policy_result['actions_taken'])
                 logger.info(f"Step {step}: Applied {len(policy_result['actions_taken'])} policy adjustments")
             
