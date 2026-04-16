@@ -1459,21 +1459,17 @@ def _render_gtfs_configuration() -> dict:
     if enable_gtfs:
         # ── TransitLand auto-download ─────────────────────────────────────
         st.caption("**Or auto-download a UK feed:**")
-        # _KNOWN_FEEDS = {
-        #     "(select)":             "",
-        #     "🚋 Edinburgh Trams":   "o-gcpv-edinburghtramsltd",
-        #     "🚌 Lothian Buses":     "o-gcpv-lothianbuses",
-        #     "🚆 ScotRail":          "o-gcpv-firstscotland",
-        #     "🚇 Glasgow Subway":    "o-gcpv-spt",
-        #     "🚌 First Glasgow":     "o-gcpv-firstglasgow",
-        # }
+        # TransitLand operator onestop IDs (o-*) are used by download_gtfs_feed()
+        # to resolve the latest feed version via the /operators endpoint.
+        # Feed onestop IDs (f-*) are a different namespace — use o-* here.
+        # ScotRail rebranded from "First Scotland Rail" in 2022; onestop ID updated.
         _KNOWN_FEEDS = {
             "(select)":             "",
-            "🚋 Edinburgh Trams":   "f-gcpv-edinburghtramsltd",
-            "🚌 Lothian Buses":     "f-gcpv-lothianbuses",
-            "🚆 ScotRail":          "f-gcpv-firstscotland",
-            "🚇 Glasgow Subway":    "f-gcpv-spt",
-            "🚌 First Glasgow":     "f-gcpv-firstglasgow",
+            "🚋 Edinburgh Trams":   "o-gcpv-edinburghtramsltd",
+            "🚌 Lothian Buses":     "o-gcpv-lothianbuses",
+            "🚆 ScotRail":          "o-gcpv-scotrail",
+            "🚇 Glasgow Subway":    "o-gcpv-spt",
+            "🚌 First Glasgow":     "o-gcpv-firstglasgow",
         }
         selected_feed = st.selectbox(
             "Known UK operators",

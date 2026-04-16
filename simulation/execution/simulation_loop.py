@@ -36,7 +36,8 @@ from analytics import (
 )
 
 from simulation.execution.dynamic_policies import (
-    apply_dynamic_policies,
+    initialize_policy_engine,
+    apply_dynamic_policies as _infra_apply_dynamic_policies,  # renamed — SD import may override
     record_charging_revenue,
     get_final_policy_report
 )
@@ -56,19 +57,64 @@ except ImportError:
 from agent.system_dynamics import StreamingSystemDynamics
 try:
     from simulation.execution.system_dynamics_integration import (
-        initialize_system_dynamics,
+        initialize_system_dynamics,      # ← was missing — caused always-None SD engine
+        apply_dynamic_policies,          # augmented version that includes SD feedback
         update_system_dynamics,
         get_system_dynamics_history
     )
     SYSTEM_DYNAMICS_AVAILABLE = True
 except ImportError:
     SYSTEM_DYNAMICS_AVAILABLE = False
-    logger.warning("⚠️ System Dynamics not available")
+    logger.warning("⚠️ System Dynamics integration module not available — using direct init")
+
+    # Restore infrastructure apply_dynamic_policies so policy engine still works
+    apply_dynamic_policies = _infra_apply_dynamic_policies
+
     def initialize_system_dynamics(config: SimulationConfig) -> Optional[StreamingSystemDynamics]:
-        return None
+        """
+        Direct fallback: instantiate StreamingSystemDynamics when
+        system_dynamics_integration is unavailable.
+        config.system_dynamics must be a SystemDynamicsConfig instance
+        (sidebar_config.py always creates one: config.system_dynamics = SystemDynamicsConfig()).
+        """
+        sd_config = getattr(config, 'system_dynamics', None)
+        if sd_config is None:
+            logger.warning(
+                "⚠️ System Dynamics not enabled: config.system_dynamics is None. "
+                "sidebar_config.py should always set this — check render_sidebar_config()."
+            )
+            return None
+        try:
+            engine = StreamingSystemDynamics(sd_config)
+            logger.info("✅ System Dynamics engine initialized (direct fallback)")
+            return engine
+        except Exception as exc:
+            logger.error("❌ System Dynamics direct init failed: %s", exc)
+            return None
+
     def update_system_dynamics(system_dynamics, step, agents, infrastructure, dt=1.0):
+        if system_dynamics is None:
+            return []
+        try:
+            if hasattr(system_dynamics, 'step'):
+                result = system_dynamics.step(
+                    agents=agents, infrastructure=infrastructure, dt=dt
+                )
+                return result if isinstance(result, list) else []
+        except Exception as exc:
+            logger.debug("SD update error at step %d: %s", step, exc)
         return []
+
     def get_system_dynamics_history(system_dynamics):
+        if system_dynamics is None:
+            return []
+        try:
+            if hasattr(system_dynamics, 'get_history'):
+                return system_dynamics.get_history()
+            if hasattr(system_dynamics, 'history'):
+                return system_dynamics.history
+        except Exception:
+            pass
         return []
 
 # Story-driven agents and social influence dynamics

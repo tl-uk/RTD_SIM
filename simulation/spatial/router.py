@@ -1186,51 +1186,65 @@ class Router:
                             agent_id, len(coords), orig_node, dest_node,
                         )
                         return self._interpolate(coords, max_segment_km=0.05)
-                # Nodes still equal, geometry empty, or routing produced nothing.
-                # Fall through to the unified drive-proxy block below.
+                # If nodes are still equal (graph has only one node in area)
+                # or geometry extraction produced nothing, fall through.
             except nx.NetworkXNoPath:
+                # Stop coordinates outside walk graph coverage (e.g. cross-Forth
+                # or Fife stops).
+                # ── FIX Bug 1b: immediately try drive proxy ───────────────────
+                # Previously the code logged "trying drive proxy" but then fell
+                # through to the straight-line block, producing 186 diagonals.
+                # The drive graph covers the Forth Road Bridge and all roads that
+                # pedestrians actually use for longer access legs.
                 logger.debug(
-                    "%s: walk nx.NetworkXNoPath (%.2fkm) — drive proxy",
+                    "%s: walk nx.NetworkXNoPath (%.2fkm) — drive proxy attempt",
                     agent_id, dist_km,
                 )
-                # Fall through to unified drive-proxy block.
+                if dist_km > 0.1:
+                    _drive = self._compute_road_route(
+                        agent_id, origin, dest, 'car', _DEFAULT_POLICY,
+                    )
+                    if _drive and len(_drive) > 2:
+                        logger.debug(
+                            "%s: walk→drive proxy: %d pts (%.2fkm)",
+                            agent_id, len(_drive), dist_km,
+                        )
+                        return _drive
+                # Drive proxy also failed — fall through to straight-line below.
             except Exception as _walk_exc:
                 logger.debug(
                     "%s: walk routing failed (%.2fkm): %s",
                     agent_id, dist_km, _walk_exc,
                 )
-                # Fall through to unified drive-proxy block.
 
-        # ── Unified fallback: drive proxy ─────────────────────────────────────
-        # Applies when:
-        #   (a) Walk graph absent
-        #   (b) Walk graph present but routing failed for any reason:
-        #       same-node snap, NetworkXNoPath, empty geometry, or exception
-        #
-        # The drive graph covers ALL roads pedestrians also use and always
-        # has continuous coverage (no disconnected island subgraphs).  It
-        # correctly routes the Forth Road Bridge and every urban street.
-        #
-        # Straight-line interpolation is ONLY used as absolute last resort
-        # when the drive graph also fails — not as the primary fallback for
-        # 0.5–3 km legs (which was producing 237 straight-line diagonals).
+        # Short access legs (< 0.5 km): straight interpolation is correct and faster
+        # than routing on the drive graph, which may pick car-only roads.
         if dist_km <= 0.5:
-            # Too short to bother with road routing — straight line is fine.
             return self._interpolate([origin, dest], max_segment_km=0.05)
 
-        _drive_result = self._compute_road_route(
-            agent_id, origin, dest, 'car', _DEFAULT_POLICY
-        )
-        if _drive_result and len(_drive_result) > 2:
-            logger.debug(
-                "%s: access→drive proxy: %d pts (%.2fkm)",
-                agent_id, len(_drive_result), dist_km,
-            )
-            return _drive_result
-
-        # Absolute last resort — drive proxy also failed.
+        # ── FIX Bug 1c: always try drive proxy before straight-line ──────────
+        # Previously, legs in the 0.5–3.0 km band went straight to interpolated
+        # straight line, cutting through buildings, rivers and land masses.
+        # The drive graph covers all roads pedestrians also use for access legs
+        # (including the Forth Road Bridge, city streets, etc).  Straight-line
+        # fallback is now the LAST resort — only after both the walk graph and
+        # the drive proxy have failed.
         logger.debug(
-            "%s: walk path unavailable (%.2fkm) — interpolated straight line",
+            "%s: walk path unavailable (%.2fkm) — drive proxy attempt",
+            agent_id, dist_km,
+        )
+        drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
+        if drive_result and len(drive_result) > 2:
+            logger.debug(
+                "%s: walk→drive proxy: %d pts (%.2fkm)",
+                agent_id, len(drive_result), dist_km,
+            )
+            return drive_result
+
+        # All proxies exhausted — interpolated straight line is the last resort.
+        logger.debug(
+            "%s: walk path unavailable (%.2fkm) — interpolated straight line "
+            "(walk graph + drive proxy both failed)",
             agent_id, dist_km,
         )
         return self._interpolate([origin, dest], max_segment_km=0.05)
