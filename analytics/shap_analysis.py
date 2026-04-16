@@ -159,6 +159,11 @@ def analyze_shap(
     X = X_df.values
     
     logger.info(f"SHAP analysis: {len(X)} samples, {len(feature_names)} features")
+
+    # Guard against no-variation case (all features constant) which breaks SHAP
+    if X.shape[1] == 0:
+        logger.warning("SHAP analysis: all features constant — skipping (need longer run or more agents)")
+        return {}
     
     # Train model
     if model_type == 'tree':
@@ -169,7 +174,7 @@ def analyze_shap(
         model = LinearRegression()
         model.fit(X, y)
         explainer = shap.LinearExplainer(model, X)
-    
+
     # Compute SHAP values
     shap_values = explainer.shap_values(X)
     
