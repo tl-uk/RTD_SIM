@@ -37,7 +37,7 @@ from analytics import (
 
 from simulation.execution.dynamic_policies import (
     initialize_policy_engine,
-    apply_dynamic_policies,
+    # apply_dynamic_policies,
     record_charging_revenue,
     get_final_policy_report
 )
