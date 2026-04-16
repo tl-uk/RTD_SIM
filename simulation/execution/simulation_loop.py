@@ -36,8 +36,7 @@ from analytics import (
 )
 
 from simulation.execution.dynamic_policies import (
-    initialize_policy_engine,
-    # apply_dynamic_policies,
+    apply_dynamic_policies,
     record_charging_revenue,
     get_final_policy_report
 )
@@ -57,7 +56,7 @@ except ImportError:
 from agent.system_dynamics import StreamingSystemDynamics
 try:
     from simulation.execution.system_dynamics_integration import (
-        apply_dynamic_policies,
+        initialize_system_dynamics,
         update_system_dynamics,
         get_system_dynamics_history
     )
