@@ -83,6 +83,9 @@ class MetricsCalculator:
             'tram': 0.42,           # 25 km/h = 0.42 km/min
             'local_train': 1.0,     # 60 km/h = 1.0 km/min
             'intercity_train': 2.0, # 120 km/h = 2.0 km/min
+            # freight_rail: 50 km/h average (mixed-traffic UK freight paths,
+            # slower than passenger — Network Rail LoS C/D paths).
+            'freight_rail': 0.83,   # 50 km/h = 0.83 km/min
             
             # Maritime (Phase 4.5G)
             'ferry_diesel': 0.58,   # 35 km/h = 0.58 km/min
@@ -110,6 +113,10 @@ class MetricsCalculator:
             'tram': 30,
             'local_train': 35,
             'intercity_train': 25,
+            # freight_rail: UK electrified freight.  Grid carbon intensity 2026
+            # ≈ 150 g CO₂/kWh (CCC 2024); ~0.023 kWh/tonne-km for a loaded train
+            # → effectively ~35 g/km operator perspective (consistent with modes.py).
+            'freight_rail': 35,
             'ferry_electric': 40,
             'flight_electric': 50,
             
@@ -133,9 +140,12 @@ class MetricsCalculator:
             'bike': {'base': 0, 'per_km': 0},
             'bus': {'base': 2.5, 'per_km': 0.10},
             'car': {'base': 1.0, 'per_km': 0.40},
-            'ev': {'base': 1.0, 'per_km': 0.15},
+            'ev': {'base': 1.0, 'per_km': 0.22},
             # Note: For the *driver*, cost is running cost. 
-            'taxi_ev': {'base': 1.0, 'per_km': 0.15},
+            # ev per_km = 0.22: electricity ~8p + servicing ~7p + tyres ~7p (BEIS 2024).
+            # Capital purchase premium is handled separately in bdi_planner._EV_CAPITAL_PER_KM
+            # so this figure covers operating cost only — not double-counted.
+            'taxi_ev': {'base': 1.0, 'per_km': 0.22},
             'taxi_diesel': {'base': 1.0, 'per_km': 0.35},
             
             # Freight
@@ -152,6 +162,11 @@ class MetricsCalculator:
             'tram': {'base': 2.0, 'per_km': 0.08},
             'local_train': {'base': 3.0, 'per_km': 0.12},
             'intercity_train': {'base': 10.0, 'per_km': 0.15},
+            # freight_rail: Network Rail slot fee + energy.  Per-tonne-km rates vary
+            # widely; £0.06/km reflects a typical electrified intermodal movement
+            # amortised across a standard 1,500-tonne train — relevant for the
+            # RailFreightAgent operator perspective.
+            'freight_rail': {'base': 8.0, 'per_km': 0.06},
             
             # Maritime
             'ferry_diesel': {'base': 15.0, 'per_km': 0.25},
@@ -269,10 +284,15 @@ class MetricsCalculator:
         # ── Abstract route correction ─────────────────────────────────────────
         # Abstract routes have exactly 2 waypoints (origin, dest).
         # All real OSMnx road routes have many more points.
-        # Only apply to modes that are actually abstract (rail/ferry/air).
+        # Only apply to modes that are genuinely abstract (no graph geometry).
+        #
+        # NOTE: 'tram' is NOT in this set.  Tram is now real-routed via the
+        # OSM railway=tram graph (environment_setup step 3.5) and produces
+        # many-point routes.  Adding boarding overhead for tram is handled
+        # below as an unconditional block that applies regardless of route
+        # length, since walking to a tram stop + waiting is always present.
         _ABSTRACT_MODES = {
             'local_train', 'intercity_train', 'freight_rail',
-            'tram', # Phase 10b: tram is now abstract
             'ferry_diesel', 'ferry_electric',
             'flight_domestic', 'flight_electric',
         }
@@ -306,8 +326,19 @@ class MetricsCalculator:
             boarding = _BOARDING_MIN.get(mode, 20.0)
             base_time += boarding
 
+        # ── Tram boarding overhead (unconditional) ────────────────────────────
+        # Tram has real geometry via the OSM tram graph, so len(route) >> 3 and
+        # the abstract block above never fires.  But boarding a tram still has a
+        # fixed overhead: walk to nearest stop (~4 min at Edinburgh tram stop
+        # spacing of ~600 m) + average wait (~4.5 min at 9-min peak headway).
+        # This is separate from the access/egress walk legs produced by the
+        # router — those cover the agent's home→stop walk; this covers the
+        # stop-level dwell time that the BDI cost function must see.
+        if mode == 'tram':
+            base_time += 9.0   # 4 min walk-on-platform + 4.5 min average wait + 0.5 min buffer
+
         return base_time
-    
+
     def calculate_cost(
         self, 
         route: List[Tuple[float, float]], 

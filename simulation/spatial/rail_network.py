@@ -203,7 +203,7 @@ def get_or_fallback_rail_graph(env=None) -> Optional[nx.MultiDiGraph]:
 def link_to_road_network(
     G_rail: nx.MultiDiGraph,
     G_road: nx.MultiDiGraph,
-    radius_m: int = 300,
+    radius_m: int = _TRANSFER_LENGTH_M,
 ) -> None:
     """
     Add bi-directional 'transfer' edges between rail station nodes and their

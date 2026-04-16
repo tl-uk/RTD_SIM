@@ -326,9 +326,18 @@ def setup_environment(
         env.naptan_stops = naptan_stops   # stash on env for visualisation / NaPTAN layer
 
         # ── Bridge to graph_manager so Router._nearest_rail_node can read it ──
-        # Router reads self.graph_manager.naptan_stops; environment_setup was only
-        # setting env.naptan_stops.  Copy the reference so both paths work.
-        env.graph_manager.naptan_stops = naptan_stops
+        # Router reads self.graph_manager.naptan_stops (set via lazy getattr in
+        # router._nearest_rail_node).  SpatialEnvironment and GraphManager do not
+        # declare naptan_stops in __init__, so assignment here is a dynamic
+        # attribute on an existing instance — valid Python at runtime.
+        # Pyright raises "Attribute naptan_stops is unknown" because it performs
+        # static analysis against the class definition, not the live instance.
+        # This is NOT a bug: the attribute is consistently read via
+        #   getattr(self.graph_manager, 'naptan_stops', [])
+        # in router.py, which safely returns [] if the attribute was never set.
+        # The permanent fix is to add `self.naptan_stops: list = []` to
+        # both SpatialEnvironment.__init__ and GraphManager.__init__.
+        env.graph_manager.naptan_stops = naptan_stops   # type: ignore[attr-defined]
 
         logger.info(
             "✅ NaPTAN: %d stops loaded (bbox=%s)",

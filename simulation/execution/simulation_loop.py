@@ -57,7 +57,7 @@ except ImportError:
 from agent.system_dynamics import StreamingSystemDynamics
 try:
     from simulation.execution.system_dynamics_integration import (
-        initialize_system_dynamics,
+        apply_dynamic_policies,
         update_system_dynamics,
         get_system_dynamics_history
     )
@@ -343,12 +343,6 @@ def run_simulation_loop(
     time_series = TimeSeries()
     adoption_history = defaultdict(list)
     cascade_events = []
-
-    # Initialize SD engine (should be here!)
-    sd_engine = None
-    if config.system_dynamics:
-        sd_engine = StreamingSystemDynamics(config.system_dynamics)
-        logger.info("System Dynamics engine initialized")
 
     # ====================================================================
     # Phase 7.1: Initialize Temporal Engine
@@ -1439,22 +1433,6 @@ def run_simulation_loop(
         except Exception as _gtfs_err:
             logger.warning("GTFS analytics failed (non-fatal): %s", _gtfs_err)
             results['gtfs_analytics'] = None
-    
-    # Add dynamic policy results if available
-    if policy_engine:
-        # Get final policy report
-        final_report = get_final_policy_report(policy_engine)
-        
-        if final_report:
-            results['policy_actions'] = policy_actions_taken
-            results['constraint_violations'] = constraint_violations
-            results['cost_recovery_history'] = cost_recovery_history
-            results['final_cost_recovery'] = final_report['cost_recovery']
-            results['policy_status'] = final_report['policy_status']
-        
-        logger.info(f"✅ Policy tracking: {len(policy_actions_taken)} actions, "
-                   f"{len(constraint_violations)} violations")
-
     
     # Add dynamic policy results if available
     if policy_engine:
