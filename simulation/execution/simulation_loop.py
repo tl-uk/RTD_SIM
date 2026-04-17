@@ -58,7 +58,7 @@ from agent.system_dynamics import StreamingSystemDynamics
 try:
     from simulation.execution.system_dynamics_integration import (
         initialize_system_dynamics,      # ← was missing — caused always-None SD engine
-        # apply_dynamic_policies,          # augmented version that includes SD feedback
+        apply_dynamic_policies,          # augmented version that includes SD feedback
         update_system_dynamics,
         get_system_dynamics_history
     )
