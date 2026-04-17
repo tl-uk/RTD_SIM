@@ -331,19 +331,39 @@ class Router:
         try:
             wk = self._apply_generalised_weights(rail_graph, mode, policy)
             rail_nodes = nx.shortest_path(rail_graph, orig_node, dest_node, weight=wk)
-            # ── Kinematic guard: reject Dijkstra paths with heading reversals ──
-            # nx.shortest_path is purely topological — it can route through a
-            # triangular junction producing a near-180° bearing change that is
-            # physically impossible for a train at speed (Edinburgh Haymarket /
-            # Waverley throat are common examples).  Reject and return [] so the
-            # BDI planner can fall back to another mode rather than propagating
-            # a physically invalid route.
+            # ── Kinematic guard with one-shot retry ───────────────────────────
+            # If Dijkstra routes through a triangular junction producing a
+            # near-180° bearing reversal, exclude that node and retry once.
+            # A restricted view is O(1) to construct and uses the same weight
+            # dict already written to the edges above.
             if self._has_heading_reversal(rail_graph, rail_nodes):
-                logger.warning(
-                    "%s: %s heading reversal in path — kinematically invalid, rejecting",
-                    agent_id, mode,
-                )
-                return [], []
+                reversal_node = self._find_reversal_node(rail_graph, rail_nodes)
+                if reversal_node is not None:
+                    try:
+                        G_restricted = nx.restricted_view(
+                            rail_graph, [reversal_node], []
+                        )
+                        rail_nodes = nx.shortest_path(
+                            G_restricted, orig_node, dest_node, weight=wk
+                        )
+                        if self._has_heading_reversal(G_restricted, rail_nodes):
+                            logger.warning(
+                                "%s: %s heading reversal persists after retry — rejecting",
+                                agent_id, mode,
+                            )
+                            return [], []
+                        logger.info(
+                            "%s: %s heading reversal resolved by excluding node %s",
+                            agent_id, mode, reversal_node,
+                        )
+                    except Exception:
+                        return [], []
+                else:
+                    logger.warning(
+                        "%s: %s heading reversal — no retry node found, rejecting",
+                        agent_id, mode,
+                    )
+                    return [], []
             rail_coords = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes), max_segment_km=0.2,
             )
@@ -523,9 +543,55 @@ class Router:
             return route, segments
 
         if not origin_stop or not dest_stop or origin_stop == dest_stop:
-            route = self._transit_fallback(agent_id, origin, dest, mode, policy)
-            segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
-            return route, segments
+            # ── Same-stop snap: find second-nearest stop for dest ─────────────
+            # When origin and destination are both close to the same GTFS stop
+            # (e.g. agent 8828: both ends near Haymarket tram stop) the snap
+            # returns the same node and routing fails.  Find the nearest stop
+            # to dest that is NOT origin_stop and retry.
+            if origin_stop and dest_stop and origin_stop == dest_stop:
+                try:
+                    from simulation.gtfs.gtfs_graph import GTFSGraph as _GTFSGraph
+                    _builder2 = _GTFSGraph(None)
+                    _tram_filters2 = ['tram', 'local_train'] if mode == 'tram' else [mode]
+                    _max_m = 5000 if mode == 'tram' else 2000
+                    for _mf2 in _tram_filters2:
+                        # Try the exclude_stop kwarg first; fall back to a
+                        # manual O(N) scan if GTFSGraph doesn't support it.
+                        _candidate = None
+                        try:
+                            _candidate = _builder2.nearest_stop(
+                                G_transit, dest,
+                                mode_filter=_mf2,
+                                max_distance_m=_max_m,
+                                exclude_stop=origin_stop,
+                            )
+                        except TypeError:
+                            _best_d2 = float('inf')
+                            for _nid2, _nd2 in G_transit.nodes(data=True):
+                                if _nid2 == origin_stop:
+                                    continue
+                                _d2 = haversine_km(
+                                    dest,
+                                    (float(_nd2.get('x', 0)),
+                                     float(_nd2.get('y', 0))),
+                                )
+                                if _d2 < _best_d2 and _d2 <= _max_m / 1000.0:
+                                    _best_d2 = _d2
+                                    _candidate = _nid2
+                        if _candidate and _candidate != origin_stop:
+                            dest_stop = _candidate
+                            logger.debug(
+                                "%s: GTFS same-stop resolved — dest_stop %s (mode=%s)",
+                                agent_id, dest_stop, _mf2,
+                            )
+                            break
+                except Exception as _ss_exc:
+                    logger.debug("%s: same-stop retry failed: %s", agent_id, _ss_exc)
+
+            if not origin_stop or not dest_stop or origin_stop == dest_stop:
+                route = self._transit_fallback(agent_id, origin, dest, mode, policy)
+                segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
+                return route, segments
 
         first_d     = G_transit.nodes.get(origin_stop, {})
         first_coord = (float(first_d.get('x', origin[0])), float(first_d.get('y', origin[1])))
@@ -818,13 +884,36 @@ class Router:
             rail_nodes      = nx.shortest_path(
                 rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key,
             )
-            # ── Kinematic guard ───────────────────────────────────────────────
+            # ── Kinematic guard with one-shot retry ───────────────────────────
             if self._has_heading_reversal(rail_graph, rail_nodes):
-                logger.warning(
-                    "%s: %s heading reversal — kinematically invalid, rejecting",
-                    agent_id, mode,
-                )
-                return self._get_invalid_route(origin, dest)
+                reversal_node = self._find_reversal_node(rail_graph, rail_nodes)
+                if reversal_node is not None:
+                    try:
+                        G_restricted = nx.restricted_view(
+                            rail_graph, [reversal_node], []
+                        )
+                        rail_nodes = nx.shortest_path(
+                            G_restricted, orig_rail_node, dest_rail_node,
+                            weight=rail_weight_key,
+                        )
+                        if self._has_heading_reversal(G_restricted, rail_nodes):
+                            logger.warning(
+                                "%s: %s heading reversal persists after retry — rejecting",
+                                agent_id, mode,
+                            )
+                            return self._get_invalid_route(origin, dest)
+                        logger.info(
+                            "%s: %s heading reversal resolved by excluding node %s",
+                            agent_id, mode, reversal_node,
+                        )
+                    except Exception:
+                        return self._get_invalid_route(origin, dest)
+                else:
+                    logger.warning(
+                        "%s: %s heading reversal — no retry node found, rejecting",
+                        agent_id, mode,
+                    )
+                    return self._get_invalid_route(origin, dest)
             rail_coords     = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes),
                 max_segment_km=0.2,
@@ -897,6 +986,59 @@ class Router:
             # registers it as graphs['tram'].  Routing on this is fast (no network
             # call), physically accurate (real track geometry), and never times out.
             # The Overpass live-fetch is kept as Tier 2 in case the graph is absent.
+            #
+            # ── Catchment validity guard ──────────────────────────────────────
+            # The OSM tram graph covers Edinburgh tram tracks.  Agents whose
+            # origin/dest are nowhere near a tram stop (e.g. Kirkliston, 7 km
+            # west of the nearest tram stop) must NOT be routed on this graph:
+            # doing so produces a route that snaps to the nearest tram track
+            # node (anywhere on the line) and routes track→track regardless of
+            # whether the agent can physically reach it.  We check both ends
+            # against NaPTAN tram stops (TMU type) before routing.
+            # If neither end is within _TRAM_STOP_CATCHMENT_KM of a tram stop,
+            # skip to Tier 2/3.
+            _TRAM_STOP_CATCHMENT_KM = 2.0   # 2 km: generous but not 7 km
+            _origin_near_tram = False
+            _dest_near_tram   = False
+            _naptan = getattr(self.graph_manager, 'naptan_stops', [])
+            _tmu_stops = [s for s in _naptan
+                          if getattr(s, 'stop_type', '') in ('TMU', 'MET', 'RLY')]
+            if _tmu_stops:
+                for _s in _tmu_stops:
+                    _d_orig = haversine_km(origin, (_s.lon, _s.lat))
+                    _d_dest = haversine_km(dest,   (_s.lon, _s.lat))
+                    if _d_orig <= _TRAM_STOP_CATCHMENT_KM:
+                        _origin_near_tram = True
+                    if _d_dest <= _TRAM_STOP_CATCHMENT_KM:
+                        _dest_near_tram = True
+                    if _origin_near_tram and _dest_near_tram:
+                        break
+            else:
+                # No NaPTAN data — fall back to 5km G_tram-node proximity check
+                G_tram_chk = self.graph_manager.get_graph('tram')
+                if G_tram_chk is not None:
+                    try:
+                        import osmnx as ox
+                        _tn_o = ox.distance.nearest_nodes(G_tram_chk, origin[0], origin[1])
+                        _tn_d = ox.distance.nearest_nodes(G_tram_chk, dest[0],   dest[1])
+                        _o_xy = (float(G_tram_chk.nodes[_tn_o].get('x', 0)),
+                                 float(G_tram_chk.nodes[_tn_o].get('y', 0)))
+                        _d_xy = (float(G_tram_chk.nodes[_tn_d].get('x', 0)),
+                                 float(G_tram_chk.nodes[_tn_d].get('y', 0)))
+                        _origin_near_tram = haversine_km(origin, _o_xy) <= 2.0
+                        _dest_near_tram   = haversine_km(dest,   _d_xy) <= 2.0
+                    except Exception:
+                        _origin_near_tram = _dest_near_tram = True  # skip guard
+
+            if not (_origin_near_tram and _dest_near_tram):
+                logger.debug(
+                    "%s: tram OSM graph skipped — origin or dest not near a tram stop "
+                    "(origin_near=%s, dest_near=%s) — tram not viable",
+                    agent_id, _origin_near_tram, _dest_near_tram,
+                )
+                # Neither Overpass nor spine will help either — tram is not viable
+                return []
+
             G_tram_local = self.graph_manager.get_graph('tram')
             if G_tram_local is not None and G_tram_local.number_of_nodes() > 1:
                 try:
@@ -1186,65 +1328,51 @@ class Router:
                             agent_id, len(coords), orig_node, dest_node,
                         )
                         return self._interpolate(coords, max_segment_km=0.05)
-                # If nodes are still equal (graph has only one node in area)
-                # or geometry extraction produced nothing, fall through.
+                # Nodes still equal, geometry empty, or routing produced nothing.
+                # Fall through to the unified drive-proxy block below.
             except nx.NetworkXNoPath:
-                # Stop coordinates outside walk graph coverage (e.g. cross-Forth
-                # or Fife stops).
-                # ── FIX Bug 1b: immediately try drive proxy ───────────────────
-                # Previously the code logged "trying drive proxy" but then fell
-                # through to the straight-line block, producing 186 diagonals.
-                # The drive graph covers the Forth Road Bridge and all roads that
-                # pedestrians actually use for longer access legs.
                 logger.debug(
-                    "%s: walk nx.NetworkXNoPath (%.2fkm) — drive proxy attempt",
+                    "%s: walk nx.NetworkXNoPath (%.2fkm) — drive proxy",
                     agent_id, dist_km,
                 )
-                if dist_km > 0.1:
-                    _drive = self._compute_road_route(
-                        agent_id, origin, dest, 'car', _DEFAULT_POLICY,
-                    )
-                    if _drive and len(_drive) > 2:
-                        logger.debug(
-                            "%s: walk→drive proxy: %d pts (%.2fkm)",
-                            agent_id, len(_drive), dist_km,
-                        )
-                        return _drive
-                # Drive proxy also failed — fall through to straight-line below.
+                # Fall through to unified drive-proxy block.
             except Exception as _walk_exc:
                 logger.debug(
                     "%s: walk routing failed (%.2fkm): %s",
                     agent_id, dist_km, _walk_exc,
                 )
+                # Fall through to unified drive-proxy block.
 
-        # Short access legs (< 0.5 km): straight interpolation is correct and faster
-        # than routing on the drive graph, which may pick car-only roads.
+        # ── Unified fallback: drive proxy ─────────────────────────────────────
+        # Applies when:
+        #   (a) Walk graph absent
+        #   (b) Walk graph present but routing failed for any reason:
+        #       same-node snap, NetworkXNoPath, empty geometry, or exception
+        #
+        # The drive graph covers ALL roads pedestrians also use and always
+        # has continuous coverage (no disconnected island subgraphs).  It
+        # correctly routes the Forth Road Bridge and every urban street.
+        #
+        # Straight-line interpolation is ONLY used as absolute last resort
+        # when the drive graph also fails — not as the primary fallback for
+        # 0.5–3 km legs (which was producing 237 straight-line diagonals).
         if dist_km <= 0.5:
+            # Too short to bother with road routing — straight line is fine.
             return self._interpolate([origin, dest], max_segment_km=0.05)
 
-        # ── FIX Bug 1c: always try drive proxy before straight-line ──────────
-        # Previously, legs in the 0.5–3.0 km band went straight to interpolated
-        # straight line, cutting through buildings, rivers and land masses.
-        # The drive graph covers all roads pedestrians also use for access legs
-        # (including the Forth Road Bridge, city streets, etc).  Straight-line
-        # fallback is now the LAST resort — only after both the walk graph and
-        # the drive proxy have failed.
-        logger.debug(
-            "%s: walk path unavailable (%.2fkm) — drive proxy attempt",
-            agent_id, dist_km,
+        _drive_result = self._compute_road_route(
+            agent_id, origin, dest, 'car', _DEFAULT_POLICY
         )
-        drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
-        if drive_result and len(drive_result) > 2:
+        if _drive_result and len(_drive_result) > 2:
             logger.debug(
-                "%s: walk→drive proxy: %d pts (%.2fkm)",
-                agent_id, len(drive_result), dist_km,
+                "%s: access→drive proxy: %d pts (%.2fkm)",
+                agent_id, len(_drive_result), dist_km,
             )
-            return drive_result
+            return _drive_result
 
-        # All proxies exhausted — interpolated straight line is the last resort.
+        # Absolute last resort — drive proxy also failed.
         logger.debug(
-            "%s: walk path unavailable (%.2fkm) — interpolated straight line "
-            "(walk graph + drive proxy both failed)",
+            "%s: walk path unavailable (%.2fkm) — interpolated straight line",
             agent_id, dist_km,
         )
         return self._interpolate([origin, dest], max_segment_km=0.05)
@@ -1364,8 +1492,47 @@ class Router:
             )
 
         if not origin_stop or not dest_stop or origin_stop == dest_stop:
-            logger.debug("%s: no GTFS stop pair for %s", agent_id, mode)
-            return self._transit_fallback(agent_id, origin, dest, mode, policy)
+            # ── Same-stop snap: find second-nearest stop for dest ─────────────
+            if origin_stop and dest_stop and origin_stop == dest_stop:
+                try:
+                    _builder_r = GTFSGraph(None)
+                    _filters_r = ['tram', 'local_train'] if mode == 'tram' else [mode]
+                    _max_r = _tram_catchment if mode == 'tram' else 2000
+                    for _mf_r in _filters_r:
+                        _cand_r = None
+                        try:
+                            _cand_r = _builder_r.nearest_stop(
+                                G_transit, dest,
+                                mode_filter=_mf_r,
+                                max_distance_m=_max_r,
+                                exclude_stop=origin_stop,
+                            )
+                        except TypeError:
+                            _best_r = float('inf')
+                            for _nr, _ndr in G_transit.nodes(data=True):
+                                if _nr == origin_stop:
+                                    continue
+                                _dr = haversine_km(
+                                    dest,
+                                    (float(_ndr.get('x', 0)),
+                                     float(_ndr.get('y', 0))),
+                                )
+                                if _dr < _best_r and _dr <= _max_r / 1000.0:
+                                    _best_r = _dr
+                                    _cand_r = _nr
+                        if _cand_r and _cand_r != origin_stop:
+                            dest_stop = _cand_r
+                            logger.debug(
+                                "%s: GTFS same-stop resolved — dest_stop %s",
+                                agent_id, dest_stop,
+                            )
+                            break
+                except Exception as _sr_exc:
+                    logger.debug("%s: GTFS same-stop retry failed: %s", agent_id, _sr_exc)
+
+            if not origin_stop or not dest_stop or origin_stop == dest_stop:
+                logger.debug("%s: no GTFS stop pair for %s", agent_id, mode)
+                return self._transit_fallback(agent_id, origin, dest, mode, policy)
 
         # ── Mode masking ──────────────────────────────────────────────────────
         _TRAM_MODES = frozenset({'tram', 'local_train'})
@@ -1810,6 +1977,36 @@ class Router:
                 )
                 return True
         return False
+
+    def _find_reversal_node(
+        self,
+        graph: Any,
+        node_list: List,
+        threshold_deg: float = 160.0,
+    ) -> Optional[Any]:
+        """
+        Return the mid-point node of the first heading reversal in node_list.
+
+        Used by the retry logic in _intermodal_with_segments /
+        _compute_intermodal_route: after _has_heading_reversal fires, this
+        method identifies *which* junction node causes the reversal so
+        nx.restricted_view can exclude it and find an alternative path.
+
+        Returns None if the path is too short to contain a reversal.
+        """
+        import math as _math
+        if len(node_list) < 3:
+            return None
+        check_up_to = len(node_list) - 2
+        for i in range(check_up_to - 1):
+            b1 = self._bearing_between(graph, node_list[i],     node_list[i + 1])
+            b2 = self._bearing_between(graph, node_list[i + 1], node_list[i + 2])
+            diff = abs(b2 - b1)
+            if diff > 180:
+                diff = 360 - diff
+            if diff > threshold_deg:
+                return node_list[i + 1]   # the junction node causing the reversal
+        return None
 
     # =========================================================================
     # WEIGHT HELPERS

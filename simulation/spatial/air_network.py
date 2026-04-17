@@ -234,6 +234,20 @@ def _fetch_ourairports(
     """
     import urllib.request
 
+    # Only include types that are operationally meaningful for transport simulation.
+    # OurAirports 'type' field values observed in UK data:
+    #   large_airport, medium_airport, small_airport, heliport,
+    #   closed, balloonport, seaplane_base
+    # 'closed' airports (395 in UK) must be excluded — they are derelict sites that
+    # generate massive scatter blobs and confuse the airport-snap router.
+    # 'balloonport' and 'seaplane_base' are not relevant for RTD_SIM passenger/freight.
+    _INCLUDE_TYPES = {
+        'large_airport',    # 22 in UK — EGLL, EGCC, EGPH etc.
+        'medium_airport',   # 81 in UK — regional airports
+        'small_airport',    # included but filtered downstream by snap radius
+        'heliport',         # included for completeness (offshore oil, hospitals)
+    }
+    _EXCLUDE_TYPES = {'closed', 'balloonport', 'seaplane_base'}
     countries = iso_countries or _UK_ISO_COUNTRIES
     try:
         with urllib.request.urlopen(_OURAIRPORTS_URL, timeout=30) as resp:
@@ -248,6 +262,9 @@ def _fetch_ourairports(
         for row in reader:
             if row.get('iso_country') not in countries:
                 continue
+            atype = row.get('type', 'small_airport')
+            if atype in _EXCLUDE_TYPES or atype not in _INCLUDE_TYPES:
+                continue
             try:
                 lon = float(row['longitude_deg'])
                 lat = float(row['latitude_deg'])
@@ -258,7 +275,7 @@ def _fetch_ourairports(
                 'name':         row.get('name', ''),
                 'lon':          lon,
                 'lat':          lat,
-                'airport_type': row.get('type', 'small_airport'),
+                'airport_type': atype,
                 'iso_country':  row.get('iso_country', ''),
                 'iata':         row.get('iata_code', ''),
                 'elevation_ft': row.get('elevation_ft', ''),
@@ -267,7 +284,10 @@ def _fetch_ourairports(
         logger.warning("OurAirports CSV parse error: %s", exc)
         return []
 
-    logger.info("✅ OurAirports: %d airports (UK/Ireland)", len(airports))
+    logger.info(
+        "✅ OurAirports: %d airports (UK/Ireland, excl. closed/balloonport/seaplane)",
+        len(airports),
+    )
     return airports
 
 

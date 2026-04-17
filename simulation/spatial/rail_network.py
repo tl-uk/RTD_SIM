@@ -93,34 +93,7 @@ def fetch_rail_graph(
         ox.settings.useful_tags_way = useful_tags
 
     north, south, east, west = bbox
-
-    # ── OSM rail filter rationale ─────────────────────────────────────────────
-    # 1. Anchored regex  ^(...)$  prevents unanchored substring matches:
-    #    without anchors, "rail" matches "monorail" and "light_rail" simultaneously.
-    # 2. railway tag values explicitly included:
-    #    rail        — mainline passenger + freight (Network Rail, freight operators)
-    #    light_rail  — Docklands Light Railway, tram-train hybrids
-    #    subway      — Glasgow Subway, future Edinburgh metro
-    #    tram        — Edinburgh Trams, Manchester Metrolink, etc.
-    #    monorail    — Included for completeness (Alton Towers, future systems)
-    # 3. Excluded by OSM tag logic (no explicit filter needed):
-    #    railway=disused       — tag value not in the inclusion list
-    #    railway=abandoned     — tag value not in the inclusion list
-    #    railway=construction  — tag value not in the inclusion list
-    #    railway=proposed      — tag value not in the inclusion list
-    #    railway=miniature     — tag value not in the inclusion list (fairground rides)
-    #    railway=preserved     — tag value not in the inclusion list (heritage/static)
-    # 4. service=* exclusion removes maintenance-only infrastructure that OSM maps
-    #    with railway=rail but should never carry passengers:
-    #    yard      — marshalling/shunting yards (no through-routing)
-    #    siding    — dead-end sidings (cause impossible acute turns in router)
-    #    crossover — track crossovers (short connector, not a route)
-    #    spur      — dead-end industrial spurs
-    # ─────────────────────────────────────────────────────────────────────────
-    rail_filter = (
-        '["railway"~"^(rail|light_rail|subway|tram|monorail)$"]'
-        '["service"!~"^(yard|siding|crossover|spur)$"]'
-    )
+    rail_filter = '["railway"~"rail|tram|subway|light_rail"]'
 
     try:
         # OSMnx 2.x expects (left, bottom, right, top) = (west, south, east, north).
@@ -230,7 +203,7 @@ def get_or_fallback_rail_graph(env=None) -> Optional[nx.MultiDiGraph]:
 def link_to_road_network(
     G_rail: nx.MultiDiGraph,
     G_road: nx.MultiDiGraph,
-    radius_m: int = _TRANSFER_LENGTH_M,
+    radius_m: int = 300,
 ) -> None:
     """
     Add bi-directional 'transfer' edges between rail station nodes and their

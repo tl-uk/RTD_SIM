@@ -10,8 +10,8 @@ NETWORK TYPES
   'drive'   → OSMnx drive graph   (routeable via OSMnx)
   'walk'    → OSMnx walk graph    (routeable via OSMnx)
   'bike'    → OSMnx bike graph    (routeable via OSMnx)
-  'rail'    → abstract / GTFS     (routed via OpenRailMap)
-  'ferry'   → abstract / maritime (routed via Overpass/hardcoded spine)
+  'rail'    → abstract / GTFS     (NOT routeable via OSMnx)
+  'ferry'   → abstract / maritime (NOT routeable via OSMnx)
   'air'     → abstract / airspace (NOT routeable via OSMnx)
 
 Abstract modes produce a synthetic single-edge route of
@@ -169,7 +169,7 @@ MODES: Dict[str, Dict[str, Any]] = {
     },
     'hgv_hydrogen': {
         'network':       'drive',
-        'emissions_g_km': 20,   # green H₂ upstream electrolysis: ~20 g/km at 2026 UK grid
+        'emissions_g_km': 0,
         'speed_kmh':      55,
         'routeable':      True,
         'range_km':       600,

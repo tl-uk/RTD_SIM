@@ -44,12 +44,6 @@ from simulation.execution.dynamic_policies import (
     record_charging_revenue,
     get_final_policy_report
 )
-# from simulation.execution.policy_initialization import initialize_policy_engine
-# from simulation.execution.dynamic_policies import (
-#     apply_dynamic_policies,
-#     record_charging_revenue,
-#     get_final_policy_report
-# )
 
 logger = logging.getLogger(__name__)
 
@@ -1064,7 +1058,7 @@ def run_simulation_loop(
                     logger.debug(f"Step {step}: charging error for {_agent_id}: {_e}")
 
 
-            # ── Phase 3: Markov record_step ──────────────────────────────────
+            # ── Markov record_step ─────────────────────────────────────────────────────
             # Called every step the agent has a mode, regardless of policy
             # engine, social network, or influence system availability.
             # Uses a lightweight satisfaction proxy when the full calculation
@@ -1082,7 +1076,7 @@ def run_simulation_loop(
                         _mc.record_step(_mc_mode, _mc_sat)
                 except Exception as _mce:
                     logger.debug("Markov record_step failed: %s", _mce)
-            # ── End Phase 3 ──────────────────────────────────────────────────
+            # ── End Markov record step ──────────────────────────────────────────────────
 
             # Calculate lifecycle emissions if agent moved
             if emissions_calc and agent.state.location != prev_location:

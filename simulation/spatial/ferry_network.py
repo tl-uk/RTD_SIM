@@ -86,7 +86,6 @@ import logging
 import math
 import time
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -175,25 +174,58 @@ def _great_circle_arc(
 
 # ─── Overpass query helpers ───────────────────────────────────────────────────
 
-def _overpass_post(query: str, timeout_s: int = 45) -> Optional[dict]:
-    """POST a query to the Overpass API and return parsed JSON, or None."""
-    try:
-        req = urllib.request.Request(
-            _OVERPASS_URL,
-            data=query.encode("utf-8"),
-            method="POST",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout_s + 5) as resp:
-            status = getattr(resp, 'status', 200)
-            body = resp.read()
-            if status != 200:
-                logger.warning("Overpass returned HTTP %d", status)
-                return None
-            return json.loads(body)
-    except Exception as exc:
-        logger.warning("Overpass POST failed: %s", exc)
-        return None
+def _overpass_post(
+    query: str,
+    timeout_s: int = 45,
+    max_retries: int = 3,
+    initial_delay: float = 2.0,
+) -> Optional[dict]:
+    """
+    POST a query to the Overpass API with exponential backoff.
+
+    Handles:
+      HTTP 429 Too Many Requests — Overpass rate-limit; back off and retry
+      HTTP 504 Gateway Timeout   — Overpass server busy; back off and retry
+
+    Args:
+        query:         Overpass QL query string.
+        timeout_s:     Per-attempt HTTP timeout in seconds.
+        max_retries:   Total attempts (including first try).
+        initial_delay: Base delay in seconds; doubles on each retry with ±25% jitter.
+    """
+    import random as _rand
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(
+                _OVERPASS_URL,
+                data=query.encode("utf-8"),
+                method="POST",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout_s + 5) as resp:
+                status = getattr(resp, 'status', 200)
+                body = resp.read()
+                if status == 200:
+                    return json.loads(body)
+                logger.warning("Overpass HTTP %d (attempt %d/%d)", status, attempt + 1, max_retries)
+        except Exception as exc:
+            msg = str(exc)
+            is_rate_limit = '429' in msg
+            is_timeout    = '504' in msg or 'timed out' in msg.lower()
+            if attempt < max_retries - 1 and (is_rate_limit or is_timeout):
+                delay = initial_delay * (2 ** attempt)
+                jitter = delay * 0.25 * (2 * _rand.random() - 1)   # ±25%
+                wait = max(1.0, delay + jitter)
+                logger.warning(
+                    "Overpass %s (attempt %d/%d) — retrying in %.1fs",
+                    '429 rate-limit' if is_rate_limit else '504/timeout',
+                    attempt + 1, max_retries, wait,
+                )
+                time.sleep(wait)
+                continue
+            logger.warning("Overpass POST failed: %s", exc)
+            return None
+    return None
 
 
 def _node_coord_map(elements: list) -> Dict[int, Tuple[float, float]]:
@@ -783,7 +815,6 @@ def fetch_maritime_graphs(
     bbox: Tuple[float, float, float, float],   # (north, south, east, west)
     city_tag: str = "default",
     use_cache: bool = True,
-    parallel_queries: bool = True,
 ) -> Dict[str, 'nx.MultiDiGraph']:
     """
     Download all maritime layers for the given bounding box.
@@ -852,39 +883,28 @@ def fetch_maritime_graphs(
 
     logger.info("🚢 Fetching maritime data (bbox=%.2f,%.2f,%.2f,%.2f)…", s, w, n, e)
 
-    route_data   = None
-    terminal_data = None
-    lane_data    = None
-    water_data   = None
+    # Sequential queries with pauses between them to avoid Overpass 429 rate-limit.
+    # The previous parallel approach fired 4 simultaneous requests which immediately
+    # triggered 429 Too Many Requests on all but the first to arrive.
+    # Each _overpass_post() already handles 429/504 with exponential backoff internally,
+    # but inter-query pauses reduce the baseline hit rate significantly.
+    _INTER_QUERY_PAUSE = 1.5  # seconds between query dispatches
 
-    if parallel_queries:
-        queries = {
-            'routes':    lambda: _fetch_ferry_routes(s, w, n, e),
-            'terminals': lambda: _fetch_ferry_terminals(s, w, n, e),
-            'lanes':     lambda: _fetch_shipping_lanes(s, w, n, e),
-            'waterways': lambda: _fetch_navigable_waterways(s, w, n, e),
-        }
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            futures = {ex.submit(fn): name for name, fn in queries.items()}
-            for fut in as_completed(futures):
-                name = futures[fut]
-                try:
-                    data = fut.result()
-                    if name == 'routes':
-                        route_data = data
-                    elif name == 'terminals':
-                        terminal_data = data
-                    elif name == 'lanes':
-                        lane_data = data
-                    elif name == 'waterways':
-                        water_data = data
-                except Exception as exc:
-                    logger.warning("Maritime query '%s' failed: %s", name, exc)
-    else:
-        route_data    = _fetch_ferry_routes(s, w, n, e)
-        terminal_data = _fetch_ferry_terminals(s, w, n, e)
-        lane_data     = _fetch_shipping_lanes(s, w, n, e)
-        water_data    = _fetch_navigable_waterways(s, w, n, e)
+    route_data    = None
+    terminal_data = None
+    lane_data     = None
+    water_data    = None
+
+    route_data = _fetch_ferry_routes(s, w, n, e)
+    time.sleep(_INTER_QUERY_PAUSE)
+
+    terminal_data = _fetch_ferry_terminals(s, w, n, e)
+    time.sleep(_INTER_QUERY_PAUSE)
+
+    lane_data = _fetch_shipping_lanes(s, w, n, e)
+    time.sleep(_INTER_QUERY_PAUSE)
+
+    water_data = _fetch_navigable_waterways(s, w, n, e)
 
     # ── Build graphs ──────────────────────────────────────────────────────────
 

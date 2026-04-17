@@ -142,7 +142,7 @@ class BDIPlanner:
         'e_scooter': 30.0,
         'ferry_electric': 50.0,
         'flight_electric': 500.0,
-        'taxi_ev': 300.0,     # <-- ADD THIS
+        'taxi_ev': 300.0,
     }
 
     CHARGING_TIME_MIN = {
@@ -160,8 +160,8 @@ class BDIPlanner:
         'bus': 100.0,
         'car': 500.0,
         'ev': 350.0,
-        'taxi_ev': 400.0,     # <-- ADD THIS
-        'taxi_diesel': 600.0, # <-- ADD THIS
+        'taxi_ev': 400.0,     
+        'taxi_diesel': 600.0,
         
         # Freight modes
         'van_electric': 200.0,

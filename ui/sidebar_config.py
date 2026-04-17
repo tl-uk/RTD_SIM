@@ -1458,44 +1458,77 @@ def _render_gtfs_configuration() -> dict:
 
     if enable_gtfs:
         # ── TransitLand auto-download ─────────────────────────────────────
-        st.caption("**Or auto-download a UK feed:**")
-        # TransitLand operator onestop IDs (o-*) are used by download_gtfs_feed()
-        # to resolve the latest feed version via the /operators endpoint.
-        # Feed onestop IDs (f-*) are a different namespace — use o-* here.
-        # ScotRail rebranded from "First Scotland Rail" in 2022; onestop ID updated.
+        # Feed IDs must be 'f-…' (feed), NOT 'o-…' (operator).
+        # The download endpoint is:
+        #   GET /v2/rest/feeds/{feed_id}/download_latest_feed_version
+        # Requires TRANSITLAND_API_KEY in the project .env file.
         _KNOWN_FEEDS = {
             "(select)":             "",
-            "🚋 Edinburgh Trams":   "o-gcpv-edinburghtramsltd",
-            "🚌 Lothian Buses":     "o-gcpv-lothianbuses",
-            "🚆 ScotRail":          "o-gcpv-scotrail",
-            "🚇 Glasgow Subway":    "o-gcpv-spt",
-            "🚌 First Glasgow":     "o-gcpv-firstglasgow",
+            "🚋 Edinburgh Trams":   "f-gcpv-edinburghtramsltd",
+            "🚌 Lothian Buses":     "f-gcpv-lothianbuses",
+            "🚆 ScotRail":          "f-gcpv-firstscotland",
+            "🚇 Glasgow Subway":    "f-gcpv-spt",
+            "🚌 First Glasgow":     "f-gcpv-firstglasgow",
         }
+
+        # Show API key status before the download button
+        import os as _os
+        _api_key = _os.getenv("TRANSITLAND_API_KEY", "").strip()
+        if _api_key:
+            st.caption("🔑 TransitLand API key: **set** ✅")
+        else:
+            st.warning(
+                "⚠️ **TRANSITLAND_API_KEY not set** — auto-download disabled.  "
+                "Add `TRANSITLAND_API_KEY=your_key` to your project `.env` file "
+                "or download a GTFS zip manually from "
+                "[transit.land](https://www.transit.land) / "
+                "[bus-data.dft.gov.uk](https://data.bus-data.dft.gov.uk)."
+            )
+
+        st.caption("**Auto-download a UK feed via TransitLand:**")
         selected_feed = st.selectbox(
             "Known UK operators",
             options=list(_KNOWN_FEEDS.keys()),
             index=0,
             key="_gtfs_known_operator",
             help=(
-                "Select a known operator to download via TransitLand (free, no key needed). "
-                "Downloaded to /tmp/ — paste the path above."
+                "Select a known operator to download via TransitLand. "
+                "Requires TRANSITLAND_API_KEY in .env.  "
+                "Downloaded to /tmp/ — paste the path into the field below."
             ),
         )
         if selected_feed and selected_feed != "(select)":
-            if st.button(f"⬇️ Download {selected_feed}", key="_gtfs_download_btn"):
+            _btn_disabled = not bool(_api_key)
+            _btn_label = (
+                f"⬇️ Download {selected_feed}"
+                if _api_key else
+                f"⬇️ Download {selected_feed} (API key required)"
+            )
+            if st.button(_btn_label, key="_gtfs_download_btn",
+                         disabled=_btn_disabled):
                 with st.spinner(f"Downloading {selected_feed}…"):
                     try:
-                        from simulation.gtfs.gtfs_validator import download_gtfs_feed
-                        dl_path = download_gtfs_feed(
+                        from simulation.spatial.transport_loader import (
+                            _download_transitland_feed,
+                        )
+                        dl_path = _download_transitland_feed(
                             _KNOWN_FEEDS[selected_feed],
+                            api_key=_api_key,
                             output_dir="/tmp",
                         )
                         if dl_path:
                             st.session_state["_gtfs_feed_path"] = dl_path
-                            st.success(f"✅ Downloaded to `{dl_path}` — paste path above")
+                            st.success(
+                                f"✅ Downloaded to `{dl_path}` — "
+                                "path has been filled in below"
+                            )
                             st.rerun()
                         else:
-                            st.error("Download failed — try TransitLand manually: transit.land")
+                            st.error(
+                                "Download failed — check your API key and "
+                                "feed ID, or download manually from "
+                                "[transit.land](https://www.transit.land)"
+                            )
                     except Exception as _e:
                         st.error(f"Download error: {_e}")
 
