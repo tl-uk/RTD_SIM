@@ -1,10 +1,17 @@
 """
 simulation/execution/dynamic_policies.py
 
-NEW Phase 5.1: Dynamic policy application logic.
+This module is is responsible for: step updates, feedback loops, and constraints.
+
+This file should never import policy_initialization.py or instantiate anything. 
+It should only take an already-built engine and step it forward.
+
+The logic is designed to be modular and extensible, allowing for new interaction rules 
+and feedback mechanisms to be added without modifying the core simulation loop.
 Handles combined scenarios with interaction rules and feedback loops.
 
-Called by simulation_loop.py for runtime policy adjustments.
+It is Called by simulation_loop.py for runtime policy adjustments.
+
 """
 
 from __future__ import annotations
@@ -25,7 +32,9 @@ except ImportError:
 
 # Re-export for backward compatibility
 # Other modules import initialize_policy_engine from this module
-from simulation.execution.policy_initialization import initialize_policy_engine
+# from simulation.execution.policy_initialization import initialize_policy_engine
+# This file should never import policy_initialization.py or instantiate anything. 
+# It should only take an already-built engine and step it forward.
 
 def apply_dynamic_policies(
     policy_engine: DynamicPolicyEngine,

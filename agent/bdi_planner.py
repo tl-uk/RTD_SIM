@@ -1123,7 +1123,7 @@ class BDIPlanner:
         w_cost = desires.get('cost', 0.3)
         w_comfort = desires.get('comfort', 0.2)
         w_risk = desires.get('risk', 0.2)
-        w_eco = desires.get('eco', 0.6)
+        w_eco = desires.get('eco', 0.5)
  
         # Normalize base metrics to [0,1]
         time_norm = min(1.0, time_min / 60.0)
@@ -1349,7 +1349,20 @@ class BDIPlanner:
             else:
                 total_cost *= 0.7
 
-        # ── Phase 3: Markov habit discount ───────────────────────────────────
+        # ── Persona mode preference modifier ─────────────────────────────────
+        # mode_preferences from the persona YAML (e.g. 'ev': 0.45, 'car': 0.85)
+        # are finally applied here. A preference of 1.0 = 10% cost discount.
+        # A preference of 0.0 = 20% surcharge. This is the ONLY place mode_preferences
+        # are consumed — they must be in agent_context['mode_preferences'].
+        _mode_prefs = (context.get('mode_preferences') or {})
+        if _mode_prefs and mode in _mode_prefs:
+            pref = float(_mode_prefs[mode])  # 0.0–1.0
+            # Continuous linear: preference 1.0 → −10%, preference 0.0 → +20%
+            pref_factor = 1.0 - 0.10 * pref + 0.20 * (1.0 - pref)
+            # = 1.0 + 0.20 - 0.30*pref  → range [0.90, 1.20]
+            total_cost *= max(0.90, min(1.20, 1.20 - 0.30 * pref))
+
+        # ── Markov habit discount ───────────────────────────────────
         # If the agent has a PersonalityMarkovChain, habitual modes cost less.
         # The discount is proportional to the self-transition probability P(mode|mode)
         # capped at 12% so desires still dominate the decision.
@@ -1382,7 +1395,7 @@ class BDIPlanner:
                     )
             except Exception as _me:
                 logger.debug("Markov discount failed: %s", _me)
-            # ── End Phase 3 Markov ───────────────────────────────────────────────────────
+            # ── End Markov ───────────────────────────────────────────────────────
  
         # Apply scenario cost factor (e.g. EV Subsidy 30% → factor=0.70)
         # mode_cost_factors is populated by apply_scenario_cost_factors() when a

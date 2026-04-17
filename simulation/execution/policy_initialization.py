@@ -1,22 +1,13 @@
 """
 simulation/execution/policy_initialization.py
 
-Refactored policy engine initialization.
+This module is responsible for: 
+- creating ScenarioManager, 
+- creating DynamicPolicyEngine, and 
+- returning event_bus.
+
 Handles default policies, combined scenarios, and policy-free baseline.
 
-FIXES (2026-03-11):
-  - Bug: add_depot_chargers fired every single step because:
-      1. cooldown_steps was not parsed from YAML / hardcoded defaults (default = 0 = fire every step)
-      2. ev_adoption > 0.5 was always True because the engine counted ALL electric
-         vehicle modes (ev + van_electric + truck_electric + hgv_electric = ~60%)
-         rather than personal-EV adoption specifically.
-  - Fix 1: _parse_combined_scenario now reads cooldown_steps from rule data.
-  - Fix 2: Default add_depot_chargers condition uses ev_count / total_agents
-           (personal EVs only) AND requires a minimum EV count to be meaningful,
-           AND sets cooldown_steps=10 so it cannot fire more than once per 10 steps.
-  - Fix 3: A has_fired guard dict is maintained on CombinedScenario at runtime so
-           one-shot rules (cooldown_steps=-1) are permanently suppressed after
-           first trigger — prevents budget runaway on rules that should only fire once.
 """
 
 from __future__ import annotations
@@ -367,14 +358,14 @@ def _parse_combined_scenario(data: Dict):
 
 
 # Convenience function for backward compatibility
-def get_policy_engine_or_none(config, infrastructure) -> Optional['DynamicPolicyEngine']:
-    """
-    Backward compatible wrapper for initialize_policy_engine.
+# def get_policy_engine_or_none(config, infrastructure) -> Optional['DynamicPolicyEngine']:
+#     """
+#     Backward compatible wrapper for initialize_policy_engine.
 
-    Returns None if policy engine cannot be initialized.
-    """
-    try:
-        return initialize_policy_engine(config, infrastructure)
-    except Exception as e:
-        logger.error(f"Policy engine initialization failed: {e}")
-        return None
+#     Returns None if policy engine cannot be initialized.
+#     """
+#     try:
+#         return initialize_policy_engine(config, infrastructure)
+#     except Exception as e:
+#         logger.error(f"Policy engine initialization failed: {e}")
+#         return None

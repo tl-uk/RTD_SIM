@@ -314,6 +314,11 @@ def create_agents(
             agent.agent_context["user_story"] = agent.user_story
             agent.agent_context["job_story"] = agent.job_story
 
+            # Read the persona's mode_preferences from the story objects and write them into context
+            persona_data = getattr(agent.user_story, 'persona_data', {})
+            if persona_data and 'mode_preferences' in persona_data:
+                agent.agent_context['mode_preferences'] = persona_data['mode_preferences']
+
             # Thread simulation_results so CognitiveAgent._maybe_plan
             # can increment routing_fallback_count on failure.
             agent._simulation_results = simulation_results

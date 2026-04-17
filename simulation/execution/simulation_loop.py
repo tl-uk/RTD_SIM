@@ -35,12 +35,21 @@ from analytics import (
     NetworkEfficiencyTracker
 )
 
+# SETUP / FACTORY: Import initialization separately
 from simulation.execution.policy_initialization import initialize_policy_engine
+
+# RUNTIME / CONTROLLER: Import execution functions separately
 from simulation.execution.dynamic_policies import (
     apply_dynamic_policies,
     record_charging_revenue,
     get_final_policy_report
 )
+# from simulation.execution.policy_initialization import initialize_policy_engine
+# from simulation.execution.dynamic_policies import (
+#     apply_dynamic_policies,
+#     record_charging_revenue,
+#     get_final_policy_report
+# )
 
 logger = logging.getLogger(__name__)
 
