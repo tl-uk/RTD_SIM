@@ -145,125 +145,178 @@ def render_map(
     """
     layers = []
     
-    # ── Ferry / Shipping Lane Layer (always rendered when data available) ─────
-    # Ferry routes are physical infrastructure like roads and rail — they are
-    # shown on the map regardless of whether GTFS is loaded or any ferry agents
-    # are present.  Rendered as dashed teal paths (matching standard mapping
-    # conventions) at the very bottom of the layer stack.
-    _ferry_graph = None
-    _env_arg     = env or kwargs.get('env') or kwargs.get('spatial_environment')
-    if _env_arg is not None and hasattr(_env_arg, 'get_ferry_graph'):
-        _ferry_graph = _env_arg.get_ferry_graph()
-    if _ferry_graph is None and infrastructure_manager is not None:
-        _gm = getattr(infrastructure_manager, 'graph_manager', None)
-        if _gm is not None:
-            _ferry_graph = _gm.get_graph('ferry')
+    # ── Maritime Layers ──────────────────────────────────────────────────────
+    _env_arg = env or kwargs.get("env") or kwargs.get("spatial_environment")
+    _gm_ref  = (
+        getattr(_env_arg, "graph_manager", None)
+        or getattr(infrastructure_manager, "graph_manager", None)
+    )
 
+    def _get_graph(key: str):
+        if _gm_ref is not None:
+            return _gm_ref.get_graph(key)
+        return None
+
+    _sim_bbox = None
+    try:
+        if agent_states:
+            _locs = [s["location"] for s in agent_states
+                     if s.get("location") and len(s["location"]) >= 2]
+            if _locs:
+                _lons = [float(loc[0]) for loc in _locs]
+                _lats = [float(loc[1]) for loc in _locs]
+                _sim_bbox = (min(_lons)-1.5, min(_lats)-1.5, max(_lons)+1.5, max(_lats)+1.5)
+        if _sim_bbox is None:
+            _dg = _get_graph("drive")
+            if _dg is not None and _dg.number_of_nodes() > 0:
+                _xs = [d["x"] for _, d in _dg.nodes(data=True)]
+                _ys = [d["y"] for _, d in _dg.nodes(data=True)]
+                _sim_bbox = (min(_xs)-1.5, min(_ys)-1.5, max(_xs)+1.5, max(_ys)+1.5)
+    except Exception:
+        _sim_bbox = None
+
+    def _in_bbox(shape):
+        if _sim_bbox is None or not shape:
+            return True
+        bw, bs, be, bn = _sim_bbox
+        return any(bw <= float(c[0]) <= be and bs <= float(c[1]) <= bn for c in shape)
+
+    # Ferry routes
+    _ferry_graph = (
+        (getattr(_env_arg, "get_ferry_graph", lambda: None)())
+        if _env_arg is not None else None
+    ) or _get_graph("ferry")
     if show_ferry_routes and _ferry_graph is not None and _ferry_graph.number_of_nodes() > 1:
         try:
-            # ── FIX Bug 2: _sim_bbox derivation ──────────────────────────────
-            # The previous getattr chain returned None because it called
-            # getattr(obj, None, None) — attribute name was None, not a string.
-            # That caused "attribute name must be string, not NoneType".
-            #
-            # New strategy: derive bbox from agent_states locations (always
-            # available during a live render).  Fall back to the env drive-graph
-            # bbox if agent_states is empty.  This is simpler, faster, and never
-            # produces a None bbox.
-            _sim_bbox = None
-            try:
-                if agent_states:
-                    _locs = [
-                        s['location'] for s in agent_states
-                        if s.get('location') and len(s['location']) >= 2
-                    ]
-                    if _locs:
-                        _lons = [float(loc[0]) for loc in _locs]
-                        _lats = [float(loc[1]) for loc in _locs]
-                        _margin = 1.0
-                        _sim_bbox = (
-                            min(_lons) - _margin, min(_lats) - _margin,
-                            max(_lons) + _margin, max(_lats) + _margin,
-                        )
-                # Fallback: use env drive-graph bounds (correct getattr chain)
-                if _sim_bbox is None and _env_arg is not None:
-                    _gm  = getattr(_env_arg, 'graph_manager', None)
-                    _dg  = _gm.get_graph('drive') if _gm is not None else None
-                    if _dg is not None and _dg.number_of_nodes() > 0:
-                        _xs = [d['x'] for _, d in _dg.nodes(data=True)]
-                        _ys = [d['y'] for _, d in _dg.nodes(data=True)]
-                        _margin = 1.0
-                        _sim_bbox = (
-                            min(_xs) - _margin, min(_ys) - _margin,
-                            max(_xs) + _margin, max(_ys) + _margin,
-                        )
-            except Exception:
-                _sim_bbox = None   # bbox clipping disabled — all routes shown
-
-            ferry_routes = []
-            seen_pairs: set = set()
+            _FC = {
+                "ferry_roro":    [0, 80, 160, 210],
+                "ferry_diesel":  [0, 130, 110, 200],
+                "ferry_electric":[0, 188, 180, 200],
+            }
+            rows, seen = [], set()
             for u, v, data in _ferry_graph.edges(data=True):
-                key = (min(str(u), str(v)), max(str(u), str(v)))
-                if key in seen_pairs:
+                pair = (min(str(u), str(v)), max(str(u), str(v)))
+                if pair in seen:
                     continue
-                seen_pairs.add(key)
-                shape = data.get('shape_coords')
-                if not shape or len(shape) < 2:
+                seen.add(pair)
+                shape = data.get("shape_coords")
+                if not shape or len(shape) < 2 or not _in_bbox(shape):
                     continue
+                mode = str(data.get("mode", "ferry_diesel"))
+                rows.append({
+                    "path":  [[float(c[0]), float(c[1])] for c in shape],
+                    "color": _FC.get(mode, [0, 130, 110, 200]),
+                })
+            if rows:
+                layers.insert(0, pdk.Layer(
+                    "PathLayer", data=pd.DataFrame(rows),
+                    get_path="path", get_color="color",
+                    width_min_pixels=2, width_max_pixels=6,
+                    dash_array=[10, 5], pickable=True, auto_highlight=True,
+                ))
+                logger.info("Ferry layer: %d routes", len(rows))
+        except Exception as _fe:
+            logger.warning("Ferry layer failed: %s", _fe)
 
-                # Clip: skip routes entirely outside the sim bbox
-                if _sim_bbox is not None:
-                    min_lon = min(c[0] for c in shape)
-                    max_lon = max(c[0] for c in shape)
-                    min_lat = min(c[1] for c in shape)
-                    max_lat = max(c[1] for c in shape)
-                    bbox_w, bbox_s, bbox_e, bbox_n = _sim_bbox
-                    if max_lon < bbox_w or min_lon > bbox_e or max_lat < bbox_s or min_lat > bbox_n:
-                        continue   # continental route — skip
+    # Shipping lanes (OpenSeaMap TSS)
+    _lanes = _get_graph("shipping_lanes")
+    if _lanes is not None and _lanes.number_of_edges() > 0:
+        try:
+            _LC = {
+                "separation_lane":     [100, 130, 200, 140],
+                "separation_zone":     [130, 110, 180, 100],
+                "separation_boundary": [80,  110, 200, 160],
+                "navigation_line":     [60,  160, 220, 140],
+                "recommended_track":   [40,  180, 220, 120],
+            }
+            rows = []
+            for u, v, data in _lanes.edges(data=True):
+                shape = data.get("shape_coords")
+                if not shape or len(shape) < 2 or not _in_bbox(shape):
+                    continue
+                sm = str(data.get("seamark_type", "separation_lane"))
+                rows.append({
+                    "path":  [[float(c[0]), float(c[1])] for c in shape],
+                    "color": _LC.get(sm, [100, 130, 200, 120]),
+                })
+            if rows:
+                layers.insert(0, pdk.Layer(
+                    "PathLayer", data=pd.DataFrame(rows),
+                    get_path="path", get_color="color",
+                    width_min_pixels=1, width_max_pixels=3,
+                    dash_array=[5, 5], pickable=True,
+                ))
+                logger.info("Shipping lanes: %d segments", len(rows))
+        except Exception as _le:
+            logger.warning("Shipping lanes layer failed: %s", _le)
 
-                try:
-                    route_name = str(data.get('name') or 'Ferry route')
-                    route_type = str(data.get('mode') or 'ferry_diesel')
-                    is_freight = any(
-                        kw in route_name.lower()
-                        for kw in ('freight', 'cargo', 'roro', 'container', 'ro-ro')
-                    )
-                    # ── FIX: color is always a concrete list, never None ──────
-                    # The previous code relied on 'is_freight' never throwing;
-                    # if it did, color remained unset (None) which caused
-                    # "attribute name must be string, not NoneType" when pandas
-                    # tried to build a DataFrame column named by the value.
-                    color: list = [0, 130, 110, 200] if not is_freight else [100, 80, 200, 200]
-                    ferry_routes.append({
-                        'path':         [[float(c[0]), float(c[1])] for c in shape],
-                        'color':        color,
-                        'tooltip_html': (
-                            f'<b>⛴️ {route_name}</b><br/>'
-                            f'{"Sea freight" if is_freight else "Passenger ferry"} lane'
-                        ),
-                    })
-                except Exception as _route_exc:
-                    # Skip this edge rather than crashing the whole ferry layer.
-                    logger.debug("Ferry route entry skipped: %s", _route_exc)
-            if ferry_routes:
-                ferry_df    = pd.DataFrame(ferry_routes)
-                ferry_layer = pdk.Layer(
-                    'PathLayer',
-                    data=ferry_df,
-                    get_path='path',
-                    get_color='color',
-                    width_min_pixels=2,
-                    width_max_pixels=5,
-                    width_scale=1,
-                    dash_array=[10, 6],   # Dashed — standard nautical chart convention
-                    pickable=True,
-                    auto_highlight=True,
-                )
-                layers.insert(0, ferry_layer)
-                logger.info("✅ Ferry waterway layer: %d routes (clipped to sim bbox)", len(ferry_routes))
-        except Exception as _ferr:
-            logger.warning("Ferry layer failed: %s", _ferr)
-    
+    # Waterways
+    _wg = _get_graph("waterways")
+    if _wg is not None and _wg.number_of_edges() > 0:
+        try:
+            _WC = {
+                "canal": [60, 150, 200, 180],
+                "river": [80, 160, 220, 140],
+                "dock":  [40, 120, 180, 160],
+            }
+            rows, wseen = [], set()
+            for u, v, data in _wg.edges(data=True):
+                pair = (min(str(u), str(v)), max(str(u), str(v)))
+                if pair in wseen:
+                    continue
+                wseen.add(pair)
+                shape = data.get("shape_coords")
+                if not shape or len(shape) < 2 or not _in_bbox(shape):
+                    continue
+                wt = str(data.get("waterway", data.get("mode", "canal")))
+                rows.append({
+                    "path":  [[float(c[0]), float(c[1])] for c in shape],
+                    "color": _WC.get(wt, [60, 150, 200, 180]),
+                })
+            if rows:
+                layers.insert(0, pdk.Layer(
+                    "PathLayer", data=pd.DataFrame(rows),
+                    get_path="path", get_color="color",
+                    width_min_pixels=1, width_max_pixels=4, pickable=True,
+                ))
+                logger.info("Waterways: %d ways", len(rows))
+        except Exception as _we:
+            logger.warning("Waterways layer failed: %s", _we)
+
+    # Airport scatter
+    _ag = _get_graph("air")
+    if _ag is not None and _ag.number_of_nodes() > 0:
+        try:
+            _AS = {
+                "large_airport": 12000, "medium_airport": 8000,
+                "small_airport": 5000,  "heliport": 3000,
+            }
+            rows = []
+            for icao, data in _ag.nodes(data=True):
+                alon = float(data.get("x", 0))
+                alat = float(data.get("y", 0))
+                if _sim_bbox:
+                    bw, bs, be, bn = _sim_bbox
+                    if not (bw <= alon <= be and bs <= alat <= bn):
+                        continue
+                rows.append({
+                    "lon":    alon,
+                    "lat":    alat,
+                    "radius": _AS.get(data.get("airport_type", "small_airport"), 5000),
+                    "color":  [40, 120, 200, 180],
+                })
+            if rows:
+                layers.append(pdk.Layer(
+                    "ScatterplotLayer", data=pd.DataFrame(rows),
+                    get_position=["lon", "lat"], get_radius="radius",
+                    get_fill_color="color", stroked=True,
+                    get_line_color=[20, 80, 160, 220], line_width_min_pixels=1,
+                    pickable=True, auto_highlight=True,
+                ))
+                logger.info("Airport layer: %d airports", len(rows))
+        except Exception as _ae:
+            logger.warning("Airport layer failed: %s", _ae)
+
     # The rail graph lives on the SpatialEnvironment (passed as env kwarg),
     # not on InfrastructureManager.  Accept either so callers can pass what
     # they have.

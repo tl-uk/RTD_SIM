@@ -314,10 +314,35 @@ def create_agents(
             agent.agent_context["user_story"] = agent.user_story
             agent.agent_context["job_story"] = agent.job_story
 
-            # Read the persona's mode_preferences from the story objects and write them into context
-            persona_data = getattr(agent.user_story, 'persona_data', {})
-            if persona_data and 'mode_preferences' in persona_data:
-                agent.agent_context['mode_preferences'] = persona_data['mode_preferences']
+            # ── Wire persona mode_preferences into agent_context ─────────────
+            # mode_preferences in personas.yaml (e.g. ev: 0.45, car: 0.85) were
+            # previously parsed into the user_story object but never forwarded to
+            # agent_context, so bdi_planner.cost() never saw them.
+            # Fix: extract from user_story.persona_data and write to context.
+            #
+            # The bdi_planner.cost() persona_preference_bonus block reads
+            # context['mode_preferences'] and applies a ±10–20% cost modifier
+            # for each mode.  Without this block that modifier is always skipped.
+            #
+            # Source priority:
+            #   1. user_story.persona_data['mode_preferences']  — parsed YAML dict
+            #   2. user_story.mode_preferences                  — direct attribute
+            #   3. {}                                           — no preference data
+            _mode_prefs: dict = {}
+            _persona_data = getattr(agent.user_story, 'persona_data', None) or {}
+            if isinstance(_persona_data, dict) and 'mode_preferences' in _persona_data:
+                _mode_prefs = dict(_persona_data['mode_preferences'])
+            elif hasattr(agent.user_story, 'mode_preferences'):
+                _raw = getattr(agent.user_story, 'mode_preferences', None)
+                if isinstance(_raw, dict):
+                    _mode_prefs = dict(_raw)
+            if _mode_prefs:
+                agent.agent_context['mode_preferences'] = _mode_prefs
+                logger.debug(
+                    "Persona mode_preferences wired for %s: %s",
+                    getattr(agent.state, 'agent_id', '?'), _mode_prefs,
+                )
+            # ── End mode_preferences wiring ───────────────────────────────────
 
             # Thread simulation_results so CognitiveAgent._maybe_plan
             # can increment routing_fallback_count on failure.

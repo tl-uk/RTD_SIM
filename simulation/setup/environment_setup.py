@@ -44,6 +44,7 @@ appear in the sea or on hillside farmland.
 from __future__ import annotations
 
 import logging
+import os
 import random
 from pathlib import Path
 from typing import Optional, Tuple
@@ -253,32 +254,72 @@ def setup_environment(
             "to straight interpolation",
             exc,
         )
-    # Load ferry route geometry from Overpass API (or hardcoded UK spine as
-    # fallback).  Registered as graphs['ferry'] on the GraphManager so both the
-    # Router and the Visualiser can access it.  Ferry routes are always shown on
-    # the OSM map regardless of whether GTFS is loaded — they are infrastructure
-    # layers, not GTFS layers.  A 2° bbox expansion inside fetch_ferry_graph()
-    # ensures cross-sea terminals outside the drive graph area are captured.
+    # ── 3b. Ferry, shipping lanes & waterways (ferry_network.py) ─────────────
+    # fetch_maritime_graphs() runs four parallel Overpass queries with independent
+    # timeouts.  The old single-query approach (rail_network.get_or_fallback_ferry_graph)
+    # timed out at HTTP 504 because a seamark query blocked the ferry route query.
+    # With parallel queries, a seamark timeout no longer prevents ferry routes loading.
+    #
+    # Three graphs are registered:
+    #   'ferry'          — passenger/vehicle ferry routes (routing + visualisation)
+    #   'shipping_lanes' — OpenSeaMap TSS lanes (visualisation only, dashed)
+    #   'waterways'      — navigable canals/rivers (routing + visualisation)
     if progress_callback:
-        progress_callback(0.155, "⛴️ Loading ferry network…")
+        progress_callback(0.155, "⛴️ Loading maritime networks…")
     try:
-        from simulation.spatial.rail_network import get_or_fallback_ferry_graph
-        G_ferry = get_or_fallback_ferry_graph(env)
-        if G_ferry is not None and hasattr(G_ferry, 'number_of_nodes') and G_ferry.number_of_nodes() > 0:
-            env.graph_manager.graphs['ferry'] = G_ferry
-            logger.info(
-                "✅ Ferry graph: %d terminals, %d routes",
-                G_ferry.number_of_nodes(),
-                G_ferry.number_of_edges() // 2,   # bi-directional, so halve
-            )
-        elif G_ferry is not None:
-            # Graph object returned but lacks NetworkX API — store anyway
-            env.graph_manager.graphs['ferry'] = G_ferry
-            logger.info("✅ Ferry graph registered")
+        from simulation.spatial.ferry_network import fetch_maritime_graphs
+
+        # Derive bbox from drive graph (already loaded above).
+        _drive = env.graph_manager.get_graph('drive')
+        if _drive is not None and _drive.number_of_nodes() > 0:
+            _xs = [d['x'] for _, d in _drive.nodes(data=True)]
+            _ys = [d['y'] for _, d in _drive.nodes(data=True)]
+            _ferry_bbox = (max(_ys), min(_ys), max(_xs), min(_xs))  # N,S,E,W
         else:
-            logger.warning("⚠️  Ferry graph returned None — ferry routing uses great-circle lines")
+            _ferry_bbox = (58.5, 55.5, -2.5, -4.5)   # Edinburgh/Glasgow default
+
+        _city_tag = getattr(config, 'city', 'default').lower().replace(' ', '_')
+        maritime_graphs = fetch_maritime_graphs(
+            bbox=_ferry_bbox,
+            city_tag=_city_tag,
+            use_cache=True,
+            parallel_queries=True,
+        )
+
+        for _layer, _G in maritime_graphs.items():
+            if _G is not None and hasattr(_G, 'number_of_nodes'):
+                env.graph_manager.graphs[_layer] = _G
+                if _layer == 'ferry':
+                    logger.info(
+                        "✅ Ferry graph: %d terminals, %d routes",
+                        _G.number_of_nodes(),
+                        _G.number_of_edges() // 2,
+                    )
+                elif _layer == 'shipping_lanes':
+                    logger.info(
+                        "✅ Shipping lanes: %d segments (visualisation layer)",
+                        _G.number_of_edges(),
+                    )
+                elif _layer == 'waterways':
+                    logger.info(
+                        "✅ Waterways: %d navigable ways",
+                        _G.number_of_edges() // 2,
+                    )
+
+        if 'ferry' not in env.graph_manager.graphs:
+            logger.warning("⚠️  Ferry graph missing — ferry routing uses great-circle lines")
+
     except Exception as exc:
-        logger.warning("Ferry graph load failed (non-fatal): %s", exc)
+        logger.warning("Maritime graph load failed (non-fatal): %s", exc)
+        # Shim: try legacy fallback so existing ferry routing still works
+        try:
+            from simulation.spatial.rail_network import get_or_fallback_ferry_graph
+            G_ferry = get_or_fallback_ferry_graph(env)
+            if G_ferry is not None:
+                env.graph_manager.graphs['ferry'] = G_ferry
+                logger.info("Ferry graph loaded via legacy fallback")
+        except Exception:
+            pass
 
     # ── 4. Rail graph (OpenRailMap + largest-component extraction) ────────────
     if progress_callback:
@@ -350,6 +391,43 @@ def setup_environment(
         )
         env.naptan_stops = []
         env.graph_manager.naptan_stops = []  # keep graph_manager consistent
+
+    # ── 5b. Airport graph (air_network.py) ───────────────────────────────────
+    # Builds a NetworkX graph of UK airports using the priority chain:
+    #   1. OpenAIP REST API (if OPENAIP_API_KEY is set in .env)
+    #   2. OurAirports CSV  (free, no key required)
+    #   3. Hardcoded UK spine (35 airports, always available offline)
+    #
+    # Used by: Router._compute_flight_route() to snap agent origin/destination
+    # to the nearest airport before generating a great-circle arc.
+    # Registered as graphs['air'] on GraphManager.
+    # Cache: ~/.rtd_sim_cache/transport/uk_airports.graphml (72-hour TTL).
+    if progress_callback:
+        progress_callback(0.185, "✈️ Loading airport graph…")
+    try:
+        from simulation.spatial.air_network import get_or_build_airport_graph, log_air_summary
+
+        _air_bbox = None
+        _air_drive = env.graph_manager.get_graph('drive')
+        if _air_drive is not None and _air_drive.number_of_nodes() > 0:
+            _ax = [d['x'] for _, d in _air_drive.nodes(data=True)]
+            _ay = [d['y'] for _, d in _air_drive.nodes(data=True)]
+            # Expand by 3° so regional airports outside the simulation bbox are included.
+            _air_bbox = (max(_ay) + 3.0, min(_ay) - 3.0, max(_ax) + 3.0, min(_ax) - 3.0)
+
+        G_air = get_or_build_airport_graph(
+            bbox=_air_bbox,
+            city_tag='uk',
+            use_cache=True,
+            openaip_key=os.getenv('OPENAIP_API_KEY', ''),
+        )
+        if G_air is not None and G_air.number_of_nodes() > 0:
+            env.graph_manager.graphs['air'] = G_air
+            log_air_summary(G_air)
+        else:
+            logger.warning("⚠️  Airport graph empty — flight routes use origin→dest arcs")
+    except Exception as exc:
+        logger.warning("Airport graph load failed (non-fatal): %s", exc)
 
     # ── 6. GTFS transit graph ─────────────────────────────────────────────────
     gtfs_path = getattr(config, 'gtfs_feed_path', None)

@@ -232,14 +232,25 @@ class BDIPlanner:
     ) -> None:
         """Initialize planner with expanded freight modes."""
         self.plan_generator = plan_generator
+        # ── default_modes: generic passenger/commuter mode palette ─────────────
+        # Only modes that ANY personal agent could plausibly use are included.
+        # EV and electric variants are intentionally omitted here — they enter
+        # via FusedIdentity.allowed_modes (persona-specific) or via the STEP 2
+        # multi-modal extension based on trip distance.
+        #
+        # Freight and commercial modes (van_*, truck_*, hgv_*, taxi_*) must NOT
+        # appear here: STEP 3.6 removes them for personal agents, but their
+        # presence inflates the candidate set and slows cost evaluation with no
+        # benefit.  They enter exclusively via vehicle_type branching (STEP 1).
+        #
+        # ev is excluded because STEP 1 returns ev in the personal fallback only
+        # when FusedIdentity is not present — and if FusedIdentity IS present
+        # (which it is for all StoryDrivenAgents), allowed_modes already encodes
+        # the persona's EV preference correctly.
         self.default_modes = [
-            'walk', 'bike', 'bus', 
-            'car', 'ev',
-            'taxi_ev', 'taxi_diesel',
-            'van_electric', 'van_diesel',
-            'cargo_bike',
-            'truck_electric', 'truck_diesel',
-            'hgv_electric', 'hgv_diesel', 'hgv_hydrogen',
+            'walk', 'bike', 'bus',
+            'car',
+            'local_train', 'tram',
         ]
         self.infrastructure = infrastructure_manager
 
@@ -1123,6 +1134,12 @@ class BDIPlanner:
         w_cost = desires.get('cost', 0.3)
         w_comfort = desires.get('comfort', 0.2)
         w_risk = desires.get('risk', 0.2)
+        # ── Fix: default eco weight 0.5 (not 0.6) ────────────────────────────
+        # 0.6 gave every agent without an explicit eco desire a free 0.204 cost
+        # advantage for EV (0 g/km × 0.6) vs car (0.34 × 0.6 = 0.204).
+        # 0.5 is the neutral midpoint — no implicit eco lean for agents whose
+        # persona hasn't set an eco desire. Agents with eco_warrior (eco=0.9)
+        # or budget_student (eco=0.4) are unaffected — they set explicit values.
         w_eco = desires.get('eco', 0.5)
  
         # Normalize base metrics to [0,1]
@@ -1349,20 +1366,7 @@ class BDIPlanner:
             else:
                 total_cost *= 0.7
 
-        # ── Persona mode preference modifier ─────────────────────────────────
-        # mode_preferences from the persona YAML (e.g. 'ev': 0.45, 'car': 0.85)
-        # are finally applied here. A preference of 1.0 = 10% cost discount.
-        # A preference of 0.0 = 20% surcharge. This is the ONLY place mode_preferences
-        # are consumed — they must be in agent_context['mode_preferences'].
-        _mode_prefs = (context.get('mode_preferences') or {})
-        if _mode_prefs and mode in _mode_prefs:
-            pref = float(_mode_prefs[mode])  # 0.0–1.0
-            # Continuous linear: preference 1.0 → −10%, preference 0.0 → +20%
-            pref_factor = 1.0 - 0.10 * pref + 0.20 * (1.0 - pref)
-            # = 1.0 + 0.20 - 0.30*pref  → range [0.90, 1.20]
-            total_cost *= max(0.90, min(1.20, 1.20 - 0.30 * pref))
-
-        # ── Markov habit discount ───────────────────────────────────
+        # ── Phase 3: Markov habit discount ───────────────────────────────────
         # If the agent has a PersonalityMarkovChain, habitual modes cost less.
         # The discount is proportional to the self-transition probability P(mode|mode)
         # capped at 12% so desires still dominate the decision.
@@ -1395,7 +1399,7 @@ class BDIPlanner:
                     )
             except Exception as _me:
                 logger.debug("Markov discount failed: %s", _me)
-            # ── End Markov ───────────────────────────────────────────────────────
+            # ── End Phase 3 Markov ───────────────────────────────────────────────────────
  
         # Apply scenario cost factor (e.g. EV Subsidy 30% → factor=0.70)
         # mode_cost_factors is populated by apply_scenario_cost_factors() when a
@@ -1409,6 +1413,56 @@ class BDIPlanner:
                 "Scenario factor %.2f applied to %s: cost %.3f → %.3f",
                 scenario_factor, mode, total_cost / scenario_factor, total_cost,
             )
+
+        # ── Persona mode preference modifier ─────────────────────────────────
+        # mode_preferences from the persona YAML (e.g. ev: 0.45, car: 0.85,
+        # local_train: 0.70) are applied here as a continuous cost adjustment.
+        #
+        # This is the ONLY place mode_preferences are consumed.  They reach here
+        # via agent_context['mode_preferences'], which agent_creation.py populates
+        # from user_story.persona_data['mode_preferences'] (see agent_creation.py).
+        #
+        # Mapping: preference 0.0–1.0 → cost factor 1.20–0.90
+        #   pref = 1.0 → factor 0.90  (−10%: strongly preferred mode)
+        #   pref = 0.5 → factor 1.05  (  0%: neutral; no adjustment)
+        #   pref = 0.0 → factor 1.20  (+20%: avoided/unlikely mode)
+        #
+        # Formula: factor = 1.20 − 0.30 × pref
+        #   Derivation: linear interpolation between 1.20 (pref=0) and 0.90 (pref=1).
+        #   The range [0.90, 1.20] is intentionally modest so the BDI desire weights
+        #   still dominate — preference nudges rather than overrides.
+        #
+        # Real-world calibration examples (personas.yaml):
+        #   budget_student:    car=0.80, ev=0.45, bus=0.85, local_train=0.90
+        #     → car factor 0.96, EV factor 1.065, bus factor 0.945, train 0.930
+        #     → Train and bus become cheaper than EV for a budget student ✓
+        #   eco_warrior:       ev=0.95, bike=0.95, car=0.20
+        #     → EV factor 0.915, bike 0.915, car factor 1.14
+        #     → Car costs 25% more than EV for eco_warrior ✓
+        #   rural_commuter:    car=0.90, ev=0.35, local_train=0.70
+        #     → EV factor 1.095 (+9.5% vs car's 0.93) — reflects range anxiety
+        #       and rural charging gap ✓
+        #   shift_worker:      car=0.85, ev=0.40, bus=0.60
+        #     → EV factor 1.08 — older vehicles / cost-sensitivity ✓
+        #   paramedic:         van_diesel=0.90, van_electric=0.50
+        #     → Diesel costs 0.93×, electric 1.05× — reliability preference ✓
+        _mode_prefs: dict = context.get('mode_preferences') or {}
+        if _mode_prefs and mode in _mode_prefs:
+            try:
+                pref = float(_mode_prefs[mode])
+                pref = max(0.0, min(1.0, pref))           # clamp to [0, 1]
+                pref_factor = 1.20 - 0.30 * pref          # [0.90, 1.20]
+                pref_factor = max(0.90, min(1.20, pref_factor))
+                total_cost *= pref_factor
+                if abs(pref_factor - 1.0) > 0.02:         # only log non-trivial adjustments
+                    logger.debug(
+                        "Persona pref %.2f → factor %.3f on %s for %s",
+                        pref, pref_factor, mode,
+                        getattr(state, 'agent_id', '?'),
+                    )
+            except (TypeError, ValueError) as _pe:
+                logger.debug("mode_preferences parse error (%s): %s", mode, _pe)
+        # ── End persona preference modifier ───────────────────────────────────
 
         # Add stochastic noise (±15%)
         total_cost += random.uniform(-0.15, 0.15)
