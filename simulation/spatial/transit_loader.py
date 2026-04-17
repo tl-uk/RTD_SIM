@@ -51,7 +51,7 @@ from dotenv import load_dotenv
 # ---------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[2]
-CACHE_DIR = ROOT / "debug" / "cache"
+CACHE_DIR = ROOT / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(ROOT / ".env")
