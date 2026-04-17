@@ -17,13 +17,7 @@ logger = logging.getLogger(__name__)
 # Import scenario framework
 try:
     from scenarios.scenario_manager import ScenarioManager
-    from scenarios.dynamic_policy_engine import (
-        DynamicPolicyEngine,
-        CombinedScenario,
-        InteractionRule,
-        PolicyConstraint,
-        FeedbackLoop
-    )
+    from scenarios.dynamic_policy_engine import DynamicPolicyEngine
     SCENARIOS_AVAILABLE = True
 except ImportError:
     SCENARIOS_AVAILABLE = False
@@ -31,7 +25,7 @@ except ImportError:
 
 # Re-export for backward compatibility
 # Other modules import initialize_policy_engine from this module
-from simulation.execution.policy_initialization import initialize_policy_engine
+# from simulation.execution.policy_initialization import initialize_policy_engine
 
 def apply_dynamic_policies(
     policy_engine: DynamicPolicyEngine,

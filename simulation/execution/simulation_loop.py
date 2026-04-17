@@ -35,9 +35,9 @@ from analytics import (
     NetworkEfficiencyTracker
 )
 
+from simulation.execution.policy_initialization import initialize_policy_engine
 from simulation.execution.dynamic_policies import (
-    initialize_policy_engine,
-    apply_dynamic_policies as _infra_apply_dynamic_policies,  # renamed — SD import may override
+    apply_dynamic_policies,
     record_charging_revenue,
     get_final_policy_report
 )
@@ -56,9 +56,9 @@ except ImportError:
 # System Dynamics
 from agent.system_dynamics import StreamingSystemDynamics
 try:
+    # --- PATCH 2B: Clean SD Imports ---
     from simulation.execution.system_dynamics_integration import (
-        initialize_system_dynamics,      # ← was missing — caused always-None SD engine
-        apply_dynamic_policies,          # augmented version that includes SD feedback
+        initialize_system_dynamics,
         update_system_dynamics,
         get_system_dynamics_history
     )
@@ -67,15 +67,12 @@ except ImportError:
     SYSTEM_DYNAMICS_AVAILABLE = False
     logger.warning("⚠️ System Dynamics integration module not available — using direct init")
 
-    # Restore infrastructure apply_dynamic_policies so policy engine still works
-    apply_dynamic_policies = _infra_apply_dynamic_policies
+    # NOTE: The hacky `apply_dynamic_policies = _infra_apply_dynamic_policies` has been completely deleted!
 
     def initialize_system_dynamics(config: SimulationConfig) -> Optional[StreamingSystemDynamics]:
         """
         Direct fallback: instantiate StreamingSystemDynamics when
         system_dynamics_integration is unavailable.
-        config.system_dynamics must be a SystemDynamicsConfig instance
-        (sidebar_config.py always creates one: config.system_dynamics = SystemDynamicsConfig()).
         """
         sd_config = getattr(config, 'system_dynamics', None)
         if sd_config is None:
@@ -96,8 +93,8 @@ except ImportError:
         if system_dynamics is None:
             return []
         try:
-            if hasattr(system_dynamics, 'step'):
-                result = system_dynamics.step(
+            if hasattr(system_dynamics, 'update'):
+                result = system_dynamics.update(
                     agents=agents, infrastructure=infrastructure, dt=dt
                 )
                 return result if isinstance(result, list) else []
