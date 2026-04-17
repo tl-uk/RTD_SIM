@@ -559,6 +559,16 @@ def run_simulation_loop(
     policy_impact_analyzer = PolicyImpactAnalyzer(policy_engine) if config.calculate_policy_roi else None
     network_efficiency = NetworkEfficiencyTracker() if config.track_network_efficiency else None
     
+    # ------------ FIX WARNING AND ENABLE POLICIES ---------
+    if policy_engine is None:
+        try:
+            policy_engine = initialize_policy_engine(config, infrastructure)
+            if policy_engine:
+                logger.info("✅ Dynamic Policy Engine initialized successfully.")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not initialize Dynamic Policy Engine: {e}")
+    # -------------------------------------------------------
+
     # Capture baseline before any policies
     if policy_impact_analyzer and policy_engine:
         policy_impact_analyzer.capture_baseline(
