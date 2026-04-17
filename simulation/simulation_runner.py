@@ -36,7 +36,9 @@ from simulation.analysis.scenario_comparison import (
 )
 
 # Import dynamic policy engine
-from simulation.execution.dynamic_policies import initialize_policy_engine
+# from simulation.execution.dynamic_policies import initialize_policy_engine
+# Import dynamic policy engine
+from simulation.execution.policy_initialization import initialize_policy_engine
 
 logger = logging.getLogger(__name__)
 
