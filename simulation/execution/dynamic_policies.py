@@ -25,7 +25,7 @@ except ImportError:
 
 # Re-export for backward compatibility
 # Other modules import initialize_policy_engine from this module
-# from simulation.execution.policy_initialization import initialize_policy_engine
+from simulation.execution.policy_initialization import initialize_policy_engine
 
 def apply_dynamic_policies(
     policy_engine: DynamicPolicyEngine,
