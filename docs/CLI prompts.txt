@@ -13,6 +13,29 @@ find /Users/theo/Dev/Python/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
   grep -v __pycache__ | grep -v .git | sort > project_structure_current.txt && \
   echo "Done: $(wc -l < project_structure_current.txt) files"
 
+# list all files in cache
+ls -lah ~/.rtd_sim_cache/transport
+
+# preview all matching cached rail/tram GraphML files
+find ~/.rtd_sim_cache/transport \
+  \( -name "*_rail.graphml" -o -name "*_tram*.graphml" \) \
+  -type f
+
+# count how many found
+find ~/.rtd_sim_cache/transport \
+  \( -name "*_rail.graphml" -o -name "*_tram*.graphml" \) \
+  -type f | wc -l
+
+# delete safely
+find ~/.rtd_sim_cache/transport \
+  \( -name "*_rail.graphml" -o -name "*_tram*.graphml" \) \
+  -type f -delete
+
+# find files and delete (f -delete)
+find ~/.rtd_sim_cache/transport \
+  \( -name "*_rail.graphml" -o -name "*_tram*.graphml" -o -name "*_ferry*.graphml" \) \
+  -type f -delete
+
 # clear OSM cache
 rm -rf ~/.rtd_sim_cache/osm_graphs/
 
