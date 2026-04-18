@@ -136,9 +136,6 @@ _RAIL_STOP_TYPES = frozenset({
     'BCE',   # Bus / coach station entrance (intermodal hubs)
 })
 
-# Public alias for import by router.py
-RAIL_STOP_TYPES = _RAIL_STOP_TYPES
-
 # ── ATCO area code registry ────────────────────────────────────────────────────
 # Each entry: code -> {name, centroid_lon, centroid_lat}
 # Centroids are approximate geographic centres of each administrative area.
@@ -740,23 +737,45 @@ def build_transfer_nodes(
 # ── Nearest stop query ─────────────────────────────────────────────────────────
 
 def nearest_naptan_stop(
-    coord:  Tuple[float, float],
-    stops:  List[NaptanStop],
-    max_km: float = 30.0,
-    stop_types: Optional[frozenset] = None,   # ← ADD THIS
+    coord:      Tuple[float, float],
+    stops:      List[NaptanStop],
+    max_km:     float = 30.0,
+    stop_types: Optional[frozenset] = None,
 ) -> Optional[NaptanStop]:
-    """Return the nearest NaptanStop to (lon, lat) within max_km, optionally filtered by stop_type."""
+    """
+    Return the nearest NaptanStop to (lon, lat) within max_km.
+
+    Args:
+        coord:      (lon, lat) in decimal degrees.
+        stops:      List of NaptanStop objects from load_naptan_stops().
+        max_km:     Maximum search radius in km.
+        stop_types: Optional frozenset of NaPTAN StopType codes to include.
+                    When supplied only stops whose stop_type is in this set
+                    are considered.  When None all stop types are searched.
+
+                    Use RAIL_STOP_TYPES for rail/metro/tram-only snapping
+                    (prevents snapping a train agent to a nearby bus stop).
+
+    Returns:
+        Nearest matching NaptanStop, or None if none within max_km.
+    """
     lon, lat = coord
-    best      = None
-    best_dist = float('inf')
+    best:      Optional[NaptanStop] = None
+    best_dist: float = float('inf')
     for s in stops:
-        if stop_types and s.stop_type not in stop_types:  # ← ADD THIS
+        # ── Stop-type filter ─────────────────────────────────────────────────
+        if stop_types is not None and s.stop_type not in stop_types:
             continue
         d = _haversine_km(lon, lat, s.lon, s.lat)
         if d < best_dist:
             best_dist = d
             best = s
     return best if best_dist <= max_km else None
+
+
+# Public alias — imported by router.py for typed access.
+# Rail/metro/tram stop types only: excludes bus, coach, ferry, air.
+RAIL_STOP_TYPES = _RAIL_STOP_TYPES
 
 
 # ── Haversine ──────────────────────────────────────────────────────────────────

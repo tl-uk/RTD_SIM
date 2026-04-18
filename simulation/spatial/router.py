@@ -679,6 +679,11 @@ class Router:
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest,   network_type)
+
+            # ── Roundabout avoidance ──────────────────────────────────────────
+            # Snapping to a roundabout node produces routes that start or end
+            # mid-roundabout (physically impossible).  Walk off to the nearest
+            # non-roundabout neighbour before routing.
             orig_node = self._avoid_roundabout(graph, orig_node)
             dest_node = self._avoid_roundabout(graph, dest_node)
 
@@ -698,28 +703,6 @@ class Router:
         except Exception as exc:
             logger.error("❌ %s: road routing failed: %s", agent_id, exc)
             return self._get_invalid_route(origin, dest)
-    
-
-    def _avoid_roundabout(self, graph: Any, node: Any) -> Any:
-        """Step off a roundabout node to the nearest non-roundabout neighbour."""
-        if node is None or graph is None:
-            return node
-        try:
-            edges = list(graph.edges(node, data=True))
-            on_roundabout = any(
-                d.get('junction') == 'roundabout'
-                for _, _, d in edges
-            )
-            if not on_roundabout:
-                return node
-            # Walk one hop to the first non-roundabout neighbour
-            for nb in graph.neighbors(node):
-                nb_edges = list(graph.edges(nb, data=True))
-                if not any(d.get('junction') == 'roundabout' for _, _, d in nb_edges):
-                    return nb
-        except Exception:
-            pass
-        return node
 
     # =========================================================================
     # RAIL INTERMODAL ROUTING
@@ -818,14 +801,35 @@ class Router:
         naptan_stops = getattr(self.graph_manager, 'naptan_stops', [])
         if naptan_stops:
             try:
-                from simulation.spatial.naptan_loader import nearest_naptan_stop, RAIL_STOP_TYPES
-                naptan_hit = nearest_naptan_stop(coord, naptan_stops, stop_types=RAIL_STOP_TYPES, max_km=self._MAX_ACCESS_KM)
+                from simulation.spatial.naptan_loader import (
+                    nearest_naptan_stop,
+                    RAIL_STOP_TYPES,
+                )
+                # ── CRITICAL: pass stop_types=RAIL_STOP_TYPES ────────────────
+                # Without this filter, nearest_naptan_stop returns the single
+                # closest NaPTAN stop regardless of type — which is often a bus
+                # stop (Lothian Buses has ~1,800 stops in Edinburgh).  Agent 9204
+                # was being snapped to a Lothian Bus stop near the Mound rather
+                # than Edinburgh Waverley (RLY stop) because the bus stop was 50 m
+                # closer.  The fix restricts snapping to RLY/RSE/MET/TMU types.
+                naptan_hit = nearest_naptan_stop(
+                    coord,
+                    naptan_stops,
+                    stop_types=RAIL_STOP_TYPES,
+                    max_km=self._MAX_ACCESS_KM,
+                )
                 if naptan_hit is not None:
                     # Use the NaPTAN platform coordinate as the precision snap target.
                     snap_coord = (naptan_hit.lon, naptan_hit.lat)
+                    logger.debug(
+                        "NaPTAN rail snap: %.4f,%.4f → %s (%s) at %.0fm",
+                        coord[0], coord[1],
+                        naptan_hit.common_name, naptan_hit.stop_type,
+                        haversine_km(coord, snap_coord) * 1000,
+                    )
                     return self._brute_force_nearest_node(snap_coord, rail_graph)
-            except Exception:
-                pass   # NaPTAN unavailable — fall through to direct scan
+            except Exception as _ne:
+                logger.debug("NaPTAN snap failed: %s — direct scan", _ne)
 
         # ── Direct brute-force scan (fallback) ────────────────────────────
         return self._brute_force_nearest_node(coord, rail_graph)
@@ -852,6 +856,86 @@ class Router:
                 best_dist = d
                 best_node = node
         return best_node
+
+    def _avoid_roundabout(
+        self,
+        graph: Any,
+        node: Any,
+        max_hops: int = 2,
+    ) -> Any:
+        """
+        Step off a roundabout node to the nearest non-roundabout neighbour.
+
+        OSMnx `nearest_nodes()` finds the closest graph node by Euclidean
+        distance regardless of road type.  Roundabout nodes sit at junctions
+        and are statistically overrepresented near any road origin/destination.
+        An agent whose snapped node is mid-roundabout produces routes that
+        start or end in the middle of a traffic circle, which is:
+          (a) physically impossible (no stopping on a roundabout)
+          (b) visually confusing on the map
+
+        Strategy: if the snapped node has any adjacent edge tagged
+        junction=roundabout, walk up to max_hops hops along the graph to
+        find a connected node that is NOT part of a roundabout.
+
+        Args:
+            graph:    NetworkX drive/walk graph.
+            node:     Node returned by get_nearest_node().
+            max_hops: Maximum number of hops to walk (default 2 — one hop
+                      always exits a standard roundabout; two handles large
+                      multi-lane roundabouts like the A720/A8 interchange).
+
+        Returns:
+            Adjusted node (original node if no roundabout was detected,
+            or if the graph is None / the node is not in the graph).
+        """
+        if node is None or graph is None or node not in graph:
+            return node
+
+        def _on_roundabout(n: Any) -> bool:
+            """Return True if any edge adjacent to n is a roundabout edge."""
+            try:
+                for _, _, data in graph.edges(n, data=True):
+                    junction = data.get('junction', '')
+                    hw       = data.get('highway', '')
+                    if junction == 'roundabout' or hw == 'roundabout':
+                        return True
+                # Also check OSMnx node tag
+                if graph.nodes[n].get('junction') == 'roundabout':
+                    return True
+            except Exception:
+                pass
+            return False
+
+        if not _on_roundabout(node):
+            return node
+
+        # BFS up to max_hops to find the nearest non-roundabout node
+        from collections import deque
+        visited = {node}
+        queue   = deque([(node, 0)])
+        while queue:
+            current, depth = queue.popleft()
+            if depth > max_hops:
+                break
+            try:
+                neighbours = list(graph.neighbors(current))
+            except Exception:
+                break
+            for nb in neighbours:
+                if nb in visited:
+                    continue
+                visited.add(nb)
+                if not _on_roundabout(nb):
+                    logger.debug(
+                        "Roundabout avoidance: %s → %s (%d hop%s)",
+                        node, nb, depth + 1, 's' if depth else '',
+                    )
+                    return nb
+                queue.append((nb, depth + 1))
+
+        # Could not escape — return original
+        return node
 
     def _compute_intermodal_route(
         self,
@@ -1304,6 +1388,10 @@ class Router:
             try:
                 orig_node = self.graph_manager.get_nearest_node(origin, 'walk')
                 dest_node = self.graph_manager.get_nearest_node(dest,   'walk')
+
+                # Roundabout avoidance on walk graph (rare but possible near junctions)
+                orig_node = self._avoid_roundabout(G_walk, orig_node)
+                dest_node = self._avoid_roundabout(G_walk, dest_node)
 
                 # ── FIX Bug 1a: same-node snap ────────────────────────────────
                 # When a GTFS stop coordinate lies at (or very near) a walk-graph
@@ -1897,6 +1985,9 @@ class Router:
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest,   network_type)
+            # Roundabout avoidance — same fix as _compute_road_route
+            orig_node = self._avoid_roundabout(graph, orig_node)
+            dest_node = self._avoid_roundabout(graph, dest_node)
             if orig_node is None or dest_node is None:
                 return []
 
@@ -2183,15 +2274,47 @@ class Router:
         return 'decarb_weight'
 
     def _add_scenic_weights(self, graph: Any, mode: str) -> str:
-        """Prefer quiet / green roads over arterials."""
-        _S = {
-            'motorway':      8.0,   # A720 bypass — never scenic
-            'motorway_link': 6.0, 'trunk': 5.0,   # dual carriageways
-            'trunk_link':    4.0, 'primary': 3.0,   # arterials
-            'primary_link':  2.5, 'secondary': 1.8, 'secondary_link':1.5, 'tertiary': 0.9,
-            'unclassified':  0.85, # typical default OSM road type — often quiet residential
-            'residential':   0.7, 'living_street': 0.6, 'pedestrian':  0.5, 'path': 0.4,
-            'footway':       0.4, 'cycleway': 0.45, 'track': 0.4, 'service': 1.0,
+        """
+        Prefer quiet, green roads over arterials and motorways.
+
+        Weights are multipliers on edge length: < 1.0 = preferred, > 1.0 = avoided.
+        The A720 Edinburgh bypass was assigned only 1.5× previously; it is the
+        shortest geometric path between Corstorphine and Baberton, so the scenic
+        routing was using it.  Motorways are now 8× to make them genuinely
+        unattractive for any scenic routing.
+
+        Weight table — intuition:
+          motorway / motorway_link : 8–6×  never scenic (loud, no footway, ugly)
+          trunk / trunk_link       : 5–4×  dual carriageway — unpleasant
+          primary / primary_link   : 3–2.5× busy A-roads
+          secondary / secondary_link: 1.8–1.5× moderate traffic
+          tertiary / unclassified  : 0.85–0.9× quieter, short-cut routes
+          residential              : 0.70   preferred: leafy residential streets
+          living_street            : 0.60   best residential
+          pedestrian / path        : 0.45–0.50  ideal scenic surface
+          footway / cycleway       : 0.40–0.45  off-road preferred
+          track                    : 0.40   bridleways and farm tracks (scenic)
+          service                  : 1.00   neutral (car parks, alleys)
+        """
+        _S: Dict[str, float] = {
+            'motorway':       8.0,
+            'motorway_link':  6.0,
+            'trunk':          5.0,
+            'trunk_link':     4.0,
+            'primary':        3.0,
+            'primary_link':   2.5,
+            'secondary':      1.8,
+            'secondary_link': 1.5,
+            'tertiary':       0.9,
+            'unclassified':   0.85,
+            'residential':    0.70,
+            'living_street':  0.60,
+            'pedestrian':     0.50,
+            'path':           0.45,
+            'footway':        0.40,
+            'cycleway':       0.40,
+            'track':          0.40,
+            'service':        1.00,
         }
         for _u, _v, _k, data in graph.edges(keys=True, data=True):
             hw = data.get('highway', 'residential')

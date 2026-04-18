@@ -688,13 +688,30 @@ class TripChainPlanner:
         coord: Tuple[float, float],
         mode: str,
     ) -> Optional[Tuple[float, float]]:
-        """Return coordinates of the nearest stop for a given mode, or None."""
+        """
+        Return coordinates of the nearest stop for a given mode, or None.
+
+        Priority:
+          1. GTFS transit graph (most precise — platform-level accuracy)
+          2. NaPTAN stop registry (DfT authoritative — RLY/TMU type filtered)
+          3. None — TripChainPlanner falls back to equidistant waypoints
+
+        The NaPTAN fallback is essential when GTFS is not loaded (no_GTFS runs).
+        Without it the waypoint is computed from a great-circle fraction and the
+        walk/access leg threads through buildings rather than along streets.
+        """
+        _RAIL_MODES  = frozenset({'local_train', 'intercity_train', 'freight_rail'})
+        _TRAM_MODES  = frozenset({'tram'})
+
+        # ── Tier 1: GTFS transit graph ────────────────────────────────────────
         try:
             G_transit = self.env.get_transit_graph()
             if G_transit is not None:
                 from simulation.gtfs.gtfs_graph import GTFSGraph
-                builder = GTFSGraph(None)
-                stop_id = builder.nearest_stop(G_transit, coord, mode_filter=mode, max_distance_m=5000)
+                builder  = GTFSGraph(None)
+                stop_id  = builder.nearest_stop(
+                    G_transit, coord, mode_filter=mode, max_distance_m=5000
+                )
                 if stop_id:
                     node = G_transit.nodes.get(stop_id, {})
                     x = node.get('x')
@@ -703,6 +720,39 @@ class TripChainPlanner:
                         return (float(x), float(y))
         except Exception:
             pass
+
+        # ── Tier 2: NaPTAN stop registry ─────────────────────────────────────
+        # Used when GTFS is absent or returns nothing.  Filter by stop type:
+        #   rail/intercity → RLY/RSE stops (National Rail stations)
+        #   tram           → TMU stops (Edinburgh Trams, Metrolink etc.)
+        try:
+            naptan_stops = (
+                getattr(self.env, 'naptan_stops', None)
+                or getattr(getattr(self.env, 'graph_manager', None), 'naptan_stops', None)
+                or []
+            )
+            if naptan_stops:
+                from simulation.spatial.naptan_loader import (
+                    nearest_naptan_stop,
+                    RAIL_STOP_TYPES,
+                )
+                _TRAM_STOP_TYPES = frozenset({'TMU'})
+                stop_types_filter = (
+                    RAIL_STOP_TYPES if mode in _RAIL_MODES
+                    else _TRAM_STOP_TYPES if mode in _TRAM_MODES
+                    else None   # bus etc.: no type restriction
+                )
+                hit = nearest_naptan_stop(
+                    coord,
+                    naptan_stops,
+                    stop_types=stop_types_filter,
+                    max_km=2.0,
+                )
+                if hit is not None:
+                    return (hit.lon, hit.lat)
+        except Exception:
+            pass
+
         return None
 
 

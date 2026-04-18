@@ -501,6 +501,31 @@ class BDIPlanner:
                 _ev_belief, available_modes,
             )
 
+        # ── Sort candidates by persona mode preference (highest first) ─────────
+        # mode_preferences from the persona YAML (e.g. ev: 0.35, car: 0.90) are
+        # already applied as a cost modifier in cost().  Sorting here ensures
+        # higher-preference modes are EVALUATED FIRST, which matters for two
+        # reasons:
+        #   1. If two modes produce identical cost (within noise), the first-
+        #      evaluated one is returned — so preferred modes win tiebreaks.
+        #   2. Modes with preference < 0.5 (e.g. EV for rural_commuter/shift_worker)
+        #      are pushed to the end of the candidate list so they are only chosen
+        #      after all higher-preference modes have been tried and costed.
+        # This complements the cost() modifier; together they give a 2-stage
+        # preference signal: order + cost factor.
+        _prefs_sort: dict = (agent_context or {}).get('mode_preferences', {})
+        if _prefs_sort:
+            available_modes = sorted(
+                available_modes,
+                key=lambda m: float(_prefs_sort.get(m, 0.5)),
+                reverse=True,   # highest preference first
+            )
+            logger.debug(
+                "Candidate modes (persona-sorted): %s",
+                available_modes[:10],
+            )
+        # ── End persona sort ──────────────────────────────────────────────────
+
         for mode in available_modes:
             logger.debug(f"   Testing mode: {mode}")
 
