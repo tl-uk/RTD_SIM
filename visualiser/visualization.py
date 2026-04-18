@@ -112,6 +112,9 @@ def render_map(
     show_gtfs_electric_only: bool = False,
     show_naptan_stops: bool = False,
     show_ferry_routes: bool = True,
+    show_airports: bool = True,
+    show_shipping_lanes: bool = False,
+    show_waterways: bool = False,
     infrastructure_manager: Optional[Any] = None,
     env: Optional[Any] = None,
     center_lon: float = -3.19,
@@ -181,7 +184,7 @@ def render_map(
         bw, bs, be, bn = _sim_bbox
         return any(bw <= float(c[0]) <= be and bs <= float(c[1]) <= bn for c in shape)
 
-    # Ferry routes
+    # ── Ferry routes ──────────────────────────────────────────────────────────
     _ferry_graph = (
         (getattr(_env_arg, "get_ferry_graph", lambda: None)())
         if _env_arg is not None else None
@@ -193,6 +196,11 @@ def render_map(
                 "ferry_diesel":  [0, 130, 110, 200],
                 "ferry_electric":[0, 188, 180, 200],
             }
+            _FERRY_LABELS = {
+                "ferry_roro":    "RoRo (vehicles + foot)",
+                "ferry_diesel":  "Passenger ferry",
+                "ferry_electric":"Zero-emission ferry",
+            }
             rows, seen = [], set()
             for u, v, data in _ferry_graph.edges(data=True):
                 pair = (min(str(u), str(v)), max(str(u), str(v)))
@@ -202,10 +210,20 @@ def render_map(
                 shape = data.get("shape_coords")
                 if not shape or len(shape) < 2 or not _in_bbox(shape):
                     continue
-                mode = str(data.get("mode", "ferry_diesel"))
+                mode  = str(data.get("mode", "ferry_diesel"))
+                rname = str(data.get("name", "Ferry route"))
+                foot  = "&#x1F6B6; Foot passengers" if data.get("foot", True) else ""
+                car   = "&#x1F697; Vehicles" if data.get("motorcar", False) else ""
+                tip   = (
+                    f"<b>&#x26F4;&#xFE0F; {rname}</b><br/>"
+                    f"{_FERRY_LABELS.get(mode, mode.replace('_', ' ').title())}"
+                    + (f"<br/>{foot}" if foot else "")
+                    + (f"&nbsp;{car}" if car else "")
+                )
                 rows.append({
-                    "path":  [[float(c[0]), float(c[1])] for c in shape],
-                    "color": _FC.get(mode, [0, 130, 110, 200]),
+                    "path":         [[float(c[0]), float(c[1])] for c in shape],
+                    "color":        _FC.get(mode, [0, 130, 110, 200]),
+                    "tooltip_html": tip,
                 })
             if rows:
                 layers.insert(0, pdk.Layer(
@@ -218,9 +236,9 @@ def render_map(
         except Exception as _fe:
             logger.warning("Ferry layer failed: %s", _fe)
 
-    # Shipping lanes (OpenSeaMap TSS)
+    # ── Shipping lanes (OpenSeaMap TSS — sidebar toggle: show_shipping_lanes) ─
     _lanes = _get_graph("shipping_lanes")
-    if _lanes is not None and _lanes.number_of_edges() > 0:
+    if show_shipping_lanes and _lanes is not None and _lanes.number_of_edges() > 0:
         try:
             _LC = {
                 "separation_lane":     [100, 130, 200, 140],
@@ -229,30 +247,43 @@ def render_map(
                 "navigation_line":     [60,  160, 220, 140],
                 "recommended_track":   [40,  180, 220, 120],
             }
+            _LC_LABELS = {
+                "separation_lane":     "Traffic Separation Scheme Lane",
+                "separation_zone":     "Separation Zone",
+                "separation_boundary": "Lane Boundary",
+                "navigation_line":     "Navigation Line",
+                "recommended_track":   "Recommended Track",
+            }
             rows = []
             for u, v, data in _lanes.edges(data=True):
                 shape = data.get("shape_coords")
                 if not shape or len(shape) < 2 or not _in_bbox(shape):
                     continue
-                sm = str(data.get("seamark_type", "separation_lane"))
+                sm   = str(data.get("seamark_type", "separation_lane"))
+                name = str(data.get("name", ""))
+                tip  = (
+                    f"<b>&#x1F5FA;&#xFE0F; {name or _LC_LABELS.get(sm, sm)}</b><br/>"
+                    f"{_LC_LABELS.get(sm, sm)}"
+                )
                 rows.append({
-                    "path":  [[float(c[0]), float(c[1])] for c in shape],
-                    "color": _LC.get(sm, [100, 130, 200, 120]),
+                    "path":         [[float(c[0]), float(c[1])] for c in shape],
+                    "color":        _LC.get(sm, [100, 130, 200, 120]),
+                    "tooltip_html": tip,
                 })
             if rows:
                 layers.insert(0, pdk.Layer(
                     "PathLayer", data=pd.DataFrame(rows),
                     get_path="path", get_color="color",
                     width_min_pixels=1, width_max_pixels=3,
-                    dash_array=[5, 5], pickable=True,
+                    dash_array=[5, 5], pickable=True, auto_highlight=True,
                 ))
                 logger.info("Shipping lanes: %d segments", len(rows))
         except Exception as _le:
             logger.warning("Shipping lanes layer failed: %s", _le)
 
-    # Waterways
+    # ── Waterways (sidebar toggle: show_waterways) ────────────────────────────
     _wg = _get_graph("waterways")
-    if _wg is not None and _wg.number_of_edges() > 0:
+    if show_waterways and _wg is not None and _wg.number_of_edges() > 0:
         try:
             _WC = {
                 "canal": [60, 150, 200, 180],
@@ -268,52 +299,91 @@ def render_map(
                 shape = data.get("shape_coords")
                 if not shape or len(shape) < 2 or not _in_bbox(shape):
                     continue
-                wt = str(data.get("waterway", data.get("mode", "canal")))
+                wt   = str(data.get("waterway", data.get("mode", "canal")))
+                wnam = str(data.get("name", ""))
+                tip  = (
+                    f"<b>&#x1F3DE;&#xFE0F; {wnam or wt.title()}</b><br/>"
+                    f"Navigable {wt}"
+                )
                 rows.append({
-                    "path":  [[float(c[0]), float(c[1])] for c in shape],
-                    "color": _WC.get(wt, [60, 150, 200, 180]),
+                    "path":         [[float(c[0]), float(c[1])] for c in shape],
+                    "color":        _WC.get(wt, [60, 150, 200, 180]),
+                    "tooltip_html": tip,
                 })
             if rows:
                 layers.insert(0, pdk.Layer(
                     "PathLayer", data=pd.DataFrame(rows),
                     get_path="path", get_color="color",
-                    width_min_pixels=1, width_max_pixels=4, pickable=True,
+                    width_min_pixels=1, width_max_pixels=4,
+                    pickable=True, auto_highlight=True,
                 ))
                 logger.info("Waterways: %d ways", len(rows))
         except Exception as _we:
             logger.warning("Waterways layer failed: %s", _we)
 
-    # Airport scatter
+    # ── Airports (sidebar toggle: show_airports) ───────────────────────────────
+    # Root cause of the blue-blob carpet: radius was in metres (5,000–12,000 m)
+    # and OurAirports included 395 closed airports + 1,061 small airfields.
+    # Fix 1: radius_min_pixels / radius_max_pixels — fixed pixel size at all zooms.
+    # Fix 2: only render large + medium airports by default (show_airports=True).
+    #         Small airports and heliports only shown when show_airports is True AND
+    #         the user is zoomed in past zoom 10 (approximated by bbox area < 2°).
+    # Fix 3: tooltip_html column added so pydeck '{tooltip_html}' template resolves.
     _ag = _get_graph("air")
-    if _ag is not None and _ag.number_of_nodes() > 0:
+    if show_airports and _ag is not None and _ag.number_of_nodes() > 0:
         try:
-            _AS = {
-                "large_airport": 12000, "medium_airport": 8000,
-                "small_airport": 5000,  "heliport": 3000,
+            # Pixel radii per airport type — fixed screen size regardless of zoom
+            _AP = {
+                "large_airport":  12,   # clearly visible dot
+                "medium_airport":  8,
+                "small_airport":   4,   # tiny — only shown if explicitly enabled
+                "heliport":        3,
             }
+            # Show small airports only when bbox is small (user is zoomed in)
+            _show_small = False
+            if _sim_bbox:
+                bw, bs, be, bn = _sim_bbox
+                _show_small = (be - bw) < 2.0 and (bn - bs) < 2.0
             rows = []
             for icao, data in _ag.nodes(data=True):
-                alon = float(data.get("x", 0))
-                alat = float(data.get("y", 0))
+                alon  = float(data.get("x", 0))
+                alat  = float(data.get("y", 0))
+                atype = data.get("airport_type", "small_airport")
+                # Skip small/heliport unless zoomed in
+                if atype in ("small_airport", "heliport") and not _show_small:
+                    continue
                 if _sim_bbox:
                     bw, bs, be, bn = _sim_bbox
                     if not (bw <= alon <= be and bs <= alat <= bn):
                         continue
+                name = str(data.get("name", icao))
+                iata = str(data.get("iata", ""))
+                tip  = (
+                    f"<b>&#x2708;&#xFE0F; {name}</b>"
+                    + (f" ({iata})" if iata else f" [{icao}]")
+                    + f"<br/>{atype.replace('_', ' ').title()}"
+                )
                 rows.append({
-                    "lon":    alon,
-                    "lat":    alat,
-                    "radius": _AS.get(data.get("airport_type", "small_airport"), 5000),
-                    "color":  [40, 120, 200, 180],
+                    "lon":          alon,
+                    "lat":          alat,
+                    "px":           _AP.get(atype, 4),
+                    "color":        [40, 120, 200, 200],
+                    "tooltip_html": tip,
                 })
             if rows:
                 layers.append(pdk.Layer(
                     "ScatterplotLayer", data=pd.DataFrame(rows),
-                    get_position=["lon", "lat"], get_radius="radius",
-                    get_fill_color="color", stroked=True,
-                    get_line_color=[20, 80, 160, 220], line_width_min_pixels=1,
+                    get_position=["lon", "lat"],
+                    radius_min_pixels="px",   # column reference — fixed px size
+                    radius_max_pixels="px",
+                    get_fill_color="color",
+                    stroked=True,
+                    get_line_color=[20, 80, 160, 230],
+                    line_width_min_pixels=1,
                     pickable=True, auto_highlight=True,
                 ))
-                logger.info("Airport layer: %d airports", len(rows))
+                logger.info("Airport layer: %d airports (%s small)",
+                            len(rows), "with" if _show_small else "no")
         except Exception as _ae:
             logger.warning("Airport layer failed: %s", _ae)
 

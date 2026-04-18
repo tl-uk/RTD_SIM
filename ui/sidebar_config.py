@@ -8,9 +8,28 @@ Sidebar configuration with Phase 5.1 combined scenarios.
 import streamlit as st
 from pathlib import Path
 import logging
+import os
 from typing import Any, Dict, Optional, List
 import sys
 import yaml
+
+# ── Load project .env at import time ─────────────────────────────────────────
+# sidebar_config.py is imported before any simulation module so dotenv must be
+# loaded here — otherwise os.getenv("TRANSITLAND_API_KEY") always returns "".
+# This is the canonical .env load for all UI modules.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(_PROJECT_ROOT / ".env", override=False)
+except ImportError:
+    # dotenv not installed: manually parse .env so the key is still available
+    _env_file = _PROJECT_ROOT / ".env"
+    if _env_file.exists():
+        for _line in _env_file.read_text().splitlines():
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _, _v = _line.partition("=")
+                os.environ.setdefault(_k.strip(), _v.strip())
 
 parent_dir = Path(__file__).resolve().parent.parent
 if str(parent_dir) not in sys.path:
@@ -20,6 +39,21 @@ if str(parent_dir) not in sys.path:
 # sidebar_config.py lives at ui/sidebar_config.py, so parent_dir = project root.
 _PERSONAS_PATH    = parent_dir / "agent" / "personas" / "personas.yaml"
 _JOB_CONTEXTS_DIR = parent_dir / "agent" / "job_contexts"
+
+# ── Data directories ──────────────────────────────────────────────────────────
+# Static datasets shipped with RTD_SIM (never auto-deleted):
+#   RTD_SIM/data/gtfs_dft/   — DfT/Traveline/ScotRail static GTFS feeds
+#   RTD_SIM/data/naptan/     — NaPTAN CSV exports (DfT bulk download)
+# Downloaded feeds (auto-updated, safe to delete, re-downloaded on demand):
+#   RTD_SIM/data/gtfs/       — TransitLand / BODS auto-downloads land here.
+#                              NOT in cache/ (OSM graph snapshots) or /tmp/
+#                              (lost on reboot). data/gtfs/ persists across
+#                              restarts, is git-ignored, and is clearly distinct
+#                              from the read-only static feeds in data/gtfs_dft/.
+_STATIC_GTFS_DIR  = parent_dir / "data" / "gtfs_dft"
+_DOWNLOAD_GTFS_DIR = parent_dir / "data" / "gtfs"
+_DOWNLOAD_GTFS_DIR.mkdir(parents=True, exist_ok=True)
+_NAPTAN_DIR       = parent_dir / "data" / "naptan"
 
 from simulation.config.simulation_config import SimulationConfig
 from ui.sidebar_system_dynamics import render_sd_parameters_section, render_sd_info_box
@@ -387,6 +421,39 @@ def render_sidebar_config():
                 "Always visible regardless of GTFS."
                 + (" MapTiler OSM style shows built-in ferry lanes too."
                    if _style_info.get("ferry_lanes") else "")
+            ),
+        )
+
+    # ── Maritime & Aviation extras ────────────────────────────────────────────
+    # These are off by default to keep the default view clean.
+    # show_airports is ON (large/medium only); small airports need zoom-in.
+    col5, col6 = st.columns(2)
+    with col5:
+        st.session_state['show_airports'] = st.checkbox(
+            "✈️ Airports",
+            value=st.session_state.get('show_airports', True),
+            key="_disp_airports",
+            help=(
+                "Airport markers (large & medium airports always shown; "
+                "small airports appear when zoomed in). "
+                "Closed/derelict sites are excluded."
+            ),
+        )
+        st.session_state['show_waterways'] = st.checkbox(
+            "🏞️ Waterways",
+            value=st.session_state.get('show_waterways', False),
+            key="_disp_waterways",
+            help="Navigable canals and rivers (Forth & Clyde, Union Canal etc.).",
+        )
+    with col6:
+        st.session_state['show_shipping_lanes'] = st.checkbox(
+            "🗺️ Shipping Lanes",
+            value=st.session_state.get('show_shipping_lanes', False),
+            key="_disp_lanes",
+            help=(
+                "OpenSeaMap Traffic Separation Scheme (TSS) lanes — dashed blue. "
+                "Off by default: this is a dense data layer best used when "
+                "simulating ferry or freight agents near major ports."
             ),
         )
 
@@ -1457,34 +1524,63 @@ def _render_gtfs_configuration() -> dict:
     run_analytics  = False
 
     if enable_gtfs:
-        # ── TransitLand auto-download ─────────────────────────────────────
-        # Feed IDs must be 'f-…' (feed), NOT 'o-…' (operator).
-        # The download endpoint is:
-        #   GET /v2/rest/feeds/{feed_id}/download_latest_feed_version
-        # Requires TRANSITLAND_API_KEY in the project .env file.
-        _KNOWN_FEEDS = {
-            "(select)":             "",
-            "🚋 Edinburgh Trams":   "f-gcpv-edinburghtramsltd",
-            "🚌 Lothian Buses":     "f-gcpv-lothianbuses",
-            "🚆 ScotRail":          "f-gcpv-firstscotland",
-            "🚇 Glasgow Subway":    "f-gcpv-spt",
-            "🚌 First Glasgow":     "f-gcpv-firstglasgow",
-        }
-
-        # Show API key status before the download button
-        import os as _os
-        _api_key = _os.getenv("TRANSITLAND_API_KEY", "").strip()
+        # ── API key ───────────────────────────────────────────────────────────
+        # .env is loaded at module import (top of sidebar_config.py) so
+        # os.getenv() will always see the key if it is in the project .env file.
+        _api_key = os.getenv("TRANSITLAND_API_KEY", "").strip()
         if _api_key:
             st.caption("🔑 TransitLand API key: **set** ✅")
         else:
             st.warning(
-                "⚠️ **TRANSITLAND_API_KEY not set** — auto-download disabled.  "
-                "Add `TRANSITLAND_API_KEY=your_key` to your project `.env` file "
-                "or download a GTFS zip manually from "
-                "[transit.land](https://www.transit.land) / "
-                "[bus-data.dft.gov.uk](https://data.bus-data.dft.gov.uk)."
+                "⚠️ **TRANSITLAND_API_KEY not set** — auto-download disabled.  \n"
+                "Add `TRANSITLAND_API_KEY=your_key` to `RTD_SIM/.env` "
+                "(one line per key, no quotes).  \n"
+                "Download manually from "
+                "[transit.land](https://www.transit.land) or "
+                "[data.bus-data.dft.gov.uk](https://data.bus-data.dft.gov.uk) "
+                "and paste the path below."
             )
 
+        # ── Static feed discovery ─────────────────────────────────────────────
+        # Scans RTD_SIM/data/gtfs_dft/ and RTD_SIM/data/gtfs/ for .zip files
+        # so the user can select a pre-downloaded feed without typing a path.
+        _static_feeds: dict = {}
+        for _d in [_STATIC_GTFS_DIR, _DOWNLOAD_GTFS_DIR]:
+            if _d.exists():
+                for _z in sorted(_d.glob("*.zip")):
+                    _static_feeds[f"📁 {_z.name}"] = str(_z)
+        if _static_feeds:
+            st.caption("**Local feeds (auto-discovered):**")
+            _static_choice = st.selectbox(
+                "Pre-downloaded feeds",
+                options=["(none)"] + list(_static_feeds.keys()),
+                index=0,
+                key="_gtfs_static_select",
+                help=(
+                    f"Feeds in {_STATIC_GTFS_DIR.name}/ (static) "
+                    f"and {_DOWNLOAD_GTFS_DIR.name}/ (downloaded). "
+                    "Selecting one fills the path field below."
+                ),
+            )
+            if _static_choice and _static_choice != "(none)":
+                st.session_state["_gtfs_feed_path"] = _static_feeds[_static_choice]
+                st.rerun()
+
+        # ── TransitLand auto-download ─────────────────────────────────────────
+        # Operator onestop IDs (o-gcpv-*) — NOT feed IDs (f-gcpv-*).
+        # The download function resolves operator → latest feed version via:
+        #   GET /v2/rest/feeds?operators={operator_id}   → get feed onestop_id
+        #   GET /v2/rest/feed_versions?feed_onestop_id=… → get latest version URL
+        # Downloaded feeds land in RTD_SIM/data/gtfs/ (persists across restarts,
+        # git-ignored, distinct from static data/gtfs_dft/).
+        _KNOWN_FEEDS = {
+            "(select)":             "",
+            "🚋 Edinburgh Trams":   "o-gcpv-edinburghtramsltd",
+            "🚌 Lothian Buses":     "o-gcpv-lothianbuses",
+            "🚆 ScotRail":          "o-gcpv-scotrail",
+            "🚇 Glasgow Subway":    "o-gcpv-spt",
+            "🚌 First Glasgow":     "o-gcpv-firstglasgow",
+        }
         st.caption("**Auto-download a UK feed via TransitLand:**")
         selected_feed = st.selectbox(
             "Known UK operators",
@@ -1492,9 +1588,8 @@ def _render_gtfs_configuration() -> dict:
             index=0,
             key="_gtfs_known_operator",
             help=(
-                "Select a known operator to download via TransitLand. "
-                "Requires TRANSITLAND_API_KEY in .env.  "
-                "Downloaded to /tmp/ — paste the path into the field below."
+                "Requires TRANSITLAND_API_KEY in RTD_SIM/.env. "
+                "Feed is saved to RTD_SIM/data/gtfs/ and path is auto-filled below."
             ),
         )
         if selected_feed and selected_feed != "(select)":
@@ -1502,35 +1597,65 @@ def _render_gtfs_configuration() -> dict:
             _btn_label = (
                 f"⬇️ Download {selected_feed}"
                 if _api_key else
-                f"⬇️ Download {selected_feed} (API key required)"
+                f"⬇️ {selected_feed} (API key required)"
             )
-            if st.button(_btn_label, key="_gtfs_download_btn",
-                         disabled=_btn_disabled):
-                with st.spinner(f"Downloading {selected_feed}…"):
+            if st.button(_btn_label, key="_gtfs_download_btn", disabled=_btn_disabled):
+                with st.spinner(f"Downloading {selected_feed} via TransitLand…"):
                     try:
-                        from simulation.spatial.transport_loader import (
-                            _download_transitland_feed,
+                        # Inline download using the same pattern as transit_loader.py
+                        # (extracted here so sidebar_config has no circular import).
+                        import requests as _req
+                        _BASE = "https://transit.land/api/v2/rest"
+                        _hdrs = {"apikey": _api_key}
+                        _op_id = _KNOWN_FEEDS[selected_feed]
+
+                        # Step 1: operator → feed onestop_id
+                        _r1 = _req.get(
+                            f"{_BASE}/feeds",
+                            params={"operators": _op_id, "per_page": 5},
+                            headers=_hdrs, timeout=20,
                         )
-                        dl_path = _download_transitland_feed(
-                            _KNOWN_FEEDS[selected_feed],
-                            api_key=_api_key,
-                            output_dir="/tmp",
-                        )
-                        if dl_path:
-                            st.session_state["_gtfs_feed_path"] = dl_path
-                            st.success(
-                                f"✅ Downloaded to `{dl_path}` — "
-                                "path has been filled in below"
-                            )
-                            st.rerun()
+                        _r1.raise_for_status()
+                        _feeds = _r1.json().get("feeds", [])
+                        if not _feeds:
+                            st.error(f"No feeds found for operator {_op_id}. "
+                                     "Check the operator ID at transit.land/operators.")
                         else:
-                            st.error(
-                                "Download failed — check your API key and "
-                                "feed ID, or download manually from "
-                                "[transit.land](https://www.transit.land)"
+                            _feed_id = _feeds[0]["onestop_id"]
+
+                            # Step 2: feed → latest version download URL
+                            _r2 = _req.get(
+                                f"{_BASE}/feed_versions",
+                                params={"feed_onestop_id": _feed_id, "per_page": 1},
+                                headers=_hdrs, timeout=20,
                             )
+                            _r2.raise_for_status()
+                            _versions = _r2.json().get("feed_versions", [])
+                            _dl_url = (
+                                _versions[0].get("url") or
+                                _versions[0].get("download_url")
+                            ) if _versions else None
+
+                            if not _dl_url:
+                                st.error("No download URL found for this feed version.")
+                            else:
+                                # Step 3: stream download → RTD_SIM/data/gtfs/
+                                _out_path = _DOWNLOAD_GTFS_DIR / f"{_feed_id}.zip"
+                                _r3 = _req.get(_dl_url, timeout=120, stream=True)
+                                _r3.raise_for_status()
+                                with open(_out_path, "wb") as _f:
+                                    for _chunk in _r3.iter_content(65536):
+                                        _f.write(_chunk)
+                                st.session_state["_gtfs_feed_path"] = str(_out_path)
+                                st.success(
+                                    f"✅ Downloaded `{_out_path.name}` to "
+                                    f"`data/gtfs/` — path filled below."
+                                )
+                                st.rerun()
                     except Exception as _e:
-                        st.error(f"Download error: {_e}")
+                        st.error(f"Download failed: {_e}  \n"
+                                 "Check your API key and network, or download "
+                                 "manually from [transit.land](https://transit.land).")
 
         # ── Feed path input ───────────────────────────────────────────────
         feed_path_raw = st.text_input(
