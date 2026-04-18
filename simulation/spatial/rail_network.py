@@ -93,14 +93,61 @@ def fetch_rail_graph(
         ox.settings.useful_tags_way = useful_tags
 
     north, south, east, west = bbox
-    rail_filter = '["railway"~"rail|tram|subway|light_rail"]'
+
+    # ── OSM rail filter rationale ─────────────────────────────────────────────
+    # Tag values explicitly INCLUDED (anchored regex):
+    #   rail        — mainline passenger + freight (Network Rail)
+    #   light_rail  — DLR, tram-train hybrids
+    #   subway      — Glasgow Subway, future Edinburgh metro
+    #   tram        — Edinburgh Trams, Manchester Metrolink etc.
+    #   monorail    — future systems
+    #
+    # Excluded by NOT being in the inclusion list:
+    #   railway=disused, abandoned, construction, proposed, miniature, preserved
+    #
+    # ADDITIONAL EXCLUSIONS (new — fix for Craiglockhart freight junction):
+    # ── usage=freight / usage=industrial ──────────────────────────────────────
+    # OSM 'usage' tag on railway=rail ways:
+    #   main       — mainline passenger (Edinburgh–Glasgow, ECML etc.)
+    #   branch     — branch passenger lines (e.g. Borders Railway)
+    #   freight    — freight-only (Caledonian goods line, aggregates spurs)
+    #   industrial — private sidings (quarries, ports, power stations)
+    # Freight lines (e.g. the Caledonian line from Slateford to Millerhill)
+    # cross the main line at Craiglockhart without any passenger station.
+    # They were generating V-shaped routes and impossible junction transfers.
+    # Excluding usage=freight and usage=industrial removes them entirely.
+    #
+    # ── passenger=no ──────────────────────────────────────────────────────────
+    # Some OSM ways correctly tagged railway=rail but passenger=no
+    # (e.g. pure freight spurs, shunting necks).  Exclude these too.
+    #
+    # ── service=yard|siding|crossover|spur (retained from before) ─────────────
+    # Dead-end maintenance infrastructure — causes impossible acute turns.
+    rail_filter = (
+        '["railway"~"^(rail|light_rail|subway|tram|monorail)$"]'
+        '["service"!~"^(yard|siding|crossover|spur)$"]'
+        '["usage"!~"^(freight|industrial)$"]'
+        '["passenger"!="no"]'
+    )
+
+    # ── Graph simplification ───────────────────────────────────────────────────
+    # simplify=True (default): OSMnx merges collinear nodes, reducing node count.
+    # For rail and subway this is fine — tracks are nearly straight.
+    # For TRAM: simplify=True creates chord edges that cut through buildings and
+    # stadiums (observed: Edinburgh Trams route through Murrayfield Stadium).
+    # The Edinburgh Trams curve around Roseburn/Balgreen was being reduced to a
+    # single straight edge. Fix: tram layer uses simplify=False to preserve the
+    # full curved track geometry.  Other layers keep simplify=True for performance.
+    # We detect tram from the filter string rather than adding a parameter.
+    _is_tram_layer = '"tram"' in rail_filter and '"rail"' not in rail_filter
+    _simplify = not _is_tram_layer   # False for tram-only, True for mixed/rail
 
     try:
         # OSMnx 2.x expects (left, bottom, right, top) = (west, south, east, north).
         G_directed = ox.graph_from_bbox(
             bbox=(west, south, east, north),
             custom_filter=rail_filter,
-            simplify=True,
+            simplify=_simplify,
             retain_all=True,
         )
     except TypeError:
@@ -110,7 +157,7 @@ def fetch_rail_graph(
                 north, south, east, west,
                 custom_filter=rail_filter,
                 retain_all=True,
-                simplify=True,
+                simplify=_simplify,
             )
         except Exception as exc:
             logger.error("fetch_rail_graph (OSMnx 1.x fallback) failed: %s", exc)
@@ -203,7 +250,7 @@ def get_or_fallback_rail_graph(env=None) -> Optional[nx.MultiDiGraph]:
 def link_to_road_network(
     G_rail: nx.MultiDiGraph,
     G_road: nx.MultiDiGraph,
-    radius_m: int = 300,
+    radius_m: int = _TRANSFER_LENGTH_M,
 ) -> None:
     """
     Add bi-directional 'transfer' edges between rail station nodes and their

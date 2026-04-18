@@ -136,6 +136,9 @@ _RAIL_STOP_TYPES = frozenset({
     'BCE',   # Bus / coach station entrance (intermodal hubs)
 })
 
+# Public alias for import by router.py
+RAIL_STOP_TYPES = _RAIL_STOP_TYPES
+
 # ── ATCO area code registry ────────────────────────────────────────────────────
 # Each entry: code -> {name, centroid_lon, centroid_lat}
 # Centroids are approximate geographic centres of each administrative area.
@@ -740,12 +743,15 @@ def nearest_naptan_stop(
     coord:  Tuple[float, float],
     stops:  List[NaptanStop],
     max_km: float = 30.0,
+    stop_types: Optional[frozenset] = None,   # ← ADD THIS
 ) -> Optional[NaptanStop]:
-    """Return the nearest NaptanStop to (lon, lat) within max_km."""
+    """Return the nearest NaptanStop to (lon, lat) within max_km, optionally filtered by stop_type."""
     lon, lat = coord
-    best:      Optional[NaptanStop] = None
-    best_dist: float = float('inf')
+    best      = None
+    best_dist = float('inf')
     for s in stops:
+        if stop_types and s.stop_type not in stop_types:  # ← ADD THIS
+            continue
         d = _haversine_km(lon, lat, s.lon, s.lat)
         if d < best_dist:
             best_dist = d

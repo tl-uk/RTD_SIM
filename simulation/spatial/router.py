@@ -679,6 +679,8 @@ class Router:
         try:
             orig_node = self.graph_manager.get_nearest_node(origin, network_type)
             dest_node = self.graph_manager.get_nearest_node(dest,   network_type)
+            orig_node = self._avoid_roundabout(graph, orig_node)
+            dest_node = self._avoid_roundabout(graph, dest_node)
 
             if orig_node is None or dest_node is None or orig_node == dest_node:
                 return self._get_invalid_route(origin, dest)
@@ -696,6 +698,28 @@ class Router:
         except Exception as exc:
             logger.error("❌ %s: road routing failed: %s", agent_id, exc)
             return self._get_invalid_route(origin, dest)
+    
+
+    def _avoid_roundabout(self, graph: Any, node: Any) -> Any:
+        """Step off a roundabout node to the nearest non-roundabout neighbour."""
+        if node is None or graph is None:
+            return node
+        try:
+            edges = list(graph.edges(node, data=True))
+            on_roundabout = any(
+                d.get('junction') == 'roundabout'
+                for _, _, d in edges
+            )
+            if not on_roundabout:
+                return node
+            # Walk one hop to the first non-roundabout neighbour
+            for nb in graph.neighbors(node):
+                nb_edges = list(graph.edges(nb, data=True))
+                if not any(d.get('junction') == 'roundabout' for _, _, d in nb_edges):
+                    return nb
+        except Exception:
+            pass
+        return node
 
     # =========================================================================
     # RAIL INTERMODAL ROUTING
@@ -794,8 +818,8 @@ class Router:
         naptan_stops = getattr(self.graph_manager, 'naptan_stops', [])
         if naptan_stops:
             try:
-                from simulation.spatial.naptan_loader import nearest_naptan_stop
-                naptan_hit = nearest_naptan_stop(coord, naptan_stops, max_km=self._MAX_ACCESS_KM)
+                from simulation.spatial.naptan_loader import nearest_naptan_stop, RAIL_STOP_TYPES
+                naptan_hit = nearest_naptan_stop(coord, naptan_stops, stop_types=RAIL_STOP_TYPES, max_km=self._MAX_ACCESS_KM)
                 if naptan_hit is not None:
                     # Use the NaPTAN platform coordinate as the precision snap target.
                     snap_coord = (naptan_hit.lon, naptan_hit.lat)
@@ -2161,9 +2185,13 @@ class Router:
     def _add_scenic_weights(self, graph: Any, mode: str) -> str:
         """Prefer quiet / green roads over arterials."""
         _S = {
-            'path': 0.5, 'footway': 0.5, 'cycleway': 0.5, 'track': 0.5,
-            'residential': 0.7, 'living_street': 0.7, 'pedestrian': 0.7,
-            'tertiary': 0.9, 'unclassified': 0.9, 'secondary': 1.2,
+            'motorway':      8.0,   # A720 bypass — never scenic
+            'motorway_link': 6.0, 'trunk': 5.0,   # dual carriageways
+            'trunk_link':    4.0, 'primary': 3.0,   # arterials
+            'primary_link':  2.5, 'secondary': 1.8, 'secondary_link':1.5, 'tertiary': 0.9,
+            'unclassified':  0.85, # typical default OSM road type — often quiet residential
+            'residential':   0.7, 'living_street': 0.6, 'pedestrian':  0.5, 'path': 0.4,
+            'footway':       0.4, 'cycleway': 0.45, 'track': 0.4, 'service': 1.0,
         }
         for _u, _v, _k, data in graph.edges(keys=True, data=True):
             hw = data.get('highway', 'residential')
