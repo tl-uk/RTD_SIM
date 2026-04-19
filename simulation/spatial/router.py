@@ -1110,7 +1110,7 @@ class Router:
             _dest_near_tram   = False
             _naptan = getattr(self.graph_manager, 'naptan_stops', [])
             _tmu_stops = [s for s in _naptan
-                          if getattr(s, 'stop_type', '') in ('TMU', 'MET', 'RLY')]
+                          if getattr(s, 'stop_type', '') in ('TMU', 'MET')]
             if _tmu_stops:
                 for _s in _tmu_stops:
                     _d_orig = haversine_km(origin, (_s.lon, _s.lat))
@@ -2045,7 +2045,7 @@ class Router:
         self,
         graph: Any,
         node_list: List,
-        threshold_deg: float = 160.0,
+        threshold_deg: float = 100.0,
     ) -> bool:
         """
         Return True if any consecutive segment pair has a near-reversal.
@@ -2097,7 +2097,7 @@ class Router:
         self,
         graph: Any,
         node_list: List,
-        threshold_deg: float = 160.0,
+        threshold_deg: float = 100.0,
     ) -> Optional[Any]:
         """
         Return the mid-point node of the first heading reversal in node_list.
