@@ -694,7 +694,7 @@ class BDIPlanner:
                 #               route_segments, origin_name='', dest_name='',
                 #               planned_at_step=0)
                 try:
-                    from simulation.routing.trip_chain import TripChain
+                    from simulation.spatial.trip_chain import TripChain
                     tc = TripChain.from_route_segments(
                         origin        = origin,
                         destination   = dest,
@@ -717,7 +717,7 @@ class BDIPlanner:
                 # No segments — single-mode flat route.  Build a minimal 1-leg
                 # TripChain so the visualiser tooltip always has mode context.
                 try:
-                    from simulation.routing.trip_chain import TripChain, TripLeg
+                    from simulation.spatial.trip_chain import TripChain, TripLeg
                     leg = TripLeg(
                         mode  = mode,
                         path  = [tuple(p) for p in route],
