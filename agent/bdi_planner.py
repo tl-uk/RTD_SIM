@@ -684,6 +684,50 @@ class BDIPlanner:
                 params = self._get_ev_params(origin, dest, route, context)
             if _segments:
                 params['route_segments'] = _segments
+                # ── TripChain wiring ─────────────────────────────────────────
+                # TripChain.from_route_segments() packages per-leg geometry into
+                # a multimodal itinerary.  cognitive_abm reads action.params
+                # ['trip_chain'] and promotes it to agent.state.trip_chain.
+                # This was missing — TripChainPlanner existed but was dead code.
+                #
+                # Signature: from_route_segments(origin, destination,
+                #               route_segments, origin_name='', dest_name='',
+                #               planned_at_step=0)
+                try:
+                    from simulation.routing.trip_chain import TripChain
+                    tc = TripChain.from_route_segments(
+                        origin        = origin,
+                        destination   = dest,
+                        route_segments= _segments,
+                    )
+                    params['trip_chain'] = tc
+                    logger.info(
+                        "✅ %s: TripChain %s  %.1fkm  %d legs",
+                        agent_id, mode,
+                        actual_route_distance,
+                        len(_segments),
+                    )
+                except Exception as _tc_exc:
+                    logger.debug(
+                        "TripChain build skipped for %s/%s: %s",
+                        agent_id, mode, _tc_exc,
+                    )
+                # ── End TripChain wiring ──────────────────────────────────────
+            else:
+                # No segments — single-mode flat route.  Build a minimal 1-leg
+                # TripChain so the visualiser tooltip always has mode context.
+                try:
+                    from simulation.routing.trip_chain import TripChain, TripLeg
+                    leg = TripLeg(
+                        mode  = mode,
+                        path  = [tuple(p) for p in route],
+                        label = mode.replace('_', ' ').title(),
+                    )
+                    tc = TripChain(origin=origin, destination=dest)
+                    tc.add_leg(leg)
+                    params['trip_chain'] = tc
+                except Exception:
+                    pass   # non-fatal
             actions.append(Action(mode=mode, route=route, params=params))
         
         # Final summary
@@ -1195,6 +1239,8 @@ class BDIPlanner:
             'tram', 'metro', 'subway', 'tube',
         }
         schedule_risk_penalty = 0.0
+        is_rail_job      = False   # initialised here — logger.debug references these
+        is_transit_agent = False   # for ANY mode, including non-abstract ones
         if mode in _ABSTRACT_MODES:
             # Suppress penalty when job story is rail-specific
             job_id = ''

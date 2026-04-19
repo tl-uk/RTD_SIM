@@ -38,7 +38,9 @@ find ~/.rtd_sim_cache/transport \
 
 # clear OSM cache
 rm -rf ~/.rtd_sim_cache/osm_graphs/
-
+rm ~/.rtd_sim_cache/transport/ferry_shim_ferry.graphml   
+rm ~/.rtd_sim_cache/transport/default_ferry.graphml      
+rm ~/.cache/osmnx/*.json                                 
 
 
 

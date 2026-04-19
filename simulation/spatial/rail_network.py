@@ -227,6 +227,36 @@ def get_or_fallback_rail_graph(env=None) -> Optional[nx.MultiDiGraph]:
     G_rail = fetch_rail_graph(bbox)
 
     if G_rail is not None and len(G_rail.nodes) > 10:
+        # ── Remove known-bad junction nodes ───────────────────────────────────
+        # OSM node IDs for at-grade freight/passenger crossings where there is
+        # physically no station but the graph topology creates a valid path.
+        # These cause impossible V-shaped routes through track crossings.
+        #   21517407  — Craiglockhart at-grade crossing (Caledonian freight /
+        #               Edinburgh–Glasgow mainline).  No station, no platform.
+        #   Agents 2601, 9204 were routing through this node across two
+        #   independent track alignments.
+        # The freight exclusion filter (usage!=freight) removes the Caledonian
+        # branch way, but OSMnx may retain the shared node from OSM's topology.
+        _BAD_NODES = {
+            '21517407',   # Craiglockhart crossing — string (OSMnx loads IDs as str)
+            21517407,     # int form — whichever OSMnx uses
+            '2524591112', # Slateford junction connector node
+            2524591112,
+        }
+        removed = [n for n in list(G_rail.nodes()) if n in _BAD_NODES]
+        if removed:
+            G_rail.remove_nodes_from(removed)
+            logger.info(
+                "Removed %d known-bad junction nodes from rail graph: %s",
+                len(removed), removed,
+            )
+            # Keep only largest weakly-connected component after node removal
+            import networkx as _nx2
+            ccs = sorted(_nx2.weakly_connected_components(G_rail), key=len, reverse=True)
+            if ccs:
+                G_rail = G_rail.subgraph(ccs[0]).copy()
+                G_rail.graph['name'] = 'rail'
+        # ── End bad-node removal ──────────────────────────────────────────────
         return G_rail
 
     logger.warning(
@@ -320,417 +350,84 @@ def link_to_road_network(
 
 
 # =============================================================================
-# FERRY GRAPH
+# FERRY — shim only; all ferry logic lives in ferry_network.py
 # =============================================================================
-
-# Hardcoded UK ferry terminal pairs — (route_name, (origin_lon, origin_lat), (dest_lon, dest_lat))
-# Used as offline fallback when the Overpass query fails.
-# Covers all major domestic crossings, Irish Sea, North Sea, and English Channel.
-_UK_FERRY_ROUTES = [
-    # Irish Sea — Scotland
-    ("Cairnryan_Belfast",           (-5.012, 55.003), (-5.930, 54.612)),
-    ("Cairnryan_Larne",             (-5.012, 55.003), (-5.820, 54.858)),
-    # Irish Sea — Wales / England
-    ("Holyhead_Dublin",             (-4.620, 53.306), (-6.222, 53.341)),
-    ("Holyhead_DunLaoghaire",       (-4.620, 53.306), (-6.135, 53.300)),
-    ("Pembroke_Rosslare",           (-4.930, 51.673), (-6.340, 52.254)),
-    ("Fishguard_Rosslare",          (-4.979, 51.994), (-6.340, 52.254)),
-    ("Liverpool_Dublin",            (-3.002, 53.408), (-6.222, 53.341)),
-    # English Channel
-    ("Dover_Calais",                (1.357,  51.124), (1.850,  50.972)),
-    ("Dover_Dunkirk",               (1.357,  51.124), (2.374,  51.038)),
-    ("Newhaven_Dieppe",             (0.058,  50.793), (1.076,  49.920)),
-    ("Portsmouth_Cherbourg",        (-1.105, 50.798), (-1.625, 49.645)),
-    ("Portsmouth_Caen",             (-1.105, 50.798), (-0.362, 49.182)),
-    ("Portsmouth_StMalo",           (-1.105, 50.798), (-2.026, 48.649)),
-    ("Portsmouth_Santander",        (-1.105, 50.798), (-3.794, 43.463)),
-    ("Plymouth_Roscoff",            (-4.143, 50.367), (-3.983, 48.724)),
-    ("Plymouth_Santander",          (-4.143, 50.367), (-3.794, 43.463)),
-    ("Poole_Cherbourg",             (-1.992, 50.719), (-1.625, 49.645)),
-    # North Sea
-    ("Newcastle_Amsterdam",         (-1.594, 54.970), (4.900,  52.413)),
-    ("Hull_Rotterdam",              (-0.200, 53.740), (4.460,  51.890)),
-    ("Hull_Zeebrugge",              (-0.200, 53.740), (3.200,  51.330)),
-    ("Harwich_HoekVanHolland",      (1.281,  51.947), (4.123,  51.978)),
-    ("Harwich_Esbjerg",             (1.281,  51.947), (8.460,  55.467)),
-    # Scottish Northern Isles
-    ("Aberdeen_Lerwick",            (-2.079, 57.151), (-1.139, 60.153)),
-    ("Aberdeen_Kirkwall",           (-2.079, 57.151), (-2.965, 58.988)),
-    ("Scrabster_Stromness",         (-3.543, 58.613), (-3.295, 58.958)),
-    ("Gill_Kirkwall",               (-2.920, 58.627), (-2.965, 58.988)),
-    # Hebrides & West Scotland
-    ("Ullapool_Stornoway",          (-5.157, 57.896), (-6.374, 58.209)),
-    ("Oban_Craignure",              (-5.478, 56.413), (-5.698, 56.463)),
-    ("Oban_Colonsay",               (-5.478, 56.413), (-6.188, 56.064)),
-    ("Oban_Castlebay",              (-5.478, 56.413), (-7.493, 57.003)),
-    ("Oban_Lochboisdale",           (-5.478, 56.413), (-7.323, 57.155)),
-    ("Mallaig_Armadale",            (-5.827, 57.007), (-5.897, 57.068)),
-    ("Tarbert_Portavadie",          (-5.409, 55.868), (-5.315, 55.877)),
-    ("Gourock_Dunoon",              (-4.817, 55.963), (-4.924, 55.949)),
-    ("Wemyss_Rothesay",             (-4.886, 55.874), (-5.053, 55.838)),
-    ("Ardrossan_Brodick",           (-4.825, 55.641), (-5.141, 55.576)),
-    ("Kennacraig_PortEllen",        (-5.488, 55.803), (-6.190, 55.633)),
-    ("Kennacraig_PortAskaig",       (-5.488, 55.803), (-6.107, 55.850)),
-    # Firth of Clyde
-    ("Gourock_Kilcreggan",          (-4.817, 55.963), (-4.684, 55.982)),
-    # Firth of Forth
-    ("SouthQueensferry_NorthQF",    (-3.398, 55.990), (-3.393, 56.001)),
-    # Isle of Wight
-    ("Portsmouth_Fishbourne",       (-1.105, 50.798), (-1.124, 50.732)),
-    ("Southampton_Cowes",           (-1.404, 50.897), (-1.297, 50.762)),
-    ("Lymington_Yarmouth",          (-1.549, 50.775), (-1.499, 50.709)),
-    # Isles of Scilly
-    ("Penzance_StMarys",            (-5.534, 50.120), (-6.296, 49.919)),
-]
-
 
 def _great_circle_waypoints(
     origin: Tuple[float, float],
-    dest: Tuple[float, float],
-    n: int = 12,
+    dest:   Tuple[float, float],
+    n: int = 16,
 ) -> list:
-    """Return n evenly-spaced great-circle interpolation points between origin and dest."""
-    return [
-        (origin[0] + (dest[0] - origin[0]) * i / (n - 1),
-         origin[1] + (dest[1] - origin[1]) * i / (n - 1))
-        for i in range(n)
-    ]
-
-
-def fetch_ferry_graph(
-    bbox: Tuple[float, float, float, float],
-) -> Optional[nx.MultiDiGraph]:
     """
-    Download ferry route geometry from the OpenStreetMap Overpass API.
+    Return n points along the great-circle arc from origin to dest.
 
-    Queries for:
-      • route=ferry relations
-      • way[route=ferry] ways
-      • way[ferry=yes] ways
-
-    Each OSM way/relation is turned into a bi-directional pair of edges in a
-    NetworkX MultiDiGraph keyed as ``graph['name'] == 'ferry'``.  Nodes
-    represent port terminals (or intermediate waypoints for long crossings).
-    Edges carry:
-      shape_coords  — list of (lon, lat) tuples for visualisation
-      mode          — 'ferry_diesel'
-      length        — edge length in metres (haversine)
-      name          — operator/route name from OSM tags
+    Uses spherical linear interpolation (slerp) — NOT flat lon/lat lerp.
+    The previous implementation used linear interpolation in geographic
+    coordinate space, which causes long-distance routes (e.g. Aberdeen→Lerwick,
+    320 km) to pass through land because the great-circle arc curves away
+    from the straight lat/lon diagonal.
 
     Args:
-        bbox: (north, south, east, west) — RTD_SIM internal convention.
-              Internally expanded by 0.3° to capture cross-boundary terminals
-              without pulling in continental routes outside the simulation region.
-
-    Returns:
-        NetworkX MultiDiGraph tagged graph['name']='ferry', or None on failure.
+        origin: (lon, lat) in decimal degrees.
+        dest:   (lon, lat) in decimal degrees.
+        n:      Number of interpolation points including endpoints.
     """
-    if not _NX:
-        return None
+    import math
+    lon1, lat1 = math.radians(origin[0]), math.radians(origin[1])
+    lon2, lat2 = math.radians(dest[0]),   math.radians(dest[1])
 
-    import urllib.request
-    import json
+    def _xyz(lo, la):
+        return (math.cos(la) * math.cos(lo),
+                math.cos(la) * math.sin(lo),
+                math.sin(la))
 
-    north, south, east, west = bbox
-    # Expand by 2° to capture terminals that sit outside the drive graph bbox
-    # 0.3° padding captures cross-boundary terminals without pulling in
-    # continental routes (e.g. Amsterdam/Hook of Holland from an Edinburgh bbox).
-    # The hardcoded _UK_FERRY_ROUTES spine provides long-haul sea freight
-    # routes when they are needed by the simulation scenario.
-    north, south, east, west = north + 0.3, south - 0.3, east + 0.3, west - 0.3
+    x1, y1, z1 = _xyz(lon1, lat1)
+    x2, y2, z2 = _xyz(lon2, lat2)
+    dot   = max(-1.0, min(1.0, x1*x2 + y1*y2 + z1*z2))
+    omega = math.acos(dot)
 
-    query = (
-        "[out:json][timeout:30];"
-        "("
-        f'  relation["route"="ferry"]({south},{west},{north},{east});'
-        f'  way["route"="ferry"]({south},{west},{north},{east});'
-        f'  way["ferry"="yes"]({south},{west},{north},{east});'
-        ");"
-        "out body;>;out skel qt;"
-    )
-    overpass_url = "https://overpass-api.de/api/interpreter"
+    points = []
+    for i in range(n):
+        t = i / max(n - 1, 1)
+        if omega < 1e-9:
+            xi, yi, zi = x1, y1, z1
+        else:
+            s  = math.sin(omega)
+            a  = math.sin((1 - t) * omega) / s
+            b  = math.sin(t * omega) / s
+            xi, yi, zi = a*x1 + b*x2, a*y1 + b*y2, a*z1 + b*z2
+        lat_i = math.degrees(math.atan2(zi, math.sqrt(xi**2 + yi**2)))
+        lon_i = math.degrees(math.atan2(yi, xi))
+        points.append((lon_i, lat_i))
+    return points
+
+
+def get_or_fallback_ferry_graph(env=None):
+    """
+    Backward-compatibility shim.  Delegates to ferry_network.py.
+
+    This stub exists so that any legacy import of
+    `simulation.spatial.rail_network.get_or_fallback_ferry_graph`
+    does not raise ImportError.  All actual ferry graph logic lives
+    in simulation.spatial.ferry_network.fetch_maritime_graphs().
+    """
     try:
-        req = urllib.request.Request(
-            overpass_url,
-            data=query.encode("utf-8"),
-            method="POST",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        from simulation.spatial.ferry_network import (
+            fetch_maritime_graphs,
+            build_hardcoded_ferry_graph,
         )
-        with urllib.request.urlopen(req, timeout=35) as resp:
-            data = json.loads(resp.read())
-    except Exception as exc:
-        logger.warning("Overpass ferry query failed: %s", exc)
-        return None
-
-    elements   = data.get("elements", [])
-    osm_nodes  = {
-        el["id"]: (float(el["lon"]), float(el["lat"]))
-        for el in elements
-        if el["type"] == "node"
-    }
-    ways = [el for el in elements if el["type"] == "way"]
-
-    if not ways:
-        logger.warning("fetch_ferry_graph: Overpass returned 0 ferry ways")
-        return None
-
-    G = nx.MultiDiGraph()
-    G.graph["name"] = "ferry"
-
-    _node_index: dict = {}   # (lon4, lat4) → node_id
-    _next_id: list = [0]
-
-    def _get_node(lon: float, lat: float, name: str = "") -> int:
-        key = (round(lon, 4), round(lat, 4))
-        if key in _node_index:
-            return _node_index[key]
-        nid = _next_id[0]
-        _next_id[0] += 1
-        G.add_node(nid, x=lon, y=lat, name=name)
-        _node_index[key] = nid
-        return nid
-
-    from simulation.spatial.coordinate_utils import haversine_km as _hav
-
-    added = 0
-    for way in ways:
-        node_refs = way.get("nodes", [])
-        coords    = [osm_nodes[n] for n in node_refs if n in osm_nodes]
-        if len(coords) < 2:
-            continue
-        tags     = way.get("tags", {})
-        name_tag = tags.get("name") or tags.get("operator") or ""
-
-        try:
-            from shapely.geometry import LineString as _LS
-            geom_fwd = _LS(coords)
-            geom_rev = _LS(list(reversed(coords)))
-        except Exception:
-            geom_fwd = geom_rev = None
-
-        u_nid = _get_node(*coords[0])
-        v_nid = _get_node(*coords[-1])
-        if u_nid == v_nid:
-            continue
-
-        dist_m = _hav(coords[0], coords[-1]) * 1000.0
-        G.add_edge(u_nid, v_nid,
-                   shape_coords=coords,
-                   geometry=geom_fwd,
-                   mode="ferry_diesel",
-                   length=dist_m,
-                   name=name_tag,
-                   operator=tags.get("operator", ""))
-        G.add_edge(v_nid, u_nid,
-                   shape_coords=list(reversed(coords)),
-                   geometry=geom_rev,
-                   mode="ferry_diesel",
-                   length=dist_m,
-                   name=name_tag)
-        added += 1
-
-    logger.info(
-        "✅ Ferry graph (Overpass): %d terminals, %d routes",
-        G.number_of_nodes(), added,
-    )
-    return G if G.number_of_nodes() > 1 else None
-
-
-def build_hardcoded_ferry_graph() -> Optional[nx.MultiDiGraph]:
-    """
-    Build a lightweight ferry graph from the hardcoded ``_UK_FERRY_ROUTES`` list.
-
-    Used as offline fallback when the Overpass query fails.  Each route is
-    represented by 12 great-circle interpolation points so ferry paths are
-    rendered as smooth arcs rather than single straight lines.
-
-    Returns:
-        NetworkX MultiDiGraph tagged graph['name']='ferry'.
-    """
-    if not _NX:
-        return None
-
-    from simulation.spatial.coordinate_utils import haversine_km as _hav
-
-    G = nx.MultiDiGraph()
-    G.graph["name"] = "ferry"
-
-    for route_name, (olon, olat), (dlon, dlat) in _UK_FERRY_ROUTES:
-        u = f"port_{olon:.4f}_{olat:.4f}"
-        v = f"port_{dlon:.4f}_{dlat:.4f}"
-
-        origin_label = route_name.split("_")[0]
-        dest_label   = "_".join(route_name.split("_")[1:])
-
-        if not G.has_node(u):
-            G.add_node(u, x=olon, y=olat, name=origin_label)
-        if not G.has_node(v):
-            G.add_node(v, x=dlon, y=dlat, name=dest_label)
-
-        dist_m = _hav((olon, olat), (dlon, dlat)) * 1000.0
-        waypoints_fwd = _great_circle_waypoints((olon, olat), (dlon, dlat))
-        waypoints_rev = list(reversed(waypoints_fwd))
-
-        for u2, v2, wpts in [(u, v, waypoints_fwd), (v, u, waypoints_rev)]:
-            G.add_edge(u2, v2,
-                       shape_coords=wpts,
-                       mode="ferry_diesel",
-                       length=dist_m,
-                       name=route_name)
-
-    logger.info(
-        "✅ Ferry spine (hardcoded): %d terminals, %d routes",
-        G.number_of_nodes(), len(_UK_FERRY_ROUTES),
-    )
-    return G
-
-
-def get_or_fallback_ferry_graph(env=None) -> Optional[nx.MultiDiGraph]:
-    """
-    Try Overpass ferry fetch; fall back to hardcoded UK spine.
-
-    The bbox is derived from the drive graph nodes when *env* is supplied.
-    A 2° expansion is applied inside ``fetch_ferry_graph`` so terminals
-    outside the simulation region are still captured.
-
-    Args:
-        env: SpatialEnvironment — used to derive the bbox.
-             Pass None to use a full-UK bounding box.
-
-    Returns:
-        NetworkX MultiDiGraph (Overpass result or hardcoded spine).
-    """
-    bbox = None
-
-    if env is not None:
-        gm = getattr(env, "graph_manager", None)
-        if gm is not None:
-            drive = gm.get_graph("drive")
-            if drive is not None and len(drive.nodes) > 0:
-                xs   = [d["x"] for _, d in drive.nodes(data=True)]
-                ys   = [d["y"] for _, d in drive.nodes(data=True)]
+        # Derive bbox from environment drive graph
+        bbox = (61.0, 49.0, 6.0, -11.0)  # full UK default
+        if env is not None:
+            gm    = getattr(env, 'graph_manager', None)
+            drive = gm.get_graph('drive') if gm else None
+            if drive is not None and drive.number_of_nodes() > 0:
+                xs = [d['x'] for _, d in drive.nodes(data=True)]
+                ys = [d['y'] for _, d in drive.nodes(data=True)]
                 bbox = (max(ys), min(ys), max(xs), min(xs))
 
-    if bbox is None:
-        # Full UK + Ireland + near-Continent
-        bbox = (61.0, 49.0, 6.0, -11.0)
-        logger.info("get_or_fallback_ferry_graph: no drive graph — using full-UK bbox")
-
-    G = fetch_ferry_graph(bbox)
-    if G is not None and G.number_of_nodes() > 1:
-        return G
-
-    logger.warning(
-        "Overpass ferry fetch failed or empty — falling back to hardcoded spine"
-    )
-    return build_hardcoded_ferry_graph()
-
-# Module-level cache so fetch_tram_relations_overpass is only called once per
-# process regardless of how many agents trigger the lazy-load path.
-_TRAM_RELATIONS_CACHE: Optional[List[List[Tuple[float, float]]]] = None
-_TRAM_RELATIONS_FETCHED: bool = False
-
-
-def fetch_tram_relations_overpass(
-    bbox: Tuple[float, float, float, float],
-) -> List[List[Tuple[float, float]]]:
-    """
-    Download Edinburgh tram route relations from the Overpass API.
-
-    Returns a list of polylines — one list of (lon, lat) tuples per tram
-    route relation found within the bbox.  Returns [] on any failure.
-
-    Implementation notes
-    --------------------
-    • Uses ``urllib.request`` (stdlib) not ``requests`` — rail_network.py
-      already uses urllib for the ferry Overpass query; keeping the same
-      HTTP client avoids an extra dependency and makes the network call
-      pattern consistent across the module.
-    • The query uses ``out geom;`` on the relation so each member way's
-      geometry is returned inline without a second ``node`` lookup.
-    • A module-level flag prevents repeated API calls across a session.
-      The tram track geometry is static; downloading it once is enough.
-    • HTTP non-200 responses and JSON parse failures both return [] so
-      the caller receives an empty list and falls through to the tram-spine
-      fallback — never crashes the planning pipeline.
-
-    Overpass query
-    --------------
-    ``relation["route"="tram"]`` filtered by bbox with ``out geom`` returns
-    each relation's member ways with their full node coordinates.
-    """
-    global _TRAM_RELATIONS_CACHE, _TRAM_RELATIONS_FETCHED  # noqa: PLW0603
-
-    # Return cached result (including empty list from a prior failed fetch)
-    if _TRAM_RELATIONS_FETCHED:
-        return _TRAM_RELATIONS_CACHE or []
-
-    _TRAM_RELATIONS_FETCHED = True
-
-    import urllib.request
-    import json as _json
-
-    north, south, east, west = bbox
-    logger.info("Fetching OSM Tram relations via Overpass API (bbox=%.3f,%.3f,%.3f,%.3f)…",
-                south, west, north, east)
-
-    # Overpass QL: fetch tram route relations with inline geometry.
-    # "out geom" returns each member way's node coordinates so we don't need
-    # a separate node-lookup query.
-    query = (
-        f"[out:json][timeout:30];"
-        f'relation["route"="tram"]({south},{west},{north},{east});'
-        f"out geom;"
-    ).encode("utf-8")
-
-    overpass_url = "https://overpass-api.de/api/interpreter"
-    try:
-        req = urllib.request.Request(
-            overpass_url,
-            data=query,
-            method="POST",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        with urllib.request.urlopen(req, timeout=35) as resp:
-            # Check HTTP status before attempting JSON parse.
-            # Overpass returns 429 (rate limit) or 504 (gateway timeout) as
-            # non-200; reading the empty body then calling json.loads crashes
-            # with "Expecting value: line 1 column 1 (char 0)".
-            status = getattr(resp, 'status', 200)
-            raw = resp.read()
-            if status != 200:
-                logger.warning(
-                    "Overpass tram query returned HTTP %d — "
-                    "falling back to tram graph / spine",
-                    status,
-                )
-                _TRAM_RELATIONS_CACHE = []
-                return []
-            if not raw:
-                logger.warning("Overpass tram query returned empty body")
-                _TRAM_RELATIONS_CACHE = []
-                return []
-            data = _json.loads(raw)
+        graphs = fetch_maritime_graphs(bbox, city_tag='ferry_shim', use_cache=True)
+        return graphs.get('ferry') or build_hardcoded_ferry_graph()
     except Exception as exc:
-        logger.error("❌ Overpass tram relation fetch failed: %s", exc)
-        _TRAM_RELATIONS_CACHE = []
-        return []
-
-    tram_routes: List[List[Tuple[float, float]]] = []
-    for element in data.get("elements", []):
-        if element.get("type") != "relation":
-            continue
-        route_coords: List[Tuple[float, float]] = []
-        for member in element.get("members", []):
-            if member.get("type") == "way" and "geometry" in member:
-                for pt in member["geometry"]:
-                    try:
-                        route_coords.append((float(pt["lon"]), float(pt["lat"])))
-                    except (KeyError, TypeError, ValueError):
-                        continue
-        if len(route_coords) >= 2:
-            tram_routes.append(route_coords)
-
-    logger.info("✅ Downloaded %d physical tram relations via Overpass.", len(tram_routes))
-    _TRAM_RELATIONS_CACHE = tram_routes
-    return tram_routes
+        logger.warning("get_or_fallback_ferry_graph shim failed: %s", exc)
+        return None
