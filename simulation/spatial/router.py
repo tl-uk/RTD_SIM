@@ -1383,6 +1383,18 @@ class Router:
         """
         dist_km = haversine_km(origin, dest)
 
+        # ── PATCH 1 -----------──────────────────────────────────────────
+        # Stop Cars from Driving Through Malls
+        # If the leg is > 1.2km, it is a Park & Ride / Taxi leg. Do NOT route
+        # a car on the pedestrian walk graph (avoids driving through malls).
+        if dist_km > self._WALK_ACCESS_KM:
+            logger.debug(f"{agent_id}: Access leg {dist_km:.1f}km > {self._WALK_ACCESS_KM}km, using drive proxy")
+            _drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
+            if _drive_result and len(_drive_result) > 2:
+                return _drive_result
+            return self._interpolate([origin, dest], max_segment_km=0.05)
+        # ─────────────────────────────────────────────────────────────────
+
         G_walk = self.graph_manager.get_graph('walk')
         if G_walk is not None:
             try:
@@ -1691,7 +1703,11 @@ class Router:
             logger.debug(
                 "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
             )
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            # ── PATCH 2 ------------------─────────────────────────────────
+            # Stop Trams from Becoming Cars
+            # Old: return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            return self._transit_fallback(agent_id, origin, dest, mode, policy)
+            # ──────────────────────────────────────────────────────────────
 
         # ── Extract geometry from shape_coords ────────────────────────────────
         # For each consecutive stop pair, prefer the parallel edge whose
@@ -1771,6 +1787,13 @@ class Router:
                             )
                 if not _tram_seg_added:
                     # Ferry / tram (no OSM graph): straight stop-to-stop line.
+                    # ── PATCH 3 ------------──────────────────────────────────
+                    # Stop Straight Lines Through Buildings
+                    if mode == 'tram':
+                        # Reject straight lines for trams. Force the Overpass fallback.
+                        logger.debug(f"{agent_id}: Missing GTFS shape for tram. Forcing Overpass fallback.")
+                        return self._transit_fallback(agent_id, origin, dest, mode, policy)
+                    # ─────────────────────────────────────────────────────────
                     if i == 0:
                         transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
