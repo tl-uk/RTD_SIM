@@ -233,6 +233,7 @@ class BDIPlanner:
     ) -> None:
         """Initialize planner with expanded freight modes."""
         self.plan_generator = plan_generator
+        self.fused_identity = fused_identity
         # ── default_modes: generic passenger/commuter mode palette ─────────────
         # Only modes that ANY personal agent could plausibly use are included.
         # EV and electric variants are intentionally omitted here — they enter
@@ -346,6 +347,13 @@ class BDIPlanner:
         agent_context: Optional[Dict] = None
     ) -> List[Action]:
         """Generate possible actions with ENHANCED debugging."""
+
+        if self.fused_identity is None:
+                raise RuntimeError(
+                    "BDIPlanner.actions_for() called without fused_identity. "
+                    "This indicates the planner was shared or incorrectly constructed."
+                )
+
         actions: List[Action] = []
         context = agent_context or {}
         
@@ -634,18 +642,25 @@ class BDIPlanner:
                     for leg in legs:
                         segment = env.compute_route(
                             agent_id=agent_id,
-                            origin=leg.start,
-                            dest=leg.end,
+                            origin=leg.path[0],
+                            dest=leg.path[-1],
                             mode=leg.mode,
                             policy_context=context,
                         )
 
-                        # Abort if any leg fails (preserves existing fallback logic)
-                        if not segment or len(segment) < 2:
+                        
+                    if not segment or len(segment) < 2:
                             full_route = []
+                            _segments = []
                             break
 
-                        full_route.extend(segment)
+                    full_route.extend(segment)
+                    _segments.append({
+                        "mode": leg.mode,
+                        "start": leg.path[0],
+                        "end": leg.path[-1],
+                        "points": segment,
+                    })
 
                     route = full_route
 

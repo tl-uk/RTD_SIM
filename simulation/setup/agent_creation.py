@@ -109,15 +109,6 @@ def create_agents(
     """
     if progress_callback:
         progress_callback(0.35, "🤖 Creating agents...")
-
-    
-    fusion = PersonaFusion()
-
-    identity = fusion.fuse(
-        user_story=user_story,
-        job_story=job_story,
-    )
-
     
     # Crypto RNG for better spatial distribution
     crypto_rng = random.Random(secrets.randbits(128))
@@ -279,7 +270,7 @@ def create_agents(
         # Try to use story compatibility filter
         try:
             from agent.story_compatibility import create_realistic_agent_pool
-            
+
             agent_pool = create_realistic_agent_pool(
                 num_agents=config.num_agents,
                 user_story_ids=config.user_stories,
@@ -307,28 +298,46 @@ def create_agents(
         # Create agents from pool
         routes_computed = 0
         routes_failed = 0
-        
+
+        fusion = PersonaFusion()
+
         for i, (user_story, job_story) in enumerate(agent_pool):
             # Tram and rail job stories need OD pairs near their corridors.
-            # Random city-wide pairs almost never land within the tram catchment.
             origin, dest = corridor_od(job_story)
             agent_seed = secrets.randbits(32)
-            
+
+            # 1. Create agent FIRST (no planner yet)
             agent = StoryDrivenAgent(
                 user_story_id=user_story,
                 job_story_id=job_story,
                 origin=origin,
                 dest=dest,
-                planner=planner,
+                planner=None,   # ✅ important
                 seed=agent_seed,
                 apply_variance=True,
                 user_stories_path=_PERSONAS_PATH,
                 job_stories_path=_JOB_CONTEXTS_DIR,
             )
 
-            # Ensure object refs remain intact (do not overwrite with IDs)
+            # 2. Fuse identity from the authoritative story objects
+            fused_identity = fusion.fuse(
+                user_story=agent.user_story,
+                job_story=agent.job_story,
+            )
+
+            # 3. Create per‑agent planner
+            agent_planner = BDIPlanner(
+                infrastructure_manager=planner.infrastructure_manager,
+                plan_generator=planner.plan_generator,
+                fused_identity=fused_identity,
+            )
+
+            # 3. Attach planner to agent
+            agent.planner = agent_planner
+
+            # 5. Preserve existing context wiring
             agent.agent_context["user_story"] = agent.user_story
-            agent.agent_context["job_story"] = agent.job_story
+            agent.agent_context["job_story"]  = agent.job_story
 
             # ── Wire persona mode_preferences into agent_context ─────────────
             # mode_preferences in personas.yaml (e.g. ev: 0.45, car: 0.85) were
