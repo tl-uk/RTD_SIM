@@ -639,6 +639,8 @@ class BDIPlanner:
                     )
 
                     full_route = []
+                    _segments = []
+
                     for leg in legs:
                         segment = env.compute_route(
                             agent_id=agent_id,
@@ -648,19 +650,19 @@ class BDIPlanner:
                             policy_context=context,
                         )
 
-                        
-                    if not segment or len(segment) < 2:
+                        # Abort if any leg fails (preserves existing fallback logic)
+                        if not segment or len(segment) < 2:
                             full_route = []
                             _segments = []
                             break
 
-                    full_route.extend(segment)
-                    _segments.append({
-                        "mode": leg.mode,
-                        "start": leg.path[0],
-                        "end": leg.path[-1],
-                        "points": segment,
-                    })
+                        full_route.extend(segment)
+                        _segments.append({
+                            "mode": leg.mode,
+                            "start": leg.path[0],
+                            "end": leg.path[-1],
+                            "points": segment,
+                        })
 
                     route = full_route
 
@@ -670,8 +672,6 @@ class BDIPlanner:
                             agent_id,
                             mode,
                         )
-
-                    _segments = []
             except Exception as e:
                 logger.error(f"         Routing exception: {e}")
                 routing_results[mode] = f"exception: {e}"
