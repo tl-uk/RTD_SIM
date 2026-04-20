@@ -23,6 +23,11 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Any, Optional
 
 from agent.bdi_planner import BDIPlanner
+from agent.persona_fusion import PersonaFusion
+
+from agent.user_stories import UserStory
+from agent.job_stories import JobStory
+
 from simulation.config.simulation_config import SimulationConfig
 from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 from simulation.spatial_environment import SpatialEnvironment
@@ -52,6 +57,7 @@ except ImportError:
     logger.warning("Story-driven agents not available")
 
 
+
 def create_planner(
     infrastructure: Optional[InfrastructureManager],
     llm_backend: str = 'rule_based',
@@ -73,13 +79,14 @@ def create_planner(
         from agent.contextual_plan_generator import ContextualPlanGenerator
         plan_generator = ContextualPlanGenerator(llm_backend=llm_backend)
         logger.info(f"✅ ContextualPlanGenerator attached (backend={llm_backend})")
-    except Exception as _e:
+    except Exception as e:
         plan_generator = None
-        logger.warning(f"ContextualPlanGenerator not available: {_e}")
+        logger.warning(f"ContextualPlanGenerator not available: {e}")
 
     planner = BDIPlanner(
         infrastructure_manager=infrastructure,
         plan_generator=plan_generator,
+        fused_identity=None,  # ✅ injected later during agent creation
     )
 
     if infrastructure is not None:
@@ -102,6 +109,15 @@ def create_agents(
     """
     if progress_callback:
         progress_callback(0.35, "🤖 Creating agents...")
+
+    
+    fusion = PersonaFusion()
+
+    identity = fusion.fuse(
+        user_story=user_story,
+        job_story=job_story,
+    )
+
     
     # Crypto RNG for better spatial distribution
     crypto_rng = random.Random(secrets.randbits(128))

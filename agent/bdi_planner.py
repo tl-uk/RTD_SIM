@@ -229,6 +229,7 @@ class BDIPlanner:
         infrastructure_manager: Optional[Any] = None,
         plan_generator=None,  # ContextualPlanGenerator — optional
         ev_feasibility=None,
+        fused_identity=None,
     ) -> None:
         """Initialize planner with expanded freight modes."""
         self.plan_generator = plan_generator
@@ -253,6 +254,9 @@ class BDIPlanner:
             'local_train', 'tram',
         ]
         self.infrastructure = infrastructure_manager
+        # FusedIdentity is used for mode filtering and routing decisions based on the 
+        # agent's persona and allowed modes.
+        self.fused_identity = fused_identity
 
         # --- EV feasibility tuning (optional; override via ev_feasibility dict) ---
         self.ev_params = {
@@ -606,13 +610,52 @@ class BDIPlanner:
                         policy_context=context,
                     )
                 else:
-                    route = env.compute_route(
-                        agent_id=agent_id,
-                        origin=origin,
-                        dest=dest,
-                        mode=mode,
-                        policy_context=context,
+                    # route = env.compute_route(
+                    #     agent_id=agent_id,
+                    #     origin=origin,
+                    #     dest=dest,
+                    #     mode=mode,
+                    #     policy_context=context,
+                    # )
+                    from simulation.spatial.trip_chain_builder import TripChainBuilder
+
+                    builder = TripChainBuilder(
+                        env=env,
+                        fused_identity=self.fused_identity,
                     )
+
+                    legs = builder.build(
+                        origin=origin,
+                        destination=dest,
+                        trunk_mode=mode,
+                    )
+
+                    full_route = []
+                    for leg in legs:
+                        segment = env.compute_route(
+                            agent_id=agent_id,
+                            origin=leg.start,
+                            dest=leg.end,
+                            mode=leg.mode,
+                            policy_context=context,
+                        )
+
+                        # Abort if any leg fails (preserves existing fallback logic)
+                        if not segment or len(segment) < 2:
+                            full_route = []
+                            break
+
+                        full_route.extend(segment)
+
+                    route = full_route
+
+                    if not route:
+                        logger.warning(
+                            "Agent %s: illegal or unroutable trip for mode %s",
+                            agent_id,
+                            mode,
+                        )
+
                     _segments = []
             except Exception as e:
                 logger.error(f"         Routing exception: {e}")
