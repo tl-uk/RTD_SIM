@@ -59,6 +59,8 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple
 
+import networkx as nx   # required for tram graph pruning and largest-component selection
+
 logger = logging.getLogger(__name__)
 
 # TransitLand known feed IDs — Scotland
@@ -176,53 +178,163 @@ def _load_osm_layer(env, network_type: str, place, bbox, config) -> None:
 
 def _load_tram_graph(env, place, bbox) -> None:
     """
-    Download OSM railway=tram tracks.
+    Download OSM railway=tram tracks and register a CLEANED graph.
 
     Registered as graphs['tram'] so router._transit_fallback can route on
     physical tram geometry even when no GTFS shapes are available.
+
+    Cleaning steps applied before registration:
+      1. retain_all=False (OSMnx default): keeps only the largest weakly-
+         connected component.  This drops maintenance depots, shunting spurs,
+         and disconnected test tracks — exactly the fragments that were causing
+         routes through the South Gyle car park (depot siding at 55.933°N,
+         -3.350°W, reachable only via a service=siding tag).
+         IMPORTANT: the old retain_all=True was keeping every disconnected
+         OSM fragment.  Dijkstra was stitching them together through siding
+         nodes, producing routes through non-public areas.
+
+      2. Explicit service-tag pruning: any edge with service=siding, yard,
+         crossover, depot, depot_access, or maintenance is removed even when
+         it is part of the largest component (depot approach tracks can be
+         connected to the mainline and therefore survive step 1).
+
+      3. Node isolation cleanup: nodes with no remaining edges after pruning
+         are removed.  Isolated nodes confuse nearest_nodes() which could
+         snap an agent to a dangling depot node even after edge removal.
+
+      4. Directed→undirected projection: `ox.graph_from_*` returns a
+         MultiDiGraph.  For tram routing we want bidirectional traversal,
+         so we project to an undirected form via `ox.convert.to_undirected`.
     """
     try:
         import osmnx as ox
-        _filter = '["railway"~"tram|light_rail"]'
+
+        # OSM filter: tram and light_rail only, exclude service tracks
+        _filter = (
+            '["railway"~"^(tram|light_rail)$"]'
+            '["service"!~"^(siding|yard|crossover|depot|depot_access|maintenance)$"]'
+        )
+
         G_tram = None
         if place:
             G_tram = ox.graph_from_place(
-                place, custom_filter=_filter, retain_all=True,
+                place,
+                custom_filter=_filter,
+                retain_all=False,   # keep largest WCC only — drops disconnected depots
+                simplify=False,     # preserve curve geometry (Murrayfield fix)
             )
         elif bbox:
             _tn, _ts, _te, _tw = bbox  # (north, south, east, west)
             G_tram = ox.graph_from_bbox(
                 north=_tn, south=_ts, east=_te, west=_tw,
-                custom_filter=_filter, retain_all=True,
+                custom_filter=_filter,
+                retain_all=False,
+                simplify=False,
             )
-        if G_tram is not None and G_tram.number_of_nodes() > 0:
-            env.graph_manager.graphs['tram'] = G_tram
-            logger.info(
-                "✅ Tram graph: %d nodes, %d edges (OSM railway=tram)",
-                G_tram.number_of_nodes(), G_tram.number_of_edges(),
-            )
-        else:
+
+        if G_tram is None or G_tram.number_of_nodes() == 0:
             logger.warning("⚠️  Tram graph empty — no OSM tram tracks in bbox")
+            return
+
+        # ── Step 2: Explicit service-tag edge pruning ─────────────────────────
+        # Some depot approach tracks are connected to the mainline and survive
+        # the largest-WCC filter.  Remove them by service tag.
+        _BAD_SERVICE = {'siding', 'yard', 'crossover', 'depot',
+                        'depot_access', 'maintenance'}
+        bad_edges = [
+            (u, v, k)
+            for u, v, k, d in G_tram.edges(keys=True, data=True)
+            if d.get('service', '') in _BAD_SERVICE
+        ]
+        if bad_edges:
+            G_tram.remove_edges_from(bad_edges)
+            logger.debug("Tram: removed %d service-tagged edges", len(bad_edges))
+
+        # ── Step 3: Node isolation cleanup ────────────────────────────────────
+        isolated = list(nx.isolates(G_tram))
+        if isolated:
+            G_tram.remove_nodes_from(isolated)
+            logger.debug("Tram: removed %d isolated nodes after pruning", len(isolated))
+
+        # ── Step 4: Keep largest WCC after pruning ────────────────────────────
+        wccs = sorted(nx.weakly_connected_components(G_tram), key=len, reverse=True)
+        if len(wccs) > 1:
+            G_tram = G_tram.subgraph(wccs[0]).copy()
+            logger.debug("Tram: kept largest WCC (%d nodes)", G_tram.number_of_nodes())
+
+        env.graph_manager.graphs['tram'] = G_tram
+        logger.info(
+            "✅ Tram graph: %d nodes, %d edges (OSM tram, depot-pruned)",
+            G_tram.number_of_nodes(), G_tram.number_of_edges(),
+        )
+
     except Exception as exc:
         logger.warning("Tram graph load failed (non-fatal): %s", exc)
 
 
 def _load_ferry_graph(env) -> None:
-    """Load ferry graph via Overpass, falling back to hardcoded UK spine."""
+    """
+    Load ferry graph via ferry_network.fetch_maritime_graphs (canonical source).
+
+    Also registers graphs['shipping_lanes'] and graphs['waterways'] when
+    Overpass returns them, so the visualiser's dashed shipping-lane layer works.
+
+    Previous implementation called rail_network.get_or_fallback_ferry_graph —
+    a shim that itself fell back to the hardcoded spine via HTTP GET to Overpass
+    (returning HTTP 406 due to missing data= form field) then used linear lat/lon
+    interpolation for arc geometry.  This produced routes that crossed land.
+
+    The new path calls ferry_network.fetch_maritime_graphs() directly which:
+      • Uses urllib.parse.urlencode({'data': query}) — correct HTTP 406 fix
+      • Uses spherical slerp interpolation for all arcs > 5 km
+      • Returns shipping_lanes and waterways layers alongside ferry
+    """
     try:
-        from simulation.spatial.rail_network import get_or_fallback_ferry_graph
-        G_ferry = get_or_fallback_ferry_graph(env)
-        if G_ferry is not None and G_ferry.number_of_nodes() > 0:
-            env.graph_manager.graphs['ferry'] = G_ferry
-            logger.info(
-                "✅ Ferry graph: %d terminals, %d routes",
-                G_ferry.number_of_nodes(),
-                G_ferry.number_of_edges() // 2,
-            )
+        from simulation.spatial.ferry_network import fetch_maritime_graphs
+
+        # Derive bbox from the drive graph (already loaded at this point)
+        G_drive = env.graph_manager.get_graph('drive')
+        if G_drive is not None and G_drive.number_of_nodes() > 0:
+            xs = [d['x'] for _, d in G_drive.nodes(data=True) if 'x' in d]
+            ys = [d['y'] for _, d in G_drive.nodes(data=True) if 'y' in d]
+            # bbox = (north, south, east, west)
+            bbox = (max(ys) + 0.5, min(ys) - 0.5, max(xs) + 0.5, min(xs) - 0.5)
+            city_tag = getattr(env, '_city_tag', 'default')
         else:
-            logger.warning("⚠️  Ferry graph returned None")
+            bbox     = (61.0, 49.0, 6.0, -11.0)   # full UK
+            city_tag = 'uk_ferry'
+
+        maritime = fetch_maritime_graphs(bbox=bbox, city_tag=city_tag, use_cache=True)
+
+        # Register each returned layer on graph_manager
+        for layer, G in maritime.items():
+            if G is not None and G.number_of_nodes() > 0:
+                env.graph_manager.graphs[layer] = G
+                n_edges = G.number_of_edges()
+                if layer == 'ferry':
+                    logger.info(
+                        "✅ Ferry graph: %d terminals, %d routes",
+                        G.number_of_nodes(), n_edges // 2,
+                    )
+                else:
+                    logger.info(
+                        "✅ %s layer: %d segments", layer, n_edges,
+                    )
+
     except Exception as exc:
         logger.warning("Ferry graph load failed (non-fatal): %s", exc)
+        # Last-resort: try the rail_network shim (uses hardcoded slerp spine)
+        try:
+            from simulation.spatial.rail_network import get_or_fallback_ferry_graph
+            G_ferry = get_or_fallback_ferry_graph(env)
+            if G_ferry is not None and G_ferry.number_of_nodes() > 0:
+                env.graph_manager.graphs['ferry'] = G_ferry
+                logger.info(
+                    "✅ Ferry graph (spine fallback): %d terminals",
+                    G_ferry.number_of_nodes(),
+                )
+        except Exception as exc2:
+            logger.warning("Ferry fallback also failed: %s", exc2)
 
 
 def _load_rail_graph(env) -> None:

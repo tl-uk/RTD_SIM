@@ -348,6 +348,116 @@ def link_to_road_network(
         links_added, len(stations),
     )
 
+# =============================================================================
+# TRAM — Overpass relation fetch (Tier 2 fallback in router._transit_fallback)
+# =============================================================================
+
+# Module-level cache so we only hit Overpass once per session.
+_TRAM_RELATIONS_CACHE: Optional[List] = None
+_TRAM_RELATIONS_FETCHED: bool = False
+
+
+def fetch_tram_relations_overpass(
+    bbox: Tuple[float, float, float, float],
+    timeout_s: int = 30,
+) -> List[List[Tuple[float, float]]]:
+    """
+    Fetch Edinburgh tram route=tram relations from Overpass and return a list
+    of polylines.
+
+    Each polyline is a list of (lon, lat) tuples representing one tram route
+    relation in order.  Used by router._transit_fallback as Tier 2 when the
+    pre-loaded OSM tram graph (Tier 1) is absent and before the hardcoded
+    spine (Tier 3).
+
+    Results are cached at module level so Overpass is only queried once per
+    simulation run regardless of how many tram agents request it.
+
+    Args:
+        bbox:      (north, south, east, west) bounding box.  Expanded by 0.3°
+                   to ensure terminal stops outside the strict agent bbox are
+                   captured.
+        timeout_s: Per-request HTTP timeout in seconds.
+
+    Returns:
+        List of polylines.  Empty list on any failure (non-fatal — caller
+        falls through to Tier 3 spine).
+    """
+    global _TRAM_RELATIONS_CACHE, _TRAM_RELATIONS_FETCHED
+
+    if _TRAM_RELATIONS_FETCHED:
+        return _TRAM_RELATIONS_CACHE or []
+
+    _TRAM_RELATIONS_FETCHED = True   # set before the request to prevent retries on failure
+
+    import json
+    import urllib.request
+    import urllib.parse
+
+    north, south, east, west = bbox
+    # Expand so tram terminals at the bbox edge are included
+    s, w, n, e = south - 0.3, west - 0.3, north + 0.3, east + 0.3
+
+    query = (
+        f"[out:json][timeout:{timeout_s}];"
+        f"relation[\"route\"=\"tram\"]({s},{w},{n},{e});"
+        "out body geom;"
+    )
+
+    # Overpass requires the query as the value of a form field named 'data'.
+    # Sending the raw query string as the body causes HTTP 406 Not Acceptable.
+    body = urllib.parse.urlencode({'data': query}).encode('utf-8')
+
+    try:
+        req = urllib.request.Request(
+            "https://overpass-api.de/api/interpreter",
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout_s + 5) as resp:
+            status = getattr(resp, "status", 200)
+            if status == 406:
+                logger.error(
+                    "Overpass tram: HTTP 406 — body encoding error (should never "
+                    "happen; data= field is set)"
+                )
+                _TRAM_RELATIONS_CACHE = []
+                return []
+            if status != 200:
+                logger.warning(
+                    "Overpass tram relations: HTTP %d — skipping", status
+                )
+                _TRAM_RELATIONS_CACHE = []
+                return []
+            data = json.loads(resp.read())
+    except Exception as exc:
+        logger.warning("Overpass tram relations fetch failed: %s", exc)
+        _TRAM_RELATIONS_CACHE = []
+        return []
+
+    polylines: List[List[Tuple[float, float]]] = []
+    for el in data.get("elements", []):
+        if el.get("type") != "relation":
+            continue
+        coords: List[Tuple[float, float]] = []
+        for member in el.get("members", []):
+            if member.get("type") != "way":
+                continue
+            for pt in member.get("geometry", []):
+                try:
+                    coords.append((float(pt["lon"]), float(pt["lat"])))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        if len(coords) >= 2:
+            polylines.append(coords)
+
+    logger.info(
+        "Overpass tram relations: %d polylines fetched (bbox %.2f,%.2f,%.2f,%.2f)",
+        len(polylines), s, w, n, e,
+    )
+    _TRAM_RELATIONS_CACHE = polylines
+    return polylines
 
 # =============================================================================
 # FERRY — shim only; all ferry logic lives in ferry_network.py

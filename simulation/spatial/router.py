@@ -1214,72 +1214,167 @@ class Router:
                     logger.debug("Overpass tram fetch exception: %s", _ov_exc)
                     setattr(self.graph_manager, 'tram_relations', [])
 
-            # Remove Ovrpass relation distance limit — some agents are legitimately >3 km from 
-            # the nearest track node but still within reach of the tram network.  
-            # The route slice logic will find the optimal boarding/alighting points on the nearest 
-            # track segment regardless of distance, and the access/egress legs will handle any long 
+            # Remove Ovrpass relation distance limit — some agents are legitimately >3 km from
+            # the nearest track node but still within reach of the tram network.
+            # The route slice logic will find the optimal boarding/alighting points on the nearest
+            # track segment regardless of distance, and the access/egress legs will handle any long
             # walks to/from the stops.
             tram_routes = getattr(self.graph_manager, 'tram_relations', [])
             if tram_routes:
                 try:
-                    from shapely.geometry import Point, LineString
-                    
+                    from shapely.geometry import Point, LineString as SLineString
+
                     orig_pt = Point(origin)
                     dest_pt = Point(dest)
-                    best_route: list = []
-                    best_dist = float('inf')
+
+                    best_route:  list  = []
+                    best_board:  tuple = origin  # (lon, lat) of boarding point on track
+                    best_alight: tuple = dest    # (lon, lat) of alighting point on track
+                    best_dist        = float('inf')
+
+                    # Sanity limit: ignore any tram route whose nearest point to the
+                    # agent's origin is > 20 km away (prevents Edinburgh routes matching
+                    # Glasgow agents, or any city being assigned a foreign tram network).
+                    _MAX_TRAM_MATCH_KM = 20.0
 
                     for coords in tram_routes:
                         if len(coords) < 2:
                             continue
-                        line = LineString(coords)
-                        
-                        # Project origin/dest to find the closest boarding/alighting points
+                        line = SLineString(coords)
+
+                        # Shapely .distance() on WGS84 coords returns degrees.
+                        # ×111.0 gives approximate km — adequate for relative ranking.
                         d1_km = line.distance(orig_pt) * 111.0
                         d2_km = line.distance(dest_pt) * 111.0
-                        
-                        # Removed the < 3.0km limit. Just find the optimal track segment.
-                        if (d1_km + d2_km) < best_dist:
-                            best_dist = d1_km + d2_km
-                            
-                            proj1 = line.project(orig_pt)
-                            proj2 = line.project(dest_pt)
-                            p_start, p_end = min(proj1, proj2), max(proj1, proj2)
-                            
-                            if p_end > p_start:
-                                # Safe slicing (handles different Shapely versions gracefully)
+
+                        # Skip tram lines that are too far from the agent
+                        if d1_km > _MAX_TRAM_MATCH_KM or d2_km > _MAX_TRAM_MATCH_KM:
+                            continue
+
+                        combined = d1_km + d2_km
+                        if combined >= best_dist:
+                            continue
+
+                        best_dist = combined
+
+                        proj1 = line.project(orig_pt)
+                        proj2 = line.project(dest_pt)
+                        p_start, p_end = min(proj1, proj2), max(proj1, proj2)
+
+                        if p_end <= p_start:
+                            # Origin and destination project to the same point — very
+                            # short leg entirely within one track segment.  Use the full
+                            # coord span between the two projections.
+                            board  = line.interpolate(proj1)
+                            alight = line.interpolate(proj2)
+                            best_route  = [(board.x, board.y), (alight.x, alight.y)]
+                            best_board  = (board.x, board.y)
+                            best_alight = (alight.x, alight.y)
+                        else:
+                            # ── Primary: shapely.ops.substring ────────────────────
+                            try:
+                                from shapely.ops import substring
+                                segment   = substring(line, p_start, p_end)
+                                seg_coords = list(segment.coords)
+                            except Exception as _sub_err:
+                                logger.debug(
+                                    "Shapely substring failed (%s) — manual slicer",
+                                    _sub_err,
+                                )
+                                # ── Bulletproof manual coordinate slicer ──────────
+                                # Walk the coordinate sequence accumulating arc length.
+                                # Collect points whose arc-distance falls in [p_start, p_end].
+                                # The boarding and alighting points are interpolated
+                                # precisely using line.interpolate() rather than being
+                                # approximated as the nearest coord vertex.
+                                board_pt  = line.interpolate(p_start)
+                                alight_pt = line.interpolate(p_end)
+                                seg_coords = [(board_pt.x, board_pt.y)]
+                                accum = 0.0
+                                for i in range(len(coords) - 1):
+                                    seg = SLineString([coords[i], coords[i + 1]])
+                                    seg_len = seg.length
+                                    next_accum = accum + seg_len
+                                    # Include vertices that lie strictly inside the slice window
+                                    if accum > p_start and accum < p_end:
+                                        seg_coords.append(coords[i])
+                                    accum = next_accum
+                                seg_coords.append((alight_pt.x, alight_pt.y))
+
+                            if not seg_coords or len(seg_coords) < 2:
+                                continue
+
+                            # ── NaPTAN stop snapping ──────────────────────────────
+                            # Snap the computed boarding/alighting coordinates to the
+                            # nearest NaPTAN TMU stop within 300 m.  This ensures the
+                            # tram leg starts and ends at a real stop rather than an
+                            # arbitrary track projection point.
+                            board_coord  = seg_coords[0]
+                            alight_coord = seg_coords[-1]
+                            _naptan = getattr(self.graph_manager, 'naptan_stops', [])
+                            _tmu = [s for s in _naptan
+                                    if getattr(s, 'stop_type', '') == 'TMU']
+                            if _tmu:
                                 try:
-                                    from shapely.ops import substring
-                                    segment = substring(line, p_start, p_end)
-                                    best_route = list(segment.coords)
-                                except Exception as slice_err:
-                                    logger.debug(f"Shapely substring failed, using manual slice: {slice_err}")
-                                    # Bulletproof manual coordinate slice fallback
-                                    best_route = [coords[0]]
-                                    accum = 0.0
-                                    for i in range(len(coords)-1):
-                                        seg_len = LineString([coords[i], coords[i+1]]).length
-                                        if accum + seg_len >= p_start and accum <= p_end:
-                                            best_route.append(coords[i+1])
-                                        accum += seg_len
-                                
-                                # Reverse track direction if agent is traveling the other way
-                                if proj1 > proj2:
-                                    best_route.reverse()
+                                    from simulation.spatial.naptan_loader import nearest_naptan_stop
+                                    _hit_b = nearest_naptan_stop(
+                                        board_coord, _tmu,
+                                        stop_types=frozenset({'TMU'}),
+                                        max_km=0.30,
+                                    )
+                                    if _hit_b:
+                                        board_coord = (_hit_b.lon, _hit_b.lat)
+                                        seg_coords[0] = board_coord
+                                    _hit_a = nearest_naptan_stop(
+                                        alight_coord, _tmu,
+                                        stop_types=frozenset({'TMU'}),
+                                        max_km=0.30,
+                                    )
+                                    if _hit_a:
+                                        alight_coord = (_hit_a.lon, _hit_a.lat)
+                                        seg_coords[-1] = alight_coord
+                                except Exception:
+                                    pass
+
+                            # Reverse track direction if agent travels in opposite direction
+                            if proj1 > proj2:
+                                seg_coords.reverse()
+
+                            best_route  = seg_coords
+                            best_board  = tuple(seg_coords[0])
+                            best_alight = tuple(seg_coords[-1])
 
                     if best_route and len(best_route) > 1:
-                        access = self._compute_access_leg(agent_id + '_access', origin, cast(Tuple[float, float], best_route[0]))
-                        egress = self._compute_access_leg(agent_id + '_egress', cast(Tuple[float, float], best_route[-1]), dest)
-                        
-                        route_typed: List[Tuple[float, float]] = [cast(Tuple[float, float], pt) for pt in best_route]
-                        
-                        full = ((access[:-1] if access else []) + route_typed + (egress[1:] if len(egress) > 1 else []))
-                        
-                        logger.info(f"✅ {agent_id}: tram Overpass relation {route_distance_km(full):.1f}km ({len(best_route)} pts)")
+                        # Access leg: origin → boarding stop (walk or drive graph)
+                        access = self._compute_access_leg(
+                            agent_id + '_access', origin,
+                            cast(Tuple[float, float], best_board),
+                        )
+                        # Egress leg: alighting stop → destination (walk or drive graph)
+                        egress = self._compute_access_leg(
+                            agent_id + '_egress',
+                            cast(Tuple[float, float], best_alight), dest,
+                        )
+
+                        route_typed: List[Tuple[float, float]] = [
+                            cast(Tuple[float, float], pt) for pt in best_route
+                        ]
+                        # Stitch: access (drop last pt to avoid dup) + tram track + egress (drop first pt)
+                        full = (
+                            (access[:-1] if access else [])
+                            + route_typed
+                            + (egress[1:] if len(egress) > 1 else [])
+                        )
+                        logger.info(
+                            "✅ %s: tram Overpass relation %.1fkm (%d pts on track)",
+                            agent_id, route_distance_km(full), len(best_route),
+                        )
                         return full
-                        
+
                 except Exception as _ov2_exc:
-                    logger.debug(f"{agent_id}: Overpass tram slice failed: {_ov2_exc}")
+                    logger.debug(
+                        "%s: Overpass tram slice failed: %s", agent_id, _ov2_exc
+                    )
 
             # ── Tier 3: tram spine ────────────────────────────────────────────────
             logger.debug("%s: no GTFS/tram-graph/relations — tram spine fallback", agent_id)
@@ -1391,61 +1486,92 @@ class Router:
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         max_straight_km: float = 3.0,
+        snap_to_naptan: bool = False,
+        naptan_stop_types: Optional[frozenset] = None,
     ) -> List[Tuple[float, float]]:
         """
         Compute a pedestrian access or egress leg to/from a transit stop.
 
-        Strategy (priority order)
-        -------------------------
-        1. Walk graph available → route on it using weight='length' (physical
-           distance, not hop count — OSMnx BFS default minimises intersections
-           which can produce circuitous pedestrian routes).
-        2. Walk graph absent AND distance ≤ max_straight_km → interpolated
-           straight line (avoids the 200+ waypoint residential squiggle from
-           routing on the drive graph via roads pedestrians don't use).
-        3. Distance > max_straight_km and walk graph absent → drive graph proxy.
-        4. Drive proxy fails → interpolated straight line.
+        Four-tier strategy (tried in order):
+        ──────────────────────────────────────────────────────────────────
+        Tier 0 — NaPTAN stop snapping (when snap_to_naptan=True)
+            Adjust dest (or origin for egress) to the exact NaPTAN platform
+            coordinate before routing.  This prevents the leg terminating at
+            a random mid-track point and ensures boarding at a real stop.
+
+        Tier 1 — Walk graph (distance ≤ max_straight_km)
+            OSMnx walk graph; weight='length'.  Guaranteed to follow paths,
+            pavements, and bridges — never cuts through buildings or waterways.
+            Short legs (< 150 m) bypass the graph and use a straight line.
+
+        Tier 2 — Drive proxy (distance > _WALK_ACCESS_KM or walk graph fails)
+            The car graph covers all roads pedestrians can also use and always
+            has full connectivity.  This is the correct fallback for legs of
+            1.2–3+ km where walk routing would be slow or disconnected.
+
+        Tier 3 — Interpolated straight line (absolute last resort)
+            Only used when BOTH the walk graph and drive proxy fail
+            (e.g. origin or dest outside the loaded graph bbox).
+            This is the path that was producing canal routes and routes
+            through buildings — it should now be very rare.
+
+        Design notes
+        ────────────
+        • Canal towpath routes: the walk graph correctly includes the Union
+          Canal towpath as a valid pedestrian path.  When the tram boarding
+          point is on the south bank of the canal, the walk graph will use
+          the nearest bridge.  If the walk graph is absent or Tier 1 fails,
+          Tier 2 (drive graph) is used — the drive graph does NOT include
+          canal towpaths, so it routes via road bridges only.
+
+        • The old "PATCH 1" guard (`if dist_km > 1.2km: drive proxy; return`)
+          was skipping the walk graph entirely for all legs > 1.2 km.  This
+          produced drive-quality routes for pedestrian legs — motorway-class
+          roads appeared in access legs.  The revised logic tries the walk
+          graph first regardless of distance, falls to drive only on failure.
         """
         dist_km = haversine_km(origin, dest)
 
-        # ── ENHANCED PARK & RIDE GUARD ──────────────────────────
-        # If > 1.2km, use drive proxy. If drive proxy fails (e.g. indoor destination),
-        # force a straight line. Do NOT fall through to the walk graph.
-        if dist_km > self._WALK_ACCESS_KM:
-            logger.debug(f"{agent_id}: Access leg {dist_km:.1f}km > {self._WALK_ACCESS_KM}km, using drive proxy")
-            _drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
-            if _drive_result and len(_drive_result) > 2:
-                return _drive_result
-            
-            logger.debug(f"{agent_id}: Drive proxy failed (likely indoor/pedestrian dest). Forcing straight line.")
-            return self._interpolate([origin, dest], max_segment_km=0.05)
-        # ─────────────────────────────────────────────────────────────────
+        # ── Tier 0: NaPTAN stop snapping ─────────────────────────────────────
+        # When routing an access leg TO a transit stop (snap_to_naptan=True),
+        # adjust dest to the authoritative DfT NaPTAN platform coordinate.
+        # This prevents the leg terminating at an arbitrary mid-track point.
+        if snap_to_naptan and naptan_stop_types is not None:
+            naptan_stops = getattr(self.graph_manager, 'naptan_stops', [])
+            if naptan_stops:
+                try:
+                    from simulation.spatial.naptan_loader import (
+                        nearest_naptan_stop, RAIL_STOP_TYPES,
+                    )
+                    hit = nearest_naptan_stop(
+                        dest, naptan_stops,
+                        stop_types=naptan_stop_types,
+                        max_km=0.5,
+                    )
+                    if hit is not None:
+                        dest = (hit.lon, hit.lat)
+                        dist_km = haversine_km(origin, dest)
+                except Exception:
+                    pass
 
+        # Very short legs: straight line is always correct
+        if dist_km < 0.15:
+            return self._interpolate([origin, dest], max_segment_km=0.05)
+
+        # ── Tier 1: Walk graph ────────────────────────────────────────────────
         G_walk = self.graph_manager.get_graph('walk')
-        if G_walk is not None:
+        if G_walk is not None and G_walk.number_of_nodes() > 10:
             try:
                 orig_node = self.graph_manager.get_nearest_node(origin, 'walk')
                 dest_node = self.graph_manager.get_nearest_node(dest,   'walk')
-
-                # Roundabout avoidance on walk graph (rare but possible near junctions)
                 orig_node = self._avoid_roundabout(G_walk, orig_node)
                 dest_node = self._avoid_roundabout(G_walk, dest_node)
 
-                # ── FIX Bug 1a: same-node snap ────────────────────────────────
-                # When a GTFS stop coordinate lies at (or very near) a walk-graph
-                # network boundary, both origin and dest snap to the SAME nearest
-                # walk node.  The shortest-path block is then never entered and
-                # the leg degrades to a straight-line interpolation.
-                #
-                # Resolution: if orig_node == dest_node and the two coordinates
-                # are more than 50 m apart, find the nearest walk node to dest
-                # that is NOT orig_node by scanning the graph node list sorted by
-                # haversine distance.  The walk graph has ~55k nodes; this scan
-                # is O(N) but runs only for the (typically ≤200) legs that hit
-                # this case per simulation run.
+                # Same-node snap correction: when both ends snap to the same
+                # walk node (graph boundary edge case), find the next-nearest
+                # node for dest rather than returning a degenerate 0-length leg.
                 if (orig_node is not None and dest_node is not None
-                        and orig_node == dest_node
-                        and dist_km > 0.05):
+                        and orig_node == dest_node and dist_km > 0.05):
                     dest_lon, dest_lat = dest
                     best_alt: Any     = None
                     best_alt_d: float = float('inf')
@@ -1460,11 +1586,6 @@ class Router:
                             best_alt_d = d
                             best_alt   = n
                     if best_alt is not None:
-                        logger.debug(
-                            "%s: same-node snap corrected — dest_node %s→%s "
-                            "(%.0fm to alt node)",
-                            agent_id, orig_node, best_alt, best_alt_d * 1000,
-                        )
                         dest_node = best_alt
 
                 if orig_node and dest_node and orig_node != dest_node:
@@ -1473,56 +1594,30 @@ class Router:
                     )
                     coords = self._extract_geometry(G_walk, walk_nodes)
                     if coords and len(coords) >= 2:
-                        logger.debug(
-                            "%s: walk route: %d pts on walk graph (%s→%s)",
-                            agent_id, len(coords), orig_node, dest_node,
-                        )
                         return self._interpolate(coords, max_segment_km=0.05)
-                # Nodes still equal, geometry empty, or routing produced nothing.
-                # Fall through to the unified drive-proxy block below.
+
             except nx.NetworkXNoPath:
-                logger.debug(
-                    "%s: walk nx.NetworkXNoPath (%.2fkm) — drive proxy",
-                    agent_id, dist_km,
-                )
-                # Fall through to unified drive-proxy block.
+                pass   # fall through to Tier 2
             except Exception as _walk_exc:
                 logger.debug(
-                    "%s: walk routing failed (%.2fkm): %s",
+                    "%s: walk routing failed (%.2fkm): %s — drive proxy",
                     agent_id, dist_km, _walk_exc,
                 )
-                # Fall through to unified drive-proxy block.
 
-        # ── Unified fallback: drive proxy ─────────────────────────────────────
-        # Applies when:
-        #   (a) Walk graph absent
-        #   (b) Walk graph present but routing failed for any reason:
-        #       same-node snap, NetworkXNoPath, empty geometry, or exception
-        #
-        # The drive graph covers ALL roads pedestrians also use and always
-        # has continuous coverage (no disconnected island subgraphs).  It
-        # correctly routes the Forth Road Bridge and every urban street.
-        #
-        # Straight-line interpolation is ONLY used as absolute last resort
-        # when the drive graph also fails — not as the primary fallback for
-        # 0.5–3 km legs (which was producing 237 straight-line diagonals).
-        if dist_km <= 0.5:
-            # Too short to bother with road routing — straight line is fine.
-            return self._interpolate([origin, dest], max_segment_km=0.05)
-
-        _drive_result = self._compute_road_route(
-            agent_id, origin, dest, 'car', _DEFAULT_POLICY
-        )
-        if _drive_result and len(_drive_result) > 2:
+        # ── Tier 2: Drive proxy ───────────────────────────────────────────────
+        # The drive graph covers all bridges and city streets that pedestrians
+        # also use.  It never routes through canals or buildings.
+        _drive = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
+        if _drive and len(_drive) > 2:
             logger.debug(
                 "%s: access→drive proxy: %d pts (%.2fkm)",
-                agent_id, len(_drive_result), dist_km,
+                agent_id, len(_drive), dist_km,
             )
-            return _drive_result
+            return _drive
 
-        # Absolute last resort — drive proxy also failed.
+        # ── Tier 3: Interpolated straight line (absolute last resort) ─────────
         logger.debug(
-            "%s: walk path unavailable (%.2fkm) — interpolated straight line",
+            "%s: walk+drive both failed (%.2fkm) — straight line",
             agent_id, dist_km,
         )
         return self._interpolate([origin, dest], max_segment_km=0.05)
@@ -2313,24 +2408,16 @@ class Router:
         """
         Prefer quiet, green roads over arterials and motorways.
 
-        Weights are multipliers on edge length: < 1.0 = preferred, > 1.0 = avoided.
-        The A720 Edinburgh bypass was assigned only 1.5× previously; it is the
-        shortest geometric path between Corstorphine and Baberton, so the scenic
-        routing was using it.  Motorways are now 8× to make them genuinely
-        unattractive for any scenic routing.
-
-        Weight table — intuition:
-          motorway / motorway_link : 8–6×  never scenic (loud, no footway, ugly)
-          trunk / trunk_link       : 5–4×  dual carriageway — unpleasant
-          primary / primary_link   : 3–2.5× busy A-roads
-          secondary / secondary_link: 1.8–1.5× moderate traffic
-          tertiary / unclassified  : 0.85–0.9× quieter, short-cut routes
-          residential              : 0.70   preferred: leafy residential streets
-          living_street            : 0.60   best residential
-          pedestrian / path        : 0.45–0.50  ideal scenic surface
-          footway / cycleway       : 0.40–0.45  off-road preferred
-          track                    : 0.40   bridleways and farm tracks (scenic)
-          service                  : 1.00   neutral (car parks, alleys)
+        Graph-type safety: OSMnx returns MultiDiGraph (edges are 4-tuples:
+        u, v, key, data).  Some internal graphs (converted tram, OpenRailMap)
+        may be plain Graph or DiGraph (3-tuples: u, v, data — no key field).
+        The previous `for _u, _v, _k, data in graph.edges(keys=True, data=True)`
+        worked for MultiDiGraph but silently broke for plain Graph: `keys=True`
+        is ignored by non-multi graphs so it still returns 3-tuples, and
+        Python would unpack `_k = data` (the dict) and `data = StopIteration`,
+        making every `data.get(...)` raise AttributeError (caught by the caller
+        and silently dropped).  The fix uses `edge[-1]` — always the data dict
+        regardless of tuple length.
         """
         _S: Dict[str, float] = {
             'motorway':       8.0,
@@ -2352,7 +2439,11 @@ class Router:
             'track':          0.40,
             'service':        1.00,
         }
-        for _u, _v, _k, data in graph.edges(keys=True, data=True):
+        is_multi = graph.is_multigraph()
+        for edge in graph.edges(keys=is_multi, data=True):
+            data = edge[-1]   # (u,v,key,data)→data or (u,v,data)→data
+            if not isinstance(data, dict):
+                continue
             hw = data.get('highway', 'residential')
             if isinstance(hw, list):
                 hw = hw[0] if hw else 'residential'
