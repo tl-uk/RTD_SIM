@@ -1105,12 +1105,19 @@ class Router:
             # against NaPTAN tram stops (TMU type) before routing.
             # If neither end is within _TRAM_STOP_CATCHMENT_KM of a tram stop,
             # skip to Tier 2/3.
+            #
+            # IMPORTANT: filter to TMU (tram/metro/underground) only.
+            # Including RLY (rail station) or MET caused agents near rail stations
+            # (e.g. Scotstounhill station, 4.3°W) to pass the tram catchment check
+            # despite being 40+ km from the nearest actual tram stop, producing
+            # nonsensical 20+ km tram routes through parts of Edinburgh the agent
+            # cannot physically reach by tram.
             _TRAM_STOP_CATCHMENT_KM = 2.0   # 2 km: generous but not 7 km
             _origin_near_tram = False
             _dest_near_tram   = False
             _naptan = getattr(self.graph_manager, 'naptan_stops', [])
             _tmu_stops = [s for s in _naptan
-                          if getattr(s, 'stop_type', '') in ('TMU', 'MET')]
+                          if getattr(s, 'stop_type', '') == 'TMU']   # tram stops ONLY
             if _tmu_stops:
                 for _s in _tmu_stops:
                     _d_orig = haversine_km(origin, (_s.lon, _s.lat))
@@ -1122,7 +1129,7 @@ class Router:
                     if _origin_near_tram and _dest_near_tram:
                         break
             else:
-                # No NaPTAN data — fall back to 5km G_tram-node proximity check
+                # No NaPTAN TMU data — fall back to G_tram-node proximity check
                 G_tram_chk = self.graph_manager.get_graph('tram')
                 if G_tram_chk is not None:
                     try:
@@ -1382,18 +1389,6 @@ class Router:
         4. Drive proxy fails → interpolated straight line.
         """
         dist_km = haversine_km(origin, dest)
-
-        # ── PATCH 1 -----------──────────────────────────────────────────
-        # Stop Cars from Driving Through Malls
-        # If the leg is > 1.2km, it is a Park & Ride / Taxi leg. Do NOT route
-        # a car on the pedestrian walk graph (avoids driving through malls).
-        if dist_km > self._WALK_ACCESS_KM:
-            logger.debug(f"{agent_id}: Access leg {dist_km:.1f}km > {self._WALK_ACCESS_KM}km, using drive proxy")
-            _drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
-            if _drive_result and len(_drive_result) > 2:
-                return _drive_result
-            return self._interpolate([origin, dest], max_segment_km=0.05)
-        # ─────────────────────────────────────────────────────────────────
 
         G_walk = self.graph_manager.get_graph('walk')
         if G_walk is not None:
@@ -1703,11 +1698,7 @@ class Router:
             logger.debug(
                 "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
             )
-            # ── PATCH 2 ------------------─────────────────────────────────
-            # Stop Trams from Becoming Cars
-            # Old: return self._compute_road_route(agent_id, origin, dest, mode, policy)
-            return self._transit_fallback(agent_id, origin, dest, mode, policy)
-            # ──────────────────────────────────────────────────────────────
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
         # ── Extract geometry from shape_coords ────────────────────────────────
         # For each consecutive stop pair, prefer the parallel edge whose
@@ -1787,13 +1778,6 @@ class Router:
                             )
                 if not _tram_seg_added:
                     # Ferry / tram (no OSM graph): straight stop-to-stop line.
-                    # ── PATCH 3 ------------──────────────────────────────────
-                    # Stop Straight Lines Through Buildings
-                    if mode == 'tram':
-                        # Reject straight lines for trams. Force the Overpass fallback.
-                        logger.debug(f"{agent_id}: Missing GTFS shape for tram. Forcing Overpass fallback.")
-                        return self._transit_fallback(agent_id, origin, dest, mode, policy)
-                    # ─────────────────────────────────────────────────────────
                     if i == 0:
                         transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
@@ -2068,44 +2052,46 @@ class Router:
         self,
         graph: Any,
         node_list: List,
-        threshold_deg: float = 100.0,
+        threshold_deg: float = 150.0,
     ) -> bool:
         """
-        Return True if any consecutive segment pair has a near-reversal.
+        Return True if any consecutive triple of nodes forms an acute switchback.
 
-        Dijkstra on the OpenRailMap graph is purely kinematic — it doesn't
-        know a train cannot physically reverse direction at a junction without
-        stopping and shunting (~10-15 minutes).  On Edinburgh's complex layout
-        of single-track branches and cross-platform junctions, Dijkstra
-        sometimes routes via a topological triangle that includes an acute
-        switchback (e.g. Waverley→junc_east→back_past_Waverley→Haymarket).
+        Computes the minimum angular difference between successive bearings so
+        that both clockwise and counter-clockwise reversals are caught equally.
+        The previous `abs(b2-b1)` approach was subtly asymmetric when combined
+        with the `if diff > 180: diff = 360-diff` fold-down, because floating
+        point bearing values near 0°/360° could produce slightly different
+        diffs depending on direction.  The correct formula is:
 
-        We check every consecutive triple (A, B, C): if the bearing A→B and
-        B→C differ by more than threshold_deg the path doubles back on itself.
-        The last node is excluded — terminus reversals (train arrives and the
-        journey ends) are legitimate and should not be penalised.
+            diff = |((b2 - b1 + 180) % 360) - 180|
+
+        This maps any signed circular difference to [0, 180] symmetrically,
+        making CW and CCW reversals equivalent.
+
+        The loop runs range(check_up_to) — not range(check_up_to - 1).
+        The previous off-by-one skipped the last interior triple on every path,
+        missing reversals at the penultimate junction node.
 
         Args:
-            graph:         The rail NetworkX graph.
-            node_list:     Ordered list of node IDs from nx.shortest_path.
-            threshold_deg: Bearing-change threshold above which we call it a
-                           reversal.  160° catches genuine switchbacks while
-                           allowing the ~15° heading variance at curved junctions
-                           and the mild dogleg at Edinburgh Gateway.
+            graph:         Rail NetworkX graph (nodes must have 'x', 'y' attrs).
+            node_list:     Ordered nodes from nx.shortest_path.
+            threshold_deg: Bearing-change above which a reversal is called.
+                           150° (tighter than the previous 160°) to catch the
+                           Craiglockhart junction (Δ≈161°) and similar cases.
 
         Returns:
             True if at least one bearing reversal is found mid-route.
         """
         if len(node_list) < 3:
             return False
-        # Exclude the final node (legitimate terminus reversal is allowed)
-        check_up_to = len(node_list) - 2
-        for i in range(check_up_to - 1):
+        # Exclude the LAST node only — terminus direction-change is legitimate
+        check_up_to = len(node_list) - 2   # last i for triple (i, i+1, i+2)
+        for i in range(check_up_to):       # was range(check_up_to - 1): off-by-one
             b1 = self._bearing_between(graph, node_list[i],     node_list[i + 1])
             b2 = self._bearing_between(graph, node_list[i + 1], node_list[i + 2])
-            diff = abs(b2 - b1)
-            if diff > 180:
-                diff = 360 - diff
+            # Symmetric minimum circular difference — handles CW and CCW equally
+            diff = abs(((b2 - b1 + 180.0) % 360.0) - 180.0)
             if diff > threshold_deg:
                 logger.warning(
                     "Heading reversal detected at rail node %s "
@@ -2120,30 +2106,26 @@ class Router:
         self,
         graph: Any,
         node_list: List,
-        threshold_deg: float = 100.0,
+        threshold_deg: float = 150.0,
     ) -> Optional[Any]:
         """
-        Return the mid-point node of the first heading reversal in node_list.
+        Return the junction node (mid-point) of the first heading reversal.
 
-        Used by the retry logic in _intermodal_with_segments /
-        _compute_intermodal_route: after _has_heading_reversal fires, this
-        method identifies *which* junction node causes the reversal so
-        nx.restricted_view can exclude it and find an alternative path.
+        Uses the same symmetric circular-difference formula as _has_heading_reversal
+        and the corrected range so it finds the same reversal node that the guard
+        detected.
 
-        Returns None if the path is too short to contain a reversal.
+        Returns None if the list is too short to contain a mid-path reversal.
         """
-        import math as _math
         if len(node_list) < 3:
             return None
         check_up_to = len(node_list) - 2
-        for i in range(check_up_to - 1):
+        for i in range(check_up_to):
             b1 = self._bearing_between(graph, node_list[i],     node_list[i + 1])
             b2 = self._bearing_between(graph, node_list[i + 1], node_list[i + 2])
-            diff = abs(b2 - b1)
-            if diff > 180:
-                diff = 360 - diff
+            diff = abs(((b2 - b1 + 180.0) % 360.0) - 180.0)
             if diff > threshold_deg:
-                return node_list[i + 1]   # the junction node causing the reversal
+                return node_list[i + 1]
         return None
 
     # =========================================================================
