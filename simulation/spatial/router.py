@@ -1214,12 +1214,16 @@ class Router:
                     logger.debug("Overpass tram fetch exception: %s", _ov_exc)
                     setattr(self.graph_manager, 'tram_relations', [])
 
+            # Remove Ovrpass relation distance limit — some agents are legitimately >3 km from 
+            # the nearest track node but still within reach of the tram network.  
+            # The route slice logic will find the optimal boarding/alighting points on the nearest 
+            # track segment regardless of distance, and the access/egress legs will handle any long 
+            # walks to/from the stops.
             tram_routes = getattr(self.graph_manager, 'tram_relations', [])
             if tram_routes:
                 try:
                     from shapely.geometry import Point, LineString
-                    from shapely.ops import substring
-
+                    
                     orig_pt = Point(origin)
                     dest_pt = Point(dest)
                     best_route: list = []
@@ -1229,39 +1233,53 @@ class Router:
                         if len(coords) < 2:
                             continue
                         line = LineString(coords)
+                        
+                        # Project origin/dest to find the closest boarding/alighting points
                         d1_km = line.distance(orig_pt) * 111.0
                         d2_km = line.distance(dest_pt) * 111.0
-                        if d1_km < 3.0 and d2_km < 3.0 and (d1_km + d2_km) < best_dist:
+                        
+                        # Removed the < 3.0km limit. Just find the optimal track segment.
+                        if (d1_km + d2_km) < best_dist:
                             best_dist = d1_km + d2_km
+                            
                             proj1 = line.project(orig_pt)
                             proj2 = line.project(dest_pt)
                             p_start, p_end = min(proj1, proj2), max(proj1, proj2)
+                            
                             if p_end > p_start:
-                                seg = substring(line, p_start, p_end)
-                                best_route = list(seg.coords)
+                                # Safe slicing (handles different Shapely versions gracefully)
+                                try:
+                                    from shapely.ops import substring
+                                    segment = substring(line, p_start, p_end)
+                                    best_route = list(segment.coords)
+                                except Exception as slice_err:
+                                    logger.debug(f"Shapely substring failed, using manual slice: {slice_err}")
+                                    # Bulletproof manual coordinate slice fallback
+                                    best_route = [coords[0]]
+                                    accum = 0.0
+                                    for i in range(len(coords)-1):
+                                        seg_len = LineString([coords[i], coords[i+1]]).length
+                                        if accum + seg_len >= p_start and accum <= p_end:
+                                            best_route.append(coords[i+1])
+                                        accum += seg_len
+                                
+                                # Reverse track direction if agent is traveling the other way
                                 if proj1 > proj2:
                                     best_route.reverse()
 
-                    if best_route:
-                        access = self._compute_access_leg(
-                            agent_id + '_access', origin,
-                            cast(Tuple[float, float], best_route[0]))
-                        egress = self._compute_access_leg(
-                            agent_id + '_egress',
-                            cast(Tuple[float, float], best_route[-1]), dest)
-                        route_typed: List[Tuple[float, float]] = [
-                            cast(Tuple[float, float], pt) for pt in best_route
-                        ]
-                        full = ((access[:-1] if access else [])
-                                + route_typed
-                                + (egress[1:] if len(egress) > 1 else []))
-                        logger.info(
-                            "✅ %s: tram Overpass relation %.1fkm (%d pts)",
-                            agent_id, route_distance_km(full), len(best_route),
-                        )
+                    if best_route and len(best_route) > 1:
+                        access = self._compute_access_leg(agent_id + '_access', origin, cast(Tuple[float, float], best_route[0]))
+                        egress = self._compute_access_leg(agent_id + '_egress', cast(Tuple[float, float], best_route[-1]), dest)
+                        
+                        route_typed: List[Tuple[float, float]] = [cast(Tuple[float, float], pt) for pt in best_route]
+                        
+                        full = ((access[:-1] if access else []) + route_typed + (egress[1:] if len(egress) > 1 else []))
+                        
+                        logger.info(f"✅ {agent_id}: tram Overpass relation {route_distance_km(full):.1f}km ({len(best_route)} pts)")
                         return full
+                        
                 except Exception as _ov2_exc:
-                    logger.debug("%s: Overpass tram slice failed: %s", agent_id, _ov2_exc)
+                    logger.debug(f"{agent_id}: Overpass tram slice failed: {_ov2_exc}")
 
             # ── Tier 3: tram spine ────────────────────────────────────────────────
             logger.debug("%s: no GTFS/tram-graph/relations — tram spine fallback", agent_id)
@@ -1389,6 +1407,19 @@ class Router:
         4. Drive proxy fails → interpolated straight line.
         """
         dist_km = haversine_km(origin, dest)
+
+        # ── ENHANCED PARK & RIDE GUARD ──────────────────────────
+        # If > 1.2km, use drive proxy. If drive proxy fails (e.g. indoor destination),
+        # force a straight line. Do NOT fall through to the walk graph.
+        if dist_km > self._WALK_ACCESS_KM:
+            logger.debug(f"{agent_id}: Access leg {dist_km:.1f}km > {self._WALK_ACCESS_KM}km, using drive proxy")
+            _drive_result = self._compute_road_route(agent_id, origin, dest, 'car', _DEFAULT_POLICY)
+            if _drive_result and len(_drive_result) > 2:
+                return _drive_result
+            
+            logger.debug(f"{agent_id}: Drive proxy failed (likely indoor/pedestrian dest). Forcing straight line.")
+            return self._interpolate([origin, dest], max_segment_km=0.05)
+        # ─────────────────────────────────────────────────────────────────
 
         G_walk = self.graph_manager.get_graph('walk')
         if G_walk is not None:
