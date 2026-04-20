@@ -40,6 +40,8 @@ intermodal logic can compute access/egress legs correctly.
 from __future__ import annotations
 import logging
 from typing import Tuple, Optional, List
+from urllib import parse  as _urllib_parse
+from urllib import request as _urllib_request
 
 logger = logging.getLogger(__name__)
 
@@ -391,8 +393,6 @@ def fetch_tram_relations_overpass(
     _TRAM_RELATIONS_FETCHED = True   # set before the request to prevent retries on failure
 
     import json
-    import urllib.request
-    import urllib.parse
 
     north, south, east, west = bbox
     # Expand so tram terminals at the bbox edge are included
@@ -406,16 +406,16 @@ def fetch_tram_relations_overpass(
 
     # Overpass requires the query as the value of a form field named 'data'.
     # Sending the raw query string as the body causes HTTP 406 Not Acceptable.
-    body = urllib.parse.urlencode({'data': query}).encode('utf-8')
+    body = _urllib_parse.urlencode({'data': query}).encode('utf-8')
 
     try:
-        req = urllib.request.Request(
+        req = _urllib_request.Request(
             "https://overpass-api.de/api/interpreter",
             data=body,
             method="POST",
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        with urllib.request.urlopen(req, timeout=timeout_s + 5) as resp:
+        with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
             status = getattr(resp, "status", 200)
             if status == 406:
                 logger.error(
@@ -514,19 +514,30 @@ def _great_circle_waypoints(
 
 def get_or_fallback_ferry_graph(env=None):
     """
-    Backward-compatibility shim.  Delegates to ferry_network.py.
+    DEPRECATED — use ferry_network.fetch_maritime_graphs() directly.
 
-    This stub exists so that any legacy import of
-    `simulation.spatial.rail_network.get_or_fallback_ferry_graph`
-    does not raise ImportError.  All actual ferry graph logic lives
-    in simulation.spatial.ferry_network.fetch_maritime_graphs().
+    This shim exists only so that any remaining legacy call sites that import
+    from rail_network do not raise ImportError.  All ferry graph logic lives
+    in simulation.spatial.ferry_network:
+
+        from simulation.spatial.ferry_network import fetch_maritime_graphs
+        graphs = fetch_maritime_graphs(bbox, city_tag='sim')
+        G_ferry = graphs.get('ferry')
+
+    transport_loader._load_ferry_graph() calls fetch_maritime_graphs() directly
+    and no longer goes through this shim.  If you see this function appearing
+    in a traceback it means an older code path is still importing from here —
+    update that import to ferry_network instead.
     """
+    logger.warning(
+        "get_or_fallback_ferry_graph (rail_network shim) called — "
+        "update caller to use ferry_network.fetch_maritime_graphs() directly"
+    )
     try:
         from simulation.spatial.ferry_network import (
             fetch_maritime_graphs,
             build_hardcoded_ferry_graph,
         )
-        # Derive bbox from environment drive graph
         bbox = (61.0, 49.0, 6.0, -11.0)  # full UK default
         if env is not None:
             gm    = getattr(env, 'graph_manager', None)
@@ -535,7 +546,6 @@ def get_or_fallback_ferry_graph(env=None):
                 xs = [d['x'] for _, d in drive.nodes(data=True)]
                 ys = [d['y'] for _, d in drive.nodes(data=True)]
                 bbox = (max(ys), min(ys), max(xs), min(xs))
-
         graphs = fetch_maritime_graphs(bbox, city_tag='ferry_shim', use_cache=True)
         return graphs.get('ferry') or build_hardcoded_ferry_graph()
     except Exception as exc:

@@ -85,7 +85,13 @@ import json
 import logging
 import math
 import time
-import urllib.request
+# Import urllib sub-modules explicitly so both runtime and static type checkers
+# (Pylance / pyright) recognise them.  'import urllib.request' alone causes
+# Pylance to report "'request' is not a known attribute of module 'urllib'"
+# because urllib's type stubs don't expose sub-modules as attributes; explicit
+# 'from urllib import request/parse' resolves this cleanly.
+from urllib import parse  as _urllib_parse
+from urllib import request as _urllib_request
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -183,42 +189,39 @@ def _overpass_post(
     """
     POST a query to the Overpass API with exponential backoff.
 
-    HTTP 406 fix: Overpass API requires the query to be sent as a
-    URL-encoded form field named 'data', i.e.:
+    HTTP 406 fix: Overpass requires the query as a URL-encoded form field
+    named 'data':
         POST body:  data=<url-encoded query string>
         Content-Type: application/x-www-form-urlencoded
     Sending the raw query string as the body (without the 'data=' prefix)
-    causes the server to return HTTP 406 Not Acceptable because it cannot
-    parse the request body as a valid form field.
+    causes the server to return HTTP 406 Not Acceptable.
 
     Handles:
       HTTP 429 Too Many Requests — rate-limit; back off and retry
       HTTP 504 Gateway Timeout   — server busy; back off and retry
-      HTTP 406 Not Acceptable    — encoding error; fails immediately (don't retry)
+      HTTP 406 Not Acceptable    — encoding error; fails immediately
     """
-    import urllib.parse
     import random as _rand
-    # Overpass requires the query as a form field named 'data'
-    body = urllib.parse.urlencode({'data': query}).encode('utf-8')
+    # Encode query as a proper HTML form field — required by Overpass API
+    body = _urllib_parse.urlencode({'data': query}).encode('utf-8')
 
     for attempt in range(max_retries):
         try:
-            req = urllib.request.Request(
+            req = _urllib_request.Request(
                 _OVERPASS_URL,
                 data=body,
                 method="POST",
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            with urllib.request.urlopen(req, timeout=timeout_s + 5) as resp:
+            with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
                 status = getattr(resp, 'status', 200)
                 raw    = resp.read()
                 if status == 200:
                     return json.loads(raw)
                 if status == 406:
-                    # Encoding error — not transient, no point retrying
                     logger.error(
-                        "Overpass HTTP 406 (query encoding error) — "
-                        "check that body is sent as data=<urlencoded> form field"
+                        "Overpass HTTP 406 — query encoding error; "
+                        "body must be sent as data=<urlencoded> form field"
                     )
                     return None
                 logger.warning(
