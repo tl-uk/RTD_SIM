@@ -282,7 +282,7 @@ def setup_environment(
         maritime_graphs = fetch_maritime_graphs(
             bbox=_ferry_bbox,
             city_tag=_city_tag,
-            use_cache=True,
+            use_cache=False, # was True in previous versions, but caching is now automatic and transparent based on file freshness
             # parallel_queries=True,
         )
 
