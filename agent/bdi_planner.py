@@ -234,6 +234,7 @@ class BDIPlanner:
         """Initialize planner with expanded freight modes."""
         self.plan_generator = plan_generator
         self.fused_identity = fused_identity
+        self.infrastructure_manager = infrastructure_manager
         # ── default_modes: generic passenger/commuter mode palette ─────────────
         # Only modes that ANY personal agent could plausibly use are included.
         # EV and electric variants are intentionally omitted here — they enter
@@ -254,7 +255,7 @@ class BDIPlanner:
             'car',
             'local_train', 'tram',
         ]
-        self.infrastructure_manager = infrastructure_manager
+        
         # FusedIdentity is used for mode filtering and routing decisions based on the 
         # agent's persona and allowed modes.
         self.fused_identity = fused_identity
@@ -284,7 +285,7 @@ class BDIPlanner:
         # Default 1.0 (no adjustment) for all modes.
         self.mode_cost_factors: Dict[str, float] = {}
 
-        if self.infrastructure:
+        if self.infrastructure_manager is not None:
             logger.info("BDI planner: infrastructure-aware (Expanded Freight)")
         else:
             logger.info("BDI planner: basic mode (Expanded Freight)")
@@ -335,7 +336,7 @@ class BDIPlanner:
     @property
     def has_infrastructure(self) -> bool:
         """Check if infrastructure awareness is enabled."""
-        return self.infrastructure is not None
+        return self.infrastructure_manager is not None
     
     # Ensures freight modes are properly selected and never returns empty list
     def actions_for(
@@ -1094,8 +1095,8 @@ class BDIPlanner:
         occ = context.get('charger_occupancy_nearby', None)
         if occ is None:
             # Try to read live utilization from the charging registry via InfrastructureManager
-            reg = getattr(self.infrastructure, 'charging_registry', None) \
-                or getattr(self.infrastructure, 'charging_station_registry', None)
+            reg = getattr(self.infrastructure_manager, 'charging_registry', None) \
+                or getattr(self.infrastructure_manager, 'charging_station_registry', None)
             if reg is not None and hasattr(reg, 'average_utilization_near'):
                 try:
                     occ = float(reg.average_utilization_near(origin, radius_km=radius_km))
@@ -1138,14 +1139,14 @@ class BDIPlanner:
 
         # All remaining checks require a live infrastructure manager.
         # Running without infrastructure (tests, no InfrastructureManager) → skip charger checks.
-        if not self.has_infrastructure or self.infrastructure is None:
+        if not self.has_infrastructure or self.infrastructure_manager is None:
             return True
 
         # Near-range realism: trips approaching range limit require a charger near destination.
         if mode in self.EV_RANGE_KM:
             dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
             if est_trip_km > max_range * 0.8:
-                nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
+                nearest = self.infrastructure_manager.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
                 if nearest is None:
                     logger.debug(
                         f"{mode} not feasible: near-range (est_trip {est_trip_km:.1f}km ≈ {max_range:.1f}km) "
@@ -1155,7 +1156,7 @@ class BDIPlanner:
 
         if trip_distance > max_range * 0.8:
             dest_nearby_km = float(context.get('dest_nearby_radius_km', 2.0))
-            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
+            nearest = self.infrastructure_manager.find_nearest_charger(dest, max_distance_km=dest_nearby_km)
             if nearest is None:
                 logger.debug(
                     f"{mode} not feasible: near-range ({trip_distance:.1f}km ≈ {max_range:.1f}km) "
@@ -1165,7 +1166,7 @@ class BDIPlanner:
 
         # Long-trip charger availability (5 km radius)
         if trip_distance > max_range * 0.5:
-            nearest = self.infrastructure.find_nearest_charger(dest, max_distance_km=5.0)
+            nearest = self.infrastructure_manager.find_nearest_charger(dest, max_distance_km=5.0)
             if nearest is None:
                 logger.debug(f"{mode} not feasible: no charger within 5km of destination")
                 return False
@@ -1193,18 +1194,18 @@ class BDIPlanner:
         params = {'trip_distance_km': distance}
 
         # BUG FIX 1: Defensive guard against None infrastructure
-        if not getattr(self, 'has_infrastructure', False) or self.infrastructure is None:
+        if not getattr(self, 'has_infrastructure', False) or self.infrastructure_manager is None:
             return params
         
         # BUG FIX 2: Utilize 'context' to make the search dynamic rather than a hardcoded 2.0km.
         search_radius = float(context.get('dest_nearby_radius_km', 2.0))
-        nearest = self.infrastructure.find_nearest_charger(
+        nearest = self.infrastructure_manager.find_nearest_charger(
             dest, charger_type='any', max_distance_km=search_radius
         )
 
         # Implement the intended logic: Freight modes may be more tolerant of detours
         if not nearest and context.get('vehicle_type') in ['commercial', 'medium_freight', 'heavy_freight']:
-            nearest = self.infrastructure.find_nearest_charger(
+            nearest = self.infrastructure_manager.find_nearest_charger(
                 dest, charger_type='any', max_distance_km=search_radius * 3.0  # Expand to 6km for freight
             )
 
@@ -1214,7 +1215,7 @@ class BDIPlanner:
             params['nearest_charger'] = station_id
             params['charger_distance_km'] = distance_to_charger
             
-            availability = self.infrastructure.get_charger_availability(station_id)
+            availability = self.infrastructure_manager.get_charger_availability(station_id)
             params['charger_available'] = availability.get('available', False)
             params['charger_wait_min'] = availability.get('estimated_wait_min', 0)
             params['charging_cost_kwh'] = availability.get('cost_per_kwh', 0.15)
@@ -1361,8 +1362,8 @@ class BDIPlanner:
             else:
                 infrastructure_penalty += 1.0
  
-            if self.infrastructure:
-                grid_stress = self.infrastructure.get_grid_stress_factor()
+            if self.infrastructure_manager is not None:
+                grid_stress = self.infrastructure_manager.get_grid_stress_factor()
                 if grid_stress > 1.0:
                     time_norm *= grid_stress
                     cost_norm *= grid_stress
