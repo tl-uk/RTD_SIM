@@ -546,57 +546,152 @@ class BDIPlanner:
             # Ferry/air modes are truly abstract (no network graph) → 2-point
             # straight-line route via make_synthetic_route().
             #
-            # Rail modes (local_train, intercity_train, freight_rail) route
-            # via the Edinburgh/UK station spine so they appear on the map
-            # travelling through real stations (Waverley → Haymarket → …)
-            # rather than a single diagonal line.
+            # ── Structured modes: TripChainBuilder enforces boarding/alighting ─
+            # Rail, tram, and ferry must start/end at physical infrastructure
+            # (stations, stops, terminals).  They are routed as three legs:
+            #   access → trunk → egress
+            # with the trunk leg geometry coming from the real network graph.
             #
-            # modes.py sets rail routeable=True so this guard only fires for
-            # ferry/air.  If for any reason rail still reaches here (e.g. rail
-            # graph unavailable), it falls back to the spine gracefully.
+            # This replaces the old abstract-route / make_synthetic_route path
+            # for these modes.  Routable modes (car, ev, bus, walk, bike, etc.)
+            # continue to use compute_route_with_segments() below.
+            _STRUCTURED_MODES = frozenset({
+                'local_train', 'intercity_train',
+                'tram',
+                'ferry_diesel', 'ferry_electric',
+            })
+
+            if mode in _STRUCTURED_MODES:
+                try:
+                    from simulation.spatial.trip_chain_builder import TripChainBuilder
+                    builder = TripChainBuilder(env=env, fused_identity=self.fused_identity)
+                    legs = builder.build(
+                        origin=origin,
+                        destination=dest,
+                        trunk_mode=mode,
+                        agent_id=agent_id,
+                        context=context,
+                    )
+                except ValueError as _ve:
+                    logger.debug(
+                        "   %s: TripChainBuilder rejected %s — %s",
+                        agent_id, mode, _ve,
+                    )
+                    routing_results[mode] = f"builder_rejected: {_ve}"
+                    continue
+                except Exception as _be:
+                    logger.debug(
+                        "   %s: TripChainBuilder failed for %s — %s",
+                        agent_id, mode, _be,
+                    )
+                    routing_results[mode] = f"builder_error: {_be}"
+                    continue
+
+                if not legs:
+                    routing_results[mode] = "builder_empty"
+                    continue
+
+                # Route each leg through the appropriate network graph
+                full_route: list = []
+                _segments:  list = []
+                for leg in legs:
+                    try:
+                        if hasattr(env, 'compute_route_with_segments'):
+                            leg_route, leg_segs = env.compute_route_with_segments(
+                                agent_id=f"{agent_id}_{leg.mode}",
+                                origin=leg.path[0],
+                                dest=leg.path[-1],
+                                mode=leg.mode,
+                                policy_context=context,
+                            )
+                        else:
+                            leg_route = env.compute_route(
+                                agent_id=f"{agent_id}_{leg.mode}",
+                                origin=leg.path[0],
+                                dest=leg.path[-1],
+                                mode=leg.mode,
+                                policy_context=context,
+                            )
+                            leg_segs = []
+                    except Exception as _leg_exc:
+                        logger.debug(
+                            "   %s: leg routing failed (%s %s→%s): %s",
+                            agent_id, leg.mode, leg.path[0], leg.path[-1], _leg_exc,
+                        )
+                        full_route = []
+                        _segments  = []
+                        break
+
+                    if not leg_route or len(leg_route) < 2:
+                        logger.debug(
+                            "   %s: empty leg route for %s — aborting chain",
+                            agent_id, leg.mode,
+                        )
+                        full_route = []
+                        _segments  = []
+                        break
+
+                    full_route.extend(leg_route)
+                    if leg_segs:
+                        _segments.extend(leg_segs)
+                    else:
+                        _segments.append({
+                            'path':  leg_route,
+                            'mode':  leg.mode,
+                            'label': leg.label,
+                        })
+
+                route = full_route
+                if not route:
+                    routing_results[mode] = "leg_routing_failed"
+                    continue
+
+                # Build TripChain from the routed legs
+                try:
+                    from simulation.spatial.trip_chain import TripChain
+                    tc = TripChain.from_route_segments(
+                        origin=origin,
+                        destination=dest,
+                        route_segments=_segments,
+                    )
+                    params = {'route_segments': _segments, 'trip_chain': tc}
+                    logger.info(
+                        "✅ %s: TripChain %s  %.1fkm  %d legs",
+                        agent_id, mode,
+                        sum(len(s.get('path', [])) > 1 and
+                            __import__('math').hypot(
+                                s['path'][-1][0] - s['path'][0][0],
+                                s['path'][-1][1] - s['path'][0][1],
+                            ) * 111 for s in _segments),
+                        len(legs),
+                    )
+                except Exception:
+                    params = {'route_segments': _segments}
+
+                actual_route_distance = sum(
+                    haversine_km(route[i], route[i + 1])
+                    for i in range(len(route) - 1)
+                ) if len(route) > 1 else 0.0
+
+                routing_results[mode] = f"success: {actual_route_distance:.1f}km"
+                actions.append(Action(mode=mode, route=route, params=params))
+                continue
+            # ── End structured modes ─────────────────────────────────────────
+
+            # For legacy abstract modes not covered above (air)
             if not is_routeable(mode):
                 try:
                     origin_pos = (float(origin[0]), float(origin[1]))
                     dest_pos   = (float(dest[0]),   float(dest[1]))
                 except Exception:
                     origin_pos, dest_pos = (0.0, 0.0), (0.0, 0.0)
-
                 dist_km = abstract_distance_km(origin_pos, dest_pos, mode)
-
-                if get_network(mode) in ('rail', 'tram'):
-                    # Rail and tram — route via the station/stop spine so the agent
-                    # travels through real stop locations rather than a diagonal.
-                    # route_via_stations returns None for tram when origin/dest are
-                    # outside the tram corridor catchment (>1.5km from any stop).
-                    # In that case, skip tram entirely — it's not a viable mode.
-                    try:
-                        from simulation.spatial.rail_spine import route_via_stations
-                        route = route_via_stations(origin_pos, dest_pos, mode)
-                    except Exception:
-                        route = make_synthetic_route(origin_pos, dest_pos, mode)
-
-                    # None = tram outside catchment — don't offer this mode
-                    if route is None:
-                        logger.debug("   Tram skipped: origin/dest outside 1.5km catchment")
-                        routing_results[mode] = "outside_tram_catchment"
-                        continue
-                else:
-                    # Ferry / air — straight line is correct
-                    route = make_synthetic_route(origin_pos, dest_pos, mode)
-
-                logger.debug(
-                    "   Abstract route: %s (%s) %.1fkm via %d waypoints",
-                    mode, get_network(mode), dist_km, len(route),
-                )
+                route = make_synthetic_route(origin_pos, dest_pos, mode)
                 routing_results[mode] = f"abstract: {dist_km:.1f}km"
                 actions.append(Action(
-                    mode=mode,
-                    route=route,
-                    params={
-                        'trip_distance_km': dist_km,
-                        'abstract':         True,
-                        'network':          get_network(mode),
-                    },
+                    mode=mode, route=route,
+                    params={'trip_distance_km': dist_km, 'abstract': True,
+                            'network': get_network(mode)},
                 ))
                 continue
             # ── End abstract mode guard ──────────────────────────────────────
@@ -606,9 +701,8 @@ class BDIPlanner:
                 logger.debug(f"      âŒ Not feasible (infrastructure)")
                 routing_results[mode] = "infrastructure_failed"
                 continue
-            
-            # Compute actual route — prefer compute_route_with_segments() when
-            # available so per-leg colour metadata flows to the visualiser.
+
+            # Routable modes: road / walk / bus via OSMnx router
             try:
                 if hasattr(env, 'compute_route_with_segments'):
                     route, _segments = env.compute_route_with_segments(
@@ -619,60 +713,8 @@ class BDIPlanner:
                         policy_context=context,
                     )
                 else:
-                    # route = env.compute_route(
-                    #     agent_id=agent_id,
-                    #     origin=origin,
-                    #     dest=dest,
-                    #     mode=mode,
-                    #     policy_context=context,
-                    # )
-                    from simulation.spatial.trip_chain_builder import TripChainBuilder
-
-                    builder = TripChainBuilder(
-                        env=env,
-                        fused_identity=self.fused_identity,
-                    )
-
-                    legs = builder.build(
-                        origin=origin,
-                        destination=dest,
-                        trunk_mode=mode,
-                    )
-
-                    full_route = []
+                    route    = env.compute_route(agent_id, origin, dest, mode)
                     _segments = []
-
-                    for leg in legs:
-                        segment = env.compute_route(
-                            agent_id=agent_id,
-                            origin=leg.path[0],
-                            dest=leg.path[-1],
-                            mode=leg.mode,
-                            policy_context=context,
-                        )
-
-                        # Abort if any leg fails (preserves existing fallback logic)
-                        if not segment or len(segment) < 2:
-                            full_route = []
-                            _segments = []
-                            break
-
-                        full_route.extend(segment)
-                        _segments.append({
-                            "mode": leg.mode,
-                            "start": leg.path[0],
-                            "end": leg.path[-1],
-                            "points": segment,
-                        })
-
-                    route = full_route
-
-                    if not route:
-                        logger.warning(
-                            "Agent %s: illegal or unroutable trip for mode %s",
-                            agent_id,
-                            mode,
-                        )
             except Exception as e:
                 logger.error(f"         Routing exception: {e}")
                 routing_results[mode] = f"exception: {e}"

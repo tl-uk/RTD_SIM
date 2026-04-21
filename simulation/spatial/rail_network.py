@@ -42,6 +42,7 @@ import logging
 from typing import Tuple, Optional, List
 from urllib import parse  as _urllib_parse
 from urllib import request as _urllib_request
+from urllib import error   as _urllib_error
 
 logger = logging.getLogger(__name__)
 
@@ -416,21 +417,14 @@ def fetch_tram_relations_overpass(
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
-            status = getattr(resp, "status", 200)
-            if status == 406:
-                logger.error(
-                    "Overpass tram: HTTP 406 — body encoding error (should never "
-                    "happen; data= field is set)"
-                )
-                _TRAM_RELATIONS_CACHE = []
-                return []
-            if status != 200:
-                logger.warning(
-                    "Overpass tram relations: HTTP %d — skipping", status
-                )
-                _TRAM_RELATIONS_CACHE = []
-                return []
             data = json.loads(resp.read())
+    except _urllib_error.HTTPError as http_err:
+        logger.warning(
+            "Overpass tram relations: HTTP %d — %s",
+            http_err.code, http_err.reason,
+        )
+        _TRAM_RELATIONS_CACHE = []
+        return []
     except Exception as exc:
         logger.warning("Overpass tram relations fetch failed: %s", exc)
         _TRAM_RELATIONS_CACHE = []

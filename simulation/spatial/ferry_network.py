@@ -92,6 +92,7 @@ import time
 # 'from urllib import request/parse' resolves this cleanly.
 from urllib import parse  as _urllib_parse
 from urllib import request as _urllib_request
+from urllib import error   as _urllib_error
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -189,20 +190,23 @@ def _overpass_post(
     """
     POST a query to the Overpass API with exponential backoff.
 
-    HTTP 406 fix: Overpass requires the query as a URL-encoded form field
-    named 'data':
-        POST body:  data=<url-encoded query string>
-        Content-Type: application/x-www-form-urlencoded
-    Sending the raw query string as the body (without the 'data=' prefix)
-    causes the server to return HTTP 406 Not Acceptable.
+    HTTP 406 fix — two-layer issue:
+      (a) urllib.request.urlopen raises HTTPError for ALL non-200 status codes.
+          The previous `if status == 406` block was unreachable because the
+          response object is never returned when the status is 4xx — urlopen
+          raises before we can inspect `resp.status`.
+          Fix: catch `_urllib_error.HTTPError` BEFORE the generic `Exception`.
+      (b) The query must be sent as the value of a form field named 'data':
+              POST body: data=<url-encoded query>
+              Content-Type: application/x-www-form-urlencoded
+          Sending the raw query string without the 'data=' wrapper returns 406.
 
-    Handles:
-      HTTP 429 Too Many Requests — rate-limit; back off and retry
-      HTTP 504 Gateway Timeout   — server busy; back off and retry
-      HTTP 406 Not Acceptable    — encoding error; fails immediately
+    Retry policy:
+      HTTP 429 Too Many Requests — exponential back-off, up to max_retries
+      HTTP 504 Gateway Timeout   — exponential back-off, up to max_retries
+      HTTP 406 / 400 / other 4xx — no retry (encoding / query error)
     """
     import random as _rand
-    # Encode query as a proper HTML form field — required by Overpass API
     body = _urllib_parse.urlencode({'data': query}).encode('utf-8')
 
     for attempt in range(max_retries):
@@ -214,30 +218,51 @@ def _overpass_post(
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
-                status = getattr(resp, 'status', 200)
-                raw    = resp.read()
-                if status == 200:
-                    return json.loads(raw)
-                if status == 406:
-                    logger.error(
-                        "Overpass HTTP 406 — query encoding error; "
-                        "body must be sent as data=<urlencoded> form field"
-                    )
-                    return None
-                logger.warning(
-                    "Overpass HTTP %d (attempt %d/%d)", status, attempt + 1, max_retries
+                return json.loads(resp.read())
+
+        except _urllib_error.HTTPError as http_err:
+            code = http_err.code
+            if code == 406:
+                logger.error(
+                    "Overpass HTTP 406 Not Acceptable — query encoding error "
+                    "(body must start with 'data='); not retrying"
                 )
+                return None
+            if code == 429:
+                if attempt < max_retries - 1:
+                    delay = initial_delay * (2 ** attempt)
+                    wait  = max(1.0, delay * (1 + 0.25 * (_rand.random() - 0.5)))
+                    logger.warning(
+                        "Overpass 429 rate-limit (attempt %d/%d) — retrying in %.1fs",
+                        attempt + 1, max_retries, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                logger.warning("Overpass 429: rate-limited after %d attempts", max_retries)
+                return None
+            if code == 504:
+                if attempt < max_retries - 1:
+                    delay = initial_delay * (2 ** attempt)
+                    wait  = max(1.0, delay * (1 + 0.25 * (_rand.random() - 0.5)))
+                    logger.warning(
+                        "Overpass 504 timeout (attempt %d/%d) — retrying in %.1fs",
+                        attempt + 1, max_retries, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                logger.warning("Overpass 504: timed out after %d attempts", max_retries)
+                return None
+            logger.warning("Overpass HTTP %d: %s — not retrying", code, http_err.reason)
+            return None
+
         except Exception as exc:
             msg = str(exc)
-            is_rate_limit = '429' in msg
-            is_timeout    = '504' in msg or 'timed out' in msg.lower()
-            if attempt < max_retries - 1 and (is_rate_limit or is_timeout):
-                delay  = initial_delay * (2 ** attempt)
-                jitter = delay * 0.25 * (2 * _rand.random() - 1)
-                wait   = max(1.0, delay + jitter)
+            is_timeout = 'timed out' in msg.lower() or 'timeout' in msg.lower()
+            if is_timeout and attempt < max_retries - 1:
+                delay = initial_delay * (2 ** attempt)
+                wait  = max(1.0, delay)
                 logger.warning(
-                    "Overpass %s (attempt %d/%d) — retrying in %.1fs",
-                    '429 rate-limit' if is_rate_limit else '504/timeout',
+                    "Overpass connection timeout (attempt %d/%d) — retrying in %.1fs",
                     attempt + 1, max_retries, wait,
                 )
                 time.sleep(wait)
