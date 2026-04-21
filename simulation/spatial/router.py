@@ -1065,6 +1065,90 @@ class Router:
         """
         return self.graph_manager.get_graph('transit')
 
+    def snap_to_transit_stop(
+        self,
+        coord: Tuple[float, float],
+        mode: str,
+        max_distance_m: int = 5000,
+        exclude_stop: Optional[str] = None,
+    ) -> Optional[Tuple[float, float]]:
+        """
+        Return the (lon, lat) of the nearest transit stop for *mode*.
+
+        Used by TripChainBuilder to anchor boarding and alighting points to
+        real physical infrastructure before routing each leg.
+
+        Priority
+        --------
+        1. GTFS transit graph  — platform-level accuracy, mode-filtered
+        2. NaPTAN stop registry — DfT authoritative, filtered by stop type:
+               tram  → TMU   (Edinburgh Trams, Metrolink, etc.)
+               rail  → RLY   (National Rail stations)
+               ferry → FER   (ferry terminals)
+        3. None — caller falls back to waypoint interpolation
+
+        Args:
+            coord:          (lon, lat) query coordinate.
+            mode:           Transport mode string from modes.py.
+            max_distance_m: Search radius in metres.
+            exclude_stop:   GTFS stop_id to skip (used for second-nearest snaps).
+
+        Returns:
+            (lon, lat) of the nearest stop, or None if nothing is within
+            max_distance_m.
+        """
+        # ── Tier 1: GTFS transit graph ────────────────────────────────────────
+        G_transit = self._get_transit_graph()
+        if G_transit is not None:
+            try:
+                from simulation.gtfs.gtfs_graph import GTFSGraph
+                _mode_filter = 'tram' if mode == 'tram' else mode
+                stop_id = GTFSGraph(None).nearest_stop(
+                    G_transit, coord,
+                    mode_filter=_mode_filter,
+                    max_distance_m=max_distance_m,
+                    **({'exclude_stop': exclude_stop}
+                       if exclude_stop is not None else {}),
+                )
+                if stop_id:
+                    n = G_transit.nodes.get(stop_id, {})
+                    x, y = n.get('x'), n.get('y')
+                    if x is not None and y is not None:
+                        return (float(x), float(y))
+            except Exception as _exc:
+                logger.debug("snap_to_transit_stop GTFS failed: %s", _exc)
+
+        # ── Tier 2: NaPTAN stop registry ─────────────────────────────────────
+        try:
+            from simulation.spatial.naptan_loader import (
+                nearest_naptan_stop,
+                RAIL_STOP_TYPES,
+            )
+            naptan = getattr(self.graph_manager, 'naptan_stops', [])
+            if naptan:
+                _FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
+                _TRAM_STOP_TYPES  = frozenset({'TMU'})
+                if mode == 'tram':
+                    stop_types: Optional[frozenset] = _TRAM_STOP_TYPES
+                elif mode in ('ferry_diesel', 'ferry_electric'):
+                    stop_types = _FERRY_STOP_TYPES
+                elif mode in ('local_train', 'intercity_train', 'freight_rail'):
+                    stop_types = RAIL_STOP_TYPES
+                else:
+                    stop_types = None
+
+                hit = nearest_naptan_stop(
+                    coord, naptan,
+                    stop_types=stop_types,
+                    max_km=max_distance_m / 1000.0,
+                )
+                if hit is not None:
+                    return (hit.lon, hit.lat)
+        except Exception as _exc:
+            logger.debug("snap_to_transit_stop NaPTAN failed: %s", _exc)
+
+        return None
+
     def _get_invalid_route(
         self,
         origin: Tuple[float, float],
