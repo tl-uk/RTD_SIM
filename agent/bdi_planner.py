@@ -254,7 +254,7 @@ class BDIPlanner:
             'car',
             'local_train', 'tram',
         ]
-        self.infrastructure = infrastructure_manager
+        self.infrastructure_manager = infrastructure_manager
         # FusedIdentity is used for mode filtering and routing decisions based on the 
         # agent's persona and allowed modes.
         self.fused_identity = fused_identity
