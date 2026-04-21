@@ -215,7 +215,8 @@ def _overpass_post(
                 _OVERPASS_URL,
                 data=body,
                 method="POST",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={'Content-Type': 'application/x-www-form-urlencoded', 
+                         'Accept': 'application/json'},
             )
             with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
                 return json.loads(resp.read())
