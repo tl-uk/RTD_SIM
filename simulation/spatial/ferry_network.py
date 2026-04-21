@@ -859,7 +859,7 @@ def build_hardcoded_ferry_graph() -> 'nx.MultiDiGraph':
 def fetch_maritime_graphs(
     bbox: Tuple[float, float, float, float],   # (north, south, east, west)
     city_tag: str = "default",
-    use_cache: bool = True,
+    use_cache: bool = False, # was True in previous versions, but caching is now automatic and transparent based on file freshness
 ) -> Dict[str, 'nx.MultiDiGraph']:
     """
     Download all maritime layers for the given bounding box.

@@ -283,7 +283,7 @@ def setup_environment(
             bbox=_ferry_bbox,
             city_tag=_city_tag,
             use_cache=True,
-            parallel_queries=True,
+            # parallel_queries=True,
         )
 
         for _layer, _G in maritime_graphs.items():
