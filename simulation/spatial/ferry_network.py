@@ -216,13 +216,11 @@ def _overpass_post(
                 data=body,
                 method="POST",
                 headers={
-                    # Content-Type MUST match the body encoding.
-                    # The body is URL-encoded form data (data=<query>), so the
-                    # Content-Type must be application/x-www-form-urlencoded.
-                    # Sending 'application/json' here while the body is NOT JSON
-                    # causes Overpass to return HTTP 406 Not Acceptable.
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Accept':       'application/json',
+                    # Provide a descriptive User-Agent; Overpass blocks default urllib agents
+                    'User-Agent': 'RTD_SIM_Ferry_Network_Loader/1.0', 
+                    # DO NOT set 'Accept': 'application/json' — Overpass throws 406 if it 
+                    # wants to return an HTML/Text error message.
                 },
             )
             with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
@@ -231,9 +229,10 @@ def _overpass_post(
         except _urllib_error.HTTPError as http_err:
             code = http_err.code
             if code == 406:
+                err_msg = http_err.read().decode('utf-8', errors='ignore')
                 logger.error(
-                    "Overpass HTTP 406 Not Acceptable — query encoding error "
-                    "(body must start with 'data='); not retrying"
+                    "Overpass HTTP 406 Not Acceptable. Headers might be incorrect or "
+                    f"query was rejected. Server response: {err_msg}"
                 )
                 return None
             if code == 429:
