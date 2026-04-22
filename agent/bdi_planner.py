@@ -542,19 +542,14 @@ class BDIPlanner:
         for mode in available_modes:
             logger.debug(f"   Testing mode: {mode}")
 
-            # ── Abstract mode guard ─────────────────────────────────────────
-            # Ferry/air modes are truly abstract (no network graph) → 2-point
-            # straight-line route via make_synthetic_route().
-            #
             # ── Structured modes: TripChainBuilder enforces boarding/alighting ─
             # Rail, tram, and ferry must start/end at physical infrastructure
             # (stations, stops, terminals).  They are routed as three legs:
-            #   access → trunk → egress
-            # with the trunk leg geometry coming from the real network graph.
+            #   access leg → trunk leg → egress leg
+            # with the trunk geometry coming from the real network graph.
             #
-            # This replaces the old abstract-route / make_synthetic_route path
-            # for these modes.  Routable modes (car, ev, bus, walk, bike, etc.)
-            # continue to use compute_route_with_segments() below.
+            # Routable modes (car, ev, bus, walk, bike …) continue to use
+            # compute_route_with_segments() below — they don't need stop snapping.
             _STRUCTURED_MODES = frozenset({
                 'local_train', 'intercity_train',
                 'tram',
@@ -591,7 +586,7 @@ class BDIPlanner:
                     routing_results[mode] = "builder_empty"
                     continue
 
-                # Route each leg through the appropriate network graph
+                # Route each leg stub through the appropriate graph
                 full_route: list = []
                 _segments:  list = []
                 for leg in legs:
@@ -610,7 +605,6 @@ class BDIPlanner:
                                 origin=leg.path[0],
                                 dest=leg.path[-1],
                                 mode=leg.mode,
-                                policy_context=context,
                             )
                             leg_segs = []
                     except Exception as _leg_exc:
@@ -624,7 +618,7 @@ class BDIPlanner:
 
                     if not leg_route or len(leg_route) < 2:
                         logger.debug(
-                            "   %s: empty leg route for %s — aborting chain",
+                            "   %s: empty leg for %s — aborting chain",
                             agent_id, leg.mode,
                         )
                         full_route = []
@@ -646,7 +640,7 @@ class BDIPlanner:
                     routing_results[mode] = "leg_routing_failed"
                     continue
 
-                # Build TripChain from the routed legs
+                # Build TripChain with correct leg count (3 legs for PT)
                 try:
                     from simulation.spatial.trip_chain import TripChain
                     tc = TripChain.from_route_segments(
@@ -658,12 +652,13 @@ class BDIPlanner:
                     logger.info(
                         "✅ %s: TripChain %s  %.1fkm  %d legs",
                         agent_id, mode,
-                        sum(len(s.get('path', [])) > 1 and
-                            __import__('math').hypot(
-                                s['path'][-1][0] - s['path'][0][0],
-                                s['path'][-1][1] - s['path'][0][1],
-                            ) * 111 for s in _segments),
-                        len(legs),
+                        sum(
+                            __import__('simulation.spatial.coordinate_utils',
+                                       fromlist=['route_distance_km']
+                            ).route_distance_km(s.get('path', []))
+                            for s in _segments
+                        ),
+                        len(_segments),
                     )
                 except Exception:
                     params = {'route_segments': _segments}
@@ -678,7 +673,7 @@ class BDIPlanner:
                 continue
             # ── End structured modes ─────────────────────────────────────────
 
-            # For legacy abstract modes not covered above (air)
+            # For non-structured abstract modes (air/flight)
             if not is_routeable(mode):
                 try:
                     origin_pos = (float(origin[0]), float(origin[1]))
@@ -713,7 +708,7 @@ class BDIPlanner:
                         policy_context=context,
                     )
                 else:
-                    route    = env.compute_route(agent_id, origin, dest, mode)
+                    route     = env.compute_route(agent_id, origin, dest, mode)
                     _segments = []
             except Exception as e:
                 logger.error(f"         Routing exception: {e}")

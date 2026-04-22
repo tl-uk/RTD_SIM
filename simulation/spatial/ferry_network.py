@@ -215,8 +215,15 @@ def _overpass_post(
                 _OVERPASS_URL,
                 data=body,
                 method="POST",
-                headers={'Content-Type': 'application/x-www-form-urlencoded', 
-                         'Accept': 'application/json'},
+                headers={
+                    # Content-Type MUST match the body encoding.
+                    # The body is URL-encoded form data (data=<query>), so the
+                    # Content-Type must be application/x-www-form-urlencoded.
+                    # Sending 'application/json' here while the body is NOT JSON
+                    # causes Overpass to return HTTP 406 Not Acceptable.
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept':       'application/json',
+                },
             )
             with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
                 return json.loads(resp.read())
