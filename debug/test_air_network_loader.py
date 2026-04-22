@@ -15,10 +15,10 @@ import traceback
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 # NOTE: Adjust this import to match the exact function name in your air_network.py
-try:
-    from simulation.spatial.air_network import fetch_air_networks
-except ImportError:
-    pass # Will be handled by the user
+# try:
+from simulation.spatial.air_network import get_or_build_airport_graph, log_air_summary
+# except ImportError:
+    # pass # Will be handled by the user
 
 # Configure logger
 logging.basicConfig(
@@ -37,9 +37,10 @@ def run_air_test():
     try:
         # NOTE: Change 'fetch_air_networks' to whatever your function is named!
         # use_cache=False forces it to process the JSON from the live API
-        from simulation.spatial.air_network import fetch_air_networks
+        # from simulation.spatial.air_network import get_or_build_airport_graph, log_air_summary
         
-        graphs = fetch_air_networks(bbox=test_bbox, use_cache=False)
+        graphs = get_or_build_airport_graph(bbox=test_bbox, use_cache=False)
+        log_air_summary(graphs) # This will print a summary of the loaded air network to the console
         
         if graphs:
             logger.info("✅ SUCCESS: Air graph loaded without crashing!")
