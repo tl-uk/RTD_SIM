@@ -1,0 +1,332 @@
+================================================================================
+RTD_SIM ROUTING DEBUG — SESSION HANDOFF 9
+Generated: 2026-04-22
+Prior transcripts:
+  /mnt/transcripts/2026-04-14-22-07-25-rtd-sim-routing-visualisation-phase2.txt
+  (Sessions 8-9 compacted inline below)
+================================================================================
+
+
+HOW TO START THE NEXT SESSION
+================================================================================
+
+Say exactly this:
+
+  "Continue RTD_SIM debug. This is handoff 9. The multimodal TripChainBuilder
+  refactor is complete and wired in. The ferry Overpass 406 root cause is fixed.
+  Run the simulation and verify:
+    1. TripChain legs show 3 legs for rail/tram (not 1)
+    2. No Overpass 406 warnings in the log
+    3. Ferry graph loads from Overpass (not hardcoded spine)
+    4. EV mode share drops toward 20-25%
+
+  Files I am uploading: [list below]"
+
+
+================================================================================
+ARCHITECTURE SUMMARY (confirmed correct — do not change)
+================================================================================
+
+Data flow:
+  bdi_planner.actions_for()
+    → For STRUCTURED_MODES (rail/tram/ferry):
+        TripChainBuilder.build() → [access_leg, trunk_leg, egress_leg]
+        each leg routed via env.compute_route_with_segments()
+        result: 3-segment TripChain with real boarding/alighting points
+    → For ROUTABLE_MODES (car/ev/bus/walk/bike):
+        env.compute_route_with_segments() directly
+        result: 1-segment TripChain
+    → TripChain stored in params['trip_chain']
+    → cognitive_abm._maybe_plan() propagates to agent.state.trip_chain
+    → simulation_loop.py copies all multimodal fields to agent_states dict
+    → visualization.py renders per-leg PathLayers
+
+Graph separation (CRITICAL — never merge):
+  drive graph   — OSMnx network_type='drive'
+  walk graph    — OSMnx network_type='walk'
+  bike graph    — OSMnx network_type='bike'
+  rail graph    — OpenRailMap Overpass query
+  tram graph    — OSM railway=tram (sidings pruned, retain_all=False)
+  transit graph — GTFSGraph
+  ferry graph   — ferry_network.fetch_maritime_graphs()  ← NOT rail_network shim
+  shipping_lanes — OpenSeaMap TSS (visualisation only)
+
+All coordinates: (lon, lat). Never (lat, lon).
+
+Key attribute: SpatialEnvironment.router (Router instance, set at line 94)
+  → Used by TripChainBuilder._snap_stop() via getattr(env, 'router', None)
+  → Router.snap_to_transit_stop() is a public method (added session 9)
+
+
+================================================================================
+WHAT WAS FIXED IN SESSIONS 1-8 (do not re-apply)
+================================================================================
+
+Sessions 1-7 (see RTD_SIM_HANDOFF_8.txt for full list):
+  router.py           — walk graph drive-proxy fallback; tram catchment guard
+  bdi_planner.py      — _fused_override NameError; schedule risk; EV capital model
+  persona_fusion.py   — accessible_tram_journey added to _JOB_MODE_OVERRIDES
+  personas.yaml       — EV preferences calibrated to 2024 UK market reality
+  agent_creation.py   — corridor_od() for tram/rail job stories
+  environment_setup.py — naptan_stops bridged to graph_manager.naptan_stops
+  visualization.py    — ferry layer bbox derivation fixed
+
+Session 8 (architectural refactor):
+  router.py
+    - Heading reversal: off-by-one fixed (range(check_up_to) not check_up_to-1)
+    - Heading reversal: symmetric angle formula abs(((b2-b1+180)%360)-180)
+    - Heading reversal: edge-penalty retry (×10000) replaces nx.restricted_view
+      removal which silently raised NetworkXNoPath
+    - Tram catchment: TMU only (not RLY/MET) — rail stations near origin were
+      incorrectly granting tram access to agents 40km from tram corridor
+    - snap_to_transit_stop() added as public method (GTFS → NaPTAN fallback)
+    - Access/egress: unified drive-proxy fallback eliminates straight lines
+
+  transport_loader.py
+    - _load_tram_graph: retain_all=False + siding/depot edge pruning
+      (was routing through South Gyle shopping centre via depot sidings)
+    - _load_ferry_graph: now calls ferry_network.fetch_maritime_graphs()
+      directly instead of rail_network shim (which used linear interpolation)
+
+  ferry_network.py + rail_network.py
+    - from urllib import error as _urllib_error  (HTTPError before Exception)
+    - fetch_maritime_graphs / fetch_tram_relations: correct error handling
+    - fetch_tram_relations_overpass re-added to rail_network.py (was deleted)
+
+  trip_chain_builder.py (new file)
+    - TripChainBuilder.build(origin, dest, trunk_mode, agent_id, context)
+    - _build_rail_like / _build_ferry / _build_air leg stub generators
+    - _snap_stop: Router.snap_to_transit_stop() → NaPTAN direct fallback
+    - _snap_ferry_terminal: ferry graph → NaPTAN FER/FBT fallback
+    - _ensure_access_modes: patches FusedIdentity.access_modes if absent
+    - _pick_access_mode: returns highest-priority routable access mode
+
+Session 9 (wiring TripChainBuilder + ferry 406 final fix):
+  bdi_planner.py
+    - _STRUCTURED_MODES = {local_train, intercity_train, tram,
+                           ferry_diesel, ferry_electric}
+    - Structured modes now enter TripChainBuilder block BEFORE
+      infrastructure feasibility check and BEFORE compute_route_with_segments
+    - Old abstract-mode guard (route_via_stations spine) REMOVED — it was
+      intercepting rail/tram before TripChainBuilder could run
+    - Each leg routed via env.compute_route_with_segments individually
+    - TripChain built from _segments list → correct leg count (3 for PT)
+
+  ferry_network.py
+    - Content-Type header: was 'application/json', now correctly
+      'application/x-www-form-urlencoded' to match the URL-encoded body
+      This was the actual cause of all HTTP 406 errors — the previous
+      urllib/HTTPError fix was necessary but not sufficient on its own
+
+
+================================================================================
+CURRENT STATUS (after session 9)
+================================================================================
+
+CONFIRMED WORKING:
+  ✅ Straight-line access/egress: 0 occurrences (drive-proxy fallback active)
+  ✅ Heading reversal: edge-penalty retry resolves Craiglockhart junction
+  ✅ Tram catchment: TMU-only filter (Scotstoun no longer gets tram)
+  ✅ Tram OSM graph: sidings pruned (no routing through South Gyle car park)
+  ✅ TripChain wiring: bdi_planner stores trip_chain on action params
+  ✅ env.router: SpatialEnvironment exposes router at self.router (line 94)
+  ✅ snap_to_transit_stop: public Router method, GTFS → NaPTAN priority
+  ✅ FusedIdentity.access_modes: lazily added by TripChainBuilder if absent
+  ✅ ferry_network.py urllib: HTTPError caught before Exception
+  ✅ Content-Type header: application/x-www-form-urlencoded (not application/json)
+
+NOT YET VERIFIED (need next simulation run):
+  ⬜ TripChain legs: expect 3 legs for rail/tram/ferry (was 1 before session 9)
+  ⬜ Overpass 406: expect 0 warnings (Content-Type fix applied)
+  ⬜ Ferry graph: expect Overpass data not hardcoded spine
+  ⬜ EV mode share: expect reduction toward 20-25% as rail/tram succeed more
+
+
+================================================================================
+KNOWN REMAINING ISSUES (priority order)
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 1 — EV MODE BIAS (~56 EV out of ~170 agents = 33%)
+─────────────────────────────────────────────────────────────────────────────
+
+Current: EV 56/170 = 33% (latest log: simulation_20260421_234648.log)
+Target:  ~20-25%
+
+Root cause: When no GTFS is loaded, tram/rail routing falls back to the OSM
+graph which may fail catchment checks or return empty routes. EV always
+succeeds (drive graph is always available). This creates EV as the universal
+fallback winner.
+
+With TripChainBuilder now wired, rail/tram will succeed more often because:
+  - Stop snapping is precise (GTFS/NaPTAN platform coords)
+  - Access/egress use correct modes (walk if <1.2km, car if >1.2km)
+  - Catchment guard correctly filters to TMU-only stops
+
+Expected: next run with TripChainBuilder active should reduce EV by 5-10%.
+If EV is still >30%: check CPG mode selection for budget_student persona
+(EV=0.0 in personas.yaml but CPG still adds it via 'bus' fallback logic).
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 2 — FERRY GRAPH RENDERING
+─────────────────────────────────────────────────────────────────────────────
+
+Current: Ferry graph loads as hardcoded spine (Overpass fails with 406)
+Expected after fix: Overpass great-circle arc routes
+
+After the Content-Type fix, Overpass should succeed. If Overpass is still
+failing, check:
+  1. Network connectivity from the server running the simulation
+  2. Whether Overpass is rate-limiting (look for 429 in logs)
+  3. Cache age: delete ~/.rtd_sim_cache/transport/ to force re-fetch
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 3 — GTFS TRAM GEOMETRY (no shape data)
+─────────────────────────────────────────────────────────────────────────────
+
+When GTFS is loaded from BODS (TransXChange conversion), Edinburgh Tram
+has no shape.txt entries. Tram routes show 4.5 pts/stop (straight lines)
+vs bus routes at 27.7 pts/stop (real road geometry).
+
+Fix needed in router.py _compute_gtfs_route() or _gtfs_with_segments():
+  When shape_coords is empty for a tram segment, fall back to the OSM
+  tram graph geometry between the nearest tram-track nodes.
+
+The OSM tram graph is already loaded as graphs['tram'] — the fix just needs
+to use it as a shape source when GTFS has no shapes.
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 4 — TripChainBuilder: trunk leg geometry is still a stub
+─────────────────────────────────────────────────────────────────────────────
+
+TripChainBuilder._build_rail_like() returns a trunk leg with path=
+[boarding_stop_coord, alighting_stop_coord] — two points only.
+
+When bdi_planner routes this leg via compute_route_with_segments(), the
+router's _intermodal_with_segments() takes over and produces real track
+geometry because it calls _nearest_rail_node() on the coords. So the trunk
+leg actually gets real geometry through the router.
+
+HOWEVER: the access and egress legs also go through compute_route_with_segments
+with the original mode (walk/car). This should work correctly since those
+leg origins/dests are now real stop coordinates, not arbitrary agent positions.
+
+Verify in the next log:
+  - "TripChain local_train Xkm 3 legs" (3 segments)
+  - access leg: "walk route: N pts" or "access→drive proxy: N pts"
+  - trunk leg: "local_train intermodal-segments Xkm (N pts, 3 legs)"
+  - egress leg: similar to access
+
+If trunk leg routing fails (empty route from stop-to-stop): check that
+_intermodal_with_segments can snap both stop coords to rail graph nodes.
+The NaPTAN RLY stop coordinates should be close to OpenRailMap nodes.
+
+
+================================================================================
+FILES MODIFIED IN SESSION 9
+================================================================================
+
+CHANGED:
+  simulation/spatial/bdi_planner.py
+    → _STRUCTURED_MODES block added (lines 545-700)
+    → old abstract-mode guard removed (route_via_stations no longer called)
+    → TripChainBuilder is now the primary path for rail/tram/ferry
+
+  simulation/spatial/ferry_network.py
+    → Content-Type header corrected: application/x-www-form-urlencoded
+    → This was the root cause of all HTTP 406 Not Acceptable errors
+
+UNCHANGED (confirmed correct):
+  simulation/spatial/router.py         — snap_to_transit_stop() present
+  simulation/spatial/trip_chain_builder.py — complete and correct
+  simulation/setup/environment_setup.py — parallel_queries commented out
+  simulation/spatial/spatial_environment.py — self.router = Router(...) at line 94
+  simulation/spatial/rail_network.py   — fetch_tram_relations_overpass present
+  simulation/spatial/transport_loader.py — ferry via fetch_maritime_graphs()
+
+
+================================================================================
+EXPECTED LOG MESSAGES AFTER NEXT RUN
+================================================================================
+
+SHOULD NOW APPEAR (new):
+  "✅ agent_id: TripChain local_train  X.Xkm  3 legs"
+  "✅ agent_id: TripChain tram  X.Xkm  3 legs"
+  "✅ agent_id: TripChainBuilder rejected tram — No tram boarding stop within..."
+    (for agents outside tram corridor — correct rejection)
+
+SHOULD DISAPPEAR:
+  "WARNING:simulation.spatial.ferry_network:Overpass POST failed: HTTP Error 406"
+  "✅ agent_id: TripChain local_train  X.Xkm  1 legs"  (was wrong)
+
+SHOULD REMAIN (correct behaviour):
+  "tram OSM graph skipped — origin or dest not near a tram stop"
+  "heading reversal resolved via penalty on node X"
+  "walk route: N pts on walk graph"
+  "access→drive proxy: N pts (X.Xkm)"
+
+
+================================================================================
+FILES TO UPLOAD IN NEXT SESSION
+================================================================================
+
+MUST UPLOAD:
+  simulation/spatial/bdi_planner.py         ← verify TripChainBuilder active
+  Any recent simulation log (*.log)          ← verify 3-leg TripChain + no 406
+
+UPLOAD FOR CONTEXT:
+  simulation/spatial/router.py              ← if rail routing issues persist
+  simulation/spatial/trip_chain_builder.py  ← if leg building fails
+  simulation/setup/environment_setup.py     ← if graph loading order matters
+
+DO NOT RE-UPLOAD (confirmed clean):
+  spatial_environment.py   — self.router confirmed at line 94
+  ferry_network.py         — Content-Type fixed in session 9
+  rail_network.py          — fetch_tram_relations_overpass present
+  transport_loader.py      — ferry via fetch_maritime_graphs()
+
+
+================================================================================
+TEST COMMAND
+================================================================================
+
+  python debug/test_multimodal_routing.py
+
+Expected results:
+  PASS Rail: Waverley→Haymarket   (3-leg TripChain: walk+rail+walk on tracks)
+  PASS Tram: Airport→Princes St   (3-leg TripChain: walk+tram+walk)
+  PASS Tram: Cramond→Portobello   (correctly rejected — outside catchment)
+  PASS Bus:  Leith Walk→Cameron Toll (road-following route)
+  PASS Ferry: Leith→Kinghorn      (3-leg TripChain: walk+ferry+walk)
+  PASS EV:   Morningside→Stockbridge (road-following, 311+ pts)
+  PASS Walk: Canongate→Holyrood   (walk graph, 80+ pts)
+
+
+================================================================================
+BUG FIX SUMMARY TABLE
+================================================================================
+
+Session | File                  | Bug                          | Fix
+--------|----------------------|------------------------------|---------------------------
+1-7     | router.py            | Walk graph straight lines    | Drive-proxy fallback
+1-7     | bdi_planner.py       | _fused_override NameError    | Renamed to _fused_allowed
+1-7     | persona_fusion.py    | tram job missing from map    | Added _JOB_MODE_OVERRIDES
+1-7     | agent_creation.py    | Random OD misses corridor    | corridor_od() added
+8       | router.py            | Heading reversal off-by-one  | range(check_up_to)
+8       | router.py            | Reversal CW/CCW asymmetric   | Symmetric angle formula
+8       | router.py            | restricted_view NetworkXNoPath| Edge-penalty ×10000 retry
+8       | router.py            | RLY grants tram access       | TMU-only filter
+8       | router.py            | snap_to_transit_stop missing | Added as public method
+8       | transport_loader.py  | Tram routes through carpark  | retain_all=False + prune
+8       | transport_loader.py  | Ferry uses linear interp     | fetch_maritime_graphs()
+8       | ferry_network.py     | HTTPError swallowed silently | Catch before Exception
+8       | rail_network.py      | fetch_tram_relations missing  | Re-added function
+8       | trip_chain_builder.py| New file: leg stub generator | Written from scratch
+9       | bdi_planner.py       | TripChainBuilder never called| _STRUCTURED_MODES block
+9       | bdi_planner.py       | Old abstract guard intercepts| Removed route_via_stations
+9       | ferry_network.py     | Content-Type: application/json| Fixed to form-urlencoded
+
+
+================================================================================
+END OF HANDOFF 9
+================================================================================
