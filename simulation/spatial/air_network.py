@@ -347,15 +347,41 @@ def _fetch_openaip(
             geo = item.get('geometry', {}).get('coordinates', [])
             if len(geo) < 2:
                 continue
+                
+            # Safely extract type (OpenAIP often returns ints: 3 = heliport)
+            raw_type = item.get('type')
+            if isinstance(raw_type, dict):
+                atype = raw_type.get('name', 'small_airport')
+            elif isinstance(raw_type, int):
+                atype = 'heliport' if raw_type == 3 else 'small_airport'
+            else:
+                atype = 'small_airport'
+
+            # Safely extract country
+            raw_country = item.get('country')
+            if isinstance(raw_country, dict):
+                country = raw_country.get('code', 'GB')
+            elif isinstance(raw_country, str):
+                country = raw_country
+            else:
+                country = 'GB'
+
+            # Safely extract elevation
+            raw_elev = item.get('elevation')
+            if isinstance(raw_elev, dict):
+                elev = str(raw_elev.get('value', ''))
+            else:
+                elev = str(raw_elev) if raw_elev is not None else ''
+
             airports.append({
                 'icao':         item.get('icaoCode', ''),
                 'name':         item.get('name', ''),
                 'lon':          float(geo[0]),
                 'lat':          float(geo[1]),
-                'airport_type': item.get('type', {}).get('name', 'small_airport'),
-                'iso_country':  item.get('country', {}).get('code', 'GB'),
+                'airport_type': atype,
+                'iso_country':  country,
                 'iata':         item.get('iataCode', ''),
-                'elevation_ft': item.get('elevation', {}).get('value', ''),
+                'elevation_ft': elev,
             })
 
         total = data.get('totalCount', len(airports))
