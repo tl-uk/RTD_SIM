@@ -915,14 +915,28 @@ class PersonaFusion:
         override = _JOB_MODE_OVERRIDES.get(job_id)
 
         if override:
-            abstract = list(override.get('abstract_modes', []))
+            override_abstract = list(override.get('abstract_modes', []))
             access   = list(override.get('access_modes',   []))
             primary  = override.get('primary_network', 'drive')
 
-            # If the job has abstract (rail/ferry/air) modes,
-            # the routeable set is the access modes only.
-            routeable = [m for m in access if is_routeable(m)]
-            allowed   = abstract + routeable
+            # Re-classify using the current is_routeable() from modes.py.
+            # The override table may pre-date Phase 10b which changed
+            # local_train, intercity_train, tram, and ferry to routeable=True.
+            # Taking abstract_modes literally would mark them as needing
+            # make_synthetic_route() when they actually have real graph routing.
+            abstract  = [m for m in override_abstract if not is_routeable(m)]
+            # Modes the override listed as 'abstract' but are now routeable
+            # (local_train, tram, ferry_*) — keep them in allowed but mark routeable.
+            structured_now_routeable = [m for m in override_abstract if is_routeable(m)]
+            routeable = structured_now_routeable + [m for m in access if is_routeable(m)]
+
+            # allowed = override abstract + access, deduplicated, preserving order
+            seen: set = set()
+            allowed: List[str] = []
+            for m in override_abstract + access:
+                if m not in seen:
+                    seen.add(m)
+                    allowed.append(m)
 
         else:
             # Use persona profile base_modes
@@ -938,6 +952,16 @@ class PersonaFusion:
             primary   = profile.get('primary_network', 'drive')
             access    = list(profile.get('access_modes', []))
             allowed   = persona_modes
+
+            # For personas whose primary_network is rail/ferry/air and whose
+            # profile defines no access_modes, derive a default from the
+            # routeable modes in base_modes (walk, bus, car, ev).
+            # Without this, _ensure_access_modes in trip_chain_builder.py
+            # has to do emergency recovery, producing suboptimal access legs.
+            if not access and primary in ('rail', 'ferry', 'air', 'tram'):
+                _ACCESS_CANDIDATES = ['walk', 'bus', 'car', 'ev',
+                                      'bike', 'e_scooter', 'taxi_ev']
+                access = [m for m in persona_modes if m in _ACCESS_CANDIDATES]
 
         # Never return an empty allowed_modes
         if not allowed:

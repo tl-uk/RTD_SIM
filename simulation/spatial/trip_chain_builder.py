@@ -43,6 +43,7 @@ from simulation.config.modes import is_routeable
 from simulation.spatial.naptan_loader import (
     nearest_naptan_stop,
     RAIL_STOP_TYPES,
+    RAIL_ONLY_STOP_TYPES,
 )
 from simulation.spatial.trip_chain import TripLeg
 
@@ -62,10 +63,17 @@ _MAX_STOP_SNAP_KM = 5.0
 # ---------------------------------------------------------------------------
 
 def _ensure_access_modes(fused_identity: Any) -> None:
-    """Add access_modes to FusedIdentity if missing (non-destructive)."""
+    """Populate access_modes on FusedIdentity if missing or empty.
+
+    FusedIdentity is a dataclass so hasattr() is always True — the check
+    must also guard against an empty list, which means PersonaFusion didn't
+    resolve any access candidates (common for transit-only personas whose
+    job override sets access_modes=[] by default).
+    """
     if fused_identity is None:
         return
-    if hasattr(fused_identity, 'access_modes'):
+    existing = getattr(fused_identity, 'access_modes', None)
+    if existing:          # non-None AND non-empty — leave it
         return
     _CANDIDATES = ['walk', 'bike', 'e_scooter', 'bus',
                    'taxi_ev', 'taxi_diesel', 'car', 'ev']
@@ -120,6 +128,15 @@ class TripChainBuilder:
 
         Raises:
             ValueError: Mode not permitted, or no stop/terminal found.
+
+        Dispatch order
+        --------------
+        Structured modes (rail/tram/ferry/air) are checked FIRST, before the
+        is_routeable() short-circuit.  Phase 10b made local_train, tram, and
+        ferry routeable=True in modes.py so that the BDI planner reaches the
+        router rather than make_synthetic_route().  However TripChainBuilder
+        must still enforce stop-snapping for these modes — the is_routeable()
+        flag controls OSMnx graph access, not whether stop-snapping is needed.
         """
         allowed = getattr(getattr(self, 'fused_identity', None), 'allowed_modes', None)
         if allowed is not None and trunk_mode not in allowed:
@@ -130,13 +147,9 @@ class TripChainBuilder:
 
         context = context or {}
 
-        if is_routeable(trunk_mode):
-            return [TripLeg(
-                mode=trunk_mode,
-                path=[origin, destination],
-                label=trunk_mode.replace('_', ' ').title(),
-            )]
-
+        # ── Structured modes: always build access + trunk + egress legs ───────
+        # Checked BEFORE is_routeable() because their routeable flag was changed
+        # to True in Phase 10b; stop-snapping is still required regardless.
         if trunk_mode in ('local_train', 'intercity_train', 'freight_rail', 'tram'):
             return self._build_rail_like(origin, destination, trunk_mode, agent_id)
 
@@ -145,6 +158,14 @@ class TripChainBuilder:
 
         if trunk_mode.startswith('flight'):
             return self._build_air(origin, destination, trunk_mode, agent_id)
+
+        # ── Generic single-leg for any remaining routeable mode ───────────────
+        if is_routeable(trunk_mode):
+            return [TripLeg(
+                mode=trunk_mode,
+                path=[origin, destination],
+                label=trunk_mode.replace('_', ' ').title(),
+            )]
 
         raise ValueError(f"Unsupported trunk mode: {trunk_mode!r}")
 
@@ -285,6 +306,12 @@ class TripChainBuilder:
                 stop_types = _TRAM_STOP_TYPES
             elif mode in ('ferry_diesel', 'ferry_electric'):
                 stop_types = _FERRY_STOP_TYPES
+            elif mode in ('local_train', 'intercity_train', 'freight_rail'):
+                # CRITICAL: use RLY-only set, never MET (tram stops) or FER.
+                # Edinburgh has 74 MET stops vs 20 RLY stops; without this
+                # filter, rail agents snap to tram stops and the trunk leg
+                # routing fails because the tram stop has no rail graph node.
+                stop_types = RAIL_ONLY_STOP_TYPES
             else:
                 stop_types = RAIL_STOP_TYPES
 

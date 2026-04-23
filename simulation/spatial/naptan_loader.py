@@ -136,6 +136,42 @@ _RAIL_STOP_TYPES = frozenset({
     'BCE',   # Bus / coach station entrance (intermodal hubs)
 })
 
+# ── Mode-specific stop type sets ───────────────────────────────────────────────
+# These are narrower subsets used when snapping to a SPECIFIC transport mode.
+# Using _RAIL_STOP_TYPES (which includes MET/FER/TMU) for local_train snapping
+# caused agents to be snapped to tram stops (MET) or ferry landings (FER) which
+# have no rail connection → trunk leg routing fails → agent forced to EV.
+
+# National Rail stations only — for local_train / intercity_train snapping
+RAIL_ONLY_STOP_TYPES = frozenset({'RLY'})
+
+# Tram / light-rail stops only — for tram snapping
+TRAM_STOP_TYPES = frozenset({'TMU'})
+
+# Ferry terminals only — for ferry_diesel / ferry_electric snapping
+FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
+
+# Bus stops and interchanges — for bus snapping (permissive)
+BUS_STOP_TYPES = frozenset({'BCT', 'BCE', 'BCS', 'BST'})
+
+# ── Which RTD_SIM modes each stop type serves ─────────────────────────────────
+# Used to build NaptanStop.modes_served so the router can validate that a stop
+# actually serves the mode it is being snapped for.
+STOP_TYPE_TO_MODES: dict = {
+    'RLY': ['local_train', 'intercity_train', 'freight_rail'],
+    'RSE': ['local_train', 'intercity_train'],
+    'MET': ['tram'],          # Edinburgh Trams MET stops are tram, NOT rail
+    'TMU': ['tram'],
+    'LCB': ['tram'],
+    'FER': ['ferry_diesel', 'ferry_electric'],
+    'FBT': ['ferry_diesel', 'ferry_electric'],
+    'BCE': ['bus'],
+    'BCT': ['bus'],
+    'BCS': ['bus'],
+    'BST': ['bus'],
+    'AIR': ['flight_domestic', 'flight_electric'],
+}
+
 # ── ATCO area code registry ────────────────────────────────────────────────────
 # Each entry: code -> {name, centroid_lon, centroid_lat}
 # Centroids are approximate geographic centres of each administrative area.
@@ -196,9 +232,27 @@ ATCO_AREAS: Dict[str, Dict] = {
 # ── NaPTAN stop record ─────────────────────────────────────────────────────────
 
 class NaptanStop:
-    """Lightweight NaPTAN stop record."""
+    """
+    Lightweight NaPTAN stop record with semantic boarding/alighting fields.
+
+    Semantic fields (derived from stop_type at construction):
+        modes_served:         List of RTD_SIM mode strings this stop serves.
+                              e.g. RLY → ['local_train', 'intercity_train']
+                              MET → ['tram']  (NOT rail — key distinction)
+        can_board:            True if passengers can board here (default True).
+        can_alight:           True if passengers can alight here (default True).
+        wheelchair_accessible: True if the stop has step-free access.
+                               Populated from GTFS wheelchair_boarding when
+                               available; defaults to False when unknown.
+
+    These fields implement a lightweight stop ontology so the router can
+    validate that a stop genuinely serves a given mode before snapping to it,
+    preventing MET (tram) stops from being returned for rail-mode queries.
+    """
     __slots__ = ('atco_code', 'common_name', 'stop_type',
-                 'lon', 'lat', 'crs_code', 'status')
+                 'lon', 'lat', 'crs_code', 'status',
+                 'modes_served', 'can_board', 'can_alight',
+                 'wheelchair_accessible')
 
     def __init__(
         self,
@@ -207,8 +261,12 @@ class NaptanStop:
         stop_type:   str,
         lon:         float,
         lat:         float,
-        crs_code:    str = '',
-        status:      str = 'act',
+        crs_code:    str  = '',
+        status:      str  = 'act',
+        modes_served: Optional[List[str]] = None,
+        can_board:    bool = True,
+        can_alight:   bool = True,
+        wheelchair_accessible: bool = False,
     ):
         self.atco_code   = atco_code
         self.common_name = common_name
@@ -217,16 +275,33 @@ class NaptanStop:
         self.lat         = lat
         self.crs_code    = crs_code
         self.status      = status
+        self.can_board   = can_board
+        self.can_alight  = can_alight
+        self.wheelchair_accessible = wheelchair_accessible
+        # Derive modes_served from stop_type if not explicitly provided
+        self.modes_served: List[str] = (
+            modes_served
+            if modes_served is not None
+            else list(STOP_TYPE_TO_MODES.get(stop_type, []))
+        )
+
+    def serves_mode(self, mode: str) -> bool:
+        """Return True if this stop serves the given RTD_SIM mode string."""
+        return mode in self.modes_served
 
     def to_dict(self) -> dict:
         return {
-            'atco_code':   self.atco_code,
-            'common_name': self.common_name,
-            'stop_type':   self.stop_type,
-            'lon':         self.lon,
-            'lat':         self.lat,
-            'crs_code':    self.crs_code,
-            'status':      self.status,
+            'atco_code':            self.atco_code,
+            'common_name':          self.common_name,
+            'stop_type':            self.stop_type,
+            'lon':                  self.lon,
+            'lat':                  self.lat,
+            'crs_code':             self.crs_code,
+            'status':               self.status,
+            'modes_served':         self.modes_served,
+            'can_board':            self.can_board,
+            'can_alight':           self.can_alight,
+            'wheelchair_accessible': self.wheelchair_accessible,
         }
 
     @classmethod
@@ -239,12 +314,16 @@ class NaptanStop:
             lat         = float(d['lat']),
             crs_code    = d.get('crs_code', ''),
             status      = d.get('status', 'act'),
+            modes_served = d.get('modes_served'),
+            can_board    = d.get('can_board', True),
+            can_alight   = d.get('can_alight', True),
+            wheelchair_accessible = d.get('wheelchair_accessible', False),
         )
 
     def __repr__(self) -> str:
         return (
             f"NaptanStop({self.common_name!r}, type={self.stop_type}, "
-            f"lon={self.lon:.4f}, lat={self.lat:.4f})"
+            f"modes={self.modes_served}, lon={self.lon:.4f}, lat={self.lat:.4f})"
         )
 
 
@@ -776,6 +855,16 @@ def nearest_naptan_stop(
 # Public alias — imported by router.py for typed access.
 # Rail/metro/tram stop types only: excludes bus, coach, ferry, air.
 RAIL_STOP_TYPES = _RAIL_STOP_TYPES
+# Narrower public aliases for mode-specific snapping (preferred over RAIL_STOP_TYPES):
+__all__ = [
+    'NaptanStop', 'download_naptan', 'nearest_naptan_stop', 'build_transfer_nodes',
+    'RAIL_STOP_TYPES',      # broad set (RLY+MET+FER+TMU) — legacy
+    'RAIL_ONLY_STOP_TYPES', # RLY only — use for local_train / intercity_train
+    'TRAM_STOP_TYPES',      # TMU only
+    'FERRY_STOP_TYPES',     # FER+FBT
+    'BUS_STOP_TYPES',       # BCT+BCE+BCS+BST
+    'STOP_TYPE_TO_MODES',
+]
 
 
 # ── Haversine ──────────────────────────────────────────────────────────────────

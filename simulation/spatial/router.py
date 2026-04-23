@@ -331,39 +331,58 @@ class Router:
         try:
             wk = self._apply_generalised_weights(rail_graph, mode, policy)
             rail_nodes = nx.shortest_path(rail_graph, orig_node, dest_node, weight=wk)
-            # ── Kinematic guard with one-shot retry ───────────────────────────
-            # If Dijkstra routes through a triangular junction producing a
-            # near-180° bearing reversal, exclude that node and retry once.
-            # A restricted view is O(1) to construct and uses the same weight
-            # dict already written to the edges above.
+            # ── Kinematic guard: edge-penalty retry ──────────────────────────
+            # nx.restricted_view([reversal_node]) raises NetworkXNoPath when
+            # that node is the only topological connection between origin and
+            # destination (common at the Craiglockhart/Slateford crossing).
+            # The bare `except Exception: return [],[]` swallows this silently,
+            # producing zero log output and forcing EV fallback.
+            #
+            # Fix: multiply the gen_cost on all edges incident to the reversal
+            # node by ×10,000.  Dijkstra will still find a path (topology
+            # unchanged) but strongly prefers any alternative route.  Original
+            # weights are restored in the `finally` block.
             if self._has_heading_reversal(rail_graph, rail_nodes):
                 reversal_node = self._find_reversal_node(rail_graph, rail_nodes)
                 if reversal_node is not None:
+                    _PENALTY = 10_000.0
+                    _incident = (
+                        list(rail_graph.in_edges(reversal_node,  keys=True, data=True))
+                        + list(rail_graph.out_edges(reversal_node, keys=True, data=True))
+                    )
+                    _saved = {(u, v, k): d.get(wk, 1.0) for u, v, k, d in _incident}
                     try:
-                        G_restricted = nx.restricted_view(
-                            rail_graph, [reversal_node], []
-                        )
+                        for u, v, k, d in _incident:
+                            d[wk] = _saved[(u, v, k)] * _PENALTY
                         rail_nodes = nx.shortest_path(
-                            G_restricted, orig_node, dest_node, weight=wk
+                            rail_graph, orig_node, dest_node, weight=wk
                         )
-                        if self._has_heading_reversal(G_restricted, rail_nodes):
+                        if self._has_heading_reversal(rail_graph, rail_nodes):
                             logger.warning(
-                                "%s: %s heading reversal persists after retry — rejecting",
+                                "%s: %s heading reversal persists after penalty "
+                                "retry — accepting best available route",
                                 agent_id, mode,
                             )
-                            return [], []
-                        logger.info(
-                            "%s: %s heading reversal resolved by excluding node %s",
-                            agent_id, mode, reversal_node,
+                        else:
+                            logger.info(
+                                "%s: %s heading reversal resolved via penalty "
+                                "on node %s",
+                                agent_id, mode, reversal_node,
+                            )
+                    except Exception as _pen_exc:
+                        logger.warning(
+                            "%s: %s penalty retry failed (%s) — rejecting",
+                            agent_id, mode, _pen_exc,
                         )
-                    except Exception:
                         return [], []
+                    finally:
+                        for u, v, k, d in _incident:
+                            d[wk] = _saved[(u, v, k)]
                 else:
                     logger.warning(
-                        "%s: %s heading reversal — no retry node found, rejecting",
+                        "%s: %s heading reversal — reversal node not found",
                         agent_id, mode,
                     )
-                    return [], []
             rail_coords = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes), max_segment_km=0.2,
             )
@@ -803,23 +822,22 @@ class Router:
             try:
                 from simulation.spatial.naptan_loader import (
                     nearest_naptan_stop,
-                    RAIL_STOP_TYPES,
+                    RAIL_ONLY_STOP_TYPES,   # RLY only — never MET/FER/TMU
                 )
-                # ── CRITICAL: pass stop_types=RAIL_STOP_TYPES ────────────────
-                # Without this filter, nearest_naptan_stop returns the single
-                # closest NaPTAN stop regardless of type — which is often a bus
-                # stop (Lothian Buses has ~1,800 stops in Edinburgh).  Agent 9204
-                # was being snapped to a Lothian Bus stop near the Mound rather
-                # than Edinburgh Waverley (RLY stop) because the bus stop was 50 m
-                # closer.  The fix restricts snapping to RLY/RSE/MET/TMU types.
+                # Use RAIL_ONLY_STOP_TYPES (RLY) not the broad RAIL_STOP_TYPES.
+                # RAIL_STOP_TYPES includes MET (tram stops) and FER (ferry
+                # terminals) — both of which are not on the rail graph.
+                # Edinburgh has 74 MET stops and 18 FER stops vs 20 RLY stops;
+                # the MET stops are closer to most city-centre agents, so without
+                # this fix the snap returns a tram stop, then the intermodal
+                # routing fails because that coordinate is not on the rail graph.
                 naptan_hit = nearest_naptan_stop(
                     coord,
                     naptan_stops,
-                    stop_types=RAIL_STOP_TYPES,
+                    stop_types=RAIL_ONLY_STOP_TYPES,
                     max_km=self._MAX_ACCESS_KM,
                 )
                 if naptan_hit is not None:
-                    # Use the NaPTAN platform coordinate as the precision snap target.
                     snap_coord = (naptan_hit.lon, naptan_hit.lat)
                     logger.debug(
                         "NaPTAN rail snap: %.4f,%.4f → %s (%s) at %.0fm",
@@ -992,36 +1010,58 @@ class Router:
             rail_nodes      = nx.shortest_path(
                 rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key,
             )
-            # ── Kinematic guard with one-shot retry ───────────────────────────
+            # ── Kinematic guard: edge-penalty retry ──────────────────────────
+            # nx.restricted_view([reversal_node]) raises NetworkXNoPath when
+            # the reversal node is the only topological connection (e.g. the
+            # Craiglockhart/Slateford crossing in Edinburgh).  The bare
+            # except swallowed that silently and fell back to EV.
+            #
+            # Fix: ×10,000 edge-penalty keeps the graph intact (Dijkstra still
+            # finds a path) but strongly discourages traversal of that node.
+            # Weights are restored in finally to leave the shared graph clean.
             if self._has_heading_reversal(rail_graph, rail_nodes):
                 reversal_node = self._find_reversal_node(rail_graph, rail_nodes)
                 if reversal_node is not None:
+                    _PENALTY = 10_000.0
+                    _incident = (
+                        list(rail_graph.in_edges(reversal_node,  keys=True, data=True))
+                        + list(rail_graph.out_edges(reversal_node, keys=True, data=True))
+                    )
+                    _saved = {(u, v, k): d.get(rail_weight_key, 1.0)
+                              for u, v, k, d in _incident}
                     try:
-                        G_restricted = nx.restricted_view(
-                            rail_graph, [reversal_node], []
-                        )
+                        for u, v, k, d in _incident:
+                            d[rail_weight_key] = _saved[(u, v, k)] * _PENALTY
                         rail_nodes = nx.shortest_path(
-                            G_restricted, orig_rail_node, dest_rail_node,
+                            rail_graph, orig_rail_node, dest_rail_node,
                             weight=rail_weight_key,
                         )
-                        if self._has_heading_reversal(G_restricted, rail_nodes):
+                        if self._has_heading_reversal(rail_graph, rail_nodes):
                             logger.warning(
-                                "%s: %s heading reversal persists after retry — rejecting",
+                                "%s: %s heading reversal persists after penalty "
+                                "retry — accepting best available route",
                                 agent_id, mode,
                             )
-                            return self._get_invalid_route(origin, dest)
-                        logger.info(
-                            "%s: %s heading reversal resolved by excluding node %s",
-                            agent_id, mode, reversal_node,
+                        else:
+                            logger.info(
+                                "%s: %s heading reversal resolved via penalty "
+                                "on node %s",
+                                agent_id, mode, reversal_node,
+                            )
+                    except Exception as _pen_exc:
+                        logger.warning(
+                            "%s: %s penalty retry failed (%s) — rejecting",
+                            agent_id, mode, _pen_exc,
                         )
-                    except Exception:
                         return self._get_invalid_route(origin, dest)
+                    finally:
+                        for u, v, k, d in _incident:
+                            d[rail_weight_key] = _saved[(u, v, k)]
                 else:
                     logger.warning(
-                        "%s: %s heading reversal — no retry node found, rejecting",
+                        "%s: %s heading reversal — reversal node not found",
                         agent_id, mode,
                     )
-                    return self._get_invalid_route(origin, dest)
             rail_coords     = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes),
                 max_segment_km=0.2,
@@ -1122,18 +1162,23 @@ class Router:
         try:
             from simulation.spatial.naptan_loader import (
                 nearest_naptan_stop,
-                RAIL_STOP_TYPES,
+                RAIL_ONLY_STOP_TYPES,   # RLY only — never MET/FER for rail
+                TRAM_STOP_TYPES,        # TMU only
+                FERRY_STOP_TYPES,       # FER+FBT only
             )
             naptan = getattr(self.graph_manager, 'naptan_stops', [])
             if naptan:
-                _FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
-                _TRAM_STOP_TYPES  = frozenset({'TMU'})
                 if mode == 'tram':
-                    stop_types: Optional[frozenset] = _TRAM_STOP_TYPES
+                    stop_types: Optional[frozenset] = TRAM_STOP_TYPES
                 elif mode in ('ferry_diesel', 'ferry_electric'):
-                    stop_types = _FERRY_STOP_TYPES
+                    stop_types = FERRY_STOP_TYPES
                 elif mode in ('local_train', 'intercity_train', 'freight_rail'):
-                    stop_types = RAIL_STOP_TYPES
+                    # CRITICAL: RLY only — not MET (tram) or FER (ferry)
+                    # Edinburgh has 74 MET stops vs 20 RLY stops; without
+                    # this filter, local_train agents snap to tram stops,
+                    # then the rail trunk leg fails because the tram stop
+                    # has no rail graph connection.
+                    stop_types = RAIL_ONLY_STOP_TYPES
                 else:
                     stop_types = None
 
@@ -1143,7 +1188,9 @@ class Router:
                     max_km=max_distance_m / 1000.0,
                 )
                 if hit is not None:
-                    return (hit.lon, hit.lat)
+                    # Extra validation: confirm this stop actually serves the mode
+                    if stop_types is None or hit.stop_type in stop_types:
+                        return (hit.lon, hit.lat)
         except Exception as _exc:
             logger.debug("snap_to_transit_stop NaPTAN failed: %s", _exc)
 
