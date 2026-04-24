@@ -52,7 +52,8 @@ logger = logging.getLogger(__name__)
 Coord = Tuple[float, float]
 
 _FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
-_TRAM_STOP_TYPES  = frozenset({'TMU'})
+# Edinburgh Trams uses MET in NaPTAN, not TMU — include both for portability
+_TRAM_STOP_TYPES  = frozenset({'TMU', 'MET'})
 
 # Maximum km from origin/dest to nearest stop before rejecting the mode
 _MAX_STOP_SNAP_KM = 5.0

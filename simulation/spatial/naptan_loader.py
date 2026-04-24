@@ -145,8 +145,17 @@ _RAIL_STOP_TYPES = frozenset({
 # National Rail stations only — for local_train / intercity_train snapping
 RAIL_ONLY_STOP_TYPES = frozenset({'RLY'})
 
-# Tram / light-rail stops only — for tram snapping
-TRAM_STOP_TYPES = frozenset({'TMU'})
+# Tram / light-rail stops — for tram snapping.
+#
+# CRITICAL: Edinburgh Trams stops are classified as 'MET' in NaPTAN, NOT 'TMU'.
+# 'TMU' is used by Greater Manchester Metrolink and some other systems.
+# Using only {'TMU'} caused snap_to_transit_stop to return None for every
+# Edinburgh tram agent, silently failing and falling back to bus.
+#
+# Both MET and TMU are included here to cover:
+#   MET → Edinburgh Trams, some Scottish metro interchanges
+#   TMU → Metrolink (Manchester), Midland Metro, Nottingham Express Transit
+TRAM_STOP_TYPES = frozenset({'TMU', 'MET'})
 
 # Ferry terminals only — for ferry_diesel / ferry_electric snapping
 FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
@@ -860,7 +869,7 @@ __all__ = [
     'NaptanStop', 'download_naptan', 'nearest_naptan_stop', 'build_transfer_nodes',
     'RAIL_STOP_TYPES',      # broad set (RLY+MET+FER+TMU) — legacy
     'RAIL_ONLY_STOP_TYPES', # RLY only — use for local_train / intercity_train
-    'TRAM_STOP_TYPES',      # TMU only
+    'TRAM_STOP_TYPES',      # TMU + MET (Edinburgh Trams uses MET)
     'FERRY_STOP_TYPES',     # FER+FBT
     'BUS_STOP_TYPES',       # BCT+BCE+BCS+BST
     'STOP_TYPE_TO_MODES',
