@@ -1406,20 +1406,41 @@ class Router:
                                 max_segment_km=0.05,
                             )
                             if tram_geom and len(tram_geom) > 2:
-                                access = self._compute_access_leg(
-                                    agent_id + '_access', origin, orig_xy)
-                                egress = self._compute_access_leg(
-                                    agent_id + '_egress', dest_xy, dest)
-                                full = (
-                                    (access[:-1] if access else [])
-                                    + tram_geom
-                                    + (egress[1:] if len(egress) > 1 else [])
-                                )
-                                logger.info(
-                                    "✅ %s: tram OSM graph %.1fkm (%d pts) — no GTFS",
-                                    agent_id, route_distance_km(full), len(full),
-                                )
-                                return full
+                                # ── Route sanity guard ──────────────────────
+                                # If the tram route is more than 2.5× the
+                                # straight-line distance between the snapped
+                                # tram stops (tn_orig→tn_dest), the router
+                                # found a path through depot access tracks
+                                # that have no service= or access= tag (e.g.
+                                # Haymarket Yards connection).  Reject it and
+                                # fall through to the Overpass relation tier
+                                # rather than returning a physically impossible
+                                # route.
+                                _trunk_km = route_distance_km(tram_geom)
+                                _straight_km = haversine_km(orig_xy, dest_xy)
+                                _DETOUR_LIMIT = 2.5
+                                if _straight_km > 0.1 and _trunk_km > _straight_km * _DETOUR_LIMIT:
+                                    logger.warning(
+                                        "%s: tram route rejected — %.1fkm is %.1f× "
+                                        "straight line (%.1fkm); likely depot detour",
+                                        agent_id, _trunk_km,
+                                        _trunk_km / _straight_km, _straight_km,
+                                    )
+                                else:
+                                    access = self._compute_access_leg(
+                                        agent_id + '_access', origin, orig_xy)
+                                    egress = self._compute_access_leg(
+                                        agent_id + '_egress', dest_xy, dest)
+                                    full = (
+                                        (access[:-1] if access else [])
+                                        + tram_geom
+                                        + (egress[1:] if len(egress) > 1 else [])
+                                    )
+                                    logger.info(
+                                        "✅ %s: tram OSM graph %.1fkm (%d pts) — no GTFS",
+                                        agent_id, route_distance_km(full), len(full),
+                                    )
+                                    return full
                 except Exception as _tram_exc:
                     logger.debug("%s: tram OSM graph routing failed: %s", agent_id, _tram_exc)
 

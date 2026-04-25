@@ -97,7 +97,7 @@ except ImportError:
              * math.cos(math.radians(lat2))
              * math.sin(dl / 2) ** 2)
         return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1.1
-    def make_synthetic_route(origin, dest, mode: str = "") -> list:  # noqa: ARG001
+    def make_synthetic_route(origin, dest, mode: str) -> list:  # noqa: ARG001
         """Fallback stub — returns straight-line 2-point route. mode unused by stub."""
         _ = mode  # parameter kept for API compatibility with modes.make_synthetic_route
         return [tuple(origin), tuple(dest)]
@@ -1532,6 +1532,34 @@ class BDIPlanner:
                 total_cost *= 0.65
             else:
                 total_cost *= 0.7
+
+        # ── Transit vehicle_type mode bonus ──────────────────────────────────
+        # When vehicle_type='transit' (accessible_tram_journey, commuter_rail,
+        # tourist_scenic_rail etc.), the agent's job story requires a specific
+        # structured transit mode.  Without a bonus the BDI may select walk or
+        # bus because the structured tram/rail route is longer due to access and
+        # egress legs.  A 25% cost reduction mirrors the freight mode bonus and
+        # reflects the real-world constraint that transit-job agents have no
+        # car available and MUST use the named transit mode.
+        #
+        # Bonus only fires when the mode is in the structured transit set AND
+        # the route has ≥ 3 legs (access + trunk + egress), meaning the
+        # TripChainBuilder successfully snapped the journey to real stops.
+        # Single-leg bus or walk routes do NOT receive the bonus.
+        _TRANSIT_TRUNK_MODES = frozenset({
+            'tram', 'local_train', 'intercity_train', 'ferry_diesel', 'ferry_electric',
+        })
+        # route_legs: number of legs in the TripChain (1=flat, 3=access+trunk+egress).
+        # Taken from action.params['route_segments'] when available so the transit
+        # bonus correctly fires only for structured 3-leg journeys.
+        _segs = params.get('route_segments', [])
+        _route_legs = len(_segs) if _segs else context.get('route_legs', 1)
+        if vehicle_type == 'transit' and mode in _TRANSIT_TRUNK_MODES and _route_legs >= 3:
+            total_cost *= 0.75
+            logger.debug(
+                "Transit bonus −25%% on %s for %s (vehicle_type=transit, %d legs)",
+                mode, getattr(state, 'agent_id', 'agent'), _route_legs,
+            )
 
         # ── Phase 3: Markov habit discount ───────────────────────────────────
         # If the agent has a PersonalityMarkovChain, habitual modes cost less.

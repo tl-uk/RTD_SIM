@@ -209,10 +209,27 @@ def _load_tram_graph(env, place, bbox) -> None:
     try:
         import osmnx as ox
 
-        # OSM filter: tram and light_rail only, exclude service tracks
+        # OSM filter: operational tram/light_rail only.
+        #
+        # ["disused"!="yes"]["abandoned"!="yes"] — Edinburgh's 1950s historic
+        # tram routes (Shore, Commercial St, Dock Place, Leith) persist in OSM
+        # tagged railway=tram without a disused key.  Without this, the graph
+        # includes those ways and routes passengers through the dockside area
+        # (observed: agent 8319 Commercial Street/Shore/Rennie's Isle).
+        #
+        # ["usage"!~"industrial|military|tourism"] — depot approach tracks
+        # tagged usage=industrial that lack a service= tag.
+        #
+        # ["access"!="private"]["access"!="no"] — last-resort for Haymarket
+        # Yards connections tagged with access= but no service= or usage=.
         _filter = (
             '["railway"~"^(tram|light_rail)$"]'
+            '["disused"!="yes"]'
+            '["abandoned"!="yes"]'
             '["service"!~"^(siding|yard|crossover|depot|depot_access|maintenance)$"]'
+            '["usage"!~"^(industrial|military|tourism)$"]'
+            '["access"!="private"]'
+            '["access"!="no"]'
         )
 
         G_tram = None
