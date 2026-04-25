@@ -284,7 +284,7 @@ class Router:
 
         # ── Ferry ──────────────────────────────────────────────────────────────
         if mode in ('ferry_diesel', 'ferry_electric'):
-            return self._ferry_with_segments(agent_id, origin, dest, mode, policy)
+            return self._ferry_with_segments(agent_id, origin, dest, mode)
 
         # ── GTFS transit (bus, tram) ───────────────────────────────────────────
         if mode == 'tram' or mode == 'bus':
@@ -456,9 +456,9 @@ class Router:
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
-        policy: Dict,
     ) -> Tuple[List, List]:
         """Ferry route split into (walk to port, ferry, walk from port) segments."""
+        import networkx as nx  # guard against module-level ImportError branch
         G_ferry = self.graph_manager.get_graph('ferry')
         ferry_coords: List = []
 
@@ -578,11 +578,16 @@ class Router:
                         # manual O(N) scan if GTFSGraph doesn't support it.
                         _candidate = None
                         try:
+                            # Pass exclude_stop via **kwargs so Pylance does not
+                            # statically check the GTFSGraph.nearest_stop signature
+                            # (the parameter may not exist in all GTFSGraph versions).
+                            # RuntimeError is caught below if the kwarg is unsupported.
+                            _exclude_kwargs: Dict[str, Any] = {'exclude_stop': origin_stop}
                             _candidate = _builder2.nearest_stop(
                                 G_transit, dest,
                                 mode_filter=_mf2,
                                 max_distance_m=_max_m,
-                                exclude_stop=origin_stop,
+                                **_exclude_kwargs,
                             )
                         except TypeError:
                             _best_d2 = float('inf')
@@ -1980,11 +1985,12 @@ class Router:
                     for _mf_r in _filters_r:
                         _cand_r = None
                         try:
+                            _excl_kwargs_r: Dict[str, Any] = {'exclude_stop': origin_stop}
                             _cand_r = _builder_r.nearest_stop(
                                 G_transit, dest,
                                 mode_filter=_mf_r,
                                 max_distance_m=_max_r,
-                                exclude_stop=origin_stop,
+                                **_excl_kwargs_r,
                             )
                         except TypeError:
                             _best_r = float('inf')
