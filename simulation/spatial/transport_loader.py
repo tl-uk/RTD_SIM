@@ -262,9 +262,40 @@ def _load_tram_graph(env, place, bbox) -> None:
             G_tram = G_tram.subgraph(wccs[0]).copy()
             logger.debug("Tram: kept largest WCC (%d nodes)", G_tram.number_of_nodes())
 
+        # ── Step 5: Remove private/restricted-access edges ────────────────────
+        # access=private edges represent depot approach roads and maintenance
+        # tracks that are physically connected to the mainline but legally
+        # inaccessible to the public.  They survive steps 1-4 because they
+        # may lack a service= tag.  Routing through them produces routes
+        # through private grounds (observed: Haymarket Yards depot access).
+        _BAD_ACCESS = {'private', 'no', 'permissive', 'delivery', 'customers'}
+        private_edges = [
+            (u, v, k)
+            for u, v, k, d in G_tram.edges(keys=True, data=True)
+            if d.get('access', '') in _BAD_ACCESS
+        ]
+        if private_edges:
+            G_tram.remove_edges_from(private_edges)
+            isolated2 = list(nx.isolates(G_tram))
+            if isolated2:
+                G_tram.remove_nodes_from(isolated2)
+            logger.debug("Tram: removed %d private-access edges", len(private_edges))
+
+        # ── Step 6: Convert to undirected for bidirectional tram routing ──────
+        # ox.graph_from_* returns a MultiDiGraph.  OSM tram edges are tagged
+        # with the direction of digitisation, not travel direction.  Trams run
+        # in both directions on every track.  Routing on the directed graph
+        # forces Dijkstra to follow OSM digitisation direction which can
+        # produce routes that backtrack or skip stops on the 'wrong' side.
+        try:
+            import osmnx as ox
+            G_tram = ox.convert.to_undirected(G_tram)
+        except Exception:
+            G_tram = G_tram.to_undirected()
+
         env.graph_manager.graphs['tram'] = G_tram
         logger.info(
-            "✅ Tram graph: %d nodes, %d edges (OSM tram, depot-pruned)",
+            "✅ Tram graph: %d nodes, %d edges (OSM tram, depot-pruned, undirected)",
             G_tram.number_of_nodes(), G_tram.number_of_edges(),
         )
 

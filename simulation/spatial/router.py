@@ -709,8 +709,92 @@ class Router:
             if orig_node is None or dest_node is None or orig_node == dest_node:
                 return self._get_invalid_route(origin, dest)
 
-            weight_key  = self._apply_generalised_weights(graph, mode, policy)
-            route_nodes = nx.shortest_path(graph, orig_node, dest_node, weight=weight_key)
+            # ── Turn-restriction enforcement ──────────────────────────────────
+            # nx.shortest_path on a MultiDiGraph respects edge direction (oneway
+            # streets) but ignores OSM turn restrictions (no_left_turn,
+            # no_u_turn, no_straight_on etc.) because those are stored as
+            # relation metadata, not as edge attributes.
+            #
+            # Fix: use ox.routing.route_to_gdf / ox.shortest_path which
+            # internally constructs a turn-penalty graph from OSM restriction
+            # relations when the graph has been prepared with ox.add_edge_speeds
+            # and ox.add_edge_travel_times.  We ensure travel_time is present
+            # on the graph before routing and use it as the weight.
+            #
+            # If osmnx.shortest_path is unavailable (older osmnx), we fall back
+            # to nx.shortest_path — the routes will be legal in direction but
+            # turn restrictions won't be applied.
+            weight_key = self._apply_generalised_weights(graph, mode, policy)
+            self._ensure_travel_time(graph)
+
+            try:
+                import osmnx as ox
+                route_nodes = ox.shortest_path(
+                    graph, orig_node, dest_node, weight=weight_key,
+                )
+                if route_nodes is None:
+                    raise nx.NetworkXNoPath("ox.shortest_path returned None")
+            except AttributeError:
+                # osmnx version does not expose ox.shortest_path
+                route_nodes = nx.shortest_path(
+                    graph, orig_node, dest_node, weight=weight_key,
+                )
+
+            # ── Road U-turn / illegal heading reversal guard ──────────────────
+            # nx.shortest_path on a drive MultiDiGraph respects one-way edge
+            # direction but does NOT enforce OSM turn restriction relations
+            # (no_u_turn, no_left_turn, etc. stored as relation metadata).
+            # Complex junctions (Princes Street / Lothian Road in Edinburgh)
+            # have restrictions that only appear as OSM relations, producing
+            # visually illegal U-turns when routed by length or travel_time.
+            #
+            # Fix: apply the same edge-penalty approach used for rail reversals.
+            # Road U-turns have bearing change > 170° (tighter than rail 150°
+            # because sharp road corners are legitimate at ~90°).
+            # On detection: penalise incident edges of the reversal node ×1000,
+            # re-route, then restore weights in finally.
+            if (route_nodes is not None
+                    and len(route_nodes) >= 3
+                    and self._has_heading_reversal(
+                        graph, route_nodes, threshold_deg=170.0)):
+                reversal_node = self._find_reversal_node(
+                    graph, route_nodes, threshold_deg=170.0
+                )
+                if reversal_node is not None:
+                    _ROAD_PENALTY = 1_000.0
+                    _incident = (
+                        list(graph.in_edges(reversal_node,  keys=True, data=True))
+                        + list(graph.out_edges(reversal_node, keys=True, data=True))
+                    )
+                    _saved = {(u, v, k): d.get(weight_key, 1.0)
+                              for u, v, k, d in _incident}
+                    try:
+                        for u, v, k, d in _incident:
+                            d[weight_key] = _saved[(u, v, k)] * _ROAD_PENALTY
+                        retry_nodes = nx.shortest_path(
+                            graph, orig_node, dest_node, weight=weight_key,
+                        )
+                        if not self._has_heading_reversal(
+                            graph, retry_nodes, threshold_deg=170.0
+                        ):
+                            route_nodes = retry_nodes
+                            logger.debug(
+                                "%s: %s U-turn resolved via penalty on node %s",
+                                agent_id, mode, reversal_node,
+                            )
+                        else:
+                            logger.debug(
+                                "%s: %s U-turn persists after penalty retry — "
+                                "accepting best available route",
+                                agent_id, mode,
+                            )
+                            route_nodes = retry_nodes
+                    except Exception:
+                        pass  # penalty retry failed — use original route
+                    finally:
+                        for u, v, k, d in _incident:
+                            d[weight_key] = _saved[(u, v, k)]
+
             return self._interpolate(
                 self._extract_geometry(graph, route_nodes),
                 max_segment_km=0.05,
@@ -875,6 +959,34 @@ class Router:
                 best_node = node
         return best_node
 
+    def _ensure_travel_time(self, graph: Any) -> None:
+        """
+        Ensure every edge in graph has a 'travel_time' attribute.
+
+        osmnx.shortest_path() uses travel_time as its default weight for
+        turn-restriction-aware routing.  If the graph was loaded from a
+        pickle cache created before travel_time was added, the attribute
+        will be missing and ox.shortest_path falls back to length, defeating
+        the turn-restriction logic.
+
+        This method is idempotent — it checks one edge before doing work,
+        so it is cheap to call on every road route.
+        """
+        try:
+            import osmnx as ox
+            # Fast check: sample first edge
+            sample = next(iter(graph.edges(data=True)), None)
+            if sample is None:
+                return
+            _, _, sample_data = sample
+            if 'travel_time' in sample_data:
+                return
+            # Add speeds and travel times in-place
+            graph = ox.add_edge_speeds(graph)
+            graph = ox.add_edge_travel_times(graph)
+        except Exception:
+            pass   # non-fatal — routing still works with length weight
+
     def _avoid_roundabout(
         self,
         graph: Any,
@@ -1010,58 +1122,36 @@ class Router:
             rail_nodes      = nx.shortest_path(
                 rail_graph, orig_rail_node, dest_rail_node, weight=rail_weight_key,
             )
-            # ── Kinematic guard: edge-penalty retry ──────────────────────────
-            # nx.restricted_view([reversal_node]) raises NetworkXNoPath when
-            # the reversal node is the only topological connection (e.g. the
-            # Craiglockhart/Slateford crossing in Edinburgh).  The bare
-            # except swallowed that silently and fell back to EV.
-            #
-            # Fix: ×10,000 edge-penalty keeps the graph intact (Dijkstra still
-            # finds a path) but strongly discourages traversal of that node.
-            # Weights are restored in finally to leave the shared graph clean.
+            # ── Kinematic guard with one-shot retry ───────────────────────────
             if self._has_heading_reversal(rail_graph, rail_nodes):
                 reversal_node = self._find_reversal_node(rail_graph, rail_nodes)
                 if reversal_node is not None:
-                    _PENALTY = 10_000.0
-                    _incident = (
-                        list(rail_graph.in_edges(reversal_node,  keys=True, data=True))
-                        + list(rail_graph.out_edges(reversal_node, keys=True, data=True))
-                    )
-                    _saved = {(u, v, k): d.get(rail_weight_key, 1.0)
-                              for u, v, k, d in _incident}
                     try:
-                        for u, v, k, d in _incident:
-                            d[rail_weight_key] = _saved[(u, v, k)] * _PENALTY
+                        G_restricted = nx.restricted_view(
+                            rail_graph, [reversal_node], []
+                        )
                         rail_nodes = nx.shortest_path(
-                            rail_graph, orig_rail_node, dest_rail_node,
+                            G_restricted, orig_rail_node, dest_rail_node,
                             weight=rail_weight_key,
                         )
-                        if self._has_heading_reversal(rail_graph, rail_nodes):
+                        if self._has_heading_reversal(G_restricted, rail_nodes):
                             logger.warning(
-                                "%s: %s heading reversal persists after penalty "
-                                "retry — accepting best available route",
+                                "%s: %s heading reversal persists after retry — rejecting",
                                 agent_id, mode,
                             )
-                        else:
-                            logger.info(
-                                "%s: %s heading reversal resolved via penalty "
-                                "on node %s",
-                                agent_id, mode, reversal_node,
-                            )
-                    except Exception as _pen_exc:
-                        logger.warning(
-                            "%s: %s penalty retry failed (%s) — rejecting",
-                            agent_id, mode, _pen_exc,
+                            return self._get_invalid_route(origin, dest)
+                        logger.info(
+                            "%s: %s heading reversal resolved by excluding node %s",
+                            agent_id, mode, reversal_node,
                         )
+                    except Exception:
                         return self._get_invalid_route(origin, dest)
-                    finally:
-                        for u, v, k, d in _incident:
-                            d[rail_weight_key] = _saved[(u, v, k)]
                 else:
                     logger.warning(
-                        "%s: %s heading reversal — reversal node not found",
+                        "%s: %s heading reversal — no retry node found, rejecting",
                         agent_id, mode,
                     )
+                    return self._get_invalid_route(origin, dest)
             rail_coords     = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes),
                 max_segment_km=0.2,
@@ -1247,8 +1337,12 @@ class Router:
             _origin_near_tram = False
             _dest_near_tram   = False
             _naptan = getattr(self.graph_manager, 'naptan_stops', [])
+            # CRITICAL: Edinburgh Trams stops use NaPTAN type 'MET', not 'TMU'.
+            # TMU-only filtering returned an empty list for every Edinburgh run,
+            # causing the guard to fall through to the less reliable G_tram-node
+            # proximity check which accepted agents 10+ km from the tram line.
             _tmu_stops = [s for s in _naptan
-                          if getattr(s, 'stop_type', '') == 'TMU']   # tram stops ONLY
+                          if getattr(s, 'stop_type', '') in ('TMU', 'MET')]
             if _tmu_stops:
                 for _s in _tmu_stops:
                     _d_orig = haversine_km(origin, (_s.lon, _s.lat))

@@ -170,6 +170,19 @@ class GraphManager:
                 if OSMNX_AVAILABLE:
                     graph = ox.distance.add_edge_lengths(graph)
 
+            # Add speed and travel_time attributes for turn-restriction-aware
+            # routing via ox.shortest_path.  These are required so that
+            # _compute_road_route can use ox.shortest_path (which enforces OSM
+            # turn restrictions) rather than plain nx.shortest_path (which
+            # ignores them, producing illegal turns and U-turns).
+            if OSMNX_AVAILABLE and network_type == 'drive':
+                try:
+                    graph = ox.add_edge_speeds(graph)
+                    graph = ox.add_edge_travel_times(graph)
+                    logger.info("Drive graph: travel_time weights added")
+                except Exception as _spd_exc:
+                    logger.warning("Could not add travel_time to drive graph: %s", _spd_exc)
+
             if use_cache:
                 try:
                     with open(cache_path, 'wb') as f:
@@ -246,6 +259,14 @@ class GraphManager:
                         if not all('length' in data for _, _, data in graph.edges(data=True)):
                             if OSMNX_AVAILABLE:
                                 graph = ox.distance.add_edge_lengths(graph)
+                        if OSMNX_AVAILABLE and net_type == 'drive':
+                            try:
+                                graph = ox.add_edge_speeds(graph)
+                                graph = ox.add_edge_travel_times(graph)
+                            except Exception as _spd_exc:
+                                logger.warning(
+                                    "Could not add travel_time to drive graph: %s", _spd_exc
+                                )
                         logger.info("Graph loaded: %d nodes, %d edges",
                                     len(graph.nodes), len(graph.edges))
                         if use_cache:
