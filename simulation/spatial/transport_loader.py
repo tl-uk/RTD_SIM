@@ -225,12 +225,24 @@ def _load_tram_graph(env, place, bbox) -> None:
             )
         elif bbox:
             _tn, _ts, _te, _tw = bbox  # (north, south, east, west)
-            G_tram = ox.graph_from_bbox(
-                north=_tn, south=_ts, east=_te, west=_tw,
-                custom_filter=_filter,
-                retain_all=False,
-                simplify=False,
-            )
+            # OSMnx 2.x: bbox positional tuple is (left, bottom, right, top)
+            # = (west, south, east, north).  The old keyword API (north=, south=,
+            # east=, west=) was removed in 2.0 and raises TypeError at runtime.
+            try:
+                G_tram = ox.graph_from_bbox(
+                    bbox=(_tw, _ts, _te, _tn),
+                    custom_filter=_filter,
+                    retain_all=False,
+                    simplify=False,
+                )
+            except TypeError:
+                # OSMnx 1.x positional fallback
+                G_tram = ox.graph_from_bbox(
+                    _tn, _ts, _te, _tw,
+                    custom_filter=_filter,
+                    retain_all=False,
+                    simplify=False,
+                )
 
         if G_tram is None or G_tram.number_of_nodes() == 0:
             logger.warning("⚠️  Tram graph empty — no OSM tram tracks in bbox")

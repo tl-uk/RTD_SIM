@@ -1534,17 +1534,26 @@ class Router:
                             # nearest NaPTAN TMU stop within 300 m.  This ensures the
                             # tram leg starts and ends at a real stop rather than an
                             # arbitrary track projection point.
-                            board_coord  = seg_coords[0]
-                            alight_coord = seg_coords[-1]
+                            # Explicit 2-float cast: seg_coords elements are built
+                            # from Shapely coordinate extraction and typed as
+                            # tuple[float, ...] by Pylance.  nearest_naptan_stop
+                            # requires Tuple[float, float] — narrow here.
+                            board_coord:  Tuple[float, float] = (
+                                float(seg_coords[0][0]), float(seg_coords[0][1])
+                            )
+                            alight_coord: Tuple[float, float] = (
+                                float(seg_coords[-1][0]), float(seg_coords[-1][1])
+                            )
                             _naptan = getattr(self.graph_manager, 'naptan_stops', [])
+                            # Include MET — Edinburgh Trams uses MET, not TMU
                             _tmu = [s for s in _naptan
-                                    if getattr(s, 'stop_type', '') == 'TMU']
+                                    if getattr(s, 'stop_type', '') in ('TMU', 'MET')]
                             if _tmu:
                                 try:
                                     from simulation.spatial.naptan_loader import nearest_naptan_stop
                                     _hit_b = nearest_naptan_stop(
                                         board_coord, _tmu,
-                                        stop_types=frozenset({'TMU'}),
+                                        stop_types=frozenset({'TMU', 'MET'}),
                                         max_km=0.30,
                                     )
                                     if _hit_b:
@@ -1552,7 +1561,7 @@ class Router:
                                         seg_coords[0] = board_coord
                                     _hit_a = nearest_naptan_stop(
                                         alight_coord, _tmu,
-                                        stop_types=frozenset({'TMU'}),
+                                        stop_types=frozenset({'TMU', 'MET'}),
                                         max_km=0.30,
                                     )
                                     if _hit_a:
