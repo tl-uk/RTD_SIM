@@ -33,9 +33,10 @@ import hashlib
 logger = logging.getLogger(__name__)
 
 try:
-    import requests
+    import requests as requests  # noqa: PLC0414 — re-bind so Pylance narrows type
     REQUESTS_AVAILABLE = True
 except ImportError:
+    requests = None  # type: ignore[assignment]
     REQUESTS_AVAILABLE = False
     logger.warning("requests not available - install with: pip install requests")
 
@@ -141,7 +142,7 @@ class ElevationProvider:
         if not coords:
             return []
         
-        results = [None] * len(coords)
+        results: List[Optional[float]] = [None] * len(coords)  # type: ignore[list-item]
         
         # Check cache first
         uncached_indices = []
@@ -248,10 +249,10 @@ class ElevationProvider:
     
     def _fetch_from_api(self, lat: float, lon: float, api: str) -> Optional[float]:
         """Fetch single elevation from API."""
-        if not REQUESTS_AVAILABLE:
+        if not REQUESTS_AVAILABLE or requests is None:
             logger.warning("requests library not available")
             return None
-        
+
         url = self.apis.get(api)
         if url is None:
             logger.error(f"Unknown API: {api}")
@@ -284,12 +285,12 @@ class ElevationProvider:
         api: str
     ) -> List[Optional[float]]:
         """Fetch multiple elevations in one API call."""
-        if not REQUESTS_AVAILABLE:
-            return [None] * len(coords)
-        
+        if not REQUESTS_AVAILABLE or requests is None:
+            return [None] * len(coords)  # type: ignore[return-value]
+
         url = self.apis.get(api)
         if url is None:
-            return [None] * len(coords)
+            return [None] * len(coords)  # type: ignore[return-value]
         
         # Rate limiting
         self._rate_limit()

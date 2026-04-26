@@ -288,7 +288,11 @@ def _load_tram_graph(env, place, bbox) -> None:
         # ── Step 4: Keep largest WCC after pruning ────────────────────────────
         wccs = sorted(nx.weakly_connected_components(G_tram), key=len, reverse=True)
         if len(wccs) > 1:
-            G_tram = G_tram.subgraph(wccs[0]).copy()
+            # Explicit cast to MultiDiGraph: subgraph().copy() widens the
+            # Pylance inferred type to Graph[Unknown], breaking to_undirected()
+            # and weakly_connected_components() overload resolution downstream.
+            _sub: nx.MultiDiGraph = nx.MultiDiGraph(G_tram.subgraph(wccs[0]))
+            G_tram = _sub
             logger.debug("Tram: kept largest WCC (%d nodes)", G_tram.number_of_nodes())
 
         # ── Step 5: Remove private/restricted-access edges ────────────────────
@@ -318,7 +322,13 @@ def _load_tram_graph(env, place, bbox) -> None:
         # produce routes that backtrack or skip stops on the 'wrong' side.
         try:
             import osmnx as ox
-            G_tram = ox.convert.to_undirected(G_tram)
+            # Ensure the type is MultiDiGraph before calling to_undirected —
+            # Pylance requires MultiDiGraph, not Graph, for this overload.
+            _mdig: nx.MultiDiGraph = (
+                G_tram if isinstance(G_tram, nx.MultiDiGraph)
+                else nx.MultiDiGraph(G_tram)
+            )
+            G_tram = ox.convert.to_undirected(_mdig)
         except Exception:
             G_tram = G_tram.to_undirected()
 

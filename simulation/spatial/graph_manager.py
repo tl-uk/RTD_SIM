@@ -91,6 +91,11 @@ class GraphManager:
         # Reset by register_rail_graph() when a real graph is loaded.
         self._rail_load_attempted: bool = False
 
+        # NaPTAN stops list — populated by environment_setup.download_naptan()
+        # and read by the router for stop-snapping.  Declared here so Pylance
+        # resolves graph_manager.naptan_stops without attr-defined suppression.
+        self.naptan_stops: list = []
+
         # Mode → network type mapping (for callers that need the type string).
         self.mode_network_types: Dict[str, str] = {
             'walk': 'walk',

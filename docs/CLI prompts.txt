@@ -36,6 +36,15 @@ find ~/.rtd_sim_cache/transport \
   \( -name "*_rail.graphml" -o -name "*_tram*.graphml" -o -name "*_ferry*.graphml" \) \
   -type f -delete
 
+# find cache files
+find ~/.rtd_sim_cache -type f
+
+# list cache files
+ls -lah ~/.rtd_sim_cache/osm_graphs
+
+# delete and force rebuild
+rm -rf ~/.rtd_sim_cache
+
 # clear OSM cache
 rm -rf ~/.rtd_sim_cache/osm_graphs/
 rm ~/.rtd_sim_cache/transport/ferry_shim_ferry.graphml   

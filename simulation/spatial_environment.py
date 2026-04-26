@@ -98,6 +98,10 @@ class SpatialEnvironment:
         self.mode_network_types = self.router.mode_network_types
         self.speeds_km_min      = self.metrics.speeds_km_min
 
+        # NaPTAN stops — populated by environment_setup, read by visualiser.
+        # Declared here so Pylance resolves env.naptan_stops without error.
+        self.naptan_stops: list = []
+
         # Weather speed multipliers: {mode: multiplier}
         self._weather_speed_multipliers: Dict[str, float] = defaultdict(lambda: 1.0)
 
@@ -148,7 +152,7 @@ class SpatialEnvironment:
         self,
         place: Optional[str] = None,
         bbox: Optional[Tuple[float, float, float, float]] = None,
-        modes: List[str] = None,
+        modes: Optional[List[str]] = None,
         use_cache: bool = True,
     ) -> None:
         """Load separate OSM graphs for each requested transport mode."""
@@ -515,7 +519,7 @@ class SpatialEnvironment:
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
-        variants: List[str] = None,
+        variants: Optional[List[str]] = None,
         policy_context: Optional[dict] = None,
     ) -> List[Any]:
         """
@@ -550,30 +554,37 @@ class SpatialEnvironment:
         if segment_distance_km(origin, dest) < 0.1:
             return [origin, dest]
 
+        # self.G is Optional — guard before any graph calls so Pylance
+        # resolves nearest_nodes / shortest_path / get_edge_data / .nodes
+        if self.G is None:
+            return [origin, dest]
+
+        G: Any = self.G  # narrowed non-None reference for the block below
+
         try:
-            orig_node = ox.distance.nearest_nodes(self.G, origin[0], origin[1])
-            dest_node = ox.distance.nearest_nodes(self.G, dest[0],   dest[1])
+            orig_node = ox.distance.nearest_nodes(G, origin[0], origin[1])
+            dest_node = ox.distance.nearest_nodes(G, dest[0],   dest[1])
 
             if orig_node == dest_node:
                 return [origin, dest]
 
-            node_route = ox.shortest_path(self.G, orig_node, dest_node, weight='length')
+            node_route = ox.shortest_path(G, orig_node, dest_node, weight='length')
             if node_route is None:
                 return [origin, dest]
 
             coords = [origin]
             for i in range(len(node_route) - 1):
                 u, v      = node_route[i], node_route[i + 1]
-                edge_data = self.G.get_edge_data(u, v)
+                edge_data = G.get_edge_data(u, v)
                 if edge_data is None:
-                    coords.append((self.G.nodes[v]['x'], self.G.nodes[v]['y']))
+                    coords.append((G.nodes[v]['x'], G.nodes[v]['y']))
                     continue
                 if isinstance(edge_data, dict) and 0 in edge_data:
                     edge_data = edge_data[0]
                 if 'geometry' in edge_data and hasattr(edge_data['geometry'], 'coords'):
                     coords.extend(list(edge_data['geometry'].coords)[1:])
                 else:
-                    coords.append((self.G.nodes[v]['x'], self.G.nodes[v]['y']))
+                    coords.append((G.nodes[v]['x'], G.nodes[v]['y']))
 
             if coords[-1] != dest:
                 coords.append(dest)
