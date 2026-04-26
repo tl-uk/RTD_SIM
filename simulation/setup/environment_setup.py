@@ -219,28 +219,103 @@ def setup_environment(
         progress_callback(0.162, "🚋 Loading tram track geometry…")
     try:
         import osmnx as ox
-        _tram_filter = '["railway"~"tram|light_rail"]'
+        import networkx as _nx_env
+
+        # ── OSM filter: operational tram/light_rail only ─────────────────────
+        # HISTORY OF FAILURES WITH THE PREVIOUS FILTER:
+        # '["railway"~"tram|light_rail"]' captured:
+        #   • Historic 1950s Edinburgh tram routes in Leith (Shore, Commercial
+        #     Street, Dock Place, Rennie's Isle) — no disused= tag in OSM
+        #   • Haymarket Yards depot access connection — no service= or access=
+        #     tag, physically adjacent to the mainline
+        #   • All of the above survive retain_all=True with no pruning
+        #
+        # Corrections applied here (this is the AUTHORITATIVE tram loading
+        # path — transport_loader._load_tram_graph is NOT called in production):
+        #   1. Disused/abandoned exclusion
+        #   2. Service-track exclusion (siding, yard, depot, depot_access)
+        #   3. Usage exclusion (industrial, military, tourism)
+        #   4. Access exclusion (private, no)
+        #   5. retain_all=False — discard isolated depot components
+        #   6. Private-access edge pruning after load (belt-and-braces)
+        #   7. to_undirected() — OSM edges are directional by digitisation,
+        #      trams run both ways on every track
+        _tram_filter = (
+            '["railway"~"^(tram|light_rail)$"]'
+            '["disused"!="yes"]'
+            '["abandoned"!="yes"]'
+            '["service"!~"^(siding|yard|crossover|depot|depot_access|maintenance)$"]'
+            '["usage"!~"^(industrial|military|tourism)$"]'
+            '["access"!="private"]'
+            '["access"!="no"]'
+        )
         G_tram = None
         if place:
             G_tram = ox.graph_from_place(
                 place,
                 custom_filter = _tram_filter,
-                retain_all    = True,
+                retain_all    = False,   # was True — kept isolated depot components
+                simplify      = False,
             )
         elif bbox:
             _tn, _ts, _te, _tw = bbox   # (north, south, east, west)
-            G_tram = ox.graph_from_bbox(
-                north         = _tn,
-                south         = _ts,
-                east          = _te,
-                west          = _tw,
-                custom_filter = _tram_filter,
-                retain_all    = True,
-            )
+            # osmnx 2.x: bbox positional tuple is (west, south, east, north)
+            try:
+                G_tram = ox.graph_from_bbox(
+                    bbox          = (_tw, _ts, _te, _tn),
+                    custom_filter = _tram_filter,
+                    retain_all    = False,
+                    simplify      = False,
+                )
+            except TypeError:
+                # osmnx 1.x fallback
+                G_tram = ox.graph_from_bbox(
+                    _tn, _ts, _te, _tw,
+                    custom_filter = _tram_filter,
+                    retain_all    = False,
+                    simplify      = False,
+                )
+
         if G_tram is not None and G_tram.number_of_nodes() > 0:
+            # ── Belt-and-braces: prune any remaining private-access edges ─────
+            # Catches edges where mapper used access= without service= or usage=
+            _BAD_ACCESS = {'private', 'no', 'permissive', 'delivery', 'customers'}
+            _prune = [
+                (u, v, k)
+                for u, v, k, d in G_tram.edges(keys=True, data=True)
+                if d.get('access', '') in _BAD_ACCESS
+            ]
+            if _prune:
+                G_tram.remove_edges_from(_prune)
+                _iso = list(_nx_env.isolates(G_tram))
+                if _iso:
+                    G_tram.remove_nodes_from(_iso)
+                logger.debug("Tram: removed %d private-access edges post-load", len(_prune))
+
+            # ── Convert to undirected ─────────────────────────────────────────
+            # Trams run both ways on every track; directed graph forces
+            # Dijkstra to follow OSM digitisation direction only.
+            try:
+                G_tram = ox.convert.to_undirected(G_tram)
+            except Exception:
+                G_tram = G_tram.to_undirected()
+
+            # ── Keep only the largest connected component ─────────────────────
+            # Isolated depot stub graphs that survived the filter are removed.
+            components = sorted(
+                _nx_env.connected_components(G_tram), key=len, reverse=True
+            )
+            if len(components) > 1:
+                G_tram = G_tram.subgraph(components[0]).copy()
+                logger.debug(
+                    "Tram: kept largest component (%d nodes of %d total)",
+                    G_tram.number_of_nodes(),
+                    sum(len(c) for c in components),
+                )
+
             env.graph_manager.graphs['tram'] = G_tram
             logger.info(
-                "✅ Tram graph: %d nodes, %d edges (OSM railway=tram)",
+                "✅ Tram graph: %d nodes, %d edges (filtered, undirected, largest-CC)",
                 G_tram.number_of_nodes(), G_tram.number_of_edges(),
             )
         else:
