@@ -409,6 +409,7 @@ class GTFSGraph:
         coord: Tuple[float, float],
         mode_filter: Optional[str] = None,
         max_distance_m: float = 2000.0,
+        exclude_stop: Optional[str] = None,
     ) -> Optional[str]:
         """
         Return the stop_id of the nearest transit stop to (lon, lat).
@@ -427,6 +428,8 @@ class GTFSGraph:
                             None means any stop is eligible.
             max_distance_m: Return None when the nearest stop is further
                             than this (default 2 km).
+            exclude_stop:   stop_id to skip (used by router to find the
+                            second-nearest stop when origin==destination stop).
 
         Returns:
             stop_id string or None.
@@ -442,6 +445,8 @@ class GTFSGraph:
             slat = data.get('y', 0)
             slon = data.get('x', 0)
 
+            if exclude_stop is not None and node == exclude_stop:
+                continue
             if mode_filter is not None:
                 # Check both outgoing and incoming edges so terminal stops
                 # (which have no outgoing service edges) are not skipped.

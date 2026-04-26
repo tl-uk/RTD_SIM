@@ -205,10 +205,17 @@ class TripChain:
     def route_segments(self) -> List[Dict[str, Any]]:
         """
         Return route_segments list compatible with visualization.py.
-        Each entry: {'path': [(lon,lat),...], 'mode': str, 'label': str}
+
+        Each entry includes the full TripLeg.to_dict() payload so that
+        visualization.py seg.get('distance_km'), seg.get('emissions_g'),
+        seg.get('origin_name'), and seg.get('dest_name') all resolve.
+
+        Previous version returned only {'path', 'mode', 'label'}, causing
+        segment-level distance/emissions stats to always show as blank in
+        the multimodal route tooltip.
         """
         return [
-            {'path': leg.path, 'mode': leg.mode, 'label': leg.label}
+            leg.to_dict()
             for leg in self.legs
             if leg.path and len(leg.path) >= 2
         ]

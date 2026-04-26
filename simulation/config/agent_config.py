@@ -4,7 +4,8 @@ simulation/config/agent_config.py
 Agent behavior and social network configuration.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -45,8 +46,8 @@ class AgentBehaviorConfig:
 class AgentConfig:
     """Combined agent configuration."""
     
-    social_network: SocialNetworkConfig = None
-    behavior: AgentBehaviorConfig = None
+    social_network: Optional[SocialNetworkConfig] = None
+    behavior: Optional[AgentBehaviorConfig] = None
     
     def __post_init__(self):
         if self.social_network is None:

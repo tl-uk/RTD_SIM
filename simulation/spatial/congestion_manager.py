@@ -67,14 +67,14 @@ class CongestionConfig:
     
     # Capacity (vehicles that can use edge simultaneously)
     default_capacity: int = 10
-    capacity_by_highway: Dict[str, int] = None
+    capacity_by_highway: Optional[Dict[str, int]] = None
     
     # Congestion limits
     max_congestion_factor: float = 3.0  # Max 3x slower
     min_congestion_factor: float = 1.0  # Min 1x (no speedup)
     
     # Time-of-day patterns (hour -> multiplier)
-    peak_hours: Set[int] = None  # e.g., {7, 8, 9, 17, 18, 19}
+    peak_hours: Optional[Set[int]] = None  # e.g., {7, 8, 9, 17, 18, 19}
     peak_multiplier: float = 1.5  # Congestion 50% worse during peaks
     
     # Decay (vehicles gradually leave edges)
