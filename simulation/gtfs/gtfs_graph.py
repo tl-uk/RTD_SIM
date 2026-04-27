@@ -429,7 +429,8 @@ class GTFSGraph:
             max_distance_m: Return None when the nearest stop is further
                             than this (default 2 km).
             exclude_stop:   stop_id to skip (used by router to find the
-                            second-nearest stop when origin==destination stop).
+                            second-nearest stop when origin and destination
+                            snap to the same stop).
 
         Returns:
             stop_id string or None.
@@ -442,11 +443,11 @@ class GTFSGraph:
         best_dist = float('inf')
 
         for stop_id, data in G_transit.nodes(data=True):
+            if exclude_stop is not None and stop_id == exclude_stop:
+                continue
             slat = data.get('y', 0)
             slon = data.get('x', 0)
 
-            if exclude_stop is not None and node == exclude_stop:
-                continue
             if mode_filter is not None:
                 # Check both outgoing and incoming edges so terminal stops
                 # (which have no outgoing service edges) are not skipped.

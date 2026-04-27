@@ -184,6 +184,20 @@ class TripChainBuilder:
         origin_coord = self._snap_stop(origin,      mode, agent_id, 'boarding')
         dest_coord   = self._snap_stop(destination, mode, agent_id, 'alighting')
 
+        # Reject if origin and destination snap to the same physical stop.
+        # This happens when an agent is located very close to a single stop
+        # that is also the nearest to their destination (common for MET stops
+        # near the tram terminus).  A zero-distance trunk leg produces an
+        # empty route geometry, which the BDI planner logs as 'empty leg for
+        # {mode} — aborting chain' and falls back to the next best mode.
+        if origin_coord == dest_coord:
+            raise ValueError(
+                f"{mode} {agent_id}: boarding stop == alighting stop "
+                f"{origin_coord} — agent too close to a single stop or "
+                f"destination is within the same stop catchment. "
+                f"Rejecting to prevent zero-distance trunk leg."
+            )
+
         access_mode = self._pick_access_mode()
         egress_mode = self._pick_access_mode()
 

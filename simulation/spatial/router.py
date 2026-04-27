@@ -103,6 +103,20 @@ _TRANSIT_MODES = frozenset({'bus', 'ferry_diesel', 'ferry_electric'})
 # while still being included in the flat full_route for agent movement.
 _MIN_WALK_LEG_KM: float = 0.15
 
+# ── Permanent rail node blocklist ──────────────────────────────────────────
+# OSM nodes causing phantom heading reversals on every Edinburgh rail route.
+# These are junction nodes where directed track edges meet at ~180°, which
+# is physically impossible for a train.  The edge-penalty retry cannot
+# reroute around them because they are the only topological connection.
+# Each node is excluded via nx.restricted_view before path-finding.
+#
+# 10177900090 — Craiglockhart/Slateford curve, Edinburgh Suburban line:
+#   Δbearing ≈177° on every route through Edinburgh city centre.
+#   Fires 117× per 50-agent run; penalty retry never resolves it.
+_RAIL_NODE_BLOCKLIST: frozenset = frozenset({
+    10177900090,   # Craiglockhart/Slateford (Edinburgh) — phantom U-turn
+})
+
 # ── Default policy parameters ─────────────────────────────────────────────────
 _DEFAULT_POLICY: Dict[str, float] = {
     'value_of_time_gbp_h':  10.0,
@@ -310,6 +324,15 @@ class Router:
         if rail_graph is None:
             route = self._get_invalid_route(origin, dest)
             return route, []
+
+        # Apply permanent blocklist: nodes that always cause phantom reversals
+        # and cannot be resolved by edge-penalty retry (they ARE the only
+        # topological connection).  nx.restricted_view keeps the graph intact
+        # so all other routes are unaffected.
+        _blocked = [n for n in _RAIL_NODE_BLOCKLIST if n in rail_graph]
+        if _blocked:
+            import networkx as _nx_r
+            rail_graph = _nx_r.restricted_view(rail_graph, _blocked, [])
 
         orig_node = self._nearest_rail_node(origin, rail_graph)
         dest_node = self._nearest_rail_node(dest,   rail_graph)
@@ -1095,6 +1118,12 @@ class Router:
         rail_graph = self._get_rail_graph()
         if rail_graph is None:
             return self._get_invalid_route(origin, dest)
+
+        # Apply permanent blocklist before path-finding
+        _blocked2 = [n for n in _RAIL_NODE_BLOCKLIST if n in rail_graph]
+        if _blocked2:
+            import networkx as _nx_r2
+            rail_graph = _nx_r2.restricted_view(rail_graph, _blocked2, [])
 
         orig_rail_node = self._nearest_rail_node(origin, rail_graph)
         dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
