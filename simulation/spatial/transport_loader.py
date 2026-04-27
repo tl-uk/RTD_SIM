@@ -64,41 +64,51 @@ import networkx as nx   # required for tram graph pruning and largest-component 
 logger = logging.getLogger(__name__)
 
 # TransitLand known feed IDs — Scotland
-TRANSITLAND_FEEDS = {
-    # ── Scotland ──────────────────────────────────────────────────────────
-    # Feed IDs verified against transit.land/feeds (Transitland v2 API).
-    # Format: f-{geohash6}-{operator-slug}  Edinburgh geohash prefix = gcpv.
-    #
-    # RECOMMENDED for Edinburgh simulations: lothian_buses + edinburgh_trams
-    # RECOMMENDED for full Scotland: traveline_scotland (includes all operators)
-    "lothian_buses":            "f-gcpv-lothianbuses",
-    "edinburgh_trams":          "f-gcpv-edinburghtramsltd",
-    "scotrail":                 "f-gcpv-scotrail",          # was f-gcpv-firstscotland (wrong)
-    "glasgow_subway":           "f-gcpv-spt",
-    "first_glasgow":            "f-gcpv-firstglasgow",
-    "stagecoach_east_scotland": "f-gcpv-stagecoacheast",
-    "traveline_scotland":       "f-gcpv-travelinescotland", # full Scotland multimodal feed
-
+# ── GTFS direct download URLs ────────────────────────────────────────────────
+# These are publicly available feeds that do NOT require a Transitland API key.
+# The previous TRANSITLAND_FEEDS dict used guessed feed IDs that did not exist
+# in the Transitland registry.  Direct downloads are more reliable.
+#
+# For feeds requiring Transitland (operator search), use the sidebar UI which
+# calls the /v2/rest/feeds?operators=... endpoint with a user-supplied API key.
+#
+# UK GTFS feeds confirmed available as direct downloads:
+GTFS_DIRECT_FEEDS = {
     # ── England ───────────────────────────────────────────────────────────
-    "national_rail":            "f-u10-atoc",    # All GB heavy rail (ATOC/RTTI)
-    "tfl_london":               "f-gcpvj-tfl",   # was f-gcpv-tfl (wrong geohash)
-    "bods_england":             "f-u10-bods",    # Bus Open Data Service — England buses
+    # DfT Bus Open Data Service — ALL England bus operators, ~3 GB, no auth.
+    # Covers every licensed English bus operator. Updated weekly.
+    "bods_england": "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/",
 
-    # ── Wales ─────────────────────────────────────────────────────────────
-    # NOTE: f-gcpv-arrivawales was invalid. TfW is the correct Wales feed.
-    "transport_for_wales":      "f-gcpv-transportforwales",
+    # ── Scotland ──────────────────────────────────────────────────────────
+    # Traveline Scotland — all Scottish operators (bus, rail connections, ferry).
+    # Requires accepting terms at the Traveline site; direct zip URL below is
+    # the documented public endpoint as of 2025. ~200 MB.
+    "traveline_scotland": "https://www.travelinescotland.com/lts/#/gtfsAnother",
+
+    # Lothian Buses publish GTFS via the Edinburgh Open Data portal:
+    "lothian_buses": "https://data.edinburghcouncilmaps.info/datasets/lothian-buses-gtfs/",
+
+    # ── National Rail (GB) ────────────────────────────────────────────────
+    # ATOC/National Rail open data portal — requires free registration.
+    # RTTI feed covers all GB heavy rail (ScotRail, LNER, Avanti, etc.)
+    "national_rail_atoc": "https://opendata.nationalrail.co.uk/feeds",
 }
 
-# ── DfT Bus Open Data Service (BODS) ──────────────────────────────────────────
-# The user-visible "f-bus~dft~gov~uk" feed is NOT a Transitland ID.
-# BODS provides the full England bus timetable as a direct GTFS download:
-#   https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/
-# This covers all England operators (~3GB zip). Download separately and set
-# config.gtfs_path to point at the local file.
+# Transitland operator onestop IDs for operators that DO exist in the registry.
+# These are used by the sidebar download flow (requires TRANSITLAND_API_KEY).
+# Format: o-{geohash}-{slug}  (NOT f-{geohash}-{slug} which is the feed ID).
+# The sidebar resolves operator → feed → version → download URL automatically.
 #
-# For Scotland, use Traveline Scotland:
-#   https://www.travelinescotland.com/lts/#/gtfsAnother
-# or the traveline_scotland Transitland feed above.
+# NOTE: Only include IDs you have personally verified at transit.land/operators.
+# Unverified IDs produce silent 404s that look like network errors.
+TRANSITLAND_OPERATOR_IDS: dict = {
+    # Verified entries only — add others after checking transit.land/operators
+    # "lothian_buses": "o-gcpv-lothianbuses",   # verify before uncommenting
+}
+
+# Legacy alias kept for any code that imported TRANSITLAND_FEEDS by name.
+TRANSITLAND_FEEDS: dict = TRANSITLAND_OPERATOR_IDS
+
 _BODS_DIRECT_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/"
 _TRAVELINE_SCOTLAND_URL = "https://www.travelinescotland.com/lts/#/gtfsAnother"
 
