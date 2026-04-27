@@ -367,6 +367,45 @@ def create_agents(
                     "Persona mode_preferences wired for %s: %s",
                     getattr(agent.state, 'agent_id', '?'), _mode_prefs,
                 )
+
+            # ── Merge job preferred_modes into mode_preferences ────────────
+            # vehicle_constraints.preferred_modes from the job YAML (e.g.
+            # transit_passenger.yaml: preferred_modes=[tram, bus, walk]) were
+            # never forwarded to mode_preferences, so the BDI planner never
+            # applied a job-specific mode bias.  As a result, persona-level
+            # walk/bike preferences (walk=0.95 for budget_student) dominated
+            # over the job's tram preference, causing accessible_tram_journey
+            # agents to choose walk over tram for sub-3km trips.
+            #
+            # Fix: boost modes listed first in preferred_modes with a strong
+            # preference score (0.85 for first mode, 0.75 for second, etc.).
+            # Existing persona prefs are only RAISED, never lowered — so a
+            # persona that already prefers tram (>0.85) keeps their preference.
+            _job_story_ctx = agent.agent_context.get('job_story', None)
+            _vc = getattr(_job_story_ctx, 'vehicle_constraints', None)
+            if _vc is None and isinstance(_job_story_ctx, dict):
+                _vc = _job_story_ctx.get('vehicle_constraints')
+            _job_preferred_modes: list = []
+            if isinstance(_vc, dict):
+                _job_preferred_modes = _vc.get('preferred_modes', [])
+            elif _vc is not None and hasattr(_vc, 'get'):
+                _job_preferred_modes = _vc.get('preferred_modes', [])
+            if _job_preferred_modes:
+                _current_prefs: dict = agent.agent_context.get('mode_preferences', {})
+                _JOB_PREF_SCORES = [0.85, 0.75, 0.65, 0.55]  # for 1st, 2nd, 3rd, 4th mode
+                _merged = dict(_current_prefs)
+                for _rank, _m in enumerate(_job_preferred_modes):
+                    _job_score = _JOB_PREF_SCORES[min(_rank, len(_JOB_PREF_SCORES) - 1)]
+                    # Only raise, never lower existing persona preference
+                    if _merged.get(_m, 0.0) < _job_score:
+                        _merged[_m] = _job_score
+                agent.agent_context['mode_preferences'] = _merged
+                logger.debug(
+                    "Job preferred_modes merged for %s: %s",
+                    getattr(agent.state, 'agent_id', '?'), _job_preferred_modes,
+                )
+            # ── End job preferred_modes merge ──────────────────────────────
+
             # ── End mode_preferences wiring ───────────────────────────────────
 
             # Thread simulation_results so CognitiveAgent._maybe_plan

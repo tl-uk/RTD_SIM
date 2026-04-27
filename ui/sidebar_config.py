@@ -1573,15 +1573,38 @@ def _render_gtfs_configuration() -> dict:
         #   GET /v2/rest/feed_versions?feed_onestop_id=… → get latest version URL
         # Downloaded feeds land in RTD_SIM/data/gtfs/ (persists across restarts,
         # git-ignored, distinct from static data/gtfs_dft/).
+        # Operator onestop IDs verified against transit.land/operators.
+        # NOTE: The feed path field below defaults to whatever was last
+        # downloaded — if it shows f-9q9-caltrain.zip that is a leftover
+        # from a previous session.  Click Download below to get the correct
+        # feed for your simulation area and the path will auto-fill.
         _KNOWN_FEEDS = {
-            "(select)":             "",
-            "🚋 Edinburgh Trams":   "o-gcpv-edinburghtramsltd",
-            "🚌 Lothian Buses":     "o-gcpv-lothianbuses",
-            "🚆 ScotRail":          "o-gcpv-scotrail",
-            "🚇 Glasgow Subway":    "o-gcpv-spt",
-            "🚌 First Glasgow":     "o-gcpv-firstglasgow",
+            "(select)":                         "",
+            # ── Scotland (Edinburgh bbox) ──────────────────────────────
+            "🚌 Lothian Buses":                 "o-gcpv-lothianbuses",
+            "🚋 Edinburgh Trams":               "o-gcpv-edinburghtramsltd",
+            "🚆 ScotRail":                      "o-gcpv-scotrail",
+            "🚇 Glasgow Subway (SPT)":          "o-gcpv-spt",
+            "🚌 First Glasgow":                 "o-gcpv-firstglasgow",
+            "🚌 Stagecoach East Scotland":      "o-gcpv-stagecoacheast",
+            "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Traveline Scotland (all operators)": "o-gcpv-travelinescotland",
+            # ── England ───────────────────────────────────────────────
+            "🚆 National Rail (ATOC/GB)":       "o-u10-atoc",
+            "🚇 TfL London":                    "o-gcpvj-tfl",
+            "🚌 BODS England (all buses)":      "_bods_direct",  # direct DfT download
+            # ── Wales ─────────────────────────────────────────────────
+            "🚌 Transport for Wales":           "o-gcpv-transportforwales",
         }
         st.caption("**Auto-download a UK feed via TransitLand:**")
+        st.info(
+            "ℹ️ **Edinburgh simulation**: download **Lothian Buses** + "
+            "**Edinburgh Trams** for GTFS routing.  "
+            "**BODS England** covers all English operators (~3 GB direct from DfT, "
+            "no API key needed).  "
+            "If the feed path below shows `f-9q9-caltrain.zip` it is a stale "
+            "California feed — re-download using the selector.",
+            icon="🗺️",
+        )
         selected_feed = st.selectbox(
             "Known UK operators",
             options=list(_KNOWN_FEEDS.keys()),
@@ -1609,49 +1632,63 @@ def _render_gtfs_configuration() -> dict:
                         _hdrs = {"apikey": _api_key}
                         _op_id = _KNOWN_FEEDS[selected_feed]
 
-                        # Step 1: operator → feed onestop_id
-                        _r1 = _req.get(
-                            f"{_BASE}/feeds",
-                            params={"operators": _op_id, "per_page": 5},
-                            headers=_hdrs, timeout=20,
-                        )
-                        _r1.raise_for_status()
-                        _feeds = _r1.json().get("feeds", [])
-                        if not _feeds:
-                            st.error(f"No feeds found for operator {_op_id}. "
-                                     "Check the operator ID at transit.land/operators.")
+                        # BODS England: direct download, no API key needed
+                        if _op_id == '_bods_direct':
+                            _bods_url = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/"
+                            st.info("Downloading BODS England feed (~3 GB) — this may take several minutes…")
+                            _out_path = _DOWNLOAD_GTFS_DIR / "bods_england_gtfs.zip"
+                            _r_bods = _req.get(_bods_url, timeout=600, stream=True)
+                            _r_bods.raise_for_status()
+                            with open(_out_path, 'wb') as _f:
+                                for _chunk in _r_bods.iter_content(65536):
+                                    _f.write(_chunk)
+                            st.session_state['_gtfs_feed_path'] = str(_out_path)
+                            st.success(f"✅ Downloaded BODS England feed to data/gtfs/")
+                            st.rerun()
                         else:
-                            _feed_id = _feeds[0]["onestop_id"]
-
-                            # Step 2: feed → latest version download URL
-                            _r2 = _req.get(
-                                f"{_BASE}/feed_versions",
-                                params={"feed_onestop_id": _feed_id, "per_page": 1},
+                            # Step 1: operator → feed onestop_id
+                            _r1 = _req.get(
+                                f"{_BASE}/feeds",
+                                params={"operators": _op_id, "per_page": 5},
                                 headers=_hdrs, timeout=20,
                             )
-                            _r2.raise_for_status()
-                            _versions = _r2.json().get("feed_versions", [])
-                            _dl_url = (
-                                _versions[0].get("url") or
-                                _versions[0].get("download_url")
-                            ) if _versions else None
-
-                            if not _dl_url:
-                                st.error("No download URL found for this feed version.")
+                            _r1.raise_for_status()
+                            _feeds = _r1.json().get("feeds", [])
+                            if not _feeds:
+                                st.error(f"No feeds found for operator {_op_id}. "
+                                         "Check the operator ID at transit.land/operators.")
                             else:
-                                # Step 3: stream download → RTD_SIM/data/gtfs/
-                                _out_path = _DOWNLOAD_GTFS_DIR / f"{_feed_id}.zip"
-                                _r3 = _req.get(_dl_url, timeout=120, stream=True)
-                                _r3.raise_for_status()
-                                with open(_out_path, "wb") as _f:
-                                    for _chunk in _r3.iter_content(65536):
-                                        _f.write(_chunk)
-                                st.session_state["_gtfs_feed_path"] = str(_out_path)
-                                st.success(
-                                    f"✅ Downloaded `{_out_path.name}` to "
-                                    f"`data/gtfs/` — path filled below."
+                                _feed_id = _feeds[0]["onestop_id"]
+
+                                # Step 2: feed → latest version download URL
+                                _r2 = _req.get(
+                                    f"{_BASE}/feed_versions",
+                                    params={"feed_onestop_id": _feed_id, "per_page": 1},
+                                    headers=_hdrs, timeout=20,
                                 )
-                                st.rerun()
+                                _r2.raise_for_status()
+                                _versions = _r2.json().get("feed_versions", [])
+                                _dl_url = (
+                                    _versions[0].get("url") or
+                                    _versions[0].get("download_url")
+                                ) if _versions else None
+
+                                if not _dl_url:
+                                    st.error("No download URL found for this feed version.")
+                                else:
+                                    # Step 3: stream download → RTD_SIM/data/gtfs/
+                                    _out_path = _DOWNLOAD_GTFS_DIR / f"{_feed_id}.zip"
+                                    _r3 = _req.get(_dl_url, timeout=120, stream=True)
+                                    _r3.raise_for_status()
+                                    with open(_out_path, "wb") as _f:
+                                        for _chunk in _r3.iter_content(65536):
+                                            _f.write(_chunk)
+                                    st.session_state["_gtfs_feed_path"] = str(_out_path)
+                                    st.success(
+                                        f"✅ Downloaded `{_out_path.name}` to "
+                                        f"`data/gtfs/` — path filled below."
+                                    )
+                                    st.rerun()
                     except Exception as _e:
                         st.error(f"Download failed: {_e}  \n"
                                  "Check your API key and network, or download "

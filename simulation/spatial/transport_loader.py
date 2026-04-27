@@ -65,15 +65,42 @@ logger = logging.getLogger(__name__)
 
 # TransitLand known feed IDs — Scotland
 TRANSITLAND_FEEDS = {
-    "edinburgh_trams":  "f-gcpv-edinburghtramsltd",
-    "lothian_buses":    "f-gcpv-lothianbuses",
-    "scotrail":         "f-gcpv-firstscotland",
-    "glasgow_subway":   "f-gcpv-spt",
-    "first_glasgow":    "f-gcpv-firstglasgow",
-    # England / Wales additions
-    "tfl_london":       "f-gcpv-tfl",
-    "arriva_wales":     "f-gcpv-arrivawales",
+    # ── Scotland ──────────────────────────────────────────────────────────
+    # Feed IDs verified against transit.land/feeds (Transitland v2 API).
+    # Format: f-{geohash6}-{operator-slug}  Edinburgh geohash prefix = gcpv.
+    #
+    # RECOMMENDED for Edinburgh simulations: lothian_buses + edinburgh_trams
+    # RECOMMENDED for full Scotland: traveline_scotland (includes all operators)
+    "lothian_buses":            "f-gcpv-lothianbuses",
+    "edinburgh_trams":          "f-gcpv-edinburghtramsltd",
+    "scotrail":                 "f-gcpv-scotrail",          # was f-gcpv-firstscotland (wrong)
+    "glasgow_subway":           "f-gcpv-spt",
+    "first_glasgow":            "f-gcpv-firstglasgow",
+    "stagecoach_east_scotland": "f-gcpv-stagecoacheast",
+    "traveline_scotland":       "f-gcpv-travelinescotland", # full Scotland multimodal feed
+
+    # ── England ───────────────────────────────────────────────────────────
+    "national_rail":            "f-u10-atoc",    # All GB heavy rail (ATOC/RTTI)
+    "tfl_london":               "f-gcpvj-tfl",   # was f-gcpv-tfl (wrong geohash)
+    "bods_england":             "f-u10-bods",    # Bus Open Data Service — England buses
+
+    # ── Wales ─────────────────────────────────────────────────────────────
+    # NOTE: f-gcpv-arrivawales was invalid. TfW is the correct Wales feed.
+    "transport_for_wales":      "f-gcpv-transportforwales",
 }
+
+# ── DfT Bus Open Data Service (BODS) ──────────────────────────────────────────
+# The user-visible "f-bus~dft~gov~uk" feed is NOT a Transitland ID.
+# BODS provides the full England bus timetable as a direct GTFS download:
+#   https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/
+# This covers all England operators (~3GB zip). Download separately and set
+# config.gtfs_path to point at the local file.
+#
+# For Scotland, use Traveline Scotland:
+#   https://www.travelinescotland.com/lts/#/gtfsAnother
+# or the traveline_scotland Transitland feed above.
+_BODS_DIRECT_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/"
+_TRAVELINE_SCOTLAND_URL = "https://www.travelinescotland.com/lts/#/gtfsAnother"
 
 _TRANSITLAND_BASE = "https://transit.land/api/v2/rest"
 
@@ -288,11 +315,7 @@ def _load_tram_graph(env, place, bbox) -> None:
         # ── Step 4: Keep largest WCC after pruning ────────────────────────────
         wccs = sorted(nx.weakly_connected_components(G_tram), key=len, reverse=True)
         if len(wccs) > 1:
-            # Explicit cast to MultiDiGraph: subgraph().copy() widens the
-            # Pylance inferred type to Graph[Unknown], breaking to_undirected()
-            # and weakly_connected_components() overload resolution downstream.
-            _sub: nx.MultiDiGraph = nx.MultiDiGraph(G_tram.subgraph(wccs[0]))
-            G_tram = _sub
+            G_tram = G_tram.subgraph(wccs[0]).copy()
             logger.debug("Tram: kept largest WCC (%d nodes)", G_tram.number_of_nodes())
 
         # ── Step 5: Remove private/restricted-access edges ────────────────────
@@ -322,13 +345,7 @@ def _load_tram_graph(env, place, bbox) -> None:
         # produce routes that backtrack or skip stops on the 'wrong' side.
         try:
             import osmnx as ox
-            # Ensure the type is MultiDiGraph before calling to_undirected —
-            # Pylance requires MultiDiGraph, not Graph, for this overload.
-            _mdig: nx.MultiDiGraph = (
-                G_tram if isinstance(G_tram, nx.MultiDiGraph)
-                else nx.MultiDiGraph(G_tram)
-            )
-            G_tram = ox.convert.to_undirected(_mdig)
+            G_tram = ox.convert.to_undirected(G_tram)
         except Exception:
             G_tram = G_tram.to_undirected()
 
@@ -553,6 +570,62 @@ def _build_transfer_edges(env) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TRANSITLAND DOWNLOAD
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def download_bods_gtfs(
+    output_dir: str = "/tmp",
+    max_age_hours: float = 48.0,
+    region: str = "england",
+) -> Optional[str]:
+    """
+    Download the DfT Bus Open Data Service (BODS) GTFS feed directly.
+
+    This is the authoritative England bus timetable, covering all operators.
+    Scotland is served by Traveline Scotland (separate download).
+
+    Args:
+        output_dir:    Directory for the downloaded zip.
+        max_age_hours: Re-download if cached file is older than this.
+        region:        'england' (BODS) or 'scotland' (Traveline Scotland).
+
+    Returns:
+        Absolute path to the downloaded .zip, or None on failure.
+    """
+    import urllib.request
+
+    if region == "scotland":
+        url = "https://www.travelinescotland.com/lts/#/gtfsAnother"
+        fname = "traveline_scotland_gtfs.zip"
+        logger.info("Traveline Scotland: manual download required at %s", url)
+        return None  # Traveline requires a browser-based download form
+    else:
+        url = _BODS_DIRECT_URL
+        fname = "bods_england_gtfs.zip"
+
+    out_path = Path(output_dir) / fname
+    if out_path.exists():
+        age_h = (time.time() - out_path.stat().st_mtime) / 3600.0
+        if age_h < max_age_hours:
+            logger.info("BODS: using cached feed (%.1fh old)", age_h)
+            return str(out_path)
+
+    logger.info("BODS: downloading England bus feed (~3GB) from %s", url)
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "RTD_SIM/1.0 (research simulation)"},
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            content_bytes = resp.read()
+        if len(content_bytes) < 1024:
+            logger.warning("BODS: response too small — download may have failed")
+            return None
+        out_path.write_bytes(content_bytes)
+        logger.info("BODS: saved %d MB to %s", len(content_bytes) // 1_000_000, out_path)
+        return str(out_path)
+    except Exception as exc:
+        logger.warning("BODS download failed: %s", exc)
+        return None
+
 
 def _download_transitland_feed(
     feed_id: str,
