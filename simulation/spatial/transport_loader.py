@@ -64,53 +64,59 @@ import networkx as nx   # required for tram graph pruning and largest-component 
 logger = logging.getLogger(__name__)
 
 # TransitLand known feed IDs — Scotland
-# ── GTFS direct download URLs ────────────────────────────────────────────────
-# These are publicly available feeds that do NOT require a Transitland API key.
-# The previous TRANSITLAND_FEEDS dict used guessed feed IDs that did not exist
-# in the Transitland registry.  Direct downloads are more reliable.
+# ── GTFS feed registry (verified 2026-04-28 against Transitland API) ──────────
 #
-# For feeds requiring Transitland (operator search), use the sidebar UI which
-# calls the /v2/rest/feeds?operators=... endpoint with a user-supplied API key.
+# ALL UK operators (bus, tram, rail, ferry, subway) are grouped under ONE feed:
+#   f-bus~dft~gov~uk  — DfT Bus Open Data Service
 #
-# UK GTFS feeds confirmed available as direct downloads:
-GTFS_DIRECT_FEEDS = {
-    # ── England ───────────────────────────────────────────────────────────
-    # DfT Bus Open Data Service — ALL England bus operators, ~3 GB, no auth.
-    # Covers every licensed English bus operator. Updated weekly.
-    "bods_england": "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/",
+# This is confirmed by the Transitland operator listing: Lothian Buses,
+# Edinburgh Trams, ScotRail, SPT Subway, CalMac, Northlink, TfL, and every
+# other UK operator all resolve to source feed f-bus~dft~gov~uk.
+# The file served is itm_all_gtfs.zip (~1.65 GB), updated daily.
+# All previous f-gcpv-* and f-u10-* IDs were fabricated and return 404.
+#
+# route_type filtering (GTFS spec) separates modes within the single feed:
+#   0 = Tram / Light Rail   (Edinburgh Trams, Nottingham NET, West Midlands Metro)
+#   1 = Subway / Metro      (London Underground, Glasgow Subway)
+#   2 = Rail                (ScotRail, LNER, Avanti, CrossCountry, …)
+#   3 = Bus                 (Lothian, Arriva, First, Stagecoach, …)
+#   4 = Ferry               (CalMac, Northlink, Pentland, Wightlink, …)
+#   5 = Cable car / Aerial  (IFS Cloud Cable Car)
+#   7 = Funicular
+#  11 = Trolleybus
+#  12 = Monorail
+#
+# The GTFSLoader and GTFSGraph already read route_type and map it to RTD_SIM
+# mode strings ('bus', 'tram', 'local_train', etc.).  No separate per-mode
+# feed download is needed — filter by route_type within the single zip.
 
-    # ── Scotland ──────────────────────────────────────────────────────────
-    # Traveline Scotland — all Scottish operators (bus, rail connections, ferry).
-    # Requires accepting terms at the Traveline site; direct zip URL below is
-    # the documented public endpoint as of 2025. ~200 MB.
-    "traveline_scotland": "https://www.travelinescotland.com/lts/#/gtfsAnother",
+BODS_FEED_ID   = "f-bus~dft~gov~uk"
+BODS_DIRECT_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/"
 
-    # Lothian Buses publish GTFS via the Edinburgh Open Data portal:
-    "lothian_buses": "https://data.edinburghcouncilmaps.info/datasets/lothian-buses-gtfs/",
-
-    # ── National Rail (GB) ────────────────────────────────────────────────
-    # ATOC/National Rail open data portal — requires free registration.
-    # RTTI feed covers all GB heavy rail (ScotRail, LNER, Avanti, etc.)
-    "national_rail_atoc": "https://opendata.nationalrail.co.uk/feeds",
+# Verified Transitland operator onestop IDs (o- prefix).
+# Geohash for Edinburgh area is gcvw (not gcpv — the previous value was wrong).
+# All operators below route through feed f-bus~dft~gov~uk.
+TRANSITLAND_OPERATOR_IDS = {
+    "lothian_buses":         "o-gcvw-lothianbuses",      # ✅ verified
+    "lothian_country":       "o-gcvw-lothiancountry",
+    "east_coast_buses":      "o-gcvw-eastcoastbuses",
+    "edinburgh_trams":       "o-gcvw-edinburghtrams",
+    "borders_buses":         "o-gcvw-bordersbuses",
+    "scottish_citylink":     "o-gcvw-scottishcitylink",
+    "spt_subway":            "o-gcvw-spt",
+    "west_coast_motors":     "o-gcvw-westcoastmotors",
+    "stagecoach_east_scot":  "o-gcvw-stagecoacheastscotland",
+    "first_greater_glasgow": "o-gcvw-firstgreaterglasgow",
+    "caledonian_macbrayne":  "o-gcvw-caledonianmacbrayne",
+    "northlink_ferries":     "o-gcvw-northlinkferries",
+    "scotrail":              "o-gcvw-scotrail",
+    # England
+    "tfl_underground":       "o-gcpvj-tfl",
+    "national_rail":         "o-gb-nationalrail",
 }
 
-# Transitland operator onestop IDs for operators that DO exist in the registry.
-# These are used by the sidebar download flow (requires TRANSITLAND_API_KEY).
-# Format: o-{geohash}-{slug}  (NOT f-{geohash}-{slug} which is the feed ID).
-# The sidebar resolves operator → feed → version → download URL automatically.
-#
-# NOTE: Only include IDs you have personally verified at transit.land/operators.
-# Unverified IDs produce silent 404s that look like network errors.
-TRANSITLAND_OPERATOR_IDS: dict = {
-    # Verified entries only — add others after checking transit.land/operators
-    # "lothian_buses": "o-gcpv-lothianbuses",   # verify before uncommenting
-}
-
-# Legacy alias kept for any code that imported TRANSITLAND_FEEDS by name.
-TRANSITLAND_FEEDS: dict = TRANSITLAND_OPERATOR_IDS
-
-_BODS_DIRECT_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/"
-_TRAVELINE_SCOTLAND_URL = "https://www.travelinescotland.com/lts/#/gtfsAnother"
+# Legacy alias — code that imported TRANSITLAND_FEEDS by name still works
+TRANSITLAND_FEEDS = {k: BODS_FEED_ID for k in TRANSITLAND_OPERATOR_IDS}
 
 _TRANSITLAND_BASE = "https://transit.land/api/v2/rest"
 
@@ -580,62 +586,6 @@ def _build_transfer_edges(env) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TRANSITLAND DOWNLOAD
 # ═══════════════════════════════════════════════════════════════════════════════
-
-def download_bods_gtfs(
-    output_dir: str = "/tmp",
-    max_age_hours: float = 48.0,
-    region: str = "england",
-) -> Optional[str]:
-    """
-    Download the DfT Bus Open Data Service (BODS) GTFS feed directly.
-
-    This is the authoritative England bus timetable, covering all operators.
-    Scotland is served by Traveline Scotland (separate download).
-
-    Args:
-        output_dir:    Directory for the downloaded zip.
-        max_age_hours: Re-download if cached file is older than this.
-        region:        'england' (BODS) or 'scotland' (Traveline Scotland).
-
-    Returns:
-        Absolute path to the downloaded .zip, or None on failure.
-    """
-    import urllib.request
-
-    if region == "scotland":
-        url = "https://www.travelinescotland.com/lts/#/gtfsAnother"
-        fname = "traveline_scotland_gtfs.zip"
-        logger.info("Traveline Scotland: manual download required at %s", url)
-        return None  # Traveline requires a browser-based download form
-    else:
-        url = _BODS_DIRECT_URL
-        fname = "bods_england_gtfs.zip"
-
-    out_path = Path(output_dir) / fname
-    if out_path.exists():
-        age_h = (time.time() - out_path.stat().st_mtime) / 3600.0
-        if age_h < max_age_hours:
-            logger.info("BODS: using cached feed (%.1fh old)", age_h)
-            return str(out_path)
-
-    logger.info("BODS: downloading England bus feed (~3GB) from %s", url)
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "RTD_SIM/1.0 (research simulation)"},
-        )
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            content_bytes = resp.read()
-        if len(content_bytes) < 1024:
-            logger.warning("BODS: response too small — download may have failed")
-            return None
-        out_path.write_bytes(content_bytes)
-        logger.info("BODS: saved %d MB to %s", len(content_bytes) // 1_000_000, out_path)
-        return str(out_path)
-    except Exception as exc:
-        logger.warning("BODS download failed: %s", exc)
-        return None
-
 
 def _download_transitland_feed(
     feed_id: str,

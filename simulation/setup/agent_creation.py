@@ -25,8 +25,14 @@ from typing import List, Dict, Tuple, Any, Optional
 from agent.bdi_planner import BDIPlanner
 from agent.persona_fusion import PersonaFusion
 
-from agent.user_stories import UserStory
-from agent.job_stories import JobStory
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Used only for type annotations — not needed at runtime since story
+    # objects are accessed via StoryDrivenAgent.user_story / .job_story.
+    from agent.user_stories import UserStory
+    from agent.job_stories import JobStory
 
 from simulation.config.simulation_config import SimulationConfig
 from simulation.infrastructure.infrastructure_manager import InfrastructureManager
@@ -493,6 +499,29 @@ def create_agents(
         
         # Shuffle for spatial diversity
         crypto_rng.shuffle(agents)
+
+        # ── Wire social influence realism ─────────────────────────────────────
+        # RealisticSocialInfluence and enhance_social_network_with_realism were
+        # imported but never called — the social network was created by
+        # SocialNetwork but never enhanced with realistic influence dynamics.
+        # Without this, apply_social_influence() uses the basic uniform-weight
+        # peer influence rather than the persona-differentiated model.
+        #
+        # calculate_satisfaction() is called below in the Markov record_step
+        # block to provide a satisfaction score from actual vs expected metrics.
+        if STORY_AVAILABLE:
+            try:
+                _sn = getattr(simulation_results, 'social_network', None)
+                if _sn is None:
+                    _sn = SocialNetwork(agents=agents, config=config.social_network
+                                        if hasattr(config, 'social_network') else None)
+                    simulation_results.social_network = _sn
+                _influence = RealisticSocialInfluence()
+                enhance_social_network_with_realism(_sn, _influence)
+                logger.info("✅ Social network enhanced with realistic influence dynamics")
+            except Exception as _si_exc:
+                logger.debug("Social influence enhancement skipped: %s", _si_exc)
+        # ── End social influence wiring ────────────────────────────────────────
         
         # Calculate desire diversity
         import statistics

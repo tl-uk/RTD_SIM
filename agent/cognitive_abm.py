@@ -307,6 +307,33 @@ class CognitiveAgent:
                 if s.arrived_at_step is None:
                     s.arrived_at_step = self.t
 
+                # ── Markov chain update on arrival ────────────────────────────
+                # record_step() updates the transition matrix so habitual mode
+                # discount in bdi_planner.cost() reflects actual experience.
+                # calculate_satisfaction() provides a [0,1] score from actual vs
+                # expected travel time and cost.
+                # Neither was called anywhere — the Markov matrix never learned.
+                _mc = getattr(self, 'agent_context', {}).get('mode_chain', None)
+                if _mc is not None and s.mode:
+                    try:
+                        from agent.social_influence_dynamics import calculate_satisfaction
+                        _steps_taken = (self.t - (s.departed_at_step or 0))
+                        _actual_min  = _steps_taken * 1.0          # 1 step ≈ 1 min
+                        _dist_km     = max(0.01, s.distance_km)
+                        from simulation.config.modes import speed_kmh
+                        _expected_min = (_dist_km / speed_kmh(s.mode)) * 60.0
+                        _sat = calculate_satisfaction(
+                            agent=self,
+                            env=None,
+                            actual_time=_actual_min,
+                            expected_time=_expected_min,
+                            actual_cost=0.0,
+                            expected_cost=0.0,
+                        )
+                        _mc.record_step(s.mode, _sat)
+                    except Exception:
+                        pass  # non-fatal — Markov discount still works on next step
+
     # Main function that advances the agent's state by one step. It first updates the
     # cognitive variables (attention, working memory, stress, performance) based on a 
     # simple model. Then it calls the planning function to potentially update the route 

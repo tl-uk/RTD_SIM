@@ -1573,83 +1573,117 @@ def _render_gtfs_configuration() -> dict:
         #   GET /v2/rest/feed_versions?feed_onestop_id=… → get latest version URL
         # Downloaded feeds land in RTD_SIM/data/gtfs/ (persists across restarts,
         # git-ignored, distinct from static data/gtfs_dft/).
-        # Operator onestop IDs verified against transit.land/operators.
-        # NOTE: The feed path field below defaults to whatever was last
-        # downloaded — if it shows f-9q9-caltrain.zip that is a leftover
-        # from a previous session.  Click Download below to get the correct
-        # feed for your simulation area and the path will auto-fill.
-        # ── Direct GTFS download (no Transitland API key needed) ────────────
-        # Transitland UK feed IDs cannot be verified without live API access.
-        # These direct download URLs are publicly documented endpoints.
-        _DIRECT_FEEDS = {
-            "(select)": ("", "", ""),
-            "BODS England — all English bus operators (~3 GB)": (
-                "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/",
-                "~3 GB, no auth required",
-            ),
-            "Traveline Scotland — all Scottish operators (~200 MB)": (
-                "https://www.travelinescotland.com/lts/#/gtfsAnother",
-                "Requires accepting terms at site first",
-            ),
-            "Lothian Buses Edinburgh (Edinburgh Open Data)": (
-                "https://data.edinburghcouncilmaps.info/datasets/lothian-buses-gtfs/",
-                "~30 MB",
-            ),
-        }
-        st.caption("**Download a GTFS feed (no API key needed):**")
+        # All UK operators route through a single Transitland feed: f-bus~dft~gov~uk
+        # Operator onestop IDs use geohash gcvw for Edinburgh (not gcpv — was wrong).
+        # The download flow resolves operator → feed → version URL automatically.
+        # If you have already downloaded itm_all_gtfs.zip, paste its path below.
         st.info(
-            "Select a feed and click Download — the path auto-fills below. "
-            "For Traveline Scotland, the link opens the download form in your browser.",
+            "**All UK operators** (Lothian, ScotRail, CalMac, TfL, etc.) are in "
+            "one feed: `f-bus~dft~gov~uk` (~1.65 GB). "
+            "If you already downloaded `itm_all_gtfs.zip`, enter its path directly below "
+            "— no re-download needed. route_type filtering separates bus/rail/tram/ferry "
+            "automatically within the single zip.",
             icon="ℹ️",
         )
-        _direct_sel = st.selectbox(
-            "Known UK feeds",
-            options=list(_DIRECT_FEEDS.keys()),
+        _KNOWN_FEEDS = {
+            "(select)":                      "",
+            # ── Scotland (Edinburgh) — geohash gcvw ───────────────────
+            "🚌 Lothian Buses":              "o-gcvw-lothianbuses",
+            "🚋 Edinburgh Trams":            "o-gcvw-edinburghtrams",
+            "🚌 Lothian Country Buses":      "o-gcvw-lothiancountry",
+            "🚌 East Coast Buses":           "o-gcvw-eastcoastbuses",
+            "🚌 Borders Buses":              "o-gcvw-bordersbuses",
+            "🚌 Scottish Citylink":          "o-gcvw-scottishcitylink",
+            "🚇 SPT Subway (Glasgow)":       "o-gcvw-spt",
+            "🚆 ScotRail":                   "o-gcvw-scotrail",
+            "⛴ CalMac Ferries":             "o-gcvw-caledonianmacbrayne",
+            "⛴ NorthLink Ferries":          "o-gcvw-northlinkferries",
+            "🚌 West Coast Motors":          "o-gcvw-westcoastmotors",
+            "🚌 Stagecoach East Scotland":   "o-gcvw-stagecoacheastscotland",
+            "🚌 First Greater Glasgow":      "o-gcvw-firstgreaterglasgow",
+        }
+        st.caption("**Auto-download via TransitLand (requires API key):**")
+        selected_feed = st.selectbox(
+            "Known UK operators",
+            options=list(_KNOWN_FEEDS.keys()),
             index=0,
-            key="_gtfs_direct_feed_select",
+            key="_gtfs_known_operator",
+            help=(
+                "Requires TRANSITLAND_API_KEY in RTD_SIM/.env. "
+                "Feed is saved to RTD_SIM/data/gtfs/ and path is auto-filled below."
+            ),
         )
-        if _direct_sel and _direct_sel != "(select)":
-            _dl_url, _dl_note = _DIRECT_FEEDS[_direct_sel]
-            st.caption(_dl_note)
-            if st.button(f"Download {_direct_sel.split(' (')[0]}", key="_gtfs_direct_dl_btn"):
-                if "travelinescotland" in _dl_url:
-                    import webbrowser
-                    st.warning(
-                        f"[Open Traveline Scotland download page]({_dl_url}) "
-                        "— accept terms, download the zip, then enter the path below.",
-                        icon="⚠️",
-                    )
-                else:
-                    with st.spinner(f"Downloading ({_dl_note}) …"):
-                        try:
-                            import requests as _req
-                            _fname = _direct_sel.split(" —")[0].strip().lower()
-                            _fname = _fname.replace(" ", "_").replace("~", "").strip("_") + "_gtfs.zip"
-                            _out_path = _DOWNLOAD_GTFS_DIR / _fname
-                            _r = _req.get(_dl_url, timeout=600, stream=True)
-                            _r.raise_for_status()
-                            with open(_out_path, "wb") as _f:
-                                for _chunk in _r.iter_content(65536):
-                                    _f.write(_chunk)
-                            st.session_state["_gtfs_feed_path"] = str(_out_path)
-                            st.success(f"Saved to `{_out_path}`")
-                            st.rerun()
-                        except Exception as _e:
-                            st.error(f"Download failed: {_e}")
+        if selected_feed and selected_feed != "(select)":
+            _btn_disabled = not bool(_api_key)
+            _btn_label = (
+                f"⬇️ Download {selected_feed}"
+                if _api_key else
+                f"⬇️ {selected_feed} (API key required)"
+            )
+            if st.button(_btn_label, key="_gtfs_download_btn", disabled=_btn_disabled):
+                with st.spinner(f"Downloading {selected_feed} via TransitLand…"):
+                    try:
+                        # Inline download using the same pattern as transit_loader.py
+                        # (extracted here so sidebar_config has no circular import).
+                        import requests as _req
+                        _BASE = "https://transit.land/api/v2/rest"
+                        _hdrs = {"apikey": _api_key}
+                        _op_id = _KNOWN_FEEDS[selected_feed]
 
-        st.divider()
-        st.caption("**Transitland operator search (requires API key):**")
-        _KNOWN_FEEDS = {}  # legacy — operator search uses API key path below
+                        # Step 1: operator → feed onestop_id
+                        _r1 = _req.get(
+                            f"{_BASE}/feeds",
+                            params={"operators": _op_id, "per_page": 5},
+                            headers=_hdrs, timeout=20,
+                        )
+                        _r1.raise_for_status()
+                        _feeds = _r1.json().get("feeds", [])
+                        if not _feeds:
+                            st.error(f"No feeds found for operator {_op_id}. "
+                                     "Check the operator ID at transit.land/operators.")
+                        else:
+                            _feed_id = _feeds[0]["onestop_id"]
+
+                            # Step 2: feed → latest version download URL
+                            _r2 = _req.get(
+                                f"{_BASE}/feed_versions",
+                                params={"feed_onestop_id": _feed_id, "per_page": 1},
+                                headers=_hdrs, timeout=20,
+                            )
+                            _r2.raise_for_status()
+                            _versions = _r2.json().get("feed_versions", [])
+                            _dl_url = (
+                                _versions[0].get("url") or
+                                _versions[0].get("download_url")
+                            ) if _versions else None
+
+                            if not _dl_url:
+                                st.error("No download URL found for this feed version.")
+                            else:
+                                # Step 3: stream download → RTD_SIM/data/gtfs/
+                                _out_path = _DOWNLOAD_GTFS_DIR / f"{_feed_id}.zip"
+                                _r3 = _req.get(_dl_url, timeout=120, stream=True)
+                                _r3.raise_for_status()
+                                with open(_out_path, "wb") as _f:
+                                    for _chunk in _r3.iter_content(65536):
+                                        _f.write(_chunk)
+                                st.session_state["_gtfs_feed_path"] = str(_out_path)
+                                st.success(
+                                    f"✅ Downloaded `{_out_path.name}` to "
+                                    f"`data/gtfs/` — path filled below."
+                                )
+                                st.rerun()
+                    except Exception as _e:
+                        st.error(f"Download failed: {_e}  \n"
+                                 "Check your API key and network, or download "
+                                 "manually from [transit.land](https://transit.land).")
 
         # ── Feed path input ───────────────────────────────────────────────
-        # IMPORTANT: do NOT set value= when also setting key= in Streamlit.
-        # When both are present, Streamlit treats value= as an overriding
-        # default on every render, silently ignoring st.session_state writes
-        # made after download (hence f-9q9-caltrain.zip persisting despite
-        # the user downloading a different feed).  key= alone is the correct
-        # pattern: the widget reads/writes st.session_state[key] directly.
+        # Do NOT set value= when key= is also set — Streamlit overrides
+        # session_state writes with value= on every render, causing the
+        # downloaded path to revert to the old stale value (e.g. Caltrain).
         if "_gtfs_feed_path" not in st.session_state:
-            st.session_state["_gtfs_feed_path"] = ""  # blank by default, NOT Caltrain
+            st.session_state["_gtfs_feed_path"] = ""
         feed_path_raw = st.text_input(
             "Feed path",
             placeholder="/path/to/gtfs.zip  or  /path/to/gtfs_dir/",
