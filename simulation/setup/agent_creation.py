@@ -15,6 +15,7 @@ is a critical fix to ensure that agents have valid routes from the start of the
 simulation.
 
 """
+from __future__ import annotations
 
 import secrets
 import random
@@ -25,7 +26,6 @@ from typing import List, Dict, Tuple, Any, Optional
 from agent.bdi_planner import BDIPlanner
 from agent.persona_fusion import PersonaFusion
 
-from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
