@@ -1847,6 +1847,19 @@ class Router:
         if dist_km < 0.15:
             return self._interpolate([origin, dest], max_segment_km=0.05)
 
+        # ── Maximum access/egress distance cap ───────────────────────────────
+        # max_straight_km is in the signature but was never enforced, allowing
+        # 8+ km drive-proxy access legs on motorway-class roads (observed:
+        # agent 2612 walking 8.8km via A90 because walk graph disconnected).
+        # Return empty list — caller (_intermodal_with_segments etc.) treats
+        # empty access as 'snap to stop directly' rather than crashing.
+        if dist_km > max_straight_km:
+            logger.debug(
+                "%s: access leg %.2fkm exceeds cap %.2fkm — skipping",
+                agent_id, dist_km, max_straight_km,
+            )
+            return []
+
         # ── Tier 1: Walk graph ────────────────────────────────────────────────
         G_walk = self.graph_manager.get_graph('walk')
         if G_walk is not None and G_walk.number_of_nodes() > 10:
