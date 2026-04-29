@@ -346,6 +346,33 @@ class SimulationConfig:
     enable_infrastructure_events: bool = True
     """Publish infrastructure failure events (future use)"""
 
+    # ── Synthetic events ─────────────────────────────────────────────────────
+    # These fields are set by the sidebar's Interactive Events panel and read
+    # by simulation_loop.py / simulation_runner.py.  They were previously set
+    # as dynamic attributes (config.enable_synthetic_events = ...) which
+    # Pylance rejects for dataclasses.  Adding them here as proper fields
+    # with sensible defaults fixes the attr-defined errors.
+    enable_synthetic_events: bool = False
+    """Master switch for synthetic event injection during simulation."""
+
+    synthetic_traffic_events: bool = False
+    """Inject random traffic incidents (road closures, congestion spikes)."""
+
+    synthetic_weather_events: bool = False
+    """Inject weather events affecting active travel and EV range."""
+
+    synthetic_infrastructure_events: bool = False
+    """Inject EV charger outages and depot closures."""
+
+    synthetic_grid_events: bool = False
+    """Inject electricity grid stress events affecting EV charging cost."""
+
+    event_frequency: str = "medium"
+    """Base event frequency: 'low', 'medium', or 'high'."""
+
+    event_frequency_multiplier: float = 1.0
+    """Multiplier applied to event_frequency for fine-grained control."""
+
     def get(self, key, default=None):
         """
         HACK: Duck-typing method to allow dictionary-style access.

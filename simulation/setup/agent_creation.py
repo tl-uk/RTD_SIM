@@ -513,12 +513,15 @@ def create_agents(
             try:
                 _sn = getattr(simulation_results, 'social_network', None)
                 if _sn is None:
-                    _sn = SocialNetwork(agents=agents, config=config.social_network
-                                        if hasattr(config, 'social_network') else None)
+                    # config.social_network is not a SimulationConfig field —
+                    # pass None so SocialNetwork uses its own defaults
+                    _sn = SocialNetwork(agents=agents, config=None)
                     simulation_results.social_network = _sn
-                _influence = RealisticSocialInfluence()
-                enhance_social_network_with_realism(_sn, _influence)
-                logger.info("✅ Social network enhanced with realistic influence dynamics")
+                # Guard against possibly-unbound names from try/except import
+                if 'RealisticSocialInfluence' in dir() and 'enhance_social_network_with_realism' in dir():
+                    _influence = RealisticSocialInfluence()
+                    enhance_social_network_with_realism(_sn, _influence)
+                    logger.info("✅ Social network enhanced with realistic influence dynamics")
             except Exception as _si_exc:
                 logger.debug("Social influence enhancement skipped: %s", _si_exc)
         # ── End social influence wiring ────────────────────────────────────────

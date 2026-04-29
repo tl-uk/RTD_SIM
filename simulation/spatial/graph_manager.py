@@ -522,6 +522,18 @@ class GraphManager:
         """
         cache_key = (round(coord[0], 4), round(coord[1], 4))
 
+        # Guard against NaN/Inf coordinates — these arise when a graph node
+        # has a missing 'x' or 'y' attribute (e.g. partially-built transit
+        # graph nodes) and propagate to ox.distance.nearest_nodes which then
+        # raises "Input contains NaN".
+        import math
+        if not (math.isfinite(coord[0]) and math.isfinite(coord[1])):
+            logger.debug(
+                "get_nearest_node: NaN/Inf coordinate %s for %s — skipping",
+                coord, network_type,
+            )
+            return None
+
         if network_type not in self._nearest_node_cache:
             self._nearest_node_cache[network_type] = {}
 

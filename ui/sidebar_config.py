@@ -53,7 +53,8 @@ _JOB_CONTEXTS_DIR = parent_dir / "agent" / "job_contexts"
 _STATIC_GTFS_DIR  = parent_dir / "data" / "gtfs_dft"
 _DOWNLOAD_GTFS_DIR = parent_dir / "data" / "gtfs"
 _DOWNLOAD_GTFS_DIR.mkdir(parents=True, exist_ok=True)
-_NAPTAN_DIR       = parent_dir / "data" / "naptan"
+_NAPTAN_DIR       = parent_dir / "data" / "naptan"  # reserved for NaPTAN cache
+_ = _NAPTAN_DIR  # prevent 'not accessed' lint warning — used by naptan_loader at runtime
 
 from simulation.config.simulation_config import SimulationConfig
 from ui.sidebar_system_dynamics import render_sd_parameters_section, render_sd_info_box
@@ -306,6 +307,9 @@ def render_sidebar_config():
     st.markdown("### 🗺️ Map Display")
 
     # ── Basemap style ──────────────────────────────────────────────────────────
+    MAP_STYLES = None
+    DEFAULT_MAP_STYLE_NAME = None
+    get_map_style_url = None
     try:
         from visualiser.style_config import (
             MAP_STYLES, DEFAULT_MAP_STYLE_NAME, get_map_style_url
@@ -314,7 +318,7 @@ def render_sidebar_config():
     except ImportError:
         _have_styles = False
 
-    if _have_styles:
+    if _have_styles and MAP_STYLES is not None and DEFAULT_MAP_STYLE_NAME is not None:
         import os
         style_names   = list(MAP_STYLES.keys())
         current_style = st.session_state.get('map_style_name', DEFAULT_MAP_STYLE_NAME)

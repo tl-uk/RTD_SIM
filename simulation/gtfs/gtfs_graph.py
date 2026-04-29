@@ -110,6 +110,27 @@ def _haversine_m(
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+# ── GTFS route_type → RTD_SIM mode string ─────────────────────────────────────
+# The BODS feed (f-bus~dft~gov~uk) stores route_type on routes but GTFSLoader
+# may not populate 'mode' on the route dict.  Without this mapping, every
+# edge in the transit graph has mode='bus' and mode_filter='tram' never matches.
+# GTFS spec route_type values:
+#   0 = Tram / Light Rail    1 = Subway / Metro    2 = Rail
+#   3 = Bus                  4 = Ferry             5 = Cable car
+_ROUTE_TYPE_TO_MODE: dict = {
+    0: 'tram',
+    1: 'bus',           # subway/metro — use bus as closest RTD_SIM equivalent
+    2: 'local_train',
+    3: 'bus',
+    4: 'ferry_diesel',
+    5: 'bus',           # cable car — rare
+    6: 'bus',           # gondola
+    7: 'bus',           # funicular
+    11: 'bus',          # trolleybus
+    12: 'bus',          # monorail
+}
+
+
 class GTFSGraph:
     """
     Builds a transit NetworkX graph from a GTFSLoader.
@@ -204,9 +225,12 @@ class GTFSGraph:
 
             route_id = trip.get('route_id', '')
             route    = loader.routes.get(route_id, {})
-            mode     = route.get('mode', 'bus')
-            fuel     = route.get('fuel_type', 'diesel')
             rtype    = route.get('route_type', 3)
+            # Derive mode from route_type — BODS may not set 'mode' on routes,
+            # causing every edge to default to 'bus' and mode_filter='tram' to
+            # never match even when Edinburgh Trams trips are present.
+            mode     = route.get('mode') or _ROUTE_TYPE_TO_MODE.get(rtype, 'bus')
+            fuel     = route.get('fuel_type', 'diesel')
 
             # get_shape_for_trip always returns a list (never None).
             shape_coords = loader.get_shape_for_trip(trip_id)

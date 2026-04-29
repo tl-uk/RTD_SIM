@@ -210,26 +210,35 @@ class CognitiveAgent:
                     # Really stuck — check if we're already at destination
                     try:
                         from simulation.spatial.coordinate_utils import haversine_km
-                        dist = haversine_km(s.location, s.destination)
+                        # Guard Optional[Tuple] — both must be non-None before haversine_km
+                        if s.location is not None and s.destination is not None:
+                            dist = haversine_km(s.location, s.destination)
 
-                        if dist < 0.05:  # Within 50 m — already there
-                            s.arrived = True
-                            s.arrived_at_step = self.t
-                            logger.info(f"{s.agent_id}: Already at destination!")
+                            if dist < 0.05:  # Within 50 m — already there
+                                s.arrived = True
+                                s.arrived_at_step = self.t
+                                logger.info(f"{s.agent_id}: Already at destination!")
+                            else:
+                                # Straight-line walk fallback — biases mode-share data
+                                logger.warning(
+                                    f"{s.agent_id}: Routing fallback — "
+                                    f"straight-line walk ({dist:.2f} km). "
+                                    f"Check OD-pair connectivity for mode={s.mode}."
+                                )
+                                # Explicit cast: Pylance can't narrow Optional through
+                                # dataclass field access even inside an is-not-None guard.
+                                _loc: tuple = s.location  # type: ignore[assignment]
+                                _dst: tuple = s.destination  # type: ignore[assignment]
+                                s.route = [_loc, _dst]
+                                s.route_index = 0
+                                s.route_offset_km = 0.0
+                                s.mode = 'walk'
                         else:
-                            # Straight-line walk fallback — biases mode-share data
-                            logger.warning(
-                                f"{s.agent_id}: Routing fallback — "
-                                f"straight-line walk ({dist:.2f} km). "
-                                f"Check OD-pair connectivity for mode={s.mode}."
-                            )
-                            s.route = [s.location, s.destination]
-                            s.route_index = 0
-                            s.route_offset_km = 0.0
-                            s.mode = 'walk'
+                            s.arrived = True
                     except Exception as e:
                         logger.warning(f"{s.agent_id}: Fallback with error: {e}")
-                        s.route = [s.location, s.destination]
+                        if s.location is not None and s.destination is not None:
+                            s.route = [s.location, s.destination]
                         s.route_index = 0
                         s.route_offset_km = 0.0
 

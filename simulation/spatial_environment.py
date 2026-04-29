@@ -156,6 +156,9 @@ class SpatialEnvironment:
         use_cache: bool = True,
     ) -> None:
         """Load separate OSM graphs for each requested transport mode."""
+        # Narrow Optional[List[str]] to List[str] for Pylance
+        _modes: List[str] = modes if modes is not None else ['drive', 'walk', 'bike']
+        modes = _modes
         self.graph_manager.load_mode_specific_graphs(place, bbox, modes, use_cache)
 
     def load_rail_graph(
@@ -519,7 +522,7 @@ class SpatialEnvironment:
         origin: Tuple[float, float],
         dest: Tuple[float, float],
         mode: str,
-        variants: Optional[List[str]] = None,
+        variants: Optional[List[str]] = None,  # narrowed below
         policy_context: Optional[dict] = None,
     ) -> List[Any]:
         """
@@ -527,20 +530,25 @@ class SpatialEnvironment:
 
         Returns RouteAlternative objects with metrics already computed.
         """
+        # Narrow Optional[List[str]] to List[str] for type checkers
+        _variants: List[str] = variants if variants is not None else ['shortest', 'fastest', 'greenest']
         alternatives = self.router.compute_alternatives(
-            agent_id, origin, dest, mode, variants,
+            agent_id, origin, dest, mode, _variants,
             policy_context=policy_context,
         )
         for alt in alternatives:
-            if hasattr(alt, 'compute_metrics'):
-                alt.compute_metrics(self)
+            # hasattr guard: alt is typed Any from router; Pylance can't resolve
+            # compute_metrics. The guard is the correct runtime check.
+            compute_fn = getattr(alt, 'compute_metrics', None)
+            if compute_fn is not None:
+                compute_fn(self)
         return alternatives
 
     def route(
         self,
         origin: Tuple[float, float],
         dest: Tuple[float, float],
-        mode: str = 'walk',
+        mode: str = 'walk',  # noqa: ARG002 — kept for API compatibility; callers pass mode
     ) -> List[Tuple[float, float]]:
         """
         Route with detailed road geometry for visualization (legacy method).
