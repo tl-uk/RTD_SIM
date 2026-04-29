@@ -26,7 +26,6 @@ class WeatherConfig:
     
     # Location — set to None so the weather module derives coordinates
     # from SimulationConfig.place or extended_bbox centroid at runtime.
-    # Hardcoded Edinburgh defaults (55.9533, -3.1883) removed in Phase 10a.
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     
