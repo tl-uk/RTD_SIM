@@ -558,7 +558,19 @@ class GTFSLoader:
             }
 
     def _parse_shapes(self) -> None:
-        """Load shape polylines for trips that survived the cascading filter."""
+        """Load shape polylines for trips that survived the cascading filter.
+
+        Shape points outside the simulation bbox are stripped from the polyline.
+        Without this, a bus route Edinburgh→Fife has shape_coords that include
+        the full Forth Road Bridge arc even when only the Edinburgh segment is
+        relevant — the visualiser then draws the route crossing open water.
+
+        The resulting shapes are clipped: only the contiguous sub-sequence of
+        points that falls within the bbox is retained.  If the route re-enters
+        the bbox after leaving it (e.g. loop routes) only the first contiguous
+        in-bbox segment is kept.  This is intentional: the GTFSGraph builds
+        edges between in-bbox stops, so cross-bbox shape fragments are unused.
+        """
         raw: Dict[str, list] = defaultdict(list)
         for row in self._yield_csv_rows('shapes.txt'):
             shape_id = row.get('shape_id', '').strip()
@@ -574,4 +586,17 @@ class GTFSLoader:
 
         for shape_id, pts in raw.items():
             pts.sort(key=lambda x: x[0])
-            self.shapes[shape_id] = [(lon, lat) for _, lon, lat in pts]
+            if self.bbox:
+                west, south, east, north = self.bbox
+                # Add a 20% buffer around the bbox so stop-snap geometry
+                # at the edge of the area isn't prematurely clipped
+                lon_buf = (east - west) * 0.20
+                lat_buf = (north - south) * 0.20
+                w2, e2 = west - lon_buf, east + lon_buf
+                s2, n2 = south - lat_buf, north + lat_buf
+                self.shapes[shape_id] = [
+                    (lon, lat) for _, lon, lat in pts
+                    if w2 <= lon <= e2 and s2 <= lat <= n2
+                ]
+            else:
+                self.shapes[shape_id] = [(lon, lat) for _, lon, lat in pts]

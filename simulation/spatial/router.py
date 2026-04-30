@@ -2156,12 +2156,25 @@ class Router:
                 transit_coords.extend(shape if i == 0 else shape[1:])
             elif mode in ('bus', 'van_electric', 'van_diesel'):
                 # Bus: road proxy for missing shape segments.
+                # Sanity check: if the drive route is > 3× the straight-line
+                # distance the proxy is crossing water or being rerouted far
+                # away (Forth Road Bridge not in bbox, etc.).  Fall back to
+                # straight line in that case — still imperfect but no worse
+                # than the alternative.
+                _straight = haversine_km((u_x, u_y), (v_x, v_y))
                 leg = self._compute_road_route(
                     agent_id, (u_x, u_y), (v_x, v_y), 'car', policy
                 )
-                if leg and len(leg) > 1:
+                _road_km = route_distance_km(leg) if leg else 0.0
+                if leg and len(leg) > 1 and (_straight < 0.05 or _road_km <= _straight * 3.0):
                     transit_coords.extend(leg if i == 0 else leg[1:])
                 else:
+                    # Road proxy crossed water or failed — straight line
+                    logger.debug(
+                        "%s: bus road-proxy rejected (%.1fkm road vs %.1fkm straight) "
+                        "— using straight line",
+                        agent_id, _road_km, _straight,
+                    )
                     if i == 0:
                         transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
