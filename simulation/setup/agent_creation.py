@@ -53,23 +53,9 @@ except Exception:  # pragma: no cover — fallback for minimal environments
 from agent.bdi_planner import BDIPlanner
 from agent.persona_fusion import PersonaFusion
 
-if TYPE_CHECKING:
-    from agent.user_stories import UserStory
-    from agent.job_stories import JobStory
-
 from simulation.config.simulation_config import SimulationConfig
 from simulation.infrastructure.infrastructure_manager import InfrastructureManager
 from simulation.spatial_environment import SpatialEnvironment
-
-logger = logging.getLogger(__name__)
-
-from pathlib import Path
-from typing import List, Dict, Tuple, Any, Optional
-
-from agent.bdi_planner import BDIPlanner
-from agent.persona_fusion import PersonaFusion
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Used only for type annotations — not needed at runtime since story
@@ -77,9 +63,6 @@ if TYPE_CHECKING:
     from agent.user_stories import UserStory
     from agent.job_stories import JobStory
 
-from simulation.config.simulation_config import SimulationConfig
-from simulation.infrastructure.infrastructure_manager import InfrastructureManager
-from simulation.spatial_environment import SpatialEnvironment
 
 logger = logging.getLogger(__name__)
 
