@@ -780,10 +780,6 @@ class SpatialEnvironment:
         nodes = list(graph.nodes())
         for _ in range(max_attempts):
             node1, node2 = self._od_rng.sample(nodes, 2)
-
-
-        for _ in range(max_attempts):
-            node1, node2 = crypto_rng.sample(nodes, 2)
             origin = (graph.nodes[node1]['x'], graph.nodes[node1]['y'])
             dest   = (graph.nodes[node2]['x'], graph.nodes[node2]['y'])
 
