@@ -101,7 +101,8 @@ class CognitiveAgent:
             # If seed is None, AgentRandom() pulls from OS entropy.
             self.rng = AgentRandom(seed)
         else:
-            self.rng = random.Random(seed)
+            from utils.secure_rng import AgentRandom
+            self.rng = AgentRandom(random.seed)
             
         self.state = AgentState(agent_id=agent_id or f'agent_{abs(self.rng.randint(1, 9999))}')
         # Defaults remain small only for unit tests; production runs seed from OSM or Edinburgh bbox.
