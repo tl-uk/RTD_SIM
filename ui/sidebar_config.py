@@ -1567,8 +1567,11 @@ def _render_gtfs_configuration() -> dict:
                 ),
             )
             if _static_choice and _static_choice != "(none)":
-                st.session_state["_gtfs_feed_path"] = _static_feeds[_static_choice]
-                st.rerun()
+                target_path = _static_feeds[_static_choice]
+                # Only update and rerun if the path actually changed
+                if st.session_state.get("_gtfs_feed_path") != target_path:
+                    st.session_state["_gtfs_feed_path"] = target_path
+                    st.rerun()
 
         # ── TransitLand auto-download ─────────────────────────────────────────
         # Operator onestop IDs (o-gcpv-*) — NOT feed IDs (f-gcpv-*).
