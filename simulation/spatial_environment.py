@@ -41,6 +41,15 @@ import logging
 import random
 import secrets
 from collections import defaultdict
+
+from osmnx import graph
+
+try:
+    from utils.secure_rng import AgentRandom
+    _SECURE_RNG_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _SECURE_RNG_AVAILABLE = False
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -104,6 +113,13 @@ class SpatialEnvironment:
 
         # Weather speed multipliers: {mode: multiplier}
         self._weather_speed_multipliers: Dict[str, float] = defaultdict(lambda: 1.0)
+
+        # RNG for OD sampling (CSPRNG when available)
+        if _SECURE_RNG_AVAILABLE:
+            self._od_rng = AgentRandom(None)
+        else:
+            self._od_rng = random.Random(secrets.randbits(128))
+
 
     # =========================================================================
     # WEATHER INTEGRATION
@@ -727,7 +743,7 @@ class SpatialEnvironment:
         nodes = list(self.G.nodes(data=True))
         if not nodes:
             return None
-        _, data = random.choice(nodes)
+        _, data = self._od_rng.choice(nodes)
         return (float(data.get('x')), float(data.get('y')))
 
     def get_random_origin_dest(
@@ -760,8 +776,11 @@ class SpatialEnvironment:
         from simulation.spatial.coordinate_utils import haversine_km
         import networkx as nx
 
-        nodes      = list(graph.nodes())
-        crypto_rng = random.Random(secrets.randbits(128))
+        # Use a secure RNG for better spatial distribution, especially in large graphs.
+        nodes = list(graph.nodes())
+        for _ in range(max_attempts):
+            node1, node2 = self._od_rng.sample(nodes, 2)
+
 
         for _ in range(max_attempts):
             node1, node2 = crypto_rng.sample(nodes, 2)

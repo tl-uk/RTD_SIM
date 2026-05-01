@@ -26,6 +26,15 @@ from collections import Counter, defaultdict
 import random
 import logging
 
+
+try:
+    from utils.secure_rng import AgentRandom
+    _SECURE_RNG_AVAILABLE = True
+except Exception:  # pragma: no cover
+    AgentRandom = None  # type: ignore
+    _SECURE_RNG_AVAILABLE = False
+    logging.warning("Secure RNG not available - using random.Random (not secure)")
+
 try:
     import networkx as nx
     NETWORKX_AVAILABLE = True
@@ -180,6 +189,12 @@ class SocialNetwork:
             agent_id = agent.state.agent_id
             self._agent_registry[agent_id] = agent
             self.G.add_node(agent_id, agent=agent)
+
+        # Per-network RNG (seeded for reproducibility when seed provided)
+        if _SECURE_RNG_AVAILABLE and AgentRandom is not None:
+            self._rng = AgentRandom(seed)
+        else:
+            self._rng = random.Random(seed)
         
         # Build topology
         if self.topology == 'small_world':
@@ -273,7 +288,7 @@ class SocialNetwork:
             cross_persona_prob: Fraction of ties that cross persona boundary
                                 (default 0.25 — matches Watts-Strogatz p).
         """
-        rng = random.Random(seed)
+        rng = getattr(self, "_rng", None) or random.Random(seed)
         agent_list = list(agents)
 
         # Pre-group agents by persona for fast pool construction.
@@ -391,7 +406,8 @@ class SocialNetwork:
                     geo_dist = ((loc_u[0] - loc_v[0])**2 + (loc_u[1] - loc_v[1])**2)**0.5
             
             # Interaction frequency (random for now, could be learned)
-            interaction_freq = random.uniform(0.3, 0.9)
+            rng = getattr(self, "_rng", None) or random
+            interaction_freq = rng.uniform(0.3, 0.9)
             
             # Store as edge attributes
             self.G[u][v]['strength'] = strength
