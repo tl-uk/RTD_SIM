@@ -155,6 +155,13 @@ class SimulationConfig:
         self.region_name = region_name
         self.user_stories = user_stories or []
         self.job_stories = job_stories or []
+        self.time_series: Any = None
+        self.env: Any = None
+        self.agents: List[Any] = []
+
+        # Network results
+        self.network: Any = None
+        self.influence_system: Any = None
         
         # Feature flags
         self.use_congestion = use_congestion
@@ -173,6 +180,11 @@ class SimulationConfig:
         self.rng_reproducible = bool(rng_reproducible)
         self.rng_seed_name = rng_seed_name
         self.rng_seed_value = rng_seed_value
+
+        # RNG traceability (set by simulation_runner)
+        self.rng_mode: str = "non_deterministic"
+        self.seed_used: Optional[int] = None
+        self.seed_source: Optional[str] = None
 
         # Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling
@@ -693,7 +705,7 @@ class SimulationResults:
         self.error_message = ""
         
         # Scenario results
-        self.scenario_report = None
+        self.scenario_report: Optional[Dict[str, Any]] = None
         
         # Combined scenario results
         self.policy_actions = []
