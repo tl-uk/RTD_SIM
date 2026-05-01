@@ -318,7 +318,7 @@ def create_agents(
                 job_story_id=job_story,
                 origin=origin,
                 dest=dest,
-                planner=None,   # ✅ important
+                planner=None,   # important: injected after fusion so we can pass fused_identity to the planner constructor
                 seed=agent_seed,
                 apply_variance=True,
                 user_stories_path=_PERSONAS_PATH,
