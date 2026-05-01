@@ -17,11 +17,44 @@ Route diversity strategies for realistic agent routing behavior.
 Prevents deterministic shortest-path routing.
 """
 
-import random
+import hashlib
+from turtle import mode
 import networkx as nx
 import logging
 
+try:
+    from utils.secure_rng import AgentRandom
+    _SECURE_RNG_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _SECURE_RNG_AVAILABLE = False
+    import random
+
 logger = logging.getLogger(__name__)
+
+def _stable_seed(agent_id: str, salt: int | None = None) -> int:
+    """
+    Deterministic 128-bit seed derived from agent_id (+ optional salt).
+    Avoids Python's built-in hash() randomization and avoids 32-bit seeds.
+    """
+    h = hashlib.sha256()
+    h.update(b"rtd_sim:route_diversity:v1:")
+    h.update(str(agent_id).encode("utf-8"))
+    if salt is not None:
+        h.update(b"|salt=")
+        h.update(str(int(salt)).encode("utf-8"))
+    return int.from_bytes(h.digest()[:16], byteorder="big", signed=False)
+
+
+def _make_rng(agent_id: str, salt: int | None = None):
+    """
+    Return per-agent RNG:
+    - AgentRandom(seed) when available (CSPRNG-backed)
+    - random.Random(seed) fallback otherwise
+    """
+    seed = _stable_seed(agent_id, salt=salt)
+    if _SECURE_RNG_AVAILABLE:
+        return AgentRandom(seed)
+    return random.Random(seed)
 
 # ===========================
 # SHARED GEOMETRY HELPER
@@ -83,7 +116,7 @@ def _extract_route_geometry(
 # ===========================
 # ROUTE DIVERSITY STRATEGIES
 # ===========================
-def add_route_diversity_perturbed(env):
+def add_route_diversity_perturbed(env, seed_salt: int | None = None):
     """
     Add route diversity through weight perturbation.
     
@@ -103,7 +136,7 @@ def add_route_diversity_perturbed(env):
         the real router rather than the drive-graph perturbation path.
         """
         agent_seed = hash(agent_id) % (2**32)
-        rng = random.Random(agent_seed)
+        rng = _make_rng(agent_id, salt=seed_salt)
 
         # Only perturb road modes — rail/transit/ferry/air have dedicated routing paths
         _ROAD_MODES = {
@@ -155,7 +188,7 @@ def add_route_diversity_perturbed(env):
 
 # Other strategies (k-shortest, ultra-fast) can be implemented similarly by wrapping the 
 # compute_route function with different logic for path selection.
-def add_route_diversity_k_shortest(env, k=3):
+def add_route_diversity_k_shortest(env, k=3, seed_salt: int | None = None):
     """
     Add route diversity using k-shortest paths.
     
@@ -172,7 +205,7 @@ def add_route_diversity_k_shortest(env, k=3):
         policy_context forwarded to real router for non-road modes and fallbacks.
         """
         agent_seed = hash(agent_id) % (2**32)
-        rng = random.Random(agent_seed)
+        rng = _make_rng(agent_id, salt=seed_salt)
 
         _ROAD_MODES_K = {
             'walk', 'bike', 'cargo_bike', 'e_scooter',
@@ -243,7 +276,7 @@ def add_route_diversity_k_shortest(env, k=3):
     return env
 
 
-def add_route_diversity_ultra_fast(env):
+def add_route_diversity_ultra_fast(env, seed_salt: int | None = None):
     """
     Ultra-fast route diversity using hash-based perturbation.
     
@@ -270,7 +303,7 @@ def add_route_diversity_ultra_fast(env):
         weights (carbon_tax, VoT, energy_price) reach the real router for any
         mode that bypasses the drive-graph perturbation path.
         """
-        agent_seed = hash(agent_id) % (2**32)
+        agent_seed = _stable_seed(agent_id, salt=seed_salt)
 
         _ROAD_MODES_UF = {
             'walk', 'bike', 'cargo_bike', 'e_scooter',
@@ -301,7 +334,13 @@ def add_route_diversity_ultra_fast(env):
             def agent_biased_weight(u, v, d):
                 """Apply agent-specific bias to edge weights."""
                 length = d.get('length', 1.0)
-                edge_hash = hash((u, v, agent_seed)) % 1000
+                
+                edge_hash = int.from_bytes(
+                            hashlib.sha256(f"{u}|{v}|{agent_seed}".encode("utf-8")).digest()[:4],
+                            byteorder="big",
+                            signed=False
+                        ) % 1000
+
                 perturbation = 0.85 + (edge_hash / 1000) * 0.3
                 return length * perturbation
             
@@ -315,7 +354,7 @@ def add_route_diversity_ultra_fast(env):
     return env
 
 
-def apply_route_diversity(env, mode='ultra_fast', k=3):
+def apply_route_diversity(env, mode='ultra_fast', k=3, seed_salt: int | None = None):
     """
     Apply selected route diversity strategy.
     
@@ -327,12 +366,13 @@ def apply_route_diversity(env, mode='ultra_fast', k=3):
     Returns:
         Modified environment with route diversity
     """
+    
     if mode == 'perturbed':
-        return add_route_diversity_perturbed(env)
+        return add_route_diversity_perturbed(env, seed_salt=seed_salt)
     elif mode == 'k_shortest':
-        return add_route_diversity_k_shortest(env, k)
+        return add_route_diversity_k_shortest(env, k=k, seed_salt=seed_salt)
     elif mode == 'ultra_fast':
-        return add_route_diversity_ultra_fast(env)
+        return add_route_diversity_ultra_fast(env, seed_salt=seed_salt)
     else:
         logger.warning(f"Unknown route diversity mode: {mode}, no diversity applied")
         return env
