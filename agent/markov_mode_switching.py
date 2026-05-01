@@ -247,7 +247,24 @@ class PersonalityMarkovChain:
             habit_bonus = min(0.02 * (streak // 3), 0.15)
             row[i] = min(max_self, row[i] + habit_bonus)
 
+        
+        # Small bounded stochasticity (audit): beta perturbation keeps row valid
+        if hasattr(self.rng, "beta_perturbation"):
+            diag = _PERSONA_BASE_DIAGONAL.get(self.persona_id, _PERSONA_BASE_DIAGONAL['default'])
+            personality_strength = 0.8 + 0.8 * diag  # higher diag = more consistent
+            row_n = _normalise(row)
+            row = [
+                self.rng.beta_perturbation(p, personality_strength=personality_strength, concentration=25.0)
+                for p in row_n
+            ]
+
+        # Rare surprise redistribution (audit)
+        if hasattr(self.rng, "laplace_noise") and self.rng.random() < 0.02:
+            j = self.rng.randint(0, len(row) - 1)
+            row[j] = min(1.0, max(0.0, row[j] + abs(self.rng.laplace_noise(0.0, 0.08))))
+
         self.T[i] = _normalise(row)
+
 
     # ── Prediction ────────────────────────────────────────────────────────
 
@@ -275,7 +292,7 @@ class PersonalityMarkovChain:
 
         i = self.modes.index(current_mode)
         probs = self.T[i]
-        r = random.random()
+        r = self.rng.random()
         cumulative = 0.0
         for j, p in enumerate(probs):
             cumulative += p
