@@ -155,13 +155,6 @@ class SimulationConfig:
         self.region_name = region_name
         self.user_stories = user_stories or []
         self.job_stories = job_stories or []
-        self.time_series: Any = None
-        self.env: Any = None
-        self.agents: List[Any] = []
-
-        # Network results
-        self.network: Any = None
-        self.influence_system: Any = None
         
         # Feature flags
         self.use_congestion = use_congestion
@@ -180,11 +173,6 @@ class SimulationConfig:
         self.rng_reproducible = bool(rng_reproducible)
         self.rng_seed_name = rng_seed_name
         self.rng_seed_value = rng_seed_value
-
-        # RNG traceability (set by simulation_runner)
-        self.rng_mode: str = "non_deterministic"
-        self.seed_used: Optional[int] = None
-        self.seed_source: Optional[str] = None
 
         # Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling
@@ -216,7 +204,7 @@ class SimulationConfig:
         )
         
         # Initialize Agents
-        self.agents = agents or AgentConfig(
+        self.agents: AgentConfig = agents or AgentConfig(
             social_network=SocialNetworkConfig(
                 enabled=enable_social,
                 decay_rate=decay_rate,
@@ -683,17 +671,24 @@ class SimulationResults:
     """Container for simulation results."""
     
     def __init__(self):
+        
+        # RNG traceability (set by simulation_runner)
+        self.rng_mode: str = "non_deterministic"
+        self.seed_used: Optional[int] = None
+        self.seed_source: Optional[str] = None
+
         # Core results
-        self.time_series = None
-        self.env = None
-        self.agents = []
+        self.time_series: Any = None
+        self.env: Any = None
+        self.agents: List[Any] = []
+
         
         # Network results
-        self.network = None
-        self.influence_system = None
+        self.network: Any = None
+        self.influence_system: Any = None
         
         # Infrastructure results
-        self.infrastructure = None
+        self.infrastructure: Any = None
         
         # Metrics
         self.adoption_history = defaultdict(list)
