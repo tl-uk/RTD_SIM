@@ -501,7 +501,7 @@ def render_sidebar_config():
             selected = st.selectbox("Seed preset", labels, index=0)
             chosen = next((s for s in seeds if s.get("name") == selected), None)
             rng_seed_name = selected
-            rng_seed_value = int(chosen.get("seed")) if chosen and "seed" in chosen else None
+            rng_seed_value = int(str(chosen.get("seed")), 0) if chosen and "seed" in chosen else None
 
             override = st.text_input(
                 "Seed override (decimal or 0xHEX)",

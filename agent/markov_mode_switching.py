@@ -128,6 +128,7 @@ class PersonalityMarkovChain:
         persona_id: str,
         available_modes: Optional[List[str]] = None,
         max_history: int = 20,
+        seed: Optional[int] = None,
     ):
         self.persona_id   = persona_id
         self.modes        = available_modes or ALL_MODES[:]
@@ -135,7 +136,7 @@ class PersonalityMarkovChain:
         self.mode_history: List[str] = []
         self.habit_counts: Dict[str, int] = {m: 0 for m in self.modes}
         self.total_updates = 0
-
+        # Per-agent RNG (CSPRNG). If seed is None, AgentRandom uses OS entropy.
         self.rng = AgentRandom(seed)
 
         n = len(self.modes)
