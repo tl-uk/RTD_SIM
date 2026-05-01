@@ -78,6 +78,16 @@ def run_simulation(
     Returns:
         SimulationResults with complete simulation data
     """
+    # ── RNG traceability ────────────────────────────────────────────────
+    if config.rng_reproducible:
+        logger.info(
+            "RNG mode: reproducible | seed=%s (%s)",
+            config.rng_seed_value,
+            config.rng_seed_name
+        )
+    else:
+        logger.info("RNG mode: non-deterministic (OS entropy)")
+        
     results = SimulationResults()
     
     try:
