@@ -865,6 +865,8 @@ def _auto_resolve_compatibility(user_id: str, job_id: str) -> bool:
             ]
             return user_id in taxi_personas
         
+        return False
+        
     except Exception as e:
         import logging
         logging.getLogger(__name__).debug(f"Ontology resolver failed for {user_id}_{job_id}: {e}")
