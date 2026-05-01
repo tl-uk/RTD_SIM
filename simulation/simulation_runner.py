@@ -87,8 +87,13 @@ def run_simulation(
         )
     else:
         logger.info("RNG mode: non-deterministic (OS entropy)")
-        
+
     results = SimulationResults()
+
+    # ── RNG traceability (persist into results) ─────────────────────────────
+    results.rng_mode = "reproducible" if getattr(config, "rng_reproducible", False) else "non_deterministic"
+    results.seed_used = getattr(config, "rng_seed_value", None) if getattr(config, "rng_reproducible", False) else None
+    results.seed_source = getattr(config, "rng_seed_name", None) if getattr(config, "rng_reproducible", False) else None
     
     try:
         # Phase 1: Setup environment
@@ -99,8 +104,10 @@ def run_simulation(
         # Phase 2: Apply route diversity
         if config.use_osm and config.enable_route_diversity:
             logger.info(f"🛣️ Phase 2: Route diversity ({config.route_diversity_mode})")
-            env = apply_route_diversity(env, mode=config.route_diversity_mode)
+            seed_salt = config.rng_seed_value if getattr(config, "rng_reproducible", False) else None
+            env = apply_route_diversity(env, mode=config.route_diversity_mode, seed_salt=seed_salt)
             logger.info(f"✅ Route diversity: {config.route_diversity_mode}")
+
         
         # Phase 3: Setup infrastructure
         logger.info("🔌 Phase 3: Infrastructure setup")

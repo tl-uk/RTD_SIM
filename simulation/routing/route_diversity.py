@@ -18,7 +18,6 @@ Prevents deterministic shortest-path routing.
 """
 
 import hashlib
-from turtle import mode
 import networkx as nx
 import logging
 
