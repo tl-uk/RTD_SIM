@@ -94,7 +94,7 @@ def run_simulation(
     # Persist RNG metadata into results (for UI/reporting)
     results.rng_mode = "reproducible" if getattr(config, "rng_reproducible", False) else "non_deterministic"
     results.seed_used = getattr(config, "rng_seed_value", None) if getattr(config, "rng_reproducible", False) else None
-    results.seed_source = getattr(config, "rng_seed_name", None) if getattr(config, "rng_reproducible", False) else
+    results.seed_source = getattr(config, "rng_seed_name", None) if getattr(config, "rng_reproducible", False) else None
     
     try:
         # Phase 1: Setup environment
@@ -275,13 +275,13 @@ def run_simulation(
             if results.gtfs_analytics:
                 logger.info("✅ GTFS analytics report stored in results")
         
-        # Phase 5.3: Collect System Dynamics results
+        # Collect System Dynamics results
         if 'system_dynamics_history' in loop_results:
             results.system_dynamics_history = loop_results['system_dynamics_history']
             if results.system_dynamics_history:
                 logger.info(f"✅ System Dynamics: {len(results.system_dynamics_history)} timesteps tracked")
         
-        # Phase 7.1 & 7.2: Store temporal engine and event generator
+        # Store temporal engine and event generator
         if 'temporal_engine' in loop_results:
             results.temporal_engine = loop_results['temporal_engine']
             if results.temporal_engine:
