@@ -147,9 +147,10 @@ class StoryDrivenAgent(CognitiveAgent):
         # Phase 3: Markov mode switching — personality-driven habit formation
         try:
             from agent.markov_mode_switching import PersonalityMarkovChain
-            self.mode_chain = PersonalityMarkovChain(
+            self.mode_chain = PersonalityMarkovChain( 
                 persona_id=user_story_id,
                 available_modes=None,  # uses ALL_MODES; planner filters at runtime
+                seed=seed,
             )
         except Exception as _e:
             self.mode_chain = None
