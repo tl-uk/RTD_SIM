@@ -92,7 +92,7 @@ def create_planner(
     planner = BDIPlanner(
         infrastructure_manager=infrastructure,
         plan_generator=plan_generator,
-        fused_identity=None,  # ✅ injected later during agent creation
+        fused_identity=None,  # injected later during agent creation
     )
 
     if infrastructure is not None:

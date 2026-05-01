@@ -647,7 +647,9 @@ class Router:
 
         access_leg  = self._compute_access_leg(agent_id + '_access', origin, first_coord)
         egress_leg  = self._compute_access_leg(agent_id + '_egress', last_coord, dest)
-        transit_route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+        transit_route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy,
+                                                 _presnapped_origin_stop=origin_stop,
+                                                 _presnapped_dest_stop=dest_stop,)
 
         # Extract the transit-only portion (strip access/egress) for clean segment
         access_len  = len(access_leg) - 1 if access_leg else 0
@@ -1955,6 +1957,8 @@ class Router:
         dest: Tuple[float, float],
         mode: str,
         policy: Dict,
+        _presnapped_origin_stop=None, # pass the snapped stops into _compute_gtfs_route rather than re-snapping
+        _presnapped_dest_stop=None,
     ) -> List[Tuple[float, float]]:
         """
         Four-leg GTFS transit route.
@@ -2054,6 +2058,11 @@ class Router:
                         agent_id, mf, origin_stop, dest_stop,
                     )
                     break
+        # For non-tram modes, or if tram stop snapping fails, snap using the requested mode 
+        # filter and a 2 km catchment.
+        if _presnapped_origin_stop and _presnapped_dest_stop:
+            origin_stop = _presnapped_origin_stop
+            dest_stop   = _presnapped_dest_stop
         else:
             origin_stop = builder.nearest_stop(
                 G_transit, origin, mode_filter=mode, max_distance_m=2000
@@ -2185,17 +2194,16 @@ class Router:
                 # 500m — beyond that use straight line to prevent absurd detours.
                 _straight = haversine_km((u_x, u_y), (v_x, v_y))
                 if _straight > 0.5:
-                    # Too far for a reliable road proxy — straight line
-                    if i == 0:
-                        transit_coords.append((u_x, u_y))
-                    transit_coords.append((v_x, v_y))
-                else:
-                    leg = self._compute_access_leg(
-                        agent_id + f'_bus_seg{i}', (u_x, u_y), (v_x, v_y)
+                    # No shape_coords and too far for a walk proxy.
+                    # Route on the road network between stops rather than inserting
+                    # a straight line that cuts through buildings and waterways.
+                    _road_seg = self._compute_road_route(
+                        agent_id + f'_bus_noseg{i}',
+                        (u_x, u_y), (v_x, v_y),
+                        'car', _DEFAULT_POLICY,   # drive graph, road-following
                     )
-                    _road_km = route_distance_km(leg) if leg else 0.0
-                    if leg and len(leg) > 1 and _road_km <= _straight * 3.0:
-                        transit_coords.extend(leg if i == 0 else leg[1:])
+                    if _road_seg and len(_road_seg) > 1:
+                        transit_coords.extend(_road_seg if i == 0 else _road_seg[1:])
                     else:
                         if i == 0:
                             transit_coords.append((u_x, u_y))

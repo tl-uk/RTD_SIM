@@ -780,6 +780,23 @@ class BDIPlanner:
                 params = self._get_ev_params(origin, dest, route, context)
             if _segments:
                 params['route_segments'] = _segments
+                # ── Extract GTFS service name for tooltip / state.service_id ─────────────
+                # _gtfs_with_segments() stores "Bus 23" in the trunk segment label.
+                # Pull it here so agent.state.service_id is populated at creation time.
+                if mode in ('bus', 'tram') and _segments:
+                    for _seg in _segments:
+                        if _seg.get('mode') == mode:
+                            _raw_lbl = _seg.get('label', '')
+                            # label format: "Bus 23, N3" — strip mode prefix to get service(s)
+                            _svc_part = _raw_lbl.replace(
+                                mode.replace('_', ' ').title(), ''
+                            ).strip().strip(',')
+                            if _svc_part:
+                                params['service_id'] = _svc_part
+                                # destination_stop: use the last transit coord's approx stop
+                                params['destination_stop'] = dest
+                            break
+                # ── End service name extraction ───────────────────────────────────────────
                 # ── TripChain wiring ─────────────────────────────────────────
                 # TripChain.from_route_segments() packages per-leg geometry into
                 # a multimodal itinerary.  cognitive_abm reads action.params
@@ -814,10 +831,15 @@ class BDIPlanner:
                 # TripChain so the visualiser tooltip always has mode context.
                 try:
                     from simulation.spatial.trip_chain import TripChain, TripLeg
+                    _leg_label = (
+                        f"{mode.replace('_', ' ').title()} {params['service_id']}".strip()
+                        if params.get('service_id')
+                        else mode.replace('_', ' ').title()
+                    )
                     leg = TripLeg(
-                        mode  = mode,
-                        path  = [tuple(p) for p in route],
-                        label = mode.replace('_', ' ').title(),
+                        mode=mode,
+                        path=[tuple(p) for p in route],
+                        label=_leg_label,
                     )
                     tc = TripChain(origin=origin, destination=dest)
                     tc.add_leg(leg)
