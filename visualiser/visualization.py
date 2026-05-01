@@ -637,7 +637,12 @@ def render_map(
                 )
             svc_html = ''
             if service_id or dest_stop:
-                svc_html = f'<br/>{_MODE_EMOJI.get(mode,"🚌")} {(service_id + " " + dest_stop).strip()}'
+                # Format as a string, truncating decimals if it's a coordinate tuple
+                dest_str = f"({dest_stop[0]:.3f}, {dest_stop[1]:.3f})" if isinstance(dest_stop, tuple) else str(dest_stop)
+                service_str = str(service_id)
+
+                # Safely interpolate both strings
+                svc_html = f'<br/>{_MODE_EMOJI.get(mode,"🚌")} {f"{service_str} {dest_str}".strip()}'
 
             base_tooltip = (
                 f'<b>{agent_id}</b><br/>'
