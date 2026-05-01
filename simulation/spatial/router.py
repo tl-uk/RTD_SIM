@@ -657,11 +657,35 @@ class Router:
         access_dist = haversine_km(origin, first_coord)
         egress_dist = haversine_km(last_coord, dest)
 
+        # ── Collect service names for trunk segment label ──────────────────
+        _svc_label = mode.replace('_', ' ').title()
+        try:
+            G_transit_local = self._get_transit_graph()
+            if G_transit_local is not None and origin_stop and dest_stop:
+                from simulation.gtfs.gtfs_graph import GTFSGraph
+                _gtfs_b = GTFSGraph(None)
+                _path_nodes = nx.shortest_path(
+                    G_transit_local, origin_stop, dest_stop, weight='gen_cost'
+                )
+                _svc_names: List[str] = []
+                _seen_svc: set = set()
+                for _pi in range(len(_path_nodes) - 1):
+                    _em = G_transit_local.get_edge_data(_path_nodes[_pi], _path_nodes[_pi + 1]) or {}
+                    for _ed in _em.values():
+                        for _sn in _ed.get('route_short_names', []):
+                            if _sn and _sn not in _seen_svc:
+                                _svc_names.append(_sn)
+                                _seen_svc.add(_sn)
+                if _svc_names:
+                    _svc_label = f"{mode.replace('_', ' ').title()} {', '.join(_svc_names[:3])}"
+        except Exception:
+            pass  # non-fatal — label falls back to mode name
+
         segments: List[Dict] = []
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop'})
         if transit_mid and len(transit_mid) >= 2:
-            segments.append({'path': transit_mid, 'mode': mode, 'label': mode.replace('_', ' ').title()})
+            segments.append({'path': transit_mid, 'mode': mode, 'label': _svc_label})
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop'})
 
@@ -2156,28 +2180,26 @@ class Router:
                 transit_coords.extend(shape if i == 0 else shape[1:])
             elif mode in ('bus', 'van_electric', 'van_diesel'):
                 # Bus: road proxy for missing shape segments.
-                # Sanity check: if the drive route is > 3× the straight-line
-                # distance the proxy is crossing water or being rerouted far
-                # away (Forth Road Bridge not in bbox, etc.).  Fall back to
-                # straight line in that case — still imperfect but no worse
-                # than the alternative.
+                # Use WALK graph (not drive) for short inter-stop segments to
+                # avoid routing through buildings on one-way streets. Cap at
+                # 500m — beyond that use straight line to prevent absurd detours.
                 _straight = haversine_km((u_x, u_y), (v_x, v_y))
-                leg = self._compute_road_route(
-                    agent_id, (u_x, u_y), (v_x, v_y), 'car', policy
-                )
-                _road_km = route_distance_km(leg) if leg else 0.0
-                if leg and len(leg) > 1 and (_straight < 0.05 or _road_km <= _straight * 3.0):
-                    transit_coords.extend(leg if i == 0 else leg[1:])
-                else:
-                    # Road proxy crossed water or failed — straight line
-                    logger.debug(
-                        "%s: bus road-proxy rejected (%.1fkm road vs %.1fkm straight) "
-                        "— using straight line",
-                        agent_id, _road_km, _straight,
-                    )
+                if _straight > 0.5:
+                    # Too far for a reliable road proxy — straight line
                     if i == 0:
                         transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
+                else:
+                    leg = self._compute_access_leg(
+                        agent_id + f'_bus_seg{i}', (u_x, u_y), (v_x, v_y)
+                    )
+                    _road_km = route_distance_km(leg) if leg else 0.0
+                    if leg and len(leg) > 1 and _road_km <= _straight * 3.0:
+                        transit_coords.extend(leg if i == 0 else leg[1:])
+                    else:
+                        if i == 0:
+                            transit_coords.append((u_x, u_y))
+                        transit_coords.append((v_x, v_y))
             else:
                 # ── FIX Bug 3: tram OSM track geometry fallback ───────────────
                 # Edinburgh Tram GTFS from BODS has no shapes.txt entries, so
@@ -2223,6 +2245,28 @@ class Router:
                     if i == 0:
                         transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
+
+        # ── Collect service names from traversed edges ─────────────────────
+        # route_short_names are stored on graph edges (e.g. '23', 'N3').
+        # Gather from all edges in the path to build the trunk segment label.
+        _all_short_names: List[str] = []
+        for i in range(len(transit_nodes) - 1):
+            u_n = transit_nodes[i]
+            v_n = transit_nodes[i + 1]
+            em = G_transit.get_edge_data(u_n, v_n) or {}
+            for ed in em.values():
+                _all_short_names.extend(ed.get('route_short_names', []))
+        # Deduplicate preserving first occurrence
+        _seen: set = set()
+        _service_names = [
+            sn for sn in _all_short_names
+            if sn and not (sn in _seen or _seen.add(sn))  # type: ignore[func-returns-value]
+        ]
+        _service_label = (
+            f"{mode.replace('_', ' ').title()} {', '.join(_service_names[:3])}"
+            if _service_names
+            else mode.replace('_', ' ').title()
+        )
 
         if not transit_coords:
             return self._transit_fallback(agent_id, origin, dest, mode, policy)

@@ -676,9 +676,23 @@ def render_map(
                     seg_emit_g  = seg.get('emissions_g', 0.0)
                     seg_emit_str = f' · {seg_emit_g:.0f} g CO₂' if seg_emit_g > 0 else ''
 
+                    # Bus/tram service number — from route_short_name field or
+                    # from the label suffix (router sets "Bus 23", "Tram N3")
+                    _rsn = seg.get('route_short_name', '')
+                    if not _rsn and seg_mode in ('bus', 'tram'):
+                        _lbl_parts = seg_label.strip().split()
+                        if len(_lbl_parts) >= 2:
+                            _rsn = _lbl_parts[-1]
+                    _svc_line = (
+                        f'🚌 Service {_rsn}<br/>'
+                        if _rsn and seg_mode in ('bus', 'tram', 'local_train', 'intercity_train')
+                        else ''
+                    )
+
                     seg_tooltip = (
                         f'<b>{agent_id}</b><br/>'
                         f'{_MODE_EMOJI.get(seg_mode, "🚗")} <b>{seg_label}</b><br/>'
+                        + _svc_line
                         + (f'{seg_dist_str}{seg_emit_str}<br/>' if seg_dist_str else '')
                         + (f'🏠 {seg.get("origin_name","") or ""}<br/>' if seg.get("origin_name") else '')
                         + (f'🏁 {seg.get("dest_name","") or ""}<br/>' if seg.get("dest_name") else '')

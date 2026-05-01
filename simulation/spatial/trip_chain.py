@@ -98,6 +98,7 @@ class TripLeg:
     origin_name:   str = ''    # start place name  e.g. "Edinburgh Waverley"
     dest_name:     str = ''    # end place name    e.g. "Haymarket"
     service_id:    str = ''    # GTFS route_id, train service code, etc.
+    route_short_name: str = '' # GTFS route_short_name e.g. "23", "N3", "X47"
     stop_id:       str = ''    # GTFS stop_id or NaPTAN ATCO code at boarding
 
     # Transfer context
@@ -116,6 +117,7 @@ class TripLeg:
             'origin_name':      self.origin_name,
             'dest_name':        self.dest_name,
             'service_id':       self.service_id,
+            'route_short_name': self.route_short_name,
             'stop_id':          self.stop_id,
             'is_transfer_walk': self.is_transfer_walk,
             'distance_km':      round(self.distance_km, 3),
@@ -138,12 +140,22 @@ class TripLeg:
         path = [(float(p[0]), float(p[1])) for p in seg.get('path', [])]
         mode = seg.get('mode', 'walk')
         dist = _path_km(path)
+        # Extract bus/tram service number from label (e.g. "Bus 23") or from
+        # dedicated route_short_name key set by the router service-name patch.
+        _rsn = seg.get('route_short_name', '')
+        if not _rsn:
+            _label = seg.get('label', '')
+            # Label format: "Bus 23" or "Tram N3" — extract trailing token
+            _parts = _label.strip().split()
+            if len(_parts) >= 2 and _parts[0].lower() in ('bus', 'tram'):
+                _rsn = _parts[-1]
         return cls(
             mode=mode,
             path=path,
             label=seg.get('label', mode.replace('_', ' ').title()),
             origin_name=origin_name,
             dest_name=dest_name,
+            route_short_name=_rsn,
             distance_km=dist,
             is_transfer_walk=(mode == 'walk' and dist < MIN_TRANSFER_WALK_KM),
         )
