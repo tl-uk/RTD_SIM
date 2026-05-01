@@ -1464,8 +1464,6 @@ def _render_story_selection():
     return user_stories, job_stories
 
 
-
-
 def _render_weather_configuration():
     """
     Render weather configuration section OUTSIDE form.

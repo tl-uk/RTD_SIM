@@ -54,7 +54,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple
 
-import random
+from utils.secure_rng import AgentRandom, BDIDecisionRandom
 import logging
 
 logger = logging.getLogger(__name__)
@@ -235,6 +235,10 @@ class BDIPlanner:
         self.plan_generator = plan_generator
         self.fused_identity = fused_identity
         self.infrastructure_manager = infrastructure_manager
+
+        self.rng = AgentRandom(seed)
+        self.decider = BDIDecisionRandom(self.rng)
+        
         # ── default_modes: generic passenger/commuter mode palette ─────────────
         # Only modes that ANY personal agent could plausibly use are included.
         # EV and electric variants are intentionally omitted here — they enter
@@ -835,7 +839,7 @@ class BDIPlanner:
                     params['trip_chain'] = tc
                 except Exception:
                     pass  # non-fatal
-                
+
             actions.append(Action(mode=mode, route=route, params=params))
         
         # Final summary
