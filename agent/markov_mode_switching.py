@@ -27,7 +27,7 @@ Markov Decision Model:
 
 from __future__ import annotations
 import math
-import random
+from utils.secure_rng import AgentRandom
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -135,6 +135,8 @@ class PersonalityMarkovChain:
         self.mode_history: List[str] = []
         self.habit_counts: Dict[str, int] = {m: 0 for m in self.modes}
         self.total_updates = 0
+
+        self.rng = AgentRandom(seed)
 
         n = len(self.modes)
         self.T = self._init_matrix(persona_id, n)

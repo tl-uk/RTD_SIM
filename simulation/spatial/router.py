@@ -101,7 +101,7 @@ _TRANSIT_MODES = frozenset({'bus', 'ferry_diesel', 'ferry_electric'})
 # but render as a dot on the map and clutter the per-segment tooltip.
 # 150 m is the threshold: anything shorter is omitted from route_segments
 # while still being included in the flat full_route for agent movement.
-_MIN_WALK_LEG_KM: float = 0.15
+_MIN_WALK_LEG_KM: float = 0.05
 
 # ── Permanent rail node blocklist ──────────────────────────────────────────
 # OSM nodes causing phantom heading reversals on every Edinburgh rail route.
@@ -557,140 +557,62 @@ class Router:
             full_route = ferry_coords
         return full_route, segments
 
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Thin wrappers around the core segment-building methods for GTFS and intermodal rail.
+    #─────────────────────────────────────────────────────────────────────────────
     def _gtfs_with_segments(
         self,
         agent_id: str,
-        origin: Tuple[float, float],
-        dest: Tuple[float, float],
+        origin,
+        dest,
         mode: str,
-        policy: Dict,
-    ) -> Tuple[List, List]:
-        """GTFS route split into (walk, transit, walk) segments."""
-        # Compute full route via standard GTFS path; we reconstruct the access
-        # and egress legs to determine split points.
-        G_transit = self._get_transit_graph()
-        if G_transit is None:
-            route = self._transit_fallback(agent_id, origin, dest, mode, policy)
-            segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
-            return route, segments
-
-        try:
-            from simulation.gtfs.gtfs_graph import GTFSGraph
-            builder = GTFSGraph(None)
-            origin_stop = builder.nearest_stop(G_transit, origin, mode_filter=mode, max_distance_m=2000)
-            dest_stop   = builder.nearest_stop(G_transit, dest,   mode_filter=mode, max_distance_m=2000)
-        except Exception:
-            route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
-            segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
-            return route, segments
-
-        if not origin_stop or not dest_stop or origin_stop == dest_stop:
-            # ── Same-stop snap: find second-nearest stop for dest ─────────────
-            # When origin and destination are both close to the same GTFS stop
-            # (e.g. agent 8828: both ends near Haymarket tram stop) the snap
-            # returns the same node and routing fails.  Find the nearest stop
-            # to dest that is NOT origin_stop and retry.
-            if origin_stop and dest_stop and origin_stop == dest_stop:
-                try:
-                    from simulation.gtfs.gtfs_graph import GTFSGraph as _GTFSGraph
-                    _builder2 = _GTFSGraph(None)
-                    _tram_filters2 = ['tram', 'local_train'] if mode == 'tram' else [mode]
-                    _max_m = 5000 if mode == 'tram' else 2000
-                    for _mf2 in _tram_filters2:
-                        # Try the exclude_stop kwarg first; fall back to a
-                        # manual O(N) scan if GTFSGraph doesn't support it.
-                        _candidate = None
-                        try:
-                            # Pass exclude_stop via **kwargs so Pylance does not
-                            # statically check the GTFSGraph.nearest_stop signature
-                            # (the parameter may not exist in all GTFSGraph versions).
-                            # RuntimeError is caught below if the kwarg is unsupported.
-                            _exclude_kwargs: Dict[str, Any] = {'exclude_stop': origin_stop}
-                            _candidate = _builder2.nearest_stop(
-                                G_transit, dest,
-                                mode_filter=_mf2,
-                                max_distance_m=_max_m,
-                                **_exclude_kwargs,
-                            )
-                        except TypeError:
-                            _best_d2 = float('inf')
-                            for _nid2, _nd2 in G_transit.nodes(data=True):
-                                if _nid2 == origin_stop:
-                                    continue
-                                _d2 = haversine_km(
-                                    dest,
-                                    (float(_nd2.get('x', 0)),
-                                     float(_nd2.get('y', 0))),
-                                )
-                                if _d2 < _best_d2 and _d2 <= _max_m / 1000.0:
-                                    _best_d2 = _d2
-                                    _candidate = _nid2
-                        if _candidate and _candidate != origin_stop:
-                            dest_stop = _candidate
-                            logger.debug(
-                                "%s: GTFS same-stop resolved — dest_stop %s (mode=%s)",
-                                agent_id, dest_stop, _mf2,
-                            )
-                            break
-                except Exception as _ss_exc:
-                    logger.debug("%s: same-stop retry failed: %s", agent_id, _ss_exc)
-
-            if not origin_stop or not dest_stop or origin_stop == dest_stop:
-                route = self._transit_fallback(agent_id, origin, dest, mode, policy)
-                segments = [{'path': route, 'mode': mode, 'label': mode}] if route else []
-                return route, segments
-
-        first_d     = G_transit.nodes.get(origin_stop, {})
-        first_coord = (float(first_d.get('x', origin[0])), float(first_d.get('y', origin[1])))
-        last_d      = G_transit.nodes.get(dest_stop, {})
-        last_coord  = (float(last_d.get('x', dest[0])), float(last_d.get('y', dest[1])))
-
-        access_leg  = self._compute_access_leg(agent_id + '_access', origin, first_coord)
-        egress_leg  = self._compute_access_leg(agent_id + '_egress', last_coord, dest)
-        transit_route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy,
-                                                 _presnapped_origin_stop=origin_stop,
-                                                 _presnapped_dest_stop=dest_stop,)
-
-        # Extract the transit-only portion (strip access/egress) for clean segment
-        access_len  = len(access_leg) - 1 if access_leg else 0
-        egress_len  = len(egress_leg) - 1 if egress_leg else 0
-        transit_mid = transit_route[access_len: len(transit_route) - egress_len] if transit_route else transit_route
-
-        access_dist = haversine_km(origin, first_coord)
+        policy,
+    ):
+        """
+        GTFS route split into (walk-to-stop, transit, walk-from-stop) segments.
+    
+        Thin wrapper:
+        1. Reset _last_gtfs_meta so a stale value is never read on failure.
+        2. Call _compute_gtfs_route (which populates _last_gtfs_meta).
+        3. Read the pre-built legs and label from meta.
+        4. Assemble segments dict — no redundant computation.
+        """
+        # Reset meta so a failed _compute_gtfs_route never leaves a stale dict.
+        self._last_gtfs_meta = {}
+    
+        transit_route = self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+    
+        if not transit_route:
+            # Fallback: single opaque segment so the caller still gets something.
+            fallback = self._transit_fallback(agent_id, origin, dest, mode, policy)
+            segments = (
+                [{'path': fallback, 'mode': mode, 'label': mode.replace('_', ' ').title()}]
+                if fallback else []
+            )
+            return fallback, segments
+    
+        # ── Read everything _compute_gtfs_route already resolved ─────────────────
+        meta           = self._last_gtfs_meta
+        _svc_label     = meta.get('service_label', mode.replace('_', ' ').title())
+        first_coord    = meta.get('first_coord',    origin)
+        last_coord     = meta.get('last_coord',     dest)
+        access_leg     = meta.get('access_leg',     [])
+        egress_leg     = meta.get('egress_leg',     [])
+        transit_coords = meta.get('transit_coords', [])
+    
+        # ── Distances for the walk-leg visibility threshold ───────────────────────
+        access_dist = haversine_km(origin,     first_coord)
         egress_dist = haversine_km(last_coord, dest)
-
-        # ── Collect service names for trunk segment label ──────────────────
-        _svc_label = mode.replace('_', ' ').title()
-        try:
-            G_transit_local = self._get_transit_graph()
-            if G_transit_local is not None and origin_stop and dest_stop:
-                from simulation.gtfs.gtfs_graph import GTFSGraph
-                _gtfs_b = GTFSGraph(None)
-                _path_nodes = nx.shortest_path(
-                    G_transit_local, origin_stop, dest_stop, weight='gen_cost'
-                )
-                _svc_names: List[str] = []
-                _seen_svc: set = set()
-                for _pi in range(len(_path_nodes) - 1):
-                    _em = G_transit_local.get_edge_data(_path_nodes[_pi], _path_nodes[_pi + 1]) or {}
-                    for _ed in _em.values():
-                        for _sn in _ed.get('route_short_names', []):
-                            if _sn and _sn not in _seen_svc:
-                                _svc_names.append(_sn)
-                                _seen_svc.add(_sn)
-                if _svc_names:
-                    _svc_label = f"{mode.replace('_', ' ').title()} {', '.join(_svc_names[:3])}"
-        except Exception:
-            pass  # non-fatal — label falls back to mode name
-
-        segments: List[Dict] = []
+    
+        # ── Assemble segments ─────────────────────────────────────────────────────
+        segments = []
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop'})
-        if transit_mid and len(transit_mid) >= 2:
-            segments.append({'path': transit_mid, 'mode': mode, 'label': _svc_label})
+        if transit_coords and len(transit_coords) >= 2:
+            segments.append({'path': transit_coords, 'mode': mode, 'label': _svc_label})
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop'})
-
+    
         return transit_route, segments
 
     def compute_alternatives(
@@ -1950,68 +1872,87 @@ class Router:
         )
         return self._interpolate([origin, dest], max_segment_km=0.05)
 
+    # ─────────────────────────────────────────────────────────────────────────────
+    # GTFS transit routing
+    # ────────────────────────────────────────────────────────────────────────────
     def _compute_gtfs_route(
         self,
         agent_id: str,
-        origin: Tuple[float, float],
-        dest: Tuple[float, float],
+        origin,
+        dest,
         mode: str,
-        policy: Dict,
-        _presnapped_origin_stop=None, # pass the snapped stops into _compute_gtfs_route rather than re-snapping
+        policy,
+        _presnapped_origin_stop=None,
         _presnapped_dest_stop=None,
-    ) -> List[Tuple[float, float]]:
+    ):
         """
-        Four-leg GTFS transit route.
-
-        Legs: access walk → board → ride (headway-weighted) → alight → egress walk.
-
+        Four-leg GTFS transit route: access walk → board → ride → alight → egress walk.
+    
         Generalised cost per transit edge:
             gen_cost = (travel_time_h + headway_h/2) × VoT
-                     + dist_km × energy_price
-                     + dist_km × emit_kg_km × carbon_tax
-
-        headway_h/2 is E[wait] for uniform arrivals — this makes frequent
-        Edinburgh trams competitive vs infrequent rural buses in the BDI
-        cost model.
-
+                    + dist_km × energy_price
+                    + dist_km × emit_kg_km × carbon_tax
+    
+        headway_h/2 is E[wait] for uniform arrivals.
+    
+        Side-channel
+        ------------
+        Before returning, stores self._last_gtfs_meta = {
+            'service_label' : str,          # e.g. "Bus 23, N3"
+            'service_names' : List[str],    # e.g. ['23', 'N3']
+            'first_coord'   : (lon, lat),   # boarding-stop coordinate
+            'last_coord'    : (lon, lat),   # alighting-stop coordinate
+            'access_leg'    : List[...],    # walk to boarding stop
+            'egress_leg'    : List[...],    # walk from alighting stop
+            'transit_coords': List[...],    # pure transit geometry only
+        }
+        _gtfs_with_segments reads this dict so it never repeats any computation.
+    
+        Stop-snapping priority
+        ----------------------
+        1. Pre-snapped stops passed by _gtfs_with_segments — used as-is.
+        2. Tram: try ['tram', 'local_train'] with 5 km catchment.
+        3. All other modes: mode filter with 2 km catchment.
+        These are mutually exclusive (if/elif/else) — no branch overwrites another.
+    
         Tram BODS encoding
         ------------------
-        BODS may encode Edinburgh Trams as route_type=0 ('tram') or as
-        route_type=3 ('local_train').  We try both and use the first that
-        returns a valid stop pair with origin ≠ destination.
-
-        Mode masking
-        ------------
-        gen_cost=inf is set on wrong-family edges so shortest_path cannot
-        route a tram trip via cheaper bus edges or vice versa.
-
-        Shape geometry
-        --------------
-        GTFS shape_coords are the ground-truth polyline from shapes.txt.
-        We select the edge with the longest (most detailed) shape when
-        multiple parallel edges exist for the same stop pair.
-        Bus edges without shape fall back to the drive graph for that segment.
-        Tram/ferry edges without shape fall back to straight interpolation.
+        BODS may encode Edinburgh Trams as route_type=0 ('tram') or route_type=3
+        ('local_train').  Both are tried until a valid stop pair is found.
+    
+        Bus geometry fallback
+        ---------------------
+        Missing shape_coords on a bus edge: road-following proxy via
+        _compute_road_route rather than a straight line through buildings.
+        Tram missing shape: OSM tram graph, then straight interpolation.
         """
+        # ── Initialise meta (populated before every return path) ─────────────────
+        _meta_defaults = dict(
+            service_label=mode.replace('_', ' ').title(),
+            service_names=[],
+            first_coord=origin,
+            last_coord=dest,
+            access_leg=[],
+            egress_leg=[],
+            transit_coords=[],
+        )
+        self._last_gtfs_meta = dict(_meta_defaults)
+    
         G_transit = self._get_transit_graph()
-
+    
+        # ── No GTFS graph loaded ──────────────────────────────────────────────────
         if G_transit is None:
             if mode == 'tram':
                 logger.debug("%s: no GTFS — tram spine fallback", agent_id)
                 try:
                     from simulation.spatial.rail_spine import route_via_tram_stops
-                    # Use a wider catchment (5.0 km) when no GTFS is loaded.
-                    # The default 2.5 km is too tight for Edinburgh: random OD
-                    # pairs commonly have their nearest tram stop 3–5 km away
-                    # (e.g. Colinton → Murrayfield is ~3.8 km).  5 km matches
-                    # the GTFS tram_catchment used when GTFS IS loaded.
                     spine_route = route_via_tram_stops(origin, dest, max_access_km=5.0)
                     if spine_route and len(spine_route) > 2:
                         logger.debug(
                             "%s: tram spine → %d waypoints, road-following each leg",
                             agent_id, len(spine_route),
                         )
-                        realistic: List[Tuple[float, float]] = []
+                        realistic = []
                         for i in range(len(spine_route) - 1):
                             leg = self._compute_road_route(
                                 agent_id, spine_route[i], spine_route[i + 1], 'car', policy,
@@ -2022,9 +1963,8 @@ class Router:
                                 realistic.append(spine_route[i])
                         realistic.append(spine_route[-1])
                         return realistic
-                    # spine_route is None or 2-point → outside catchment
                     logger.debug(
-                        "%s: tram spine returned %s — origin/dest outside 5km tram catchment",
+                        "%s: tram spine returned %s — outside 5 km catchment",
                         agent_id, "None" if spine_route is None else f"{len(spine_route)} pts",
                     )
                     return []
@@ -2032,18 +1972,34 @@ class Router:
                     logger.debug("%s: tram spine exception: %s", agent_id, _exc)
                     return []
             return self._transit_fallback(agent_id, origin, dest, mode, policy)
-
+    
         try:
             from simulation.gtfs.gtfs_graph import GTFSGraph
         except ImportError:
             return self._transit_fallback(agent_id, origin, dest, mode, policy)
-
+    
         builder = GTFSGraph(None)
-
-        # ── Stop snapping ─────────────────────────────────────────────────────
-        if mode == 'tram':
+    
+        # ── Stop snapping (mutually exclusive branches) ───────────────────────────
+        #
+        # Priority:
+        #   1. Pre-snapped stops (passed by _gtfs_with_segments after its own snap)
+        #   2. Tram:  try ['tram', 'local_train'] with 5 km catchment
+        #   3. Other: mode filter with 2 km catchment
+        #
+        # The previous implementation used two sequential `if` blocks, so the
+        # tram 5 km snap was always overwritten by the 2 km else branch when
+        # _presnapped_* were None (the normal case from _gtfs_with_segments).
+        # ─────────────────────────────────────────────────────────────────────────
+        if _presnapped_origin_stop and _presnapped_dest_stop:
+            # Caller already resolved stops — trust them.
+            origin_stop = _presnapped_origin_stop
+            dest_stop   = _presnapped_dest_stop
+    
+        elif mode == 'tram':
+            # Edinburgh Trams may be encoded as 'tram' or 'local_train' in BODS.
             _tram_filters   = ['tram', 'local_train']
-            _tram_catchment = 5000   # 5 km — tram stops can be far apart
+            _tram_catchment = 5000          # 5 km — tram lines are sparse
             origin_stop = dest_stop = None
             for mf in _tram_filters:
                 origin_stop = builder.nearest_stop(
@@ -2058,64 +2014,52 @@ class Router:
                         agent_id, mf, origin_stop, dest_stop,
                     )
                     break
-        # For non-tram modes, or if tram stop snapping fails, snap using the requested mode 
-        # filter and a 2 km catchment.
-        if _presnapped_origin_stop and _presnapped_dest_stop:
-            origin_stop = _presnapped_origin_stop
-            dest_stop   = _presnapped_dest_stop
+    
         else:
+            # Bus, ferry, and all other GTFS modes: 2 km catchment.
             origin_stop = builder.nearest_stop(
-                G_transit, origin, mode_filter=mode, max_distance_m=2000
+                G_transit, origin, mode_filter=mode, max_distance_m=2000,
             )
             dest_stop = builder.nearest_stop(
-                G_transit, dest, mode_filter=mode, max_distance_m=2000
+                G_transit, dest, mode_filter=mode, max_distance_m=2000,
             )
-
-        if not origin_stop or not dest_stop or origin_stop == dest_stop:
-            # ── Same-stop snap: find second-nearest stop for dest ─────────────
-            if origin_stop and dest_stop and origin_stop == dest_stop:
+    
+        # ── Same-stop resolution ──────────────────────────────────────────────────
+        # When both ends snap to the same stop, find the second-nearest for dest.
+        if origin_stop and dest_stop and origin_stop == dest_stop:
+            _max_r     = 5000 if mode == 'tram' else 2000
+            _filters_r = ['tram', 'local_train'] if mode == 'tram' else [mode]
+            for _mf_r in _filters_r:
+                _cand = None
                 try:
-                    _builder_r = GTFSGraph(None)
-                    _filters_r = ['tram', 'local_train'] if mode == 'tram' else [mode]
-                    _max_r = _tram_catchment if mode == 'tram' else 2000
-                    for _mf_r in _filters_r:
-                        _cand_r = None
-                        try:
-                            _excl_kwargs_r: Dict[str, Any] = {'exclude_stop': origin_stop}
-                            _cand_r = _builder_r.nearest_stop(
-                                G_transit, dest,
-                                mode_filter=_mf_r,
-                                max_distance_m=_max_r,
-                                **_excl_kwargs_r,
-                            )
-                        except TypeError:
-                            _best_r = float('inf')
-                            for _nr, _ndr in G_transit.nodes(data=True):
-                                if _nr == origin_stop:
-                                    continue
-                                _dr = haversine_km(
-                                    dest,
-                                    (float(_ndr.get('x', 0)),
-                                     float(_ndr.get('y', 0))),
-                                )
-                                if _dr < _best_r and _dr <= _max_r / 1000.0:
-                                    _best_r = _dr
-                                    _cand_r = _nr
-                        if _cand_r and _cand_r != origin_stop:
-                            dest_stop = _cand_r
-                            logger.debug(
-                                "%s: GTFS same-stop resolved — dest_stop %s",
-                                agent_id, dest_stop,
-                            )
-                            break
-                except Exception as _sr_exc:
-                    logger.debug("%s: GTFS same-stop retry failed: %s", agent_id, _sr_exc)
-
-            if not origin_stop or not dest_stop or origin_stop == dest_stop:
-                logger.debug("%s: no GTFS stop pair for %s", agent_id, mode)
-                return self._transit_fallback(agent_id, origin, dest, mode, policy)
-
-        # ── Mode masking ──────────────────────────────────────────────────────
+                    _cand = builder.nearest_stop(
+                        G_transit, dest,
+                        mode_filter=_mf_r,
+                        max_distance_m=_max_r,
+                        exclude_stop=origin_stop,
+                    )
+                except TypeError:
+                    # GTFSGraph.nearest_stop doesn't support exclude_stop — manual scan.
+                    _best = float('inf')
+                    for _nid, _nd in G_transit.nodes(data=True):
+                        if _nid == origin_stop:
+                            continue
+                        _d = haversine_km(dest, (float(_nd.get('x', 0)), float(_nd.get('y', 0))))
+                        if _d < _best and _d <= _max_r / 1000.0:
+                            _best = _d
+                            _cand = _nid
+                if _cand and _cand != origin_stop:
+                    dest_stop = _cand
+                    logger.debug(
+                        "%s: GTFS same-stop resolved — dest_stop %s", agent_id, dest_stop,
+                    )
+                    break
+    
+        if not origin_stop or not dest_stop or origin_stop == dest_stop:
+            logger.debug("%s: no valid GTFS stop pair for %s", agent_id, mode)
+            return self._transit_fallback(agent_id, origin, dest, mode, policy)
+    
+        # ── Mode masking ──────────────────────────────────────────────────────────
         _TRAM_MODES = frozenset({'tram', 'local_train'})
         _RAIL_MODES = frozenset({'local_train', 'intercity_train', 'rail', 'freight_rail'})
         _BUS_MODES  = frozenset({'bus'})
@@ -2127,12 +2071,12 @@ class Router:
             _allowed = _BUS_MODES
         else:
             _allowed = frozenset({mode})
-
-        # ── Headway-weighted generalised cost ─────────────────────────────────
+    
+        # ── Headway-weighted generalised cost ─────────────────────────────────────
         vot     = float(policy.get('value_of_time_gbp_h',  10.0))
         e_price = float(policy.get('energy_price_gbp_km',   0.12))
         c_tax   = float(policy.get('carbon_tax_gbp_tco2',   0.0))
-
+    
         for u, v, key, data in G_transit.edges(keys=True, data=True):
             edge_mode = data.get('mode', 'bus')
             if edge_mode == 'walk' or data.get('highway') == 'transfer':
@@ -2150,57 +2094,61 @@ class Router:
                 + dist_km * e_price
                 + dist_km * emit_kg * c_tax
             )
-
-        # ── Route on transit graph ─────────────────────────────────────────────
+    
+        # ── Route on transit graph ────────────────────────────────────────────────
         try:
             transit_nodes = nx.shortest_path(
-                G_transit, origin_stop, dest_stop, weight='gen_cost'
+                G_transit, origin_stop, dest_stop, weight='gen_cost',
             )
         except Exception:
             logger.debug(
                 "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
             )
             return self._compute_road_route(agent_id, origin, dest, mode, policy)
-
-        # ── Extract geometry from shape_coords ────────────────────────────────
-        # For each consecutive stop pair, prefer the parallel edge whose
-        # shape_coords is longest (most detailed).  This avoids taking a
-        # dead-run edge (empty shape) over a revenue service edge.
-        transit_coords: List[Tuple[float, float]] = []
+    
+        # ── Single combined pass: geometry extraction + service-name collection ───
+        #
+        # Previously these were two separate loops over transit_nodes, meaning
+        # every edge was visited twice.  Merged here: geometry is accumulated into
+        # transit_coords; route_short_names are collected into _service_names.
+        transit_coords = []
+        _all_short_names = []
+    
         for i in range(len(transit_nodes) - 1):
-            u_node   = transit_nodes[i]
-            v_node   = transit_nodes[i + 1]
+            u_node = transit_nodes[i]
+            v_node = transit_nodes[i + 1]
             edge_map = G_transit.get_edge_data(u_node, v_node) or {}
-
-            # Select edge with longest shape_coords, falling back to first edge.
-            shape: List[Tuple[float, float]] = []
-            if edge_map:
-                for ed in edge_map.values():
-                    s = ed.get('shape_coords') or []
-                    if len(s) > len(shape):
-                        shape = s
-
+    
+            # ── Collect service names from this edge ──────────────────────────────
+            for ed in edge_map.values():
+                _all_short_names.extend(ed.get('route_short_names', []))
+    
+            # ── Select edge with the longest shape_coords ─────────────────────────
+            # Prefers revenue-service edges over empty dead-run edges.
+            shape = []
+            for ed in edge_map.values():
+                s = ed.get('shape_coords') or []
+                if len(s) > len(shape):
+                    shape = s
+    
             u_x = float(G_transit.nodes[u_node].get('x', 0))
             u_y = float(G_transit.nodes[u_node].get('y', 0))
             v_x = float(G_transit.nodes[v_node].get('x', 0))
             v_y = float(G_transit.nodes[v_node].get('y', 0))
-
+    
             if shape and len(shape) > 2:
+                # Ground-truth GTFS shape — use directly.
                 transit_coords.extend(shape if i == 0 else shape[1:])
+    
             elif mode in ('bus', 'van_electric', 'van_diesel'):
-                # Bus: road proxy for missing shape segments.
-                # Use WALK graph (not drive) for short inter-stop segments to
-                # avoid routing through buildings on one-way streets. Cap at
-                # 500m — beyond that use straight line to prevent absurd detours.
+                # Bus: road-following proxy for missing-shape segments.
+                # Straight lines cut through buildings; use the drive graph instead.
                 _straight = haversine_km((u_x, u_y), (v_x, v_y))
                 if _straight > 0.5:
-                    # No shape_coords and too far for a walk proxy.
-                    # Route on the road network between stops rather than inserting
-                    # a straight line that cuts through buildings and waterways.
                     _road_seg = self._compute_road_route(
                         agent_id + f'_bus_noseg{i}',
                         (u_x, u_y), (v_x, v_y),
-                        'car', _DEFAULT_POLICY,   # drive graph, road-following
+                        'car', _DEFAULT_POLICY,
                     )
                     if _road_seg and len(_road_seg) > 1:
                         transit_coords.extend(_road_seg if i == 0 else _road_seg[1:])
@@ -2208,28 +2156,25 @@ class Router:
                         if i == 0:
                             transit_coords.append((u_x, u_y))
                         transit_coords.append((v_x, v_y))
+                else:
+                    # Short segment — walk graph is adequate.
+                    if i == 0:
+                        transit_coords.append((u_x, u_y))
+                    transit_coords.append((v_x, v_y))
+    
             else:
-                # ── FIX Bug 3: tram OSM track geometry fallback ───────────────
-                # Edinburgh Tram GTFS from BODS has no shapes.txt entries, so
-                # shape_coords is always empty for tram trips.  Before falling
-                # back to a straight line between stops, try to route on the
-                # OSM tram graph (registered as graphs['tram'] by
-                # environment_setup.py).  This follows actual track geometry
-                # through Princes Street / Shandwick Place / the airport spur
-                # instead of diagonal lines through buildings.
+                # Tram / ferry — try OSM tram graph; fall back to straight line.
                 _tram_seg_added = False
                 if mode == 'tram':
                     G_tram = self.graph_manager.get_graph('tram')
                     if G_tram is not None and G_tram.number_of_nodes() > 1:
                         try:
                             import osmnx as ox
-                            tn_orig = ox.distance.nearest_nodes(G_tram, u_x, u_y)
-                            tn_dest = ox.distance.nearest_nodes(G_tram, v_x, v_y)
-                            if tn_orig != tn_dest:
-                                tram_path = nx.shortest_path(
-                                    G_tram, tn_orig, tn_dest, weight='length'
-                                )
-                                tram_seg = self._interpolate(
+                            tn_o = ox.distance.nearest_nodes(G_tram, u_x, u_y)
+                            tn_d = ox.distance.nearest_nodes(G_tram, v_x, v_y)
+                            if tn_o != tn_d:
+                                tram_path = nx.shortest_path(G_tram, tn_o, tn_d, weight='length')
+                                tram_seg  = self._interpolate(
                                     self._extract_geometry(G_tram, tram_path),
                                     max_segment_km=0.05,
                                 )
@@ -2239,72 +2184,72 @@ class Router:
                                     )
                                     _tram_seg_added = True
                                     logger.debug(
-                                        "%s: tram OSM track geometry: %d pts "
-                                        "between stops %s→%s",
+                                        "%s: tram OSM track geometry: %d pts between stops %s→%s",
                                         agent_id, len(tram_seg), u_node, v_node,
                                     )
                         except Exception as _tram_exc:
                             logger.debug(
-                                "%s: tram OSM segment %d failed: %s",
-                                agent_id, i, _tram_exc,
+                                "%s: tram OSM segment %d failed: %s", agent_id, i, _tram_exc,
                             )
                 if not _tram_seg_added:
-                    # Ferry / tram (no OSM graph): straight stop-to-stop line.
+                    # Straight stop-to-stop interpolation (ferry / tram without OSM graph).
                     if i == 0:
                         transit_coords.append((u_x, u_y))
                     transit_coords.append((v_x, v_y))
-
-        # ── Collect service names from traversed edges ─────────────────────
-        # route_short_names are stored on graph edges (e.g. '23', 'N3').
-        # Gather from all edges in the path to build the trunk segment label.
-        _all_short_names: List[str] = []
-        for i in range(len(transit_nodes) - 1):
-            u_n = transit_nodes[i]
-            v_n = transit_nodes[i + 1]
-            em = G_transit.get_edge_data(u_n, v_n) or {}
-            for ed in em.values():
-                _all_short_names.extend(ed.get('route_short_names', []))
-        # Deduplicate preserving first occurrence
+    
+        # ── Service label ─────────────────────────────────────────────────────────
         _seen: set = set()
         _service_names = [
             sn for sn in _all_short_names
             if sn and not (sn in _seen or _seen.add(sn))  # type: ignore[func-returns-value]
         ]
+        _mode_title = mode.replace('_', ' ').title()
         _service_label = (
-            f"{mode.replace('_', ' ').title()} {', '.join(_service_names[:3])}"
+            f"{_mode_title} {', '.join(_service_names[:3])}"
             if _service_names
-            else mode.replace('_', ' ').title()
+            else _mode_title
         )
-
+    
         if not transit_coords:
             return self._transit_fallback(agent_id, origin, dest, mode, policy)
-
-        # ── Access leg ────────────────────────────────────────────────────────
+    
+        # ── Access / egress legs ──────────────────────────────────────────────────
         first_d     = G_transit.nodes.get(origin_stop, {})
         first_coord = (float(first_d.get('x', origin[0])), float(first_d.get('y', origin[1])))
-        access_leg  = self._compute_access_leg(agent_id + '_access', origin, first_coord)
-
-        # ── Egress leg ────────────────────────────────────────────────────────
-        last_d     = G_transit.nodes.get(dest_stop, {})
-        last_coord = (float(last_d.get('x', dest[0])), float(last_d.get('y', dest[1])))
+        last_d      = G_transit.nodes.get(dest_stop, {})
+        last_coord  = (float(last_d.get('x', dest[0])),   float(last_d.get('y', dest[1])))
+    
+        access_leg = self._compute_access_leg(agent_id + '_access', origin, first_coord)
         egress_leg = self._compute_access_leg(agent_id + '_egress', last_coord, dest)
-
-        # ── Stitch ────────────────────────────────────────────────────────────
-        full_route: List[Tuple[float, float]] = (
+    
+        # ── Stitch ────────────────────────────────────────────────────────────────
+        full_route = (
             (access_leg[:-1] if access_leg else [])
             + transit_coords
             + (egress_leg[1:] if len(egress_leg) > 1 else [])
         )
-
         if len(full_route) < 2:
             full_route = [origin, dest]
-
+    
+        # ── Populate meta side-channel for _gtfs_with_segments ───────────────────
+        # Stored on self so the caller can read it without repeating any work.
+        self._last_gtfs_meta = dict(
+            service_label  = _service_label,
+            service_names  = _service_names,
+            first_coord    = first_coord,
+            last_coord     = last_coord,
+            access_leg     = access_leg,
+            egress_leg     = egress_leg,
+            transit_coords = transit_coords,
+        )
+    
         logger.info(
-            "✅ %s: GTFS %s %.1fkm (%d stops, %d pts)",
+            "✅ %s: GTFS %s %.1fkm (%d stops, %d pts) — service: %s",
             agent_id, mode, route_distance_km(full_route),
-            len(transit_nodes), len(full_route),
+            len(transit_nodes), len(full_route), _service_label,
         )
         return full_route
+    
 
     # =========================================================================
     # GENERALISED COST EDGE WEIGHTS

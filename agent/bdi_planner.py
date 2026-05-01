@@ -778,47 +778,37 @@ class BDIPlanner:
             params = {}
             if mode in self.EV_RANGE_KM and self.has_infrastructure:
                 params = self._get_ev_params(origin, dest, route, context)
+ 
             if _segments:
                 params['route_segments'] = _segments
-                # ── Extract GTFS service name for tooltip / state.service_id ─────────────
-                # _gtfs_with_segments() stores "Bus 23" in the trunk segment label.
-                # Pull it here so agent.state.service_id is populated at creation time.
-                if mode in ('bus', 'tram') and _segments:
-                    for _seg in _segments:
-                        if _seg.get('mode') == mode:
-                            _raw_lbl = _seg.get('label', '')
-                            # label format: "Bus 23, N3" — strip mode prefix to get service(s)
-                            _svc_part = _raw_lbl.replace(
-                                mode.replace('_', ' ').title(), ''
-                            ).strip().strip(',')
-                            if _svc_part:
-                                params['service_id'] = _svc_part
-                                # destination_stop: use the last transit coord's approx stop
-                                params['destination_stop'] = dest
-                            break
-                # ── End service name extraction ───────────────────────────────────────────
-                # ── TripChain wiring ─────────────────────────────────────────
-                # TripChain.from_route_segments() packages per-leg geometry into
-                # a multimodal itinerary.  cognitive_abm reads action.params
-                # ['trip_chain'] and promotes it to agent.state.trip_chain.
-                # This was missing — TripChainPlanner existed but was dead code.
-                #
-                # Signature: from_route_segments(origin, destination,
-                #               route_segments, origin_name='', dest_name='',
-                #               planned_at_step=0)
+ 
+                # ── Extract GTFS service name for tooltip / state.service_id ──
+                # _gtfs_with_segments stores the service label (e.g. "Bus 23")
+                # in the trunk segment's 'label' key.  Pull it into params so
+                # agent_creation wires it to agent.state.service_id.
+                for _seg in _segments:
+                    _seg_mode = _seg.get('mode', '')
+                    if _seg_mode not in ('walk',) and _seg_mode == mode:
+                        _raw = _seg.get('label', '')
+                        # Label format: "Bus 23, N3" — strip the mode prefix
+                        _mode_prefix = mode.replace('_', ' ').title()
+                        _svc_part = _raw.replace(_mode_prefix, '').strip().strip(',').strip()
+                        if _svc_part:
+                            params['service_id'] = _svc_part
+                        break
+ 
+                # ── TripChain wiring ──────────────────────────────────────────
                 try:
                     from simulation.spatial.trip_chain import TripChain
                     tc = TripChain.from_route_segments(
-                        origin        = origin,
-                        destination   = dest,
-                        route_segments= _segments,
+                        origin         = origin,
+                        destination    = dest,
+                        route_segments = _segments,
                     )
                     params['trip_chain'] = tc
                     logger.info(
                         "✅ %s: TripChain %s  %.1fkm  %d legs",
-                        agent_id, mode,
-                        actual_route_distance,
-                        len(_segments),
+                        agent_id, mode, actual_route_distance, len(_segments),
                     )
                 except Exception as _tc_exc:
                     logger.debug(
@@ -828,24 +818,24 @@ class BDIPlanner:
                 # ── End TripChain wiring ──────────────────────────────────────
             else:
                 # No segments — single-mode flat route.  Build a minimal 1-leg
-                # TripChain so the visualiser tooltip always has mode context.
+                # TripChain; use service_id (if any) in the label so the tooltip
+                # shows "Bus 23" rather than just "Bus".
+                _svc_id   = params.get('service_id', '')
+                _leg_mode = mode.replace('_', ' ').title()
+                _leg_label = f"{_leg_mode} {_svc_id}".strip() if _svc_id else _leg_mode
                 try:
                     from simulation.spatial.trip_chain import TripChain, TripLeg
-                    _leg_label = (
-                        f"{mode.replace('_', ' ').title()} {params['service_id']}".strip()
-                        if params.get('service_id')
-                        else mode.replace('_', ' ').title()
-                    )
                     leg = TripLeg(
-                        mode=mode,
-                        path=[tuple(p) for p in route],
-                        label=_leg_label,
+                        mode  = mode,
+                        path  = [tuple(p) for p in route],
+                        label = _leg_label,
                     )
                     tc = TripChain(origin=origin, destination=dest)
                     tc.add_leg(leg)
                     params['trip_chain'] = tc
                 except Exception:
-                    pass   # non-fatal
+                    pass  # non-fatal
+                
             actions.append(Action(mode=mode, route=route, params=params))
         
         # Final summary

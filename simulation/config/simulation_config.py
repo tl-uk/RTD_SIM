@@ -91,7 +91,7 @@ class SimulationConfig:
         
         # Agent plan generation
         llm_backend: str = 'rule_based',  # 'rule_based' | 'olmo' | 'claude'
-        
+
         # Analytics (old style)
         enable_analytics: bool = True,
         track_journeys: bool = True,

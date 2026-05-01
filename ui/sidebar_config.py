@@ -474,6 +474,48 @@ def render_sidebar_config():
     # code that still reads show_gtfs doesn't silently get False.
     st.session_state['show_gtfs'] = st.session_state['show_gtfs_routes']
     # =======================================================================
+    # ── RNG / reproducibility ───────────────────────────────────
+    rng_reproducible = st.checkbox(
+        "Enable reproducible simulation",
+        value=False,
+        help="OFF = realistic (non-deterministic). ON = reproducible research runs."
+    )
+
+    rng_seed_name = None
+    rng_seed_value = None
+
+    if rng_reproducible:
+        seed_lib_path = parent_dir / "config" / "rng_seed_library.yaml"
+        seeds = []
+        if seed_lib_path.exists():
+            try:
+                data = yaml.safe_load(seed_lib_path.read_text())
+                seeds = data.get("seeds", []) if isinstance(data, dict) else []
+            except Exception:
+                seeds = []
+
+        if not seeds:
+            st.warning("No RNG seed library found. Create config/rng_seed_library.yaml.")
+        else:
+            labels = [s.get("name", "unnamed") for s in seeds]
+            selected = st.selectbox("Seed preset", labels, index=0)
+            chosen = next((s for s in seeds if s.get("name") == selected), None)
+            rng_seed_name = selected
+            rng_seed_value = int(chosen.get("seed")) if chosen and "seed" in chosen else None
+
+            override = st.text_input(
+                "Seed override (decimal or 0xHEX)",
+                value="",
+                help="Optional. Overrides selected seed."
+            ).strip()
+
+            if override:
+                try:
+                    rng_seed_value = int(override, 0)  # accepts dec or 0x...
+                    rng_seed_name = "override"
+                except ValueError:
+                    st.error("Seed must be decimal or 0x-prefixed hex (e.g., 12345 or 0xDEADBEEF).")
+
     config = SimulationConfig(
         steps=steps,
         num_agents=num_agents,
@@ -522,6 +564,11 @@ def render_sidebar_config():
         gtfs_service_date=gtfs_config['service_date'],
         gtfs_fuel_overrides=gtfs_config['fuel_overrides'],
         run_gtfs_analytics=gtfs_config['run_analytics'],
+
+        # RNG / reproducibility
+        rng_reproducible=rng_reproducible,
+        rng_seed_name=rng_seed_name,
+        rng_seed_value=rng_seed_value
     )
     
     # === PHASE 7.1: APPLY TEMPORAL SETTINGS ===
