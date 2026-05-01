@@ -138,21 +138,24 @@ def create_agents(
     """
     Create agent population with initial routes.
     """
-    if progress_callback:
-        progress_callback(0.35, "🤖 Creating agents...")
     
+    if progress_callback:
+            progress_callback(0.35, "🤖 Creating agents...")
+        
     # ── Master entropy pool + run RNG ─────────────────────────────────────────
-    # The audit-enhanced version uses a master pool and derives independent
-    # per-agent streams to avoid correlations and seed collisions.
-    #
-    # We keep behaviour identical (uniform sampling for O/D) but switch the
-    # RNG source to the secure RNG stack.
-    master_pool = EntropyPool(pool_size=8)  # 256-bit pool by default in RTD_SIM
+    # Reproducible mode: mix config.rng_seed_value into the pool via extra_entropy.
+    # Non-deterministic mode: extra_entropy=None -> OS entropy only (realistic).
+    seed_bytes = None
+    if getattr(config, "rng_reproducible", False) and getattr(config, "rng_seed_value", None) is not None:
+        seed_int = int(getattr(config, "rng_seed_value"))
+        nbytes = max(1, (seed_int.bit_length() + 7) // 8)
+        seed_bytes = seed_int.to_bytes(nbytes, byteorder="big", signed=False)
+
+    master_pool = EntropyPool(pool_size=8, extra_entropy=seed_bytes)  # 256-bit pool + optional deterministic seed
     run_rng = create_agent_rng("simulation_run", persona="od_sampling", pool=master_pool)
 
     # Seed log for reproducibility/debugging (attached to simulation_results if provided)
     seed_log: Dict[str, int] = {}
-
     
     # Helper function to generate random origin-destination pairs.
     #
@@ -342,17 +345,19 @@ def create_agents(
 
         fusion = PersonaFusion()
 
+        per_agent_pools = master_pool.spawn_pools(len(agent_pool))
+
         for i, (user_story, job_story) in enumerate(agent_pool):
             # Tram and rail job stories need OD pairs near their corridors.
             origin, dest = corridor_od(job_story)
-            # ── Per-agent entropy pool + derived seed (replaces 32-bit seeds) ──
+            # ── Per-agent entropy pool + derived seed (replaces 32-bit seeds) ── 
             agent_id = f"agent_{i+1}"
-            agent_pool = master_pool.spawn_pools(1)[0]  # independent child pool
-            agent_seed = agent_pool.seed_for_agent(agent_id, persona=user_story)
+            agent_entropy_pool = per_agent_pools[i]
+            agent_seed = agent_entropy_pool.seed_for_agent(agent_id, persona=user_story)
             seed_log[agent_id] = agent_seed
 
             # Per-agent RNG stream (used for any stochastic initialisation you add later)
-            agent_rng = create_agent_rng(agent_id, persona=user_story, pool=agent_pool)
+            agent_rng = create_agent_rng(agent_id, persona=user_story, pool=agent_entropy_pool)
 
             # 1. Create agent FIRST (no planner yet)
             agent = StoryDrivenAgent(
@@ -639,14 +644,17 @@ def create_agents(
     # Basic agents (fallback)
     else:
         from agent.cognitive_abm import CognitiveAgent
+
+        per_agent_pools = master_pool.spawn_pools(len(agent_pool))
         
         for i in range(config.num_agents):
             origin, dest = random_od()
             agent_id = f"agent_{i+1}"
-            agent_pool = master_pool.spawn_pools(1)[0]
-            agent_seed = agent_pool.seed_for_agent(agent_id, persona="basic_agent")
+            
+            agent_entropy_pool = per_agent_pools[i]
+            agent_seed = agent_entropy_pool.seed_for_agent(agent_id, persona="basic_agent")
             seed_log[agent_id] = agent_seed
-            agent_rng = create_agent_rng(agent_id, persona="basic_agent", pool=agent_pool)
+            agent_rng = create_agent_rng(agent_id, persona="basic_agent", pool=agent_entropy_pool)
             
             agent = CognitiveAgent(
                 seed=agent_seed,
