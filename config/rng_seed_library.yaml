@@ -1,0 +1,53 @@
+# config/rng_seed_library.yaml
+# Curated RNG seeds for RTD_SIM (Option B)
+# Integer seeds; hex allowed in UI override (0x...)
+
+seeds:
+  - name: "Paper baseline A"
+    seed: 123456789
+    description: "Stable baseline for publications"
+
+  - name: "Paper baseline B"
+    seed: 987654321
+    description: "Alternative baseline for sensitivity checks"
+
+  - name: "DfT demo – Edinburgh"
+    seed: 0xED1NBRG
+    description: "Consistent DfT demo run (Edinburgh region)"
+
+  - name: "DfT demo – stress"
+    seed: 0xD1F7E55
+    description: "More volatile demo (shows behaviour diversity)"
+
+  - name: "Congestion stress test"
+    seed: 135792468
+
+  - name: "EV adoption tipping point"
+    seed: 246813579
+
+  - name: "Winter weather variability"
+    seed: 1123581321
+
+  - name: "Freight-heavy scenario"
+    seed: 314159265
+
+  - name: "Rural accessibility focus"
+    seed: 271828182
+
+  - name: "Urban modal shift"
+    seed: 161803398
+
+  - name: "High randomness A"
+    seed: 0xABCDEF01
+
+  - name: "High randomness B"
+    seed: 0xDEADBEEF
+
+  - name: "Calibration run 01"
+    seed: 100000001
+
+  - name: "Calibration run 02"
+    seed: 100000002
+
+  - name: "Calibration run 03"
+    seed: 100000003

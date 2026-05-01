@@ -13,8 +13,16 @@ advances the agent along its route and tracks travel time, distance, emissions, 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Tuple, Optional
-import random
 import logging
+import random  # fallback only
+
+# Prefer secure RNG (AgentRandom) when available
+try:
+    from utils.secure_rng import AgentRandom
+    _SECURE_RNG_AVAILABLE = True
+except Exception:
+    AgentRandom = None  # type: ignore
+    _SECURE_RNG_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +96,13 @@ class CognitiveAgent:
         agent_context: Optional[Dict] = None,
         simulation_results=None,  # SimulationResults — for routing_fallback_count
     ):
-        self.rng = random.Random(seed)
+        # Use CSPRNG-backed RNG when available; fallback to MT for minimal envs.
+        if _SECURE_RNG_AVAILABLE and AgentRandom is not None:
+            # If seed is None, AgentRandom() pulls from OS entropy.
+            self.rng = AgentRandom(seed)
+        else:
+            self.rng = random.Random(seed)
+            
         self.state = AgentState(agent_id=agent_id or f'agent_{abs(self.rng.randint(1, 9999))}')
         # Defaults remain small only for unit tests; production runs seed from OSM or Edinburgh bbox.
         self.state.location = origin if origin is not None else (0.0, 0.0)  # (lon, lat)

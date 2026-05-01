@@ -29,6 +29,11 @@ class SimulationConfig:
     
     Supports both old flat parameters (backward compatible) and new nested structure.
     """
+
+    # ── RNG configuration ──────────────────────────────────────────────
+    rng_reproducible: bool = False
+    rng_seed_name: Optional[str] = None
+    rng_seed_value: Optional[int] = None
     
     def __init__(
         self,

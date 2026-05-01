@@ -17,9 +17,52 @@ simulation.
 """
 from __future__ import annotations
 
-import secrets
-import random
 import logging
+from pathlib import Path
+from typing import List, Dict, Tuple, Any, Optional, TYPE_CHECKING
+
+# ── CSPRNG utilities (preferred) ──────────────────────────────────────────────
+# RTD_SIM path is utils.secure_rng (NOT simulation.utils.secure_rng).
+try:
+    from utils.secure_rng import EntropyPool, create_agent_rng
+    _SECURE_RNG_AVAILABLE = True
+except Exception:  # pragma: no cover — fallback for minimal environments
+    _SECURE_RNG_AVAILABLE = False
+    import secrets
+    import random
+
+    class EntropyPool:  # type: ignore[no-redef]
+        """Fallback entropy pool (non-ideal)."""
+        def __init__(self, pool_size: int = 8, extra_entropy: bytes | None = None):
+            self.pool_size = pool_size
+            self.extra_entropy = extra_entropy or b""
+
+        def seed_for_agent(self, agent_id: str, persona: str | None = None) -> int:
+            # Fallback still gives 128-bit to avoid 32-bit collisions.
+            _ = (agent_id, persona)
+            return secrets.randbits(128)
+
+        def spawn_pools(self, n: int):
+            return [EntropyPool(self.pool_size) for _ in range(n)]
+
+    def create_agent_rng(agent_id: str, persona: str | None = None, pool: EntropyPool | None = None):
+        # Fallback: MT seeded with high entropy (still weaker than AgentRandom).
+        seed = pool.seed_for_agent(agent_id, persona) if pool else secrets.randbits(128)
+        return random.Random(seed)
+
+from agent.bdi_planner import BDIPlanner
+from agent.persona_fusion import PersonaFusion
+
+if TYPE_CHECKING:
+    from agent.user_stories import UserStory
+    from agent.job_stories import JobStory
+
+from simulation.config.simulation_config import SimulationConfig
+from simulation.infrastructure.infrastructure_manager import InfrastructureManager
+from simulation.spatial_environment import SpatialEnvironment
+
+logger = logging.getLogger(__name__)
+
 from pathlib import Path
 from typing import List, Dict, Tuple, Any, Optional
 
@@ -61,7 +104,6 @@ try:
 except ImportError:
     STORY_AVAILABLE = False
     logger.warning("Story-driven agents not available")
-
 
 
 def create_planner(
@@ -116,8 +158,18 @@ def create_agents(
     if progress_callback:
         progress_callback(0.35, "🤖 Creating agents...")
     
-    # Crypto RNG for better spatial distribution
-    crypto_rng = random.Random(secrets.randbits(128))
+    # ── Master entropy pool + run RNG ─────────────────────────────────────────
+    # The audit-enhanced version uses a master pool and derives independent
+    # per-agent streams to avoid correlations and seed collisions.
+    #
+    # We keep behaviour identical (uniform sampling for O/D) but switch the
+    # RNG source to the secure RNG stack.
+    master_pool = EntropyPool(pool_size=8)  # 256-bit pool by default in RTD_SIM
+    run_rng = create_agent_rng("simulation_run", persona="od_sampling", pool=master_pool)
+
+    # Seed log for reproducibility/debugging (attached to simulation_results if provided)
+    seed_log: Dict[str, int] = {}
+
     
     # Helper function to generate random origin-destination pairs.
     #
@@ -165,8 +217,8 @@ def create_agents(
         dest = (east, north)
 
         for _ in range(25):
-            raw_origin = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
-            raw_dest   = (crypto_rng.uniform(west, east), crypto_rng.uniform(south, north))
+            raw_origin = (run_rng.uniform(west, east), run_rng.uniform(south, north))
+            raw_dest   = (run_rng.uniform(west, east), run_rng.uniform(south, north))
 
             if drive_graph is not None:
                 orig_node = env._get_nearest_node(raw_origin, 'drive')
@@ -240,17 +292,17 @@ def create_agents(
         for _ in range(30):
             # Pick two different stops as anchors
             if len(stops) >= 2:
-                a_stop, b_stop = crypto_rng.sample(stops, 2)
+                a_stop, b_stop = run_rng.sample(stops, 2)
             else:
                 return random_od()
 
             raw_o = (
-                a_stop[0] + crypto_rng.uniform(-jitter, jitter),
-                a_stop[1] + crypto_rng.uniform(-jitter, jitter),
+                a_stop[0] + run_rng.uniform(-jitter, jitter),
+                a_stop[1] + run_rng.uniform(-jitter, jitter),
             )
             raw_d = (
-                b_stop[0] + crypto_rng.uniform(-jitter, jitter),
-                b_stop[1] + crypto_rng.uniform(-jitter, jitter),
+                b_stop[0] + run_rng.uniform(-jitter, jitter),
+                b_stop[1] + run_rng.uniform(-jitter, jitter),
             )
 
             if drive_graph is not None:
@@ -310,7 +362,14 @@ def create_agents(
         for i, (user_story, job_story) in enumerate(agent_pool):
             # Tram and rail job stories need OD pairs near their corridors.
             origin, dest = corridor_od(job_story)
-            agent_seed = secrets.randbits(32)
+            # ── Per-agent entropy pool + derived seed (replaces 32-bit seeds) ──
+            agent_id = f"agent_{i+1}"
+            agent_pool = master_pool.spawn_pools(1)[0]  # independent child pool
+            agent_seed = agent_pool.seed_for_agent(agent_id, persona=user_story)
+            seed_log[agent_id] = agent_seed
+
+            # Per-agent RNG stream (used for any stochastic initialisation you add later)
+            agent_rng = create_agent_rng(agent_id, persona=user_story, pool=agent_pool)
 
             # 1. Create agent FIRST (no planner yet)
             agent = StoryDrivenAgent(
@@ -584,6 +643,13 @@ def create_agents(
             logger.error("   1. Graph is loaded correctly")
             logger.error("   2. BDI planner mode filtering")
             logger.error("   3. Router network mappings")
+
+        # Attach seed log for reproducibility/debugging (non-breaking)
+        if simulation_results is not None:
+            try:
+                setattr(simulation_results, "agent_seed_log", seed_log)
+            except Exception:
+                pass
         
         return agents, desire_std
     
@@ -593,8 +659,11 @@ def create_agents(
         
         for i in range(config.num_agents):
             origin, dest = random_od()
-            agent_seed = secrets.randbits(32)
-            agent_rng = random.Random(agent_seed)
+            agent_id = f"agent_{i+1}"
+            agent_pool = master_pool.spawn_pools(1)[0]
+            agent_seed = agent_pool.seed_for_agent(agent_id, persona="basic_agent")
+            seed_log[agent_id] = agent_seed
+            agent_rng = create_agent_rng(agent_id, persona="basic_agent", pool=agent_pool)
             
             agent = CognitiveAgent(
                 seed=agent_seed,
@@ -619,4 +688,12 @@ def create_agents(
             agents.append(agent)
         
         logger.info(f"✅ Created {len(agents)} basic agents")
+
+        # Attach seed log for reproducibility/debugging (non-breaking)
+        if simulation_results is not None:
+            try:
+                setattr(simulation_results, "agent_seed_log", seed_log)
+            except Exception:
+                pass
+
         return agents, {}

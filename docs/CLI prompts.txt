@@ -10,7 +10,7 @@ tail -f /Users/theolim/AppDev/RTD_SIM/logs/simulation_*.log | grep -E "(LLM|CPG|
 
 # Report project structure
 find /Users/theo/Dev/Python/RTD_SIM -type f -name "*.py" -o -name "*.yaml" | \
-  grep -v __pycache__ | grep -v .git | sort > project_structure_current.txt && \
+  grep -v __pycache__ | grep -v .git | grep -v .venv | grep -v .ven | grep -v .env| sort > project_structure_current.txt && \
   echo "Done: $(wc -l < project_structure_current.txt) files"
 
 # list all files in cache
