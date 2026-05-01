@@ -160,6 +160,13 @@ class Router:
         self._rail_graph: Optional[Any]  = None
         self._rail_graph_attempted: bool = False
 
+        # Side-channel written by _compute_gtfs_route, read by _gtfs_with_segments.
+        # Holds the pre-built access/egress legs, transit geometry, and service
+        # label so _gtfs_with_segments never has to repeat any of that work.
+        # Reset to {} at the top of _gtfs_with_segments before each call so a
+        # stale value from a previous agent is never accidentally read.
+        self._last_gtfs_meta: dict = {}
+
         # ── Mode → OSMnx network type ──────────────────────────────────────────
         self.mode_network_types: Dict[str, str] = {
             'walk':            'walk',
