@@ -29,11 +29,6 @@ class SimulationConfig:
     
     Supports both old flat parameters (backward compatible) and new nested structure.
     """
-
-    # ── RNG configuration ──────────────────────────────────────────────
-    rng_reproducible: bool = False
-    rng_seed_name: Optional[str] = None
-    rng_seed_value: Optional[int] = None
     
     def __init__(
         self,
@@ -91,6 +86,11 @@ class SimulationConfig:
         
         # Agent plan generation
         llm_backend: str = 'rule_based',  # 'rule_based' | 'olmo' | 'claude'
+
+        # RNG / reproducibility
+        rng_reproducible: bool = False,
+        rng_seed_name: Optional[str] = None,
+        rng_seed_value: Optional[int] = None,
 
         # Analytics (old style)
         enable_analytics: bool = True,
@@ -169,6 +169,11 @@ class SimulationConfig:
         self.strong_tie_threshold = strong_tie_threshold
         self.llm_backend = llm_backend
         
+        # RNG / reproducibility
+        self.rng_reproducible = bool(rng_reproducible)
+        self.rng_seed_name = rng_seed_name
+        self.rng_seed_value = rng_seed_value
+
         # Temporal scaling
         self.enable_temporal_scaling = enable_temporal_scaling
         self.time_scale = time_scale
