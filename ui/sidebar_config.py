@@ -475,6 +475,10 @@ def render_sidebar_config():
     st.session_state['show_gtfs'] = st.session_state['show_gtfs_routes']
     # =======================================================================
     # ── RNG / reproducibility ───────────────────────────────────
+    # OUTSIDE the form so the seed selectbox appears immediately on checkbox
+    # toggle without requiring the Run Simulation button to be pressed.
+    st.markdown("---")
+    st.markdown("### 🎲 Randomness & Reproducibility")
     rng_reproducible = st.checkbox(
         "Enable reproducible simulation",
         value=False,
@@ -1825,51 +1829,12 @@ def _render_advanced_features():
     """Render advanced features section."""
     st.markdown("### 🔬 Advanced Features")
     
-    # ── RNG / Reproducibility ───────────────────────────────────────────
-    st.markdown("### 🎲 Randomness & Reproducibility")
-
-    reproducible = st.checkbox(
-        "Enable reproducible simulation",
-        value=False,
-        help="OFF = realistic (non-deterministic). ON = reproducible research runs."
-    )
-
-    seed_name = None
-    seed_value = None
-
-    if reproducible:
-        import yaml
-        seed_lib_path = Path("config/rng_seed_library.yaml")
-
-        seeds = []
-        if seed_lib_path.exists():
-            data = yaml.safe_load(seed_lib_path.read_text())
-            seeds = data.get("seeds", [])
-
-        seed_labels = [s["name"] for s in seeds]
-        selected = st.selectbox(
-            "Seed preset",
-            seed_labels,
-            index=0
-        )
-
-        seed_name = selected
-        seed_value = next(
-            s["seed"] for s in seeds if s["name"] == selected
-        )
-
-        override = st.text_input(
-            "Seed override (decimal or 0xHEX)",
-            value="",
-            help="Optional. Overrides selected seed."
-        )
-
-        if override.strip():
-            try:
-                seed_value = int(override.strip(), 0)
-                seed_name = "override"
-            except ValueError:
-                st.error("Seed must be decimal or 0x-prefixed hex.")
+    # NOTE: The 🎲 Randomness & Reproducibility section is intentionally NOT
+    # rendered here.  This function is called inside `with st.form(...)`, so
+    # any checkbox interactions would be deferred until the form is submitted —
+    # the seed selectbox would never appear on checkbox toggle.
+    # The RNG section is rendered OUTSIDE the form in render_sidebar_config()
+    # (search for "── RNG / reproducibility") where it works correctly.
 
     use_congestion = st.checkbox("Enable Congestion", value=False)
     

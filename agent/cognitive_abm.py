@@ -96,13 +96,20 @@ class CognitiveAgent:
         agent_context: Optional[Dict] = None,
         simulation_results=None,  # SimulationResults — for routing_fallback_count
     ):
-        # Use CSPRNG-backed RNG when available; fallback to MT for minimal envs.
+        # Use CSPRNG-backed RNG when available; fallback to stdlib MT for minimal envs.
+        # NOTE: do NOT import AgentRandom here — any assignment to a name inside a
+        # function body makes Python treat it as a local variable for the entire
+        # function scope (compile-time decision).  A `from ... import AgentRandom`
+        # in the else branch would cause UnboundLocalError on the `AgentRandom is
+        # not None` guard above it, because Python sees the name as local-but-not-
+        # yet-assigned at that evaluation point.  The module-level try/except already
+        # sets AgentRandom = None on import failure, so the check below is safe.
         if _SECURE_RNG_AVAILABLE and AgentRandom is not None:
-            # If seed is None, AgentRandom() pulls from OS entropy.
+            # seed=None → AgentRandom pulls from OS entropy (CSPRNG).
             self.rng = AgentRandom(seed)
         else:
-            from utils.secure_rng import AgentRandom
-            self.rng = AgentRandom(random.seed)
+            # Secure RNG unavailable — fall back to stdlib Mersenne Twister.
+            self.rng = random.Random(seed)
             
         self.state = AgentState(agent_id=agent_id or f'agent_{abs(self.rng.randint(1, 9999))}')
         # Defaults remain small only for unit tests; production runs seed from OSM or Edinburgh bbox.
