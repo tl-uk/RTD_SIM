@@ -279,11 +279,14 @@ def apply_scenario_policies(
                     elif param == 'relocate_chargers':
                         num = policy['value']
                         threshold = policy.get('utilization_threshold', 0.2)
-                        
-                        relocated = config.infrastructure.relocate_underutilized_chargers(
-                            num_to_relocate=num,
-                            utilization_threshold=threshold
-                        )
+
+                        if infrastructure is not None:
+                            relocated = infrastructure.relocate_underutilized_chargers(
+                                num_to_relocate=num,
+                                utilization_threshold=threshold
+                            )
+                        else:
+                            relocated = []
                         
                         infrastructure_changes['relocated_chargers'] = {
                             'count': len(relocated),
@@ -297,20 +300,22 @@ def apply_scenario_policies(
                     elif param == 'increase_capacity':
                         multiplier = policy['value']
                         region = policy.get('region', 'default')
-                        
-                        if region in config.infrastructure.grid_regions:
-                            grid = config.infrastructure.grid_regions[region]
+
+                        if infrastructure is not None and region in infrastructure.grid_regions:
+                            grid = infrastructure.grid_regions[region]
                             old_capacity = grid.capacity_mw
                             grid.capacity_mw *= multiplier
-                            
+
                             infrastructure_changes['grid_capacity_increase'] = {
                                 'region': region,
                                 'old_capacity_mw': old_capacity,
                                 'new_capacity_mw': grid.capacity_mw,
                                 'multiplier': multiplier
                             }
-                            
-                            logger.info(f"✅ Increased grid capacity: {old_capacity:.0f} MW → {grid.capacity_mw:.0f} MW ({multiplier}x)")
+
+                            logger.info(
+                                f"✅ Increased grid capacity: {old_capacity:.0f} MW → {grid.capacity_mw:.0f} MW ({multiplier}x)"
+                            )
                         else:
                             logger.warning(f"Grid region '{region}' not found")
                     
