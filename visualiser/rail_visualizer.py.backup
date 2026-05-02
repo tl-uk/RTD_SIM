@@ -1,3 +1,12 @@
+"""
+visualiser/rail_visualizer.py
+
+Rail visualizer component for Pydeck.
+
+This file is an example. The content are now in unfied in Transit_layers.py.
+
+"""
+
 import pydeck as pdk
 import pandas as pd
 

@@ -1,0 +1,643 @@
+================================================================================
+RTD_SIM ROUTING DEBUG — SESSION HANDOFF 10
+Generated: 2026-05-02
+Prior transcripts:
+  /mnt/transcripts/2026-04-14-22-07-25-rtd-sim-routing-visualisation-phase2.txt
+  (Sessions 8-10 compacted inline below)
+Log analysed: simulation_20260502_183122.log (88,979 lines)
+Screenshots:  GTFS_2026-05-02_at_19_13_53.pdf (9 pages)
+================================================================================
+
+
+HOW TO START THE NEXT SESSION
+================================================================================
+
+Say exactly this:
+
+  "Continue RTD_SIM debug. This is handoff 10. The simulation now runs with
+  and without GTFS. Key issues identified from logs and screenshots:
+    1. GTFS is loaded 3× (27 min wasted) — needs single-load guard
+    2. Rail access walk leg returns empty — agents fall through to bus/EV
+    3. OSM speed limits not yet extracted — cost function incomplete
+    4. Bus missing shape_coords → bus_noseg road proxy fails silently
+    5. Tooltip shows literal {tooltip_html} on some route segments
+    6. Ferry route crosses Inchcolm island (straight line, no maritime routing)
+    7. Heading reversal guard: still required (turn restrictions not in OSMnx edges)
+
+  Files I am uploading: [list below]"
+
+
+================================================================================
+ARCHITECTURE SUMMARY (confirmed correct — do not change)
+================================================================================
+
+Data flow:
+  bdi_planner.actions_for()
+    → For STRUCTURED_MODES (rail/tram/ferry):
+        TripChainBuilder.build() → [access_leg, trunk_leg, egress_leg]
+        each leg routed via env.compute_route_with_segments()
+        result: 3-segment TripChain with real boarding/alighting points
+    → For ROUTABLE_MODES (car/ev/bus/walk/bike):
+        env.compute_route_with_segments() directly via _compute_gtfs_route()
+        result: 1-3 segment TripChain (access walk + transit + egress walk)
+    → TripChain stored in params['trip_chain']
+    → cognitive_abm._maybe_plan() propagates to agent.state.trip_chain
+    → simulation_loop.py copies all multimodal fields to agent_states dict
+    → visualization.py renders per-leg PathLayers
+
+Graph separation (CRITICAL — never merge):
+  drive graph      — OSMnx network_type='drive'
+  walk graph       — OSMnx network_type='walk'
+  bike graph       — OSMnx network_type='bike'
+  rail graph       — OpenRailMap Overpass query (rail_network.py)
+  tram graph       — OSM railway=tram (sidings pruned, retain_all=False)
+  transit graph    — GTFSGraph (8136 stops, 10653 edges when GTFS loaded)
+  ferry graph      — ferry_network.fetch_maritime_graphs()
+  shipping_lanes   — OpenSeaMap TSS (visualisation only)
+
+All coordinates: (lon, lat). Never (lat, lon).
+
+Key attribute: SpatialEnvironment.router (Router instance, set at line 94)
+  → Used by TripChainBuilder._snap_stop() via getattr(env, 'router', None)
+  → Router.snap_to_transit_stop() is a public method
+
+
+================================================================================
+CONFIRMED RESULTS FROM SESSION 10 LOGS
+================================================================================
+
+WITHOUT GTFS (simulation_20260502_183122.log lines 98 – ~20394):
+  ✅ TripChain 3-leg rail: concerned_parent_commute_flexible_7124 (3.4km, 91 pts)
+  ✅ Bus agents: sane routes, correct stop snapping via NaPTAN
+  ✅ transit_stop_loader.route_via_stops(tram): working (92–419 interpolated pts)
+  ✅ EV/car: road-following, correct
+  ✅ Ferry: Hawes Pier–Inchcolm Island present but straight line (Issue 6)
+  ✅ No 406 Overpass errors
+  ❌ Most rail agents: "empty leg for local_train/intercity_train" → fall to EV
+  ❌ Tram: no OSM tram graph loaded → transit_stop_loader fallback (correct)
+  ❌ Tooltip: rendered as literal {tooltip_html} on some agents (Issue 5)
+  ❌ Walk trips >3km: some agents assigned walk for 3-5km journeys (Issue 7b)
+
+WITH GTFS (simulation_20260502_183122.log lines 20395–88979):
+  ✅ Bus routing: GTFS shapes loaded, service labels correct (Bus 71, 43, N43 etc.)
+  ✅ Tram T50: OSM track geometry active (17-62 pts per segment) — correct!
+  ✅ Tram: 23-33 stops, 364-650 pts — good geometry
+  ✅ Bus N44, 45, 44: 48 stops / 403 pts for agent 5585 — correct service
+  ❌ GTFS loaded 3× (27 minutes total load time) — see Issue 1
+  ❌ All rail agents: "empty leg for walk" → fall through to bus — see Issue 2
+  ❌ Some bus segments: bus_noseg road proxy returns "No road path" — see Issue 3
+  ❌ Agent 5585 (service 44): route geometry incorrect, straight lines — Issue 3
+  ❌ Tooltip literal {tooltip_html} — see Issue 5
+  ❌ No rail trips produced despite rail graph loaded
+
+
+================================================================================
+KNOWN ISSUES (priority order for next session)
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 1 — GTFS LOADED 3× (CRITICAL PERFORMANCE)
+─────────────────────────────────────────────────────────────────────────────
+
+Log evidence:
+  18:40:47 — Loading GTFS feed: itm_all_gtfs.zip      (1st load)
+  18:42:15 — GTFS: 4859288 stop_times loaded           (1st complete: 1m28s)
+  18:42:51 — Loading GTFS feed: itm_all_gtfs.zip      (2nd load)
+  18:55:28 — ✅ GTFS transit graph: 8136 stops          (2nd complete: 12m37s)
+  18:56:22 — GTFS: 4859288 stop_times loaded           (3rd stop_times parse)
+  19:07:50 — ✅ GTFS transit graph: 8136 stops          (3rd complete: 11m28s)
+  TOTAL WASTED: ~27 minutes before simulation even starts
+
+Root cause:
+  environment_setup.py calls GTFSLoader (and possibly GTFSGraph.build()) multiple
+  times — once during graph setup and again during spatial_environment.py init.
+  simulation_runner.py may also trigger a reload when config changes.
+
+Fix required (environment_setup.py + spatial_environment.py):
+  1. Add a module-level singleton guard in GTFSLoader or GTFSGraph:
+       _TRANSIT_GRAPH_CACHE: Optional[nx.MultiDiGraph] = None
+       _TRANSIT_GRAPH_FEED:  Optional[str] = None
+
+       def build(self, feed_path, ...):
+           global _TRANSIT_GRAPH_CACHE, _TRANSIT_GRAPH_FEED
+           if _TRANSIT_GRAPH_CACHE is not None and _TRANSIT_GRAPH_FEED == feed_path:
+               return _TRANSIT_GRAPH_CACHE
+           ...build...
+           _TRANSIT_GRAPH_CACHE = G
+           _TRANSIT_GRAPH_FEED  = feed_path
+           return G
+
+  2. environment_setup.py: store the graph on env BEFORE calling setup
+     functions that might re-trigger loading. Check for existing
+     env._transit_graph before calling build().
+
+Files needed: environment_setup.py, gtfs_loader.py, gtfs_graph.py,
+              spatial_environment.py
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 2 — RAIL ACCESS LEG RETURNS EMPTY (NO RAIL TRIPS)
+─────────────────────────────────────────────────────────────────────────────
+
+Log evidence (no GTFS):
+  budget_student_tourist_scenic_rail_5585: local_train
+    board=(-3.31875136611, 55.90056536548)  alight=(-3.21844944732, 55.94580778669)
+    access=walk  egress=walk
+  → "empty leg for walk — aborting chain"
+
+  (Same for intercity_train with identical board/alight coords)
+
+Log evidence (with GTFS):
+  budget_student_tourist_scenic_rail_5585: local_train
+    board=(-3.31875136611, 55.90056)  = Curriehill station
+    alight=(-3.21844944732, 55.94580) = Wester Hailes / South Gyle area
+  → "empty leg for walk — aborting chain"
+  → Falls to bus: Bus N44, 45, 44 (correct service, wrong mode for this agent)
+
+Root cause analysis:
+  Curriehill station (-3.3188, 55.9006) is at a road-sparse area south of
+  Edinburgh. The walk graph may not have nodes near this station — the agent
+  origin to station walk leg returns [] because ox.distance.nearest_nodes()
+  snaps to a node that is unreachable from origin on the walk graph.
+
+  The heading reversal on rail node 966807301 (bearing 248°→67°, Δ=180°)
+  affects EVERY rail agent using Curriehill: the trunk leg has a 180° reversal
+  that persists after penalty retry, so the trunk geometry is accepted-but-wrong.
+  This is a separate problem from the access leg.
+
+  The repeating "3.4km, 91 pts" result across multiple agents is the same
+  Curriehill→Wester Hailes path being returned every time (the only viable
+  path on the rail graph between those two NaPTAN stops).
+
+Fixes required:
+  A. router.py _compute_access_leg():
+     When walk graph returns [], fall back to drive-proxy (already exists for
+     other modes — extend to access legs for rail/tram):
+       if not walk_route or len(walk_route) < 2:
+           logger.debug("%s: walk access failed — drive proxy", agent_id)
+           return self._compute_road_route(agent_id, origin, dest, 'car', policy)
+
+  B. router.py _compute_intermodal_route():
+     The 180° reversal at node 966807301 is a known bad OpenRailMap node
+     (likely a junction with a stub siding). The penalty retry correctly
+     identifies it but accepts the bad route because there is no alternative.
+     Fix: if reversal persists after penalty, attempt routing via the next
+     nearest rail node (skip the problematic node).
+
+  C. trip_chain_builder.py _build_rail_like():
+     Before raising ValueError on empty access/egress, log the specific
+     coord and distance to help diagnose future failures.
+
+Files needed: router.py, trip_chain_builder.py
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 3 — BUS NOSEG ROAD PROXY FAILURES AND STRAIGHT LINES THROUGH BUILDINGS
+─────────────────────────────────────────────────────────────────────────────
+
+Log evidence:
+  "No road path for shift_worker_shopping_trip_8181_bus_noseg1 using car"
+  "No road path for shift_worker_shopping_trip_8181_bus_noseg3 using car"
+  "No road path for eco_warrior_tourist_scenic_rail_7672_bus_noseg20 using car"
+  "car U-turn persists after penalty retry — accepting best available route"
+
+  Agent 5585 (service 44): 48 stops, 403 pts — but PDF page 4 shows diagonal
+  straight line through Angle Park Terrace area (not following road).
+
+Root cause:
+  When GTFS shape_coords is missing for a stop pair AND the stop pair is
+  >0.5km apart, _compute_gtfs_route() calls _compute_road_route('car', policy)
+  for that segment. If the drive graph has no path between the stop node
+  coords (because they're on bus-only infrastructure, in a pedestrianised area,
+  or the stop coord snaps to a node with restricted access), the road router
+  returns [] and the fallback is a straight line.
+
+  Service 44 (Morningside–Granton) has several stops along Angle Park Terrace
+  which is pedestrianised — the drive graph has no edges there. The straight
+  line in the screenshot is the fallback for those segments.
+
+Fixes required:
+  A. router.py _compute_gtfs_route() bus_noseg fallback:
+     When _compute_road_route returns [] for a noseg segment, try:
+       1. Walk graph (may have access to bus-only stops)
+       2. Straight interpolation at 50m intervals (better than a 2-point line)
+     Never silently insert a raw 2-point straight line — interpolate it.
+
+  B. gtfs_loader.py or gtfs_graph.py:
+     For the DfT BODS feed (itm_all_gtfs.zip), check whether shapes.txt is
+     being parsed. The feed has 1932 shapes but service 44 (source ID 139309,
+     Onestop r-gcvw-44) should have shape data. Verify that shape_coords are
+     being stored on the correct transit graph edges:
+       G_transit[u][v][key]['shape_coords'] — should be non-empty for service 44.
+     If empty: the shape_id lookup in gtfs_loader is failing silently. Add a
+     warning when a trip has a shape_id but shape_coords comes back empty.
+
+Files needed: router.py, gtfs_loader.py (or gtfs_graph.py)
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 4 — OSM SPEED LIMITS NOT EXTRACTED (COST FUNCTION INCOMPLETE)
+─────────────────────────────────────────────────────────────────────────────
+
+Context (from user discussion):
+  OSM maxspeed tags are present on most classified roads. Extracting them
+  enriches the generalised cost function so agents respect legal speeds,
+  making the simulation more realistic (e.g. freight agents on residential
+  streets are correctly penalised vs motorway routing).
+
+  Proposed Overpass query (already correct — user supplied it):
+    way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential)$"]
+       ["maxspeed"!~"."]["maxspeed:type"!~"."]["source:maxspeed"!~"."]({bbox})
+
+  This finds roads WITHOUT speed limit tags, which is useful for gap-filling
+  with national defaults (UK: 30mph residential, 60mph single carriageway,
+  70mph motorway/dual carriageway).
+
+Implementation plan:
+  A. graph_manager.py or environment_setup.py:
+     After OSMnx graph download, use ox.add_edge_speeds() which already reads
+     maxspeed tags and fills UK national defaults. This is already in the
+     OSMnx API — no custom Overpass query needed for the graph itself.
+     The Overpass query is only needed for a separate "speed limit audit" layer.
+
+  B. router.py _apply_generalised_weights():
+     Currently uses 'travel_time' weight. Ensure ox.add_edge_travel_times()
+     is called after ox.add_edge_speeds() in environment_setup — this bakes
+     speed limits into the travel_time edge attribute.
+     Add persona-specific speed factors:
+       freight_operator → applies 0.85× speed limit (lorry speed restriction)
+       emergency_trade_worker → applies 1.0× (road speed, no penalty)
+       budget_student → applies walk/cycle speed on cycle/walk network
+
+  C. modes.py or new speed_limits.py:
+     Add UK_NATIONAL_SPEED_DEFAULTS dict for gap-filling:
+       'motorway': 70, 'trunk': 70, 'primary': 60, 'secondary': 60,
+       'tertiary': 30, 'unclassified': 60, 'residential': 30  (mph)
+     Convert to km/h for OSMnx: × 1.60934
+
+Files needed: graph_manager.py, environment_setup.py, router.py, modes.py
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 5 — TOOLTIP SHOWS LITERAL {tooltip_html} ON SOME AGENTS
+─────────────────────────────────────────────────────────────────────────────
+
+Screenshot evidence: PDF page 3 — tooltip shows "{tooltip_html}" literally.
+Page 1 shows correct tooltip for agent 5479 (Bus 71, 43, N43 / Service N43).
+
+Root cause:
+  pydeck renders `{tooltip_html}` by looking up the `tooltip_html` key in
+  the data row for the hovered object. When a route segment dict is missing
+  the 'tooltip_html' key, pydeck shows the raw template string.
+
+  In visualization.py, route segments are built in two code paths:
+    Path A (with trip_chain): segment dicts from TripChain legs — these have
+      tooltip_html set correctly at line 717.
+    Path B (flat route, no segments): single route dict at line 750.
+    Path C (fallback/simple agents): dicts built in the agent loop at line 544
+      may not always set tooltip_html when the agent has no service_id or
+      the mode is not in the standard set.
+
+  NaPTAN stop markers (ScatterplotLayer) use get_tooltip='name' not tooltip_html,
+  which is correct and separate.
+
+Fix required (visualization.py):
+  In every code path that builds a route dict for a PathLayer, ensure
+  'tooltip_html' is always set (even if empty string):
+    row.setdefault('tooltip_html', '')
+  Add this as a final pass over all route_data lists before layer creation:
+    for row in route_data:
+        row.setdefault('tooltip_html', '')
+
+Files needed: visualization.py
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 6 — FERRY CROSSES INCHCOLM ISLAND (STRAIGHT LINE)
+─────────────────────────────────────────────────────────────────────────────
+
+Screenshot evidence: PDF page 9 — blue diagonal line from Hawes Pier to
+  Inchcolm Island passes through the island landmass. Tooltip correctly
+  shows "Passenger ferry / Foot passengers".
+
+Root cause:
+  The ferry route is a great-circle straight line (2 points: origin→dest).
+  ferry_network.fetch_maritime_graphs() builds the graph from Overpass
+  route=ferry relations. Inchcolm ferry (Hawes Pier → Inchcolm) is a short
+  crossing (~3.5km) and the Overpass relation may not have way geometry
+  stored on the relation members.
+
+  The ferry_network graph is loaded correctly (no 406 errors now) but the
+  specific Inchcolm route may have no geometry in the relation — only
+  stop_position nodes — so the router falls back to 2-point interpolation.
+
+Fix options:
+  A. ferry_network.py: when a ferry relation has no way geometry, query the
+     node members and build the route from node coordinates in order.
+  B. router.py _compute_ferry_route(): when the ferry graph has no path
+     between terminals, fall back to _interpolate([origin, dest], 0.2) which
+     at least gives smooth great-circle segments rather than a 2-point line.
+     Add a nautical routing check: if the straight line passes through land
+     (check against a coastline polygon if available), route around it.
+     For now: Option B (fine interpolation) is the pragmatic fix.
+
+Files needed: ferry_network.py, router.py
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 7 — HEADING REVERSAL GUARD: STILL REQUIRED
+─────────────────────────────────────────────────────────────────────────────
+
+User question: "Since one-way info can be extracted from OSM, is the heading
+reversal guard in router.py still required?"
+
+Answer: YES, still required. The two mechanisms solve different problems:
+
+  OSMnx directed edges (oneway= tags):
+    → Prevents routing the wrong way up a one-way street
+    → OSMnx bakes this in at graph construction time
+    → Works correctly; no change needed
+
+  Heading reversal guard (_has_heading_reversal):
+    → Catches OSM TURN RESTRICTIONS (no_u_turn, no_left_turn, no_straight_on)
+    → These are stored as OSM relation metadata, NOT as edge direction
+    → OSMnx does NOT enforce turn restrictions via directed edges alone
+    → Without the guard, agents do legal-direction U-turns at complex junctions
+    → Edinburgh examples: Princes St/Lothian Rd, Gorgie Rd/Dalry Rd, A720 slip roads
+
+  The guard remains necessary specifically for:
+    - Rail reversals (physics constraint — trains cannot turn mid-route)
+    - Road U-turns at relation-coded turn restrictions
+    - Bus routes that would otherwise loop back through the same stop
+
+  However the guard can be RELAXED for:
+    - Walk agents: pedestrians can reverse direction freely
+    - Bike agents: cyclists can legally turn around
+  Apply by checking mode before calling _has_heading_reversal:
+    if mode not in ('walk', 'bike', 'cargo_bike', 'e_scooter'):
+        if self._has_heading_reversal(graph, route_nodes, threshold_deg=170.0):
+            ...
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 7b — WALK TRIPS >3KM
+─────────────────────────────────────────────────────────────────────────────
+
+Log evidence:
+  No specific agent IDs in this log, but the user reports walk trips >3km.
+
+Root cause:
+  bdi_planner.py has a distance filter that removes walk when distance >X km
+  (line: "Distance filter (10.0km): removed {'walk'}"). However the threshold
+  is 10km, which is far too high for walk mode. Some agents with 3-5km trips
+  are getting walk assigned because rail/bus fail first.
+
+Fix required (bdi_planner.py _distance_filter):
+  Walk should be capped at ~2km for a city simulation:
+    _MODE_MAX_DISTANCE_KM = {
+        'walk':       2.0,    # was effectively unlimited
+        'bike':      15.0,
+        'e_scooter':  8.0,
+        'cargo_bike': 8.0,
+    }
+  The 10km threshold is the outer filter — add per-mode inner thresholds.
+
+Files needed: bdi_planner.py
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE 8 — ROUTER.PY REFACTORING (deferred from session 9)
+─────────────────────────────────────────────────────────────────────────────
+
+router.py is ~2811 lines. Proposed split into focused modules:
+
+  simulation/spatial/routing/
+    __init__.py               — exports Router (backwards compatible)
+    router_core.py            — Router class: __init__, compute_route, weights
+    router_road.py            — _compute_road_route, _has_heading_reversal,
+                                _find_reversal_node, _avoid_roundabout
+    router_transit.py         — _compute_gtfs_route, _gtfs_with_segments,
+                                _compute_access_leg, _transit_fallback
+    router_rail.py            — _compute_intermodal_route, snap_to_transit_stop
+    router_ferry.py           — _compute_ferry_route, _compute_access_leg
+    router_utils.py           — _interpolate, _extract_geometry, haversine_km,
+                                route_distance_km, _get_invalid_route
+
+  Migration strategy:
+    1. Create the routing/ directory with __init__.py re-exporting Router
+    2. Move methods to their module files (each keeps the same signature)
+    3. Add cross-module imports where needed (e.g. router_transit imports
+       _compute_road_route from router_road)
+    4. Run test suite to confirm no regressions
+
+  NOT blocking other issues — defer until Issues 1-5 are resolved.
+
+
+================================================================================
+CONFIRMED CORRECT (DO NOT REVISIT)
+================================================================================
+
+  ✅ TripChainBuilder: wired, 3-leg rail confirmed working for some agents
+  ✅ ferry_network.py: Content-Type fixed, Overpass works (no 406 errors)
+  ✅ GTFS tram OSM track geometry: working (OSM tram graph used per segment)
+  ✅ transit_stop_loader.route_via_stops: working, city-agnostic
+  ✅ if/elif/else stop snapping in _compute_gtfs_route: confirmed at lines 2001/2006
+  ✅ Tram spine road-following: fixed (now interpolates, not road-routes)
+  ✅ rng_seed_library.yaml: 0xED1NBRG → 0xED14B456 (valid hex)
+  ✅ cognitive_abm.py: UnboundLocalError fixed (removed inner import)
+  ✅ sidebar_config.py: Randomness section outside form (live toggle works)
+  ✅ story_driven_agent.py: stray 'Z' removed (SyntaxError fixed)
+  ✅ presets.py: analytics/feedback_loops/weather guarded with hasattr
+  ✅ service_id propagation: bdi_planner → params → agent.state.service_id
+  ✅ Bus service labels: "Bus 71, 43, N43" etc. showing correctly in tooltips
+  ✅ Contraflow fetch: transit_stop_loader.fetch_contraflow_cycling/bus ready
+  ✅ transit_layers.py: unified pydeck layer builder written and verified
+
+
+================================================================================
+STYLE CONFIG — CHANGES NEEDED (style_config.py)
+================================================================================
+
+Current gaps vs visual requirements:
+
+  1. Ferry lane: FERRY_ROUTE_DASH = True is defined but not applied in
+     visualization.py PathLayer creation. pydeck PathLayer supports
+     get_dash_array — add this to the ferry route layer.
+
+  2. Rail/tram always-on: infrastructure layers (rail, tram, ferry shipping lanes)
+     should always be visible at zoom 10+, regardless of agent toggle.
+     Add INFRASTRUCTURE_MIN_ZOOM = 10 and check in render_map.
+
+  3. Agent route colours vs infrastructure: bus agent routes (dark purple/maroon
+     in screenshots) are very similar to rail line colour (indigo). Distinguish:
+       Bus agent route:    [120, 40, 160, 180]   # deep purple  (current ≈ OK)
+       Rail infrastructure:[60,  60,  60, 200]   # charcoal     (keep)
+       Tram infrastructure:[220,160,  30, 200]   # amber        (keep)
+       Bus infrastructure: [245,130,  30, 160]   # orange       (add in transit_layers)
+
+  4. Ferry lane vs ferry route: the ferry LANE (infrastructure) and ferry ROUTE
+     (agent route) need different colours:
+       FERRY_LANE_COLOR  = [14, 165, 233, 180]  # sky blue (infrastructure)
+       FERRY_ROUTE_COLOR = [0,  188, 212, 230]  # cyan     (agent route)
+
+  5. Add SPEED_LIMIT_OVERLAY_COLOR for the future speed-limit audit layer.
+
+
+================================================================================
+FILES MODIFIED IN SESSION 10
+================================================================================
+
+NEW FILES:
+  simulation/spatial/transit_stop_loader.py
+    → City-agnostic transit stop loader (replaces rail_spine hardcoded dicts)
+    → load_transit_stops(), nearest_stop(), route_via_stops()
+    → fetch_contraflow_cycling(), fetch_contraflow_bus()
+    → 4-tier: session cache → disk cache (24h) → Overpass → empty+warning
+
+  visualiser/transit_layers.py
+    → Unified pydeck layer builder (replaces rail_visualizer.py shim)
+    → create_transit_network_layers(): rail, tram, subway, bus, ferry, air,
+      walk, cycle, contraflow (cyan dashed), stops (ScatterplotLayer)
+    → GTFS shapes preferred; OSMnx geometry fallback; Overpass relations last
+
+CHANGED:
+  router.py
+    → __init__: self._last_gtfs_meta: dict = {} added (line ~163)
+    → _compute_gtfs_route: if/elif/else stop snapping (tram 5km catchment
+      no longer overwritten by 2km non-tram branch)
+    → _compute_gtfs_route: geometry + service-name collection merged into
+      one loop (was two separate passes)
+    → _compute_gtfs_route: self._last_gtfs_meta populated before return
+    → _gtfs_with_segments: thin wrapper reading meta (eliminates duplicate
+      nx.shortest_path, duplicate stop-snap, duplicate access/egress compute)
+    → Tram spine: road-following loop replaced with self._interpolate()
+      (prevents 30.5km detours via roads for 5.6km tram journeys)
+
+  sidebar_config.py
+    → show_tram checkbox added (Transport Network section)
+    → show_contraflow checkbox added
+    → Randomness section heading added above outside-form RNG block
+
+  presets.py
+    → surge_price_multiplier: moved out of InfrastructureConfig() constructor
+    → expansion_cost_per_charger: same
+    → All analytics/feedback_loops/weather accesses guarded with getattr+hasattr
+
+UNCHANGED (confirmed correct):
+  simulation/spatial/bdi_planner.py      — TripChainBuilder wired, service_id extracted
+  simulation/spatial/trip_chain_builder.py — complete and correct
+  simulation/setup/environment_setup.py  — parallel_queries commented out
+  simulation/spatial/spatial_environment.py — self.router at line 94
+  simulation/spatial/rail_network.py     — fetch_tram_relations_overpass present
+  simulation/gtfs/gtfs_loader.py         — working, just called 3× (Issue 1)
+  simulation/spatial/ferry_network.py    — Content-Type fixed (session 9)
+  visualiser/rail_visualizer.py          — kept as compatibility shim
+
+
+================================================================================
+Q&A FROM SESSION 10
+================================================================================
+
+Q: Is the heading reversal guard still required now that OSM one-way info is used?
+A: YES. OSMnx directed edges handle oneway= street direction. The heading
+   reversal guard handles turn RESTRICTIONS (no_u_turn etc.) stored as OSM
+   relations — these are NOT in the graph edges and OSMnx does not enforce them.
+   Relax the guard for walk/bike modes (they can reverse freely) but keep it
+   for road vehicles, rail, and bus.
+
+Q: Should we extract OSM speed limits via Overpass?
+A: Use ox.add_edge_speeds() instead — it reads maxspeed tags from the already-
+   downloaded OSMnx graph and fills UK national defaults automatically.
+   The Overpass query for "roads missing maxspeed" is useful for an audit layer
+   (which roads are defaulted) but not needed for the routing cost function.
+   Add ox.add_edge_speeds() + ox.add_edge_travel_times() in environment_setup.py
+   after graph download. Then use 'travel_time' as the routing weight (it already
+   is, but the speeds were previously defaulted).
+
+Q: Should rail_spine.py be deleted?
+A: Not yet. Keep it as Tier 4 emergency fallback. Once Issues 1-3 are resolved
+   and rail trips are confirmed working (>10% of tourist_scenic_rail agents
+   taking rail), delete it and remove the import from router.py _transit_fallback.
+
+
+================================================================================
+FILES TO UPLOAD IN NEXT SESSION
+================================================================================
+
+MUST UPLOAD:
+  simulation/setup/environment_setup.py        ← GTFS 3× load fix (Issue 1)
+  simulation/gtfs/gtfs_loader.py               ← add singleton guard
+  simulation/gtfs/gtfs_graph.py                ← verify shape_coords storage
+  simulation/spatial/router.py                 ← rail access leg fix (Issue 2)
+
+UPLOAD FOR CONTEXT:
+  simulation/spatial/bdi_planner.py            ← walk distance cap (Issue 7b)
+  visualiser/visualization.py                  ← tooltip fix (Issue 5)
+  Any new simulation log (*.log)               ← verify rail trips now appear
+
+DO NOT RE-UPLOAD (confirmed clean):
+  ferry_network.py         — Content-Type fixed, working
+  trip_chain_builder.py    — complete and correct
+  transit_stop_loader.py   — new file, just written
+  transit_layers.py        — new file, just written
+  rng_seed_library.yaml    — fixed (0xED14B456)
+  story_driven_agent.py    — stray Z removed
+  cognitive_abm.py         — UnboundLocalError fixed
+
+
+================================================================================
+EXPECTED LOG MESSAGES AFTER NEXT RUN
+================================================================================
+
+SHOULD NOW APPEAR (after Issue 1 fix):
+  "GTFS transit graph: building (first load)"         — once only
+  "GTFS transit graph: returning cached graph"        — on subsequent calls
+  Total GTFS load time: <3 minutes (down from 27)
+
+SHOULD NOW APPEAR (after Issue 2 fix):
+  "✅ agent_id: TripChain local_train  X.Xkm  3 legs"
+  "walk access failed — drive proxy: N pts"           — when walk graph sparse
+
+SHOULD DISAPPEAR:
+  "empty leg for local_train — aborting chain"        — most occurrences
+  "No road path for agent_bus_noseg{N} using car"    — most occurrences
+
+SHOULD REMAIN (correct behaviour):
+  "GTFS bus X.Xkm (N stops, N pts) — service: Bus N44, 45, 44"
+  "tram OSM track geometry: N pts between stops X→Y"
+  "heading reversal resolved via penalty on node X"
+  "TripChainBuilder rejected tram — No tram boarding stop within 5km"
+
+
+================================================================================
+BUG FIX SUMMARY TABLE
+================================================================================
+
+Session | File                        | Bug                            | Fix
+--------|-----------------------------|--------------------------------|---------------------------
+1-7     | router.py                   | Walk graph straight lines      | Drive-proxy fallback
+1-7     | bdi_planner.py              | _fused_override NameError      | Renamed to _fused_allowed
+1-7     | persona_fusion.py           | tram job missing from map      | Added _JOB_MODE_OVERRIDES
+1-7     | agent_creation.py           | Random OD misses corridor      | corridor_od() added
+8       | router.py                   | Heading reversal off-by-one    | range(check_up_to)
+8       | router.py                   | Reversal CW/CCW asymmetric     | Symmetric angle formula
+8       | router.py                   | restricted_view NetworkXNoPath | Edge-penalty ×10000 retry
+8       | router.py                   | RLY grants tram access         | TMU-only filter
+8       | router.py                   | snap_to_transit_stop missing   | Added as public method
+8       | transport_loader.py         | Tram routes through carpark    | retain_all=False + prune
+8       | transport_loader.py         | Ferry uses linear interp       | fetch_maritime_graphs()
+8       | ferry_network.py            | HTTPError swallowed silently   | Catch before Exception
+8       | rail_network.py             | fetch_tram_relations missing   | Re-added function
+8       | trip_chain_builder.py       | New file: leg stub generator   | Written from scratch
+9       | bdi_planner.py              | TripChainBuilder never called  | _STRUCTURED_MODES block
+9       | bdi_planner.py              | Old abstract guard intercepts  | Removed route_via_stations
+9       | ferry_network.py            | Content-Type: application/json | Fixed to form-urlencoded
+10      | router.py                   | if/if/else overwrote tram snap | Restructured to if/elif/else
+10      | router.py                   | Tram spine via road routing    | Replaced with _interpolate()
+10      | router.py                   | Geometry+service 2-loop pass   | Merged into single loop
+10      | router.py                   | _last_gtfs_meta not in __init__| Added to __init__
+10      | router.py                   | _gtfs_with_segments duplicate  | Thin wrapper via meta
+10      | story_driven_agent.py       | SyntaxError stray 'Z'          | Removed
+10      | cognitive_abm.py            | UnboundLocalError AgentRandom  | Removed inner import
+10      | sidebar_config.py           | RNG section inside form        | Moved outside form
+10      | presets.py                  | analytics/weather unguarded    | hasattr guards added
+10      | rng_seed_library.yaml       | 0xED1NBRG invalid hex          | Fixed to 0xED14B456
+10      | transit_stop_loader.py      | rail_spine hardcoded cities    | NEW: city-agnostic loader
+10      | transit_layers.py           | rail_visualizer single mode    | NEW: unified layer builder
+
+
+================================================================================
+END OF HANDOFF 10
+================================================================================
