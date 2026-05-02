@@ -383,12 +383,13 @@ def render_sidebar_config():
     st.markdown("**Transport Network**")
     col3, col4 = st.columns(2)
     with col3:
-        st.session_state['show_rail'] = st.checkbox(
-            "🚆 Rail Network",
-            value=st.session_state.get('show_rail', False),
-            key="_disp_rail",
-            help="OpenRailMap track geometry (or hardcoded station spine when offline).",
+        st.session_state['show_tram'] = st.checkbox(
+            "🚋 Tram / Metro",
+            value=st.session_state.get('show_tram', True),
+            key="_disp_tram",
+            help="Tram and light-rail track geometry from OSM or GTFS shapes.",
         )
+        
         # GTFS Routes — key is show_gtfs_routes (NOT show_gtfs)
         # map_tab.py reads show_gtfs_routes; this is the canonical key.
         st.session_state['show_gtfs_routes'] = st.checkbox(
@@ -415,6 +416,15 @@ def render_sidebar_config():
             value=st.session_state.get('show_naptan_stops', False),
             key="_disp_naptan",
             help="Authoritative UK rail, metro, tram, and ferry terminal positions.",
+        )
+        st.session_state['show_contraflow'] = st.checkbox(
+            "🔄 Contraflow Lanes",
+            value=st.session_state.get('show_contraflow', False),
+            key="_disp_contraflow",
+            help=(
+                "Contraflow cycling (cyan dashed) and contraflow bus lanes (orange dashed). "
+                "Tags: oneway:bicycle=no, cycleway=opposite, oneway:bus=no."
+            ),
         )
         st.session_state['show_ferry_routes'] = st.checkbox(
             "⛴️ Ferry Lanes",

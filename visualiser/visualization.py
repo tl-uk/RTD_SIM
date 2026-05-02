@@ -10,7 +10,7 @@ Handles map rendering, charts, infrastructure visualization, and animation contr
 from __future__ import annotations
 from typing import List, Dict, Optional, Any
 from collections import Counter
-from ui.components.rail_visualizer import create_rail_layer
+from visualiser.transit_layers import create_transit_network_layers
 from ui.components.gtfs_visualizer import create_gtfs_service_layer, create_gtfs_stops_layer
 
 import logging
@@ -390,28 +390,32 @@ def render_map(
     # The rail graph lives on the SpatialEnvironment (passed as env kwarg),
     # not on InfrastructureManager.  Accept either so callers can pass what
     # they have.
-    if show_rail:
-        G_rail = None
-        # Prefer an explicit env / spatial_environment argument
-        env_arg = kwargs.get('env') or kwargs.get('spatial_environment')
-        if env_arg is not None and hasattr(env_arg, 'get_rail_graph'):
-            G_rail = env_arg.get_rail_graph()
-        # Fallback: infrastructure_manager may carry a graph_manager reference
-        elif infrastructure_manager is not None:
-            gm = getattr(infrastructure_manager, 'graph_manager', None)
-            if gm is not None:
-                G_rail = gm.get_graph('rail')
-
-        if G_rail is not None:
-            try:
-                rail_layer = create_rail_layer(G_rail)
-                if rail_layer:
-                    layers.insert(0, rail_layer)   # under all other layers
-                    logger.info("✅ Rail layer added (%d nodes)", len(G_rail.nodes))
-            except Exception as exc:
-                logger.warning("Rail layer failed: %s", exc)
-        elif show_rail:
-            logger.debug("show_rail=True but rail graph not yet loaded")
+    _show_any_transit = any([
+        show_rail, show_gtfs, show_gtfs_stops, show_ferry_routes, show_airports,
+        kwargs.get('show_tram', False),
+        kwargs.get('show_contraflow', False),
+    ])
+    if _show_any_transit:
+        _env_arg = kwargs.get('env') or kwargs.get('spatial_environment')
+        try:
+            _transit_lyrs = create_transit_network_layers(
+                env              = _env_arg,
+                show_rail        = show_rail,
+                show_tram        = show_rail or kwargs.get('show_tram', False),
+                show_subway      = show_rail,
+                show_bus_corridors = show_gtfs,
+                show_ferry       = show_ferry_routes,
+                show_air         = show_airports,
+                show_contraflow  = kwargs.get('show_contraflow', False),
+                show_stops       = show_naptan_stops,
+                use_gtfs         = show_gtfs,
+            )
+            for _lname, _lyr in _transit_lyrs.items():
+                if _lyr is not None:
+                    layers.insert(0, _lyr)
+                    logger.info("✅ Transit layer added: %s", _lname)
+        except Exception as _tl_exc:
+            logger.warning("Transit layers failed: %s", _tl_exc)
 
     # ── GTFS Transit Layer ────────────────────────────────────────────────────
     # Service path geometry from shapes.txt; stop markers sized by frequency.

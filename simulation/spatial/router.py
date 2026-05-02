@@ -1620,17 +1620,30 @@ class Router:
                         "%s: Overpass tram slice failed: %s", agent_id, _ov2_exc
                     )
 
-            # ── Tier 3: tram spine ────────────────────────────────────────────────
-            logger.debug("%s: no GTFS/tram-graph/relations — tram spine fallback", agent_id)
+            # ── Tier 3: transit_stop_loader (city-agnostic, Overpass-backed) ────────────
+            logger.debug("%s: no GTFS/tram-graph/relations — transit_stop_loader fallback", agent_id)
             try:
-                from simulation.spatial.rail_spine import route_via_tram_stops
-                spine_route = route_via_tram_stops(origin, dest, max_access_km=5.0)
-                if spine_route and len(spine_route) > 2:
-                    return spine_route
-            except Exception:
-                pass
+                from simulation.spatial.transit_stop_loader import load_transit_stops, route_via_stops
+                G_tram_l = self.graph_manager.get_graph('tram')
+                drive = self.graph_manager.get_graph('drive')
+                if drive is not None:
+                    xs = [d['x'] for _,d in drive.nodes(data=True)]
+                    ys = [d['y'] for _,d in drive.nodes(data=True)]
+                    _bbox = (max(ys), min(ys), max(xs), min(xs))
+                    stops_by_mode = load_transit_stops(_bbox, ['tram'])
+                    tram_stops = stops_by_mode.get('tram', [])
+                    if tram_stops:
+                        result = route_via_stops(
+                            origin, dest, 'tram', tram_stops, G_tram_l,
+                            max_access_km=5.0,
+                        )
+                        if result and len(result) > 2:
+                            return result
+            except Exception as _tsl_exc:
+                logger.debug("%s: transit_stop_loader tram fallback failed: %s", agent_id, _tsl_exc)
             return []
-        # ───────────────────────────────────────────────────────────────────
+            # ── End Tier 3: transit_stop_loader (city-agnostic, Overpass-backed) ────────────
+
         if mode in ('ferry_diesel', 'ferry_electric'):
             # Provide a visible great-circle line — never silent [] for ferry.
             logger.debug("%s: ferry — no GTFS/graph, using great-circle interpolation", agent_id)
@@ -1950,35 +1963,30 @@ class Router:
         # ── No GTFS graph loaded ──────────────────────────────────────────────────
         if G_transit is None:
             if mode == 'tram':
-                logger.debug("%s: no GTFS — tram spine fallback", agent_id)
+            # ── Tier 3: transit_stop_loader (city-agnostic, Overpass-backed) ────────────
+                logger.debug("%s: no GTFS/tram-graph/relations — transit_stop_loader fallback", agent_id)
                 try:
-                    from simulation.spatial.rail_spine import route_via_tram_stops
-                    spine_route = route_via_tram_stops(origin, dest, max_access_km=5.0)
-                    if spine_route and len(spine_route) > 2:
-                        # ── Interpolate between tram stops — do NOT road-follow ──────────
-                        # The previous code called _compute_road_route('car', ...) between
-                        # each pair of spine waypoints.  Trams run on dedicated track with
-                        # no relationship to the road network, producing massive detours:
-                        #   Airport → Bankhead  5.6 km straight  →  30.5 km via roads
-                        # Fix: interpolate straight-line segments at 50 m intervals.
-                        # Edinburgh's tram track is near-straight between stops, so this
-                        # closely follows the actual alignment without road-routing detours.
-                        interpolated = self._interpolate(spine_route, max_segment_km=0.05)
-                        logger.debug(
-                            "%s: tram spine → %d stops, %d interpolated pts (straight-line track)",
-                            agent_id, len(spine_route), len(interpolated),
-                        )
-                        return interpolated
-                    logger.debug(
-                        "%s: tram spine returned %s — outside 5 km catchment",
-                        agent_id, "None" if spine_route is None else f"{len(spine_route)} pts",
-                    )
-                    return []
-                except Exception as _exc:
-                    logger.debug("%s: tram spine exception: %s", agent_id, _exc)
-                    return []
+                    from simulation.spatial.transit_stop_loader import load_transit_stops, route_via_stops
+                    G_tram_l = self.graph_manager.get_graph('tram')
+                    drive = self.graph_manager.get_graph('drive')
+                    if drive is not None:
+                        xs = [d['x'] for _,d in drive.nodes(data=True)]
+                        ys = [d['y'] for _,d in drive.nodes(data=True)]
+                        _bbox = (max(ys), min(ys), max(xs), min(xs))
+                        stops_by_mode = load_transit_stops(_bbox, ['tram'])
+                        tram_stops = stops_by_mode.get('tram', [])
+                        if tram_stops:
+                            result = route_via_stops(
+                                origin, dest, 'tram', tram_stops, G_tram_l,
+                                max_access_km=5.0,
+                            )
+                            if result and len(result) > 2:
+                                return result
+                except Exception as _tsl_exc:
+                    logger.debug("%s: transit_stop_loader tram fallback failed: %s", agent_id, _tsl_exc)
+                return []
             return self._transit_fallback(agent_id, origin, dest, mode, policy)
-    
+        # ── End Tier 3: transit_stop_loader (city-agnostic, Overpass-backed) ────────────
         try:
             from simulation.gtfs.gtfs_graph import GTFSGraph
         except ImportError:
