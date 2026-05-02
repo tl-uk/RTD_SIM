@@ -561,44 +561,21 @@ def create_agents(
         #
         # calculate_satisfaction() is called below in the Markov record_step
         # block to provide a satisfaction score from actual vs expected metrics.
-        # ── Wire social network + influence system (correct API) ─────────────────
-        if config.enable_social and STORY_AVAILABLE:
+        if STORY_AVAILABLE:
             try:
-                # Create network object
-                _sn = SocialNetwork(
-                    topology='homophily' if config.use_realistic_influence else 'small_world',
-                    strong_tie_threshold=config.strong_tie_threshold,
-                    influence_enabled=True,
-                )
-
-                # Seed the network build if reproducible mode is enabled
-                _seed = config.rng_seed_value if getattr(config, "rng_reproducible", False) else None
-
-                _sn.build_network(
-                    agents=agents,
-                    k=config.network_k,
-                    p=0.1,
-                    seed=_seed,
-                    cross_persona_prob=config.cross_persona_prob,
-                )
-
-                # Attach into results using the existing SimulationResults fields
-                if simulation_results is not None:
-                    simulation_results.network = _sn
-
-                # Optional realism enhancement (guarded)
-                if config.use_realistic_influence and 'RealisticSocialInfluence' in globals() and 'enhance_social_network_with_realism' in globals():
+                _sn = getattr(simulation_results, 'social_network', None)
+                if _sn is None:
+                    # config.social_network is not a SimulationConfig field —
+                    # pass None so SocialNetwork uses its own defaults
+                    _sn = SocialNetwork(agents=agents, config=None)
+                    simulation_results.social_network = _sn
+                # Guard against possibly-unbound names from try/except import
+                if 'RealisticSocialInfluence' in dir() and 'enhance_social_network_with_realism' in dir():
                     _influence = RealisticSocialInfluence()
                     enhance_social_network_with_realism(_sn, _influence)
-
-                    if simulation_results is not None:
-                        simulation_results.influence_system = _influence
-
                     logger.info("✅ Social network enhanced with realistic influence dynamics")
-
             except Exception as _si_exc:
-                logger.debug("Social network wiring skipped: %s", _si_exc)
-        # ── End social network wiring ───────────────────────────────────────────
+                logger.debug("Social influence enhancement skipped: %s", _si_exc)
         # ── End social influence wiring ────────────────────────────────────────
         
         # Calculate desire diversity
