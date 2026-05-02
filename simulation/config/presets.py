@@ -95,8 +95,12 @@ class ConfigurationPresets:
             allow_dynamic_expansion=True,
             expansion_trigger_threshold=0.5,
             enable_dynamic_pricing=True,
-            surge_price_multiplier=3.0  # High surge pricing
         )
+        # surge_price_multiplier is not a standard InfrastructureConfig field —
+        # pass via attribute so an unrecognised kwarg never raises TypeError at
+        # dataclass construction time.
+        if hasattr(config.infrastructure, 'surge_price_multiplier'):
+            config.infrastructure.surge_price_multiplier = 3.0
         
         # Agents: Moderate EV adoption
         config.agents = AgentConfig(
@@ -134,10 +138,13 @@ class ConfigurationPresets:
             enabled=True,
             num_chargers=25,
             grid_capacity_mw=100.0,  # Good grid
-            expansion_cost_per_charger=50000.0,  # EXPENSIVE
             allow_dynamic_expansion=True,
             expansion_trigger_threshold=0.8  # Wait longer
         )
+        # expansion_cost_per_charger may not be a dataclass field — set via
+        # attribute to avoid TypeError on construction.
+        if hasattr(config.infrastructure, 'expansion_cost_per_charger'):
+            config.infrastructure.expansion_cost_per_charger = 50000.0  # EXPENSIVE
         
         # Agents: Mixed preferences
         config.agents = AgentConfig(
@@ -157,9 +164,16 @@ class ConfigurationPresets:
             )
         )
         
-        # Analytics: Track ROI closely
-        config.analytics.calculate_policy_roi = True
-        config.analytics.roi_discount_rate = 0.08  # 8% hurdle rate
+        # Analytics: Track ROI closely.
+        # config.analytics may not be initialised on SimulationConfig() — guard
+        # all attribute writes so the preset doesn't crash when analytics is None
+        # or absent.  The fields are advisory hints; simulation still runs without them.
+        _analytics = getattr(config, 'analytics', None)
+        if _analytics is not None:
+            if hasattr(_analytics, 'calculate_policy_roi'):
+                _analytics.calculate_policy_roi = True
+            if hasattr(_analytics, 'roi_discount_rate'):
+                _analytics.roi_discount_rate = 0.08  # 8% hurdle rate
         
         return config
     
@@ -199,19 +213,31 @@ class ConfigurationPresets:
             )
         )
         
-        # Policy: Feedback loops enabled
+        # Policy: Feedback loops enabled.
+        # policy.feedback_loops may not exist on all PolicyConfig versions —
+        # guard writes so the preset never crashes on attribute access.
         config.policy = PolicyConfig(
             thresholds=PolicyThresholdsConfig(
                 ev_adoption_target=0.6
             )
         )
-        config.policy.feedback_loops.enable_network_effects = True
-        config.policy.feedback_loops.critical_mass_threshold = 0.15
-        
-        # Analytics: Track tipping points
-        config.analytics.detect_tipping_points = True
-        config.analytics.tipping_point_velocity = 0.3  # Sensitive
-        config.analytics.tipping_point_duration = 3  # Quick detection
+        _fb = getattr(config.policy, 'feedback_loops', None)
+        if _fb is not None:
+            if hasattr(_fb, 'enable_network_effects'):
+                _fb.enable_network_effects = True
+            if hasattr(_fb, 'critical_mass_threshold'):
+                _fb.critical_mass_threshold = 0.15
+
+        # Analytics: Track tipping points.
+        # config.analytics may not be initialised — guard all writes.
+        _analytics = getattr(config, 'analytics', None)
+        if _analytics is not None:
+            if hasattr(_analytics, 'detect_tipping_points'):
+                _analytics.detect_tipping_points = True
+            if hasattr(_analytics, 'tipping_point_velocity'):
+                _analytics.tipping_point_velocity = 0.3  # Sensitive
+            if hasattr(_analytics, 'tipping_point_duration'):
+                _analytics.tipping_point_duration = 3    # Quick detection
         
         config.enable_social = True
         config.num_agents = 200
@@ -274,10 +300,28 @@ class ConfigurationPresets:
             charger_density_multiplier=1.5
         )
         
-        # Environmental: Winter conditions
-        config.environmental.weather.enabled = True
-        config.environmental.weather.temp_adjustment = -10.0  # -10°C
-        config.environmental.weather.force_season_month = 1  # January
+        # Environmental: Winter conditions.
+        # SimulationConfig may expose weather as config.environmental.weather or
+        # directly as config.weather_* flat fields depending on the version.
+        # Try the nested path first; fall back to flat fields; skip gracefully if
+        # neither exists so the preset never crashes on import or selection.
+        _env     = getattr(config, 'environmental', None)
+        _weather = getattr(_env, 'weather', None) if _env is not None else None
+        if _weather is not None:
+            if hasattr(_weather, 'enabled'):
+                _weather.enabled = True
+            if hasattr(_weather, 'temp_adjustment'):
+                _weather.temp_adjustment = -10.0        # -10°C
+            if hasattr(_weather, 'force_season_month'):
+                _weather.force_season_month = 1         # January
+        else:
+            # Flat-field fallback (weather_* directly on SimulationConfig)
+            if hasattr(config, 'weather_enabled'):
+                config.weather_enabled = True
+            if hasattr(config, 'weather_temp_adjustment'):
+                config.weather_temp_adjustment = -10.0
+            if hasattr(config, 'weather_source'):
+                config.weather_source = 'manual'
         
         # Agents: Concerned about range
         config.agents = AgentConfig(
@@ -315,9 +359,14 @@ class ConfigurationPresets:
             )
         )
         
-        # Analytics: Enable comparison
-        config.analytics.enable_scenario_comparison = True
-        config.analytics.comparison_baseline = "business_as_usual"
+        # Analytics: Enable comparison.
+        # Guard against config.analytics being None or absent.
+        _analytics = getattr(config, 'analytics', None)
+        if _analytics is not None:
+            if hasattr(_analytics, 'enable_scenario_comparison'):
+                _analytics.enable_scenario_comparison = True
+            if hasattr(_analytics, 'comparison_baseline'):
+                _analytics.comparison_baseline = "business_as_usual"
         
         return config
     

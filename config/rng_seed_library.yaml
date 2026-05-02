@@ -12,7 +12,7 @@ seeds:
     description: "Alternative baseline for sensitivity checks"
 
   - name: "DfT demo – Edinburgh"
-    seed: 0xED1NBRG
+    seed: 0xED14B456
     description: "Consistent DfT demo run (Edinburgh region)"
 
   - name: "DfT demo – stress"

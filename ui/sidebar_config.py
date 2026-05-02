@@ -505,7 +505,24 @@ def render_sidebar_config():
             selected = st.selectbox("Seed preset", labels, index=0)
             chosen = next((s for s in seeds if s.get("name") == selected), None)
             rng_seed_name = selected
-            rng_seed_value = int(str(chosen.get("seed")), 0) if chosen and "seed" in chosen else None
+            # Parse the seed value from the YAML — may be decimal (12345) or
+            # 0x-prefixed hex (0xDEADBEEF).  int(str, 0) accepts both but raises
+            # ValueError for invalid strings (e.g. '0xED1NBRG' contains N/R/G
+            # which are not legal hex digits).  Catch and surface a clear message
+            # rather than crashing the entire sidebar.
+            if chosen and "seed" in chosen:
+                _raw_seed = str(chosen.get("seed", ""))
+                try:
+                    rng_seed_value = int(_raw_seed, 0)
+                except ValueError:
+                    st.error(
+                        f"❌ Seed preset **{selected}** has an invalid value: "
+                        f"`{_raw_seed}`. "
+                        f"Hex seeds must use only 0–9 and A–F "
+                        f"(e.g. `0xED1EB455` not `0xED1NBRG`). "
+                        f"Fix `config/rng_seed_library.yaml` or use the override field below."
+                    )
+                    rng_seed_value = None
 
             override = st.text_input(
                 "Seed override (decimal or 0xHEX)",
