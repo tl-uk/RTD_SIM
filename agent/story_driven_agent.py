@@ -150,7 +150,7 @@ class StoryDrivenAgent(CognitiveAgent):
             self.mode_chain = PersonalityMarkovChain( 
                 persona_id=user_story_id,
                 available_modes=None,  # uses ALL_MODES; planner filters at runtime
-                seed=seed,Z
+                seed=seed,
             )
         except Exception as _e:
             self.mode_chain = None
