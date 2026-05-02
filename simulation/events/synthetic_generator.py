@@ -20,8 +20,14 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
 
-logger = logging.getLogger(__name__)
+try:
+    from utils.secure_rng import AgentRandom
+    _SECURE_RNG_AVAILABLE = True
+except Exception:  # pragma: no cover
+    AgentRandom = None  # type: ignore
+    _SECURE_RNG_AVAILABLE = False
 
+logger = logging.getLogger(__name__)
 
 class EventType(Enum):
     """Types of synthetic events."""
@@ -188,13 +194,15 @@ class SyntheticEventGenerator:
         # Active events tracker
         self.active_events: List[SyntheticEvent] = []
         
-        # Event history for visualization (Phase 7.2)
+        # Event history for visualization
         self._event_history: List[SyntheticEvent] = []
         
-        # Random seed
-        if random_seed is not None:
-            random.seed(random_seed)
-        
+        # Per-generator RNG (do NOT seed global random)
+        if _SECURE_RNG_AVAILABLE and AgentRandom is not None:
+            self.rng = AgentRandom(random_seed)
+        else:
+            self.rng = random.Random(random_seed)
+                
         logger.info("🎲 Synthetic Event Generator initialized")
         logger.info(f"   Traffic: {'enabled' if traffic_enabled else 'disabled'}")
         logger.info(f"   Weather: {'enabled' if weather_enabled else 'disabled'}")
@@ -277,8 +285,8 @@ class SyntheticEventGenerator:
             prob *= 1.5
         
         # Roll the dice
-        if random.random() < prob:
-            severity = random.choice([
+        if self.rng.random() < prob:
+            severity = self.rng.choice([
                 EventSeverity.MINOR,
                 EventSeverity.MINOR,  # Weight toward minor
                 EventSeverity.MODERATE,
@@ -288,13 +296,13 @@ class SyntheticEventGenerator:
             
             # Duration depends on severity (in steps)
             if severity == EventSeverity.MINOR:
-                duration = random.randint(1, 3)
+                duration = self.rng.randint(1, 3)
             elif severity == EventSeverity.MODERATE:
-                duration = random.randint(2, 6)
+                duration = self.rng.randint(2, 6)
             else:  # SEVERE
-                duration = random.randint(4, 12)
+                duration = self.rng.randint(4, 12)
             
-            affected_area = random.choice(self.affected_areas)
+            affected_area = self.rng.choice(self.affected_areas)
             
             # Impact data
             if severity == EventSeverity.MINOR:
@@ -315,7 +323,7 @@ class SyntheticEventGenerator:
                 affected_area=affected_area,
                 impact_data={
                     'delay_multiplier': delay_multiplier,
-                    'affected_routes': random.randint(3, 15),
+                    'affected_routes': self.rng.randint(3, 15),
                 },
                 description=description
             )
@@ -345,11 +353,11 @@ class SyntheticEventGenerator:
             weather_types = ['rain', 'wind']
             weights = [0.6, 0.4]
         
-        if random.random() < prob:
-            weather_type = random.choices(weather_types, weights=weights)[0]
+        if self.rng.random() < prob:
+            weather_type = self.rng.choices(weather_types, weights=weights)[0]
             
             # Severity varies
-            severity = random.choice([
+            severity = self.rng.choice([
                 EventSeverity.MINOR,
                 EventSeverity.MODERATE,
                 EventSeverity.MODERATE,
@@ -358,11 +366,11 @@ class SyntheticEventGenerator:
             
             # Duration (weather lasts longer)
             if severity == EventSeverity.MINOR:
-                duration = random.randint(2, 6)
+                duration = self.rng.randint(2, 6)
             elif severity == EventSeverity.MODERATE:
-                duration = random.randint(4, 12)
+                duration = self.rng.randint(4, 12)
             else:
-                duration = random.randint(8, 24)
+                duration = self.rng.randint(8, 24)
             
             # Impact varies by weather type and severity
             impact_data = {'weather_type': weather_type}
@@ -393,8 +401,8 @@ class SyntheticEventGenerator:
     
     def _maybe_generate_infrastructure_failure(self, time_info: Dict[str, Any]) -> Optional[SyntheticEvent]:
         """Generate infrastructure failure event."""
-        if random.random() < self.infra_fail_prob:
-            severity = random.choice([
+        if self.rng.random() < self.infra_fail_prob:
+            severity = self.rng.choice([
                 EventSeverity.MINOR,
                 EventSeverity.MINOR,
                 EventSeverity.MODERATE,
@@ -402,14 +410,14 @@ class SyntheticEventGenerator:
             
             # Duration (infrastructure repairs take time)
             if severity == EventSeverity.MINOR:
-                duration = random.randint(3, 8)
+                duration = self.rng .randint(3, 8)
             else:
-                duration = random.randint(8, 24)
+                duration = self.rng.randint(8, 24)
             
-            affected_area = random.choice(self.affected_areas)
+            affected_area = self.rng.choice(self.affected_areas)
             
             # What failed?
-            failure_type = random.choice([
+            failure_type = self.rng.choice([
                 'charger_outage',
                 'grid_section_down',
                 'depot_maintenance',
@@ -418,7 +426,7 @@ class SyntheticEventGenerator:
             impact_data = {'failure_type': failure_type}
             
             if failure_type == 'charger_outage':
-                num_chargers = random.randint(1, 10) if severity == EventSeverity.MINOR else random.randint(5, 25)
+                num_chargers = self.rng.randint(1, 10) if severity == EventSeverity.MINOR else self.rng.randint(5, 25)
                 impact_data['chargers_affected'] = num_chargers
                 description = f"{num_chargers} chargers offline in {affected_area}"
             elif failure_type == 'grid_section_down':
@@ -457,8 +465,8 @@ class SyntheticEventGenerator:
         if season in ['winter', 'summer']:
             prob *= 1.5
         
-        if random.random() < prob:
-            severity = random.choice([
+        if self.rng.random() < prob:
+            severity = self.rng .choice([
                 EventSeverity.MINOR,
                 EventSeverity.MODERATE,
                 EventSeverity.SEVERE,
