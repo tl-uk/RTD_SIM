@@ -92,6 +92,7 @@ except ImportError:
 def create_planner(
     infrastructure: Optional[InfrastructureManager],
     llm_backend: str = 'rule_based',
+    seed: Optional[int] = None,
 ) -> BDIPlanner:
     """
     Create BDI planner (with or without infrastructure).
@@ -118,6 +119,7 @@ def create_planner(
         infrastructure_manager=infrastructure,
         plan_generator=plan_generator,
         fused_identity=None,  # injected later during agent creation
+        seed=seed,
     )
 
     if infrastructure is not None:
@@ -383,6 +385,7 @@ def create_agents(
                 infrastructure_manager=planner.infrastructure_manager,
                 plan_generator=planner.plan_generator,
                 fused_identity=fused_identity,
+                seed=agent_seed,
             )
 
             # 3. Attach planner to agent
@@ -656,6 +659,14 @@ def create_agents(
             seed_log[agent_id] = agent_seed
             agent_rng = create_agent_rng(agent_id, persona="basic_agent", pool=agent_entropy_pool)
             
+            # Per-agent planner (prevents shared RNG stream across agents)
+            agent_planner = BDIPlanner(
+                infrastructure_manager=planner.infrastructure_manager,
+                plan_generator=planner.plan_generator,
+                fused_identity=None,
+                seed=agent_seed,
+            )
+
             agent = CognitiveAgent(
                 seed=agent_seed,
                 agent_id=f"agent_{i+1}",
@@ -664,7 +675,7 @@ def create_agents(
                     'time': agent_rng.uniform(0.2, 0.9),
                     'cost': agent_rng.uniform(0.2, 0.9)
                 },
-                planner=planner,
+                planner=agent_planner,
                 origin=origin,
                 dest=dest,
                 simulation_results=simulation_results
