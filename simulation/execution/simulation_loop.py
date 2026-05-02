@@ -176,6 +176,7 @@ except ImportError:
     def apply_seasonal_ev_range_penalty(base_range_km, temperature_c):
         """Fallback: return unchanged range."""
         return base_range_km
+
 from environmental.emissions_calculator import LifecycleEmissions
 from environmental.air_quality import create_air_quality_tracker
 
