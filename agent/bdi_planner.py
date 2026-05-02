@@ -224,13 +224,16 @@ class BDIPlanner:
         'e_scooter': 30.0,
     }
     
+    
     def __init__(
         self,
         infrastructure_manager: Optional[Any] = None,
         plan_generator=None,  # ContextualPlanGenerator — optional
         ev_feasibility=None,
         fused_identity=None,
+        seed: Optional[int] = None,
     ) -> None:
+
         """Initialize planner with expanded freight modes."""
         self.plan_generator = plan_generator
         self.fused_identity = fused_identity
@@ -238,7 +241,8 @@ class BDIPlanner:
 
         self.rng = AgentRandom(seed)
         self.decider = BDIDecisionRandom(self.rng)
-        
+
+
         # ── default_modes: generic passenger/commuter mode palette ─────────────
         # Only modes that ANY personal agent could plausibly use are included.
         # EV and electric variants are intentionally omitted here — they enter
