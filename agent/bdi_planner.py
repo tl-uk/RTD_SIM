@@ -1680,7 +1680,7 @@ class BDIPlanner:
         # ── End persona preference modifier ───────────────────────────────────
 
         # Add stochastic noise (±15%)
-        total_cost += random.uniform(-0.15, 0.15)
+        total_cost += self.rng.uniform(-0.15, 0.15)
         
         return total_cost
     
