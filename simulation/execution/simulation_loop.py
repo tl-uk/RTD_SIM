@@ -254,11 +254,15 @@ def apply_scenario_policies(
                         power_kw = policy.get('power_kw', 7.0)
                         
                         # Add chargers using infrastructure manager
-                        new_stations = config.infrastructure.add_chargers_by_demand(
-                            num_chargers=num,
-                            charger_type=charger_type,
-                            strategy=strategy
-                        )
+                        if infrastructure is not None:
+                            new_stations = infrastructure.add_chargers_by_demand(
+                                num_chargers=num,
+                                charger_type=charger_type,
+                                strategy=strategy
+                            )
+                        else:
+                            new_stations = []
+
                         
                         infrastructure_changes['added_chargers'] = {
                             'count': len(new_stations),
