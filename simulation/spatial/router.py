@@ -1955,21 +1955,20 @@ class Router:
                     from simulation.spatial.rail_spine import route_via_tram_stops
                     spine_route = route_via_tram_stops(origin, dest, max_access_km=5.0)
                     if spine_route and len(spine_route) > 2:
+                        # ── Interpolate between tram stops — do NOT road-follow ──────────
+                        # The previous code called _compute_road_route('car', ...) between
+                        # each pair of spine waypoints.  Trams run on dedicated track with
+                        # no relationship to the road network, producing massive detours:
+                        #   Airport → Bankhead  5.6 km straight  →  30.5 km via roads
+                        # Fix: interpolate straight-line segments at 50 m intervals.
+                        # Edinburgh's tram track is near-straight between stops, so this
+                        # closely follows the actual alignment without road-routing detours.
+                        interpolated = self._interpolate(spine_route, max_segment_km=0.05)
                         logger.debug(
-                            "%s: tram spine → %d waypoints, road-following each leg",
-                            agent_id, len(spine_route),
+                            "%s: tram spine → %d stops, %d interpolated pts (straight-line track)",
+                            agent_id, len(spine_route), len(interpolated),
                         )
-                        realistic = []
-                        for i in range(len(spine_route) - 1):
-                            leg = self._compute_road_route(
-                                agent_id, spine_route[i], spine_route[i + 1], 'car', policy,
-                            )
-                            if leg and len(leg) > 1:
-                                realistic.extend(leg[:-1])
-                            else:
-                                realistic.append(spine_route[i])
-                        realistic.append(spine_route[-1])
-                        return realistic
+                        return interpolated
                     logger.debug(
                         "%s: tram spine returned %s — outside 5 km catchment",
                         agent_id, "None" if spine_route is None else f"{len(spine_route)} pts",
