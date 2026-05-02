@@ -472,7 +472,7 @@ class SyntheticEventGenerator:
                 EventSeverity.SEVERE,
             ])
             
-            duration = random.randint(1, 4)
+            duration = self.rng.randint(1, 4)
             
             impact_data = {
                 'charging_rate_reduction': 0.10 if severity == EventSeverity.MINOR else 0.30,
@@ -538,10 +538,16 @@ def create_event_generator_from_config(config) -> Optional[SyntheticEventGenerat
     weather_enabled = getattr(config, 'synthetic_weather_events', True)
     infra_enabled = getattr(config, 'synthetic_infrastructure_events', True)
     
+    # Use run seed when reproducible mode is enabled
+    random_seed = None
+    if getattr(config, "rng_reproducible", False) and getattr(config, "rng_seed_value", None) is not None:
+        random_seed = int(getattr(config, "rng_seed_value"))
+
     generator = SyntheticEventGenerator(
         traffic_enabled=traffic_enabled,
         weather_enabled=weather_enabled,
         infrastructure_enabled=infra_enabled,
+        random_seed=random_seed,
     )
     
     return generator
