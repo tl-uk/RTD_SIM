@@ -155,11 +155,15 @@ except ImportError:
     
     class _FallbackWeatherManager:
         """Fallback weather manager when real weather system unavailable."""
+        def update_weather(self, *args, **kwargs) -> None:
+            """No-op weather update."""
+            return None
+
         def get_mode_speed_multiplier(self, mode: str) -> float:
             """Return neutral multiplier (no weather impact)."""
             return 1.0
-    
-    def create_weather_manager(config) -> Optional[object]:
+
+    def create_weather_manager(config) -> Any:
         """Fallback: return minimal weather manager if weather not available."""
         return _FallbackWeatherManager()
     
@@ -178,8 +182,10 @@ from environmental.air_quality import create_air_quality_tracker
 def apply_scenario_policies(
     config: SimulationConfig,
     env: SpatialEnvironment,
-    progress_callback=None
+    progress_callback=None,
+    infrastructure=None,
 ) -> Optional[Dict]:
+
     """
     Apply policy scenario to environment if specified.
     
@@ -309,9 +315,11 @@ def apply_scenario_policies(
                         
                         # Apply to all charging stations
                         updated_count = 0
-                        for station in config.infrastructure.charging_stations.values():
-                            station.cost_per_kwh *= multiplier
-                            updated_count += 1
+                        if infrastructure is not None:
+                            for station in infrastructure.charging_stations.values():
+                                station.cost_per_kwh *= multiplier
+                                updated_count += 1
+
                         
                         infrastructure_changes['charging_cost_adjustment'] = {
                             'multiplier': multiplier,
@@ -347,7 +355,7 @@ def apply_scenario_policies(
             )
             # Store on config so run_simulation_loop can wire them to agent planners
             # without needing simulation_runner.py to be modified.
-            config._scenario_mode_policies = mode_cost_policies
+            setattr(config, '_scenario_mode_policies', mode_cost_policies)
 
         return report
         
@@ -551,7 +559,7 @@ def run_simulation_loop(
     emissions_calc = LifecycleEmissions(config.grid_carbon_intensity) if config.use_lifecycle_emissions else None
     
     # Track lifecycle emissions
-    lifecycle_emissions_by_mode = defaultdict(lambda: {'co2e_kg': 0, 'pm25_g': 0, 'nox_g': 0})
+    lifecycle_emissions_by_mode = defaultdict(lambda: {'co2e_kg': 0.0, 'pm25_g': 0.0, 'nox_g': 0.0})
  
     # Initialize analytics
     journey_tracker = JourneyTracker() if config.track_journeys else None
@@ -562,7 +570,14 @@ def run_simulation_loop(
     # ------------ FIX WARNING AND ENABLE POLICIES ---------
     if policy_engine is None:
         try:
-            policy_engine = initialize_policy_engine(config, infrastructure)
+            _init = initialize_policy_engine(config, infrastructure)
+
+            # initialize_policy_engine may return engine OR (engine, event_bus)
+            if isinstance(_init, tuple):
+                policy_engine, event_bus = _init
+            else:
+                policy_engine = _init
+
             if policy_engine:
                 logger.info("✅ Dynamic Policy Engine initialized successfully.")
         except Exception as e:
