@@ -2167,14 +2167,25 @@ class Router:
                     if _road_seg and len(_road_seg) > 1:
                         transit_coords.extend(_road_seg if i == 0 else _road_seg[1:])
                     else:
-                        if i == 0:
-                            transit_coords.append((u_x, u_y))
-                        transit_coords.append((v_x, v_y))
+                        # Drive graph has no path (pedestrianised stop, bus-only
+                        # infrastructure, etc.).  Interpolate at 50 m intervals
+                        # rather than inserting a raw 2-point straight line —
+                        # interpolation gives smooth animation and avoids the
+                        # visual artefact of a line cutting through buildings.
+                        _interp = self._interpolate(
+                            [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
+                        )
+                        transit_coords.extend(_interp if i == 0 else _interp[1:])
+                        logger.debug(
+                            "%s: bus_noseg%d: drive failed (%.2fkm) — interpolated %d pts",
+                            agent_id, i, _straight, len(_interp),
+                        )
                 else:
-                    # Short segment — walk graph is adequate.
-                    if i == 0:
-                        transit_coords.append((u_x, u_y))
-                    transit_coords.append((v_x, v_y))
+                    # Short segment ≤ 0.5km — interpolate at 50 m intervals.
+                    _interp = self._interpolate(
+                        [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
+                    )
+                    transit_coords.extend(_interp if i == 0 else _interp[1:])
     
             else:
                 # Tram / ferry — try OSM tram graph; fall back to straight line.

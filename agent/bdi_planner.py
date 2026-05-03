@@ -597,9 +597,60 @@ class BDIPlanner:
                 # Route each leg stub through the appropriate graph
                 full_route: list = []
                 _segments:  list = []
+                _ACCESS_EGRESS_MODES = frozenset({'walk', 'car', 'bus'})
                 for leg in legs:
                     try:
-                        if hasattr(env, 'compute_route_with_segments'):
+                        # ── Access / egress legs (walk, car, bus stubs) ──────────────
+                        # TripChainBuilder produces 2-point stub legs for access and
+                        # egress.  Routing these via compute_route_with_segments(mode='walk')
+                        # hits the walk graph which may return [] for stops in pedestrian-
+                        # zone or graph-sparse areas — causing "empty leg for walk".
+                        #
+                        # Fix: detect 2-point access/egress stubs and route them via
+                        # router._compute_access_leg(), which has a 4-tier fallback
+                        # (walk → drive proxy → interpolated straight line) and never
+                        # returns [] for a reachable coord pair.
+                        _router = getattr(env, 'router', None)
+                        _is_access_stub = (
+                            leg.mode in _ACCESS_EGRESS_MODES
+                            and len(leg.path) == 2
+                            and _router is not None
+                            and hasattr(_router, '_compute_access_leg')
+                        )
+
+                        if _is_access_stub:
+                            from simulation.config.policy_config import PolicyConfig as _PC
+                            _policy = {**(context or {})}
+                            leg_route = _router._compute_access_leg(
+                                f"{agent_id}_{leg.mode}",
+                                leg.path[0],
+                                leg.path[-1],
+                            )
+                            # _compute_access_leg returns [] only when the distance
+                            # exceeds max_straight_km (default 3 km).  For stubs that
+                            # are too long, fall through to compute_route_with_segments.
+                            if not leg_route or len(leg_route) < 2:
+                                leg_route, _ = env.compute_route_with_segments(
+                                    agent_id=f"{agent_id}_{leg.mode}",
+                                    origin=leg.path[0],
+                                    dest=leg.path[-1],
+                                    mode=leg.mode,
+                                    policy_context=context,
+                                ) if hasattr(env, 'compute_route_with_segments') else (
+                                    env.compute_route(
+                                        agent_id=f"{agent_id}_{leg.mode}",
+                                        origin=leg.path[0],
+                                        dest=leg.path[-1],
+                                        mode=leg.mode,
+                                    ), []
+                                )
+                            leg_segs = [{
+                                'path':  leg_route,
+                                'mode':  leg.mode,
+                                'label': leg.label,
+                            }] if leg_route else []
+
+                        elif hasattr(env, 'compute_route_with_segments'):
                             leg_route, leg_segs = env.compute_route_with_segments(
                                 agent_id=f"{agent_id}_{leg.mode}",
                                 origin=leg.path[0],

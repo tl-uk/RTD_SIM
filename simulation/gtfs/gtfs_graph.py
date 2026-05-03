@@ -641,24 +641,50 @@ class GTFSGraph:
         if not shape_coords or len(shape_coords) < 2:
             return [(u_lon, u_lat), (v_lon, v_lat)]
 
-        def nearest_idx(lon: float, lat: float) -> int:
-            best_i, best_d = 0, float('inf')
-            for i, (slon, slat) in enumerate(shape_coords):
+        # ── Step 1: Find i_u by scanning the full shape ───────────────────────
+        # This is the only unrestricted global scan — departure stop U anchors
+        # the search window so we know the direction of travel in the shape.
+        def _nearest_from(lon: float, lat: float, start: int = 0) -> int:
+            """Return the index of the shape point nearest to (lon, lat),
+            searching only from `start` onwards.  Returns -1 if nothing
+            found within window_m."""
+            best_i, best_d = -1, float('inf')
+            for i in range(start, len(shape_coords)):
+                slon, slat = shape_coords[i]
                 d = _haversine_m(lon, lat, slon, slat)
                 if d < best_d:
                     best_d, best_i = d, i
             return best_i if best_d < window_m else -1
 
-        i_u = nearest_idx(u_lon, u_lat)
-        i_v = nearest_idx(v_lon, v_lat)
-
-        if i_u < 0 or i_v < 0 or i_u == i_v:
+        i_u = _nearest_from(u_lon, u_lat, 0)
+        if i_u < 0:
             return [(u_lon, u_lat), (v_lon, v_lat)]
 
-        start, end = min(i_u, i_v), max(i_u, i_v)
-        sliced = shape_coords[start: end + 1]
+        # ── Step 2: Search for i_v FORWARD from i_u ───────────────────────────
+        # Scanning forward from i_u prevents snapping to a shape point on the
+        # return leg of a bidirectional shape (e.g. route 26 carries both
+        # outbound and inbound geometry in one shape_id).  If the forward scan
+        # fails (service 26 terminal turn-around, loop routes), fall back to a
+        # reverse scan from i_u so we still get something rather than a
+        # straight line.
+        i_v = _nearest_from(v_lon, v_lat, i_u)
+        if i_v < 0 or i_v == i_u:
+            # Forward scan failed — try reverse scan (handles return-trip shapes)
+            best_rev, best_d_rev = -1, float('inf')
+            for i in range(i_u - 1, -1, -1):
+                slon, slat = shape_coords[i]
+                d = _haversine_m(v_lon, v_lat, slon, slat)
+                if d < best_d_rev:
+                    best_d_rev, best_rev = d, i
+            if best_rev >= 0 and best_d_rev < window_m:
+                i_v = best_rev
+            else:
+                return [(u_lon, u_lat), (v_lon, v_lat)]
 
-        if i_u > i_v:
-            sliced = list(reversed(sliced))
+        # ── Step 3: Slice — direction is always i_u → i_v ────────────────────
+        if i_u <= i_v:
+            sliced = shape_coords[i_u: i_v + 1]
+        else:
+            sliced = list(reversed(shape_coords[i_v: i_u + 1]))
 
-        return sliced if sliced else [(u_lon, u_lat), (v_lon, v_lat)]
+        return sliced if len(sliced) >= 2 else [(u_lon, u_lat), (v_lon, v_lat)]
