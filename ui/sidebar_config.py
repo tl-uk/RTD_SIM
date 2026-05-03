@@ -1675,14 +1675,14 @@ def _render_gtfs_configuration() -> dict:
         # Operator onestop IDs use geohash gcvw for Edinburgh (not gcpv — was wrong).
         # The download flow resolves operator → feed → version URL automatically.
         # If you have already downloaded itm_all_gtfs.zip, paste its path below.
-        st.info(
-            "**All UK operators** (Lothian, ScotRail, CalMac, TfL, etc.) are in "
-            "one feed: `f-bus~dft~gov~uk` (~1.65 GB). "
-            "If you already downloaded `itm_all_gtfs.zip`, enter its path directly below "
-            "— no re-download needed. route_type filtering separates bus/rail/tram/ferry "
-            "automatically within the single zip.",
-            icon="ℹ️",
-        )
+        # st.info(
+        #     "**All UK operators** (Lothian, ScotRail, CalMac, TfL, etc.) are in "
+        #     "one feed: `f-bus~dft~gov~uk` (~1.65 GB). "
+        #     "If you already downloaded `itm_all_gtfs.zip`, enter its path directly below "
+        #     "— no re-download needed. route_type filtering separates bus/rail/tram/ferry "
+        #     "automatically within the single zip.",
+        #     icon="ℹ️",
+        # )
         _KNOWN_FEEDS = {
             "(select)":                      "",
             # ── Scotland (Edinburgh) — geohash gcvw ───────────────────
