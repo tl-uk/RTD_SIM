@@ -113,10 +113,6 @@ def render_sidebar_config():
         # Advanced combined scenarios
         combined_scenario_data = _render_combined_scenario_selector()
         use_combined = True
-        # Wire the parameter editor — was defined but never called (dead code).
-        # This shows contextual Grid/Policy sliders for the selected scenario.
-        if combined_scenario_data is not None:
-            _render_combined_scenario_parameters(combined_scenario_data)
         
     elif policy_mode == "Default Policies":
         # Use default policies
@@ -487,13 +483,16 @@ def render_sidebar_config():
     # Backward-compat alias: keep show_gtfs in sync with show_gtfs_routes so any
     # code that still reads show_gtfs doesn't silently get False.
     st.session_state['show_gtfs'] = st.session_state['show_gtfs_routes']
+    # =======================================================================
+    # ── RNG / reproducibility ───────────────────────────────────
+    # OUTSIDE the form so the seed selectbox appears immediately on checkbox
+    # toggle without requiring the Run Simulation button to be pressed.
 
     # ── RNG defaults ────────────────────────────────────────────────────────
     # The Randomness & Reproducibility widgets are rendered AFTER System
     # Dynamics (below render_sd_info_box()) so the UI section is grouped with
-    # other settings.  Initialise the three variables here so SimulationConfig
-    # never raises UnboundLocalError if the widget block hasn't executed yet
-    # (e.g. on the very first Streamlit run before any interaction).
+    # other settings.  Initialise here so SimulationConfig never raises
+    # UnboundLocalError on the first Streamlit run.
     rng_reproducible = st.session_state.get('rng_reproducible', False)
     rng_seed_name    = st.session_state.get('rng_seed_name',    None)
     rng_seed_value   = st.session_state.get('rng_seed_value',   None)
@@ -553,7 +552,7 @@ def render_sidebar_config():
         rng_seed_value=rng_seed_value
     )
     
-    # === PHASE 7.1: APPLY TEMPORAL SETTINGS ===
+    # === APPLY TEMPORAL SETTINGS ===
     if temporal_config['enable_temporal_scaling']:
         config.enable_temporal_scaling = True
         config.time_scale = temporal_config['time_scale']
@@ -568,7 +567,7 @@ def render_sidebar_config():
         config.time_scale = None
         config.start_datetime = None
 
-    # === PHASE 7.2: APPLY SYNTHETIC EVENT SETTINGS ===
+    # === APPLY SYNTHETIC EVENT SETTINGS ===
     if synthetic_config['enable_synthetic_events']:
         config.enable_synthetic_events = True
         config.synthetic_traffic_events = synthetic_config['synthetic_traffic_events']
@@ -687,10 +686,6 @@ def render_sidebar_config():
     st.markdown("---")
     render_sd_info_box()
 
-    # =======================================================================
-    # ── RNG / reproducibility ───────────────────────────────────
-    # OUTSIDE the form so the seed selectbox appears immediately on checkbox
-    # toggle without requiring the Run Simulation button to be pressed.
     st.markdown("---")
     st.markdown("### 🎲 Randomness & Reproducibility")
     rng_reproducible = st.checkbox(
@@ -751,12 +746,11 @@ def render_sidebar_config():
                 except ValueError:
                     st.error("Seed must be decimal or 0x-prefixed hex (e.g., 12345 or 0xDEADBEEF).")
 
-    # Write resolved values back to session_state so the defaults block above
-    # (which runs before the widgets on the first pass) stays in sync.
+    # Write resolved values back so defaults stay in sync across reruns.
     st.session_state['rng_reproducible'] = rng_reproducible
     st.session_state['rng_seed_name']    = rng_seed_name
     st.session_state['rng_seed_value']   = rng_seed_value
-
+    
     return config, run_btn
 
 
