@@ -56,7 +56,13 @@ _FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
 _TRAM_STOP_TYPES  = frozenset({'TMU', 'MET'})
 
 # Maximum km from origin/dest to nearest stop before rejecting the mode
-_MAX_STOP_SNAP_KM = 5.0
+# Maximum walk distance from agent origin/destination to a transit stop.
+# MUST be ≤ router._compute_access_leg default cap (3.0 km) so that a snap
+# that succeeds here is guaranteed to produce a valid access/egress leg.
+# Previously 5.0 km — snap found stops at 3.29 km but _compute_access_leg
+# immediately rejected them ("access leg 3.29km exceeds cap 3.00km — skipping"),
+# causing the entire tram/rail chain to abort and fall through to bus.
+_MAX_STOP_SNAP_KM = 2.5
 
 
 # ---------------------------------------------------------------------------
@@ -338,28 +344,6 @@ class TripChainBuilder:
             if hit is not None:
                 return (hit.lon, hit.lat)
 
-        # Tier 3: transit_stop_loader — works for any city, no NaPTAN required
-        try:
-            from simulation.spatial.transit_stop_loader import load_transit_stops, nearest_stop as _nearest
-            _mode_fam = (
-                'tram'  if mode == 'tram' else
-                'ferry' if mode in ('ferry_diesel', 'ferry_electric') else
-                'rail'  if mode in ('local_train', 'intercity_train', 'freight_rail') else
-                'bus'
-            )
-            _drive = getattr(getattr(self.env, 'graph_manager', None), 'get_graph', lambda _: None)('drive')
-            if _drive is not None and len(_drive.nodes) > 0:
-                _xs = [d['x'] for _,d in _drive.nodes(data=True)]
-                _ys = [d['y'] for _,d in _drive.nodes(data=True)]
-                _bbox = (max(_ys), min(_ys), max(_xs), min(_xs))
-                _stops_d = load_transit_stops(_bbox, [_mode_fam])
-                _stop = _nearest(_stops_d.get(_mode_fam, []), coord,
-                                max_km=_MAX_STOP_SNAP_KM)
-                if _stop is not None:
-                    return (_stop.lon, _stop.lat)
-        except Exception as _tsl_e:
-            logger.debug("trip_chain_builder _snap_stop Tier 3 failed: %s", _tsl_e)
-
         raise ValueError(
             f"No {mode} {role} stop within {_MAX_STOP_SNAP_KM:.0f} km of "
             f"({coord[1]:.4f}N, {abs(coord[0]):.4f}W) — agent {agent_id}"
@@ -404,6 +388,30 @@ class TripChainBuilder:
             )
             if result is not None:
                 return result
+            
+        # Tier 3: transit_stop_loader — works for any city, no NaPTAN required
+        try:
+            from simulation.spatial.transit_stop_loader import load_transit_stops, nearest_stop as _nearest
+            _mode_fam = (
+                'tram'  if mode == 'tram' else
+                'ferry' if mode in ('ferry_diesel', 'ferry_electric') else
+                'rail'  if mode in ('local_train', 'intercity_train', 'freight_rail') else
+                'bus'
+            )
+            _drive = getattr(getattr(self.env, 'graph_manager', None), 'get_graph', lambda _: None)('drive')
+            if _drive is not None and len(_drive.nodes) > 0:
+                _xs = [d['x'] for _,d in _drive.nodes(data=True)]
+                _ys = [d['y'] for _,d in _drive.nodes(data=True)]
+                _bbox = (max(_ys), min(_ys), max(_xs), min(_xs))
+                _stops_d = load_transit_stops(_bbox, [_mode_fam])
+                _stop = _nearest(_stops_d.get(_mode_fam, []), coord,
+                                max_km=_MAX_STOP_SNAP_KM)
+                if _stop is not None:
+                    return (_stop.lon, _stop.lat)
+        except Exception as _tsl_e:
+            logger.debug("trip_chain_builder _snap_stop Tier 3 failed: %s", _tsl_e)
+
+        raise ValueError(...)  # existing raise stays
 
         raise ValueError(
             f"No ferry terminal within {_MAX_STOP_SNAP_KM:.0f} km of "

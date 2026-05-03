@@ -113,6 +113,10 @@ def render_sidebar_config():
         # Advanced combined scenarios
         combined_scenario_data = _render_combined_scenario_selector()
         use_combined = True
+        # Wire the parameter editor — was defined but never called (dead code).
+        # This shows contextual Grid/Policy sliders for the selected scenario.
+        if combined_scenario_data is not None:
+            _render_combined_scenario_parameters(combined_scenario_data)
         
     elif policy_mode == "Default Policies":
         # Use default policies
@@ -483,69 +487,6 @@ def render_sidebar_config():
     # Backward-compat alias: keep show_gtfs in sync with show_gtfs_routes so any
     # code that still reads show_gtfs doesn't silently get False.
     st.session_state['show_gtfs'] = st.session_state['show_gtfs_routes']
-    # =======================================================================
-    # ── RNG / reproducibility ───────────────────────────────────
-    # OUTSIDE the form so the seed selectbox appears immediately on checkbox
-    # toggle without requiring the Run Simulation button to be pressed.
-    st.markdown("---")
-    st.markdown("### 🎲 Randomness & Reproducibility")
-    rng_reproducible = st.checkbox(
-        "Enable reproducible simulation",
-        value=False,
-        help="OFF = realistic (non-deterministic). ON = reproducible research runs."
-    )
-
-    rng_seed_name = None
-    rng_seed_value = None
-
-    if rng_reproducible:
-        seed_lib_path = parent_dir / "config" / "rng_seed_library.yaml"
-        seeds = []
-        if seed_lib_path.exists():
-            try:
-                data = yaml.safe_load(seed_lib_path.read_text())
-                seeds = data.get("seeds", []) if isinstance(data, dict) else []
-            except Exception:
-                seeds = []
-
-        if not seeds:
-            st.warning("No RNG seed library found. Create config/rng_seed_library.yaml.")
-        else:
-            labels = [s.get("name", "unnamed") for s in seeds]
-            selected = st.selectbox("Seed preset", labels, index=0)
-            chosen = next((s for s in seeds if s.get("name") == selected), None)
-            rng_seed_name = selected
-            # Parse the seed value from the YAML — may be decimal (12345) or
-            # 0x-prefixed hex (0xDEADBEEF).  int(str, 0) accepts both but raises
-            # ValueError for invalid strings (e.g. '0xED1NBRG' contains N/R/G
-            # which are not legal hex digits).  Catch and surface a clear message
-            # rather than crashing the entire sidebar.
-            if chosen and "seed" in chosen:
-                _raw_seed = str(chosen.get("seed", ""))
-                try:
-                    rng_seed_value = int(_raw_seed, 0)
-                except ValueError:
-                    st.error(
-                        f"❌ Seed preset **{selected}** has an invalid value: "
-                        f"`{_raw_seed}`. "
-                        f"Hex seeds must use only 0–9 and A–F "
-                        f"(e.g. `0xED1EB455` not `0xED1NBRG`). "
-                        f"Fix `config/rng_seed_library.yaml` or use the override field below."
-                    )
-                    rng_seed_value = None
-
-            override = st.text_input(
-                "Seed override (decimal or 0xHEX)",
-                value="",
-                help="Optional. Overrides selected seed."
-            ).strip()
-
-            if override:
-                try:
-                    rng_seed_value = int(override, 0)  # accepts dec or 0x...
-                    rng_seed_name = "override"
-                except ValueError:
-                    st.error("Seed must be decimal or 0x-prefixed hex (e.g., 12345 or 0xDEADBEEF).")
 
     config = SimulationConfig(
         steps=steps,
@@ -735,6 +676,70 @@ def render_sidebar_config():
     # Phase 5.3: System Dynamics info box (OUTSIDE form, at bottom of sidebar)
     st.markdown("---")
     render_sd_info_box()
+
+    # =======================================================================
+    # ── RNG / reproducibility ───────────────────────────────────
+    # OUTSIDE the form so the seed selectbox appears immediately on checkbox
+    # toggle without requiring the Run Simulation button to be pressed.
+    st.markdown("---")
+    st.markdown("### 🎲 Randomness & Reproducibility")
+    rng_reproducible = st.checkbox(
+        "Enable reproducible simulation",
+        value=False,
+        help="OFF = realistic (non-deterministic). ON = reproducible research runs."
+    )
+
+    rng_seed_name = None
+    rng_seed_value = None
+
+    if rng_reproducible:
+        seed_lib_path = parent_dir / "config" / "rng_seed_library.yaml"
+        seeds = []
+        if seed_lib_path.exists():
+            try:
+                data = yaml.safe_load(seed_lib_path.read_text())
+                seeds = data.get("seeds", []) if isinstance(data, dict) else []
+            except Exception:
+                seeds = []
+
+        if not seeds:
+            st.warning("No RNG seed library found. Create config/rng_seed_library.yaml.")
+        else:
+            labels = [s.get("name", "unnamed") for s in seeds]
+            selected = st.selectbox("Seed preset", labels, index=0)
+            chosen = next((s for s in seeds if s.get("name") == selected), None)
+            rng_seed_name = selected
+            # Parse the seed value from the YAML — may be decimal (12345) or
+            # 0x-prefixed hex (0xDEADBEEF).  int(str, 0) accepts both but raises
+            # ValueError for invalid strings (e.g. '0xED1NBRG' contains N/R/G
+            # which are not legal hex digits).  Catch and surface a clear message
+            # rather than crashing the entire sidebar.
+            if chosen and "seed" in chosen:
+                _raw_seed = str(chosen.get("seed", ""))
+                try:
+                    rng_seed_value = int(_raw_seed, 0)
+                except ValueError:
+                    st.error(
+                        f"❌ Seed preset **{selected}** has an invalid value: "
+                        f"`{_raw_seed}`. "
+                        f"Hex seeds must use only 0–9 and A–F "
+                        f"(e.g. `0xED1EB455` not `0xED1NBRG`). "
+                        f"Fix `config/rng_seed_library.yaml` or use the override field below."
+                    )
+                    rng_seed_value = None
+
+            override = st.text_input(
+                "Seed override (decimal or 0xHEX)",
+                value="",
+                help="Optional. Overrides selected seed."
+            ).strip()
+
+            if override:
+                try:
+                    rng_seed_value = int(override, 0)  # accepts dec or 0x...
+                    rng_seed_name = "override"
+                except ValueError:
+                    st.error("Seed must be decimal or 0x-prefixed hex (e.g., 12345 or 0xDEADBEEF).")
     
     return config, run_btn
 
@@ -1660,14 +1665,14 @@ def _render_gtfs_configuration() -> dict:
         # Operator onestop IDs use geohash gcvw for Edinburgh (not gcpv — was wrong).
         # The download flow resolves operator → feed → version URL automatically.
         # If you have already downloaded itm_all_gtfs.zip, paste its path below.
-        # st.info(
-        #     "**All UK operators** (Lothian, ScotRail, CalMac, TfL, etc.) are in "
-        #     "one feed: `f-bus~dft~gov~uk` (~1.65 GB). "
-        #     "If you already downloaded `itm_all_gtfs.zip`, enter its path directly below "
-        #     "— no re-download needed. route_type filtering separates bus/rail/tram/ferry "
-        #     "automatically within the single zip.",
-        #     icon="ℹ️",
-        # )
+        st.info(
+            "**All UK operators** (Lothian, ScotRail, CalMac, TfL, etc.) are in "
+            "one feed: `f-bus~dft~gov~uk` (~1.65 GB). "
+            "If you already downloaded `itm_all_gtfs.zip`, enter its path directly below "
+            "— no re-download needed. route_type filtering separates bus/rail/tram/ferry "
+            "automatically within the single zip.",
+            icon="ℹ️",
+        )
         _KNOWN_FEEDS = {
             "(select)":                      "",
             # ── Scotland (Edinburgh) — geohash gcvw ───────────────────

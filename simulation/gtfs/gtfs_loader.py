@@ -431,6 +431,23 @@ class GTFSLoader:
             count += 1
         logger.info("GTFS: %d stops loaded within map region", count)
 
+        # ── Diagnostic: log a sample of loaded stops so operators can verify
+        # the feed is being read correctly (especially stop_id ↔ name mapping).
+        # Shows first 5 stops alphabetically by name for readability.
+        if self.stops:
+            _sample = sorted(self.stops.items(), key=lambda kv: kv[1]['name'])[:5]
+            for _sid, _s in _sample:
+                logger.info(
+                    "GTFS stops.txt sample — id=%-20s  name=%-35s  lat=%.5f  lon=%.5f",
+                    _sid, _s['name'], _s['lat'], _s['lon'],
+                )
+            # Also log the total unique stop_ids for cross-check with feed metadata
+            logger.info(
+                "GTFS stops.txt: %d unique stop_ids in bbox "
+                "(feed: f-bus~dft~gov~uk or equivalent)",
+                len(self.stops),
+            )
+
     def _parse_stop_times(self) -> None:
         """
         Load stop_times for stops that survived the spatial filter.

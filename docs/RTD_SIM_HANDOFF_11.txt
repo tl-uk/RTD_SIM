@@ -1,0 +1,420 @@
+================================================================================
+RTD_SIM ROUTING DEBUG — SESSION HANDOFF 11
+Generated: 2026-05-03
+Log analysed: simulation_20260502_225814.log (confirmed GTFS single-load)
+Prior handoff: RTD_SIM_HANDOFF_10.txt
+================================================================================
+
+
+HOW TO START THE NEXT SESSION
+================================================================================
+
+Say exactly this:
+
+  "Continue RTD_SIM debug. This is handoff 11.
+  Three bugs were fixed in session 11:
+    1. 'empty leg for walk' — bdi_planner now routes TripChainBuilder
+       access/egress stubs via _compute_access_leg (4-tier fallback).
+    2. _slice_shape wrong direction — monotonic forward search from i_u.
+    3. bus noseg straight lines — always _interpolate, never raw 2-point.
+
+  Still open:
+    A. Walk distance cap: MODE_MAX_DISTANCE_KM defined twice in bdi_planner,
+       8.0km inline guard should be 3.0km.
+    B. Ferry crosses Inchcolm island — ferry graph Tier 2 is correct,
+       but the Inchcolm Overpass relation has no way geometry → falls to
+       great-circle (0.2km interpolated segments, still crosses island).
+    C. Rail: 72 of 86 attempts still fall through (OpenRailMap graph
+       topology issue at specific node pairs, not the empty-leg bug).
+    D. Tooltip: mostly working; verify with next log.
+    E. Router.py refactoring still pending (2811 lines).
+
+  Files I am uploading: [list below]"
+
+
+================================================================================
+SESSION 11 — WHAT WAS FIXED
+================================================================================
+
+───────────────────────────────────────────────────────────────────────────────
+FIX 1 — "empty leg for walk" — bdi_planner.py
+───────────────────────────────────────────────────────────────────────────────
+
+Root cause (confirmed from log lines 1995–1998, 8574–8577):
+  TripChainBuilder produces TripLeg(mode='walk', path=[origin, board_coord])
+  as a 2-point stub.  bdi_planner routed this via:
+    compute_route_with_segments(mode='walk') → _compute_road_route('walk')
+    → walk graph → NetworkXNoPath → _get_invalid_route() → []
+    → "empty leg for walk — aborting chain"
+    → entire tram/rail chain discarded → agent falls to bus
+
+  Scope confirmed from log: 160 occurrences (tram + rail access/egress legs).
+  106 tram routing attempts; 81 reached TripChainBuilder; all 81 hit this bug.
+  86 rail attempts; 72 fell through.
+
+Fix applied (bdi_planner.py, leg routing loop ~line 598):
+  Detects 2-point access/egress stubs:
+    _is_access_stub = (
+        leg.mode in {'walk', 'car', 'bus'}
+        and len(leg.path) == 2
+        and hasattr(_router, '_compute_access_leg')
+    )
+  Routes detected stubs via router._compute_access_leg() which has:
+    Tier 1: walk graph
+    Tier 2: drive proxy (confirmed working: "access→drive proxy: 62 pts")
+    Tier 3: interpolated straight line
+    Never returns [] for reachable coord pairs
+
+Expected log messages after this fix:
+  ✅ agent: TripChain tram  X.Xkm  3 legs
+  ✅ agent: TripChain local_train  X.Xkm  3 legs
+  (replacing: "empty leg for walk — aborting chain")
+
+───────────────────────────────────────────────────────────────────────────────
+FIX 2 — _slice_shape wrong direction — gtfs_graph.py
+───────────────────────────────────────────────────────────────────────────────
+
+Root cause:
+  _slice_shape() used nearest_idx() which scanned the FULL shape polyline
+  independently for both stops U and V.
+  For bidirectional shapes (outbound + inbound in same shape_id), stop V's
+  nearest point could be on the return leg at index 20, while stop U's was
+  at the outbound leg at index 150.  min/max then sliced [20:151] — wrong-
+  direction geometry cutting diagonally across Edinburgh.
+
+  This explains agent 9202 (service 26) having completely wrong route geometry
+  even though the GTFS feed contains correct shapes for service 26.
+
+Fix applied (gtfs_graph.py _slice_shape, ~line 641):
+  Step 1: Find i_u by scanning the full shape (unchanged — this anchors position)
+  Step 2: Search for i_v FORWARD from i_u (new)
+    → Prevents snapping to return-leg shape points
+    → Fallback: reverse scan from i_u when forward scan fails
+      (handles terminal turnarounds and loop routes like the 26)
+  Step 3: Slice i_u → i_v (direction is now always correct)
+
+Expected result:
+  Service 26: geometry follows Leith → city centre → Leith correctly
+  Service 44: Morningside → Granton geometry correct end-to-end
+  No more diagonal cuts across the city for multi-direction routes
+
+───────────────────────────────────────────────────────────────────────────────
+FIX 3 — bus noseg straight lines through buildings — router.py
+───────────────────────────────────────────────────────────────────────────────
+
+Root cause:
+  When _compute_road_route returned [] for a stop pair without shape_coords
+  (pedestrianised stops, bus-only infrastructure), the code appended raw
+  2-point (u_x,u_y)/(v_x,v_y) — a straight line through whatever was there.
+  33 WARNING-level failures confirmed in log + 13 egress "straight line" events.
+
+Fix applied (router.py _compute_gtfs_route, bus elif branch ~line 2165):
+  Both failure paths (long segment >0.5km and short segment ≤0.5km) now use:
+    _interpolate([(u_x,u_y),(v_x,v_y)], max_segment_km=0.05)
+  instead of raw point appends.
+  Result: smooth 50m-spaced interpolated line instead of diagonal cut.
+  Still not road-following, but visually correct and non-jarring.
+  Log: "bus_noseg{N}: drive failed (X.XXkm) — interpolated N pts" at DEBUG level.
+
+
+================================================================================
+CONFIRMED FROM LOG — simulation_20260502_225814.log
+================================================================================
+
+✅ GTFS loads only ONCE:
+   22:59:09 → 23:01:41 — stop_times parsed (2m32s)
+   23:01:41 → 23:20:29 — transit graph built (18m48s, 8136 stops, 10653 edges)
+   Total: 21m20s. No redundant reload. Issue 1 from handoff 10 is CONFIRMED FIXED.
+
+✅ Bus service labels working:
+   "Bus 18, 22A, 21", "Bus 68, 1, 26", "Bus 3, 18, 33" etc. correct in tooltips.
+
+✅ Tram OSM track geometry: working when tram graph loaded (correct stop coords)
+   board=(-3.27541, 55.93234) = Bankhead  ✓
+   alight=(-3.32172, 55.94048) = Gogarburn area  ✓
+
+✅ NaPTAN stop snapping: working for all bus routes.
+
+✅ GTFS transit graph singleton: graph_manager.graphs['transit'] is the
+   single authoritative store; load_gtfs_graph() in environment_setup.py
+   correctly gates on gtfs_feed_path and calls env.load_gtfs_graph() once.
+
+❌ Rail: 86 attempts, 14 succeeded (16%), 72 fell through to bus.
+   The 14 successes share Curriehill→Wester Hailes (3.4km, 91 pts identical).
+   Root cause: OpenRailMap graph topology — same node pair for all Edinburgh
+   south agents. See ISSUE C below.
+
+❌ Walk trips >3km: still occurring because 8.0km inline guard is too loose.
+   See ISSUE A below.
+
+❌ Ferry Inchcolm: great-circle straight line crosses island.
+   See ISSUE B below.
+
+
+================================================================================
+REMAINING OPEN ISSUES (priority order)
+================================================================================
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE A — Walk distance cap: duplicate dict + wrong inline guard (QUICK FIX)
+───────────────────────────────────────────────────────────────────────────────
+
+Location: bdi_planner.py
+
+Problem 1 — Duplicate class attribute (Python uses last definition):
+  Line 156: MODE_MAX_DISTANCE_KM = {'walk': 3.0, ...}
+  Line 193: MODE_MAX_DISTANCE_KM = {'walk': 3.0, ...}  ← same values, redundant
+  Remove the first definition (lines 156–192).
+
+Problem 2 — Inline guard at line 777 uses wrong threshold:
+  if mode == 'walk' and straight_line_distance > 8.0:
+  Should be 3.0 to match MODE_MAX_DISTANCE_KM. Currently allows
+  walks up to 8km straight-line (actual route ~10km).
+
+Fix:
+  Change line 777:
+    if mode == 'walk' and straight_line_distance > 3.0:
+
+Files needed: bdi_planner.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE B — Ferry Inchcolm crosses island (great-circle fallback)
+───────────────────────────────────────────────────────────────────────────────
+
+Root cause confirmed (router.py _compute_ferry_route lines 1680–1731):
+  Tier 1: GTFS has no ferry service edges for Inchcolm (BODS ferry not in feed)
+  Tier 2: ferry_network.py fetches Overpass route=ferry relations.
+    The Hawes Pier → Inchcolm relation (OSM way 4975384) exists but its member
+    ways have no geometry nodes in the Overpass `out body geom;` response —
+    only stop_position nodes. So G_ferry has Hawes Pier and Inchcolm as nodes
+    but the edge has no shape_coords and the edge geometry falls to straight line.
+  Tier 3: _interpolate([origin,dest], 0.2km) — crosses the island.
+
+Fix options:
+  A. ferry_network.py: after fetching route=ferry relations, also fetch the
+     individual member way nodes and reconstruct geometry from node coordinates
+     in relation member order. This gives the actual sailing line.
+
+  B. router.py _compute_ferry_route Tier 2: when G_ferry edge has no shape_coords
+     and the straight line passes through land, add intermediate waypoints by
+     querying the nautical waypoints from the ferry_network's harbours dict.
+     Pragmatic: for Inchcolm specifically, route via the East channel not the
+     direct line (avoids the island headland at 55.9895°N, 3.3084°W).
+
+  C. Short-term (pragmatic): add `max_segment_km=0.05` to the Tier 3 interpolation
+     (already 0.2 — no change needed here; the issue is path not resolution).
+
+Recommended: Fix A (generalisable) in ferry_network.py.
+
+Files needed: ferry_network.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE C — Rail: 72/86 agents still fall through (topology, not empty-leg bug)
+───────────────────────────────────────────────────────────────────────────────
+
+Root cause (post fix-1):
+  The "empty leg for walk" bug is now fixed. Remaining failures will be
+  OpenRailMap graph topology issues:
+    - All successful rail agents share the same Curriehill→Wester Hailes path
+      (3.4km, 91 pts). This is the only viable in-bbox rail path for south
+      Edinburgh origins/destinations.
+    - Agents with destinations north of the Forth (Kirkcaldy etc.) fail because
+      the Forth Bridge is outside the bbox — the graph is disconnected there.
+    - _MAX_ACCESS_KM check at line 361 rejects agents >5km from any rail node.
+
+Diagnosis steps for next session:
+  1. After fix-1 is deployed, re-run and check how many TripChain rail successes
+     appear. If >14, the empty-leg fix resolved most cases.
+  2. For remaining failures, log which specific rail node pair is failing:
+     Add to _intermodal_with_segments:
+       logger.debug("%s: rail %s→%s (%.1fkm access, %.1fkm egress)",
+           agent_id, orig_node, dest_node, access_d, egress_d)
+  3. If the same node pair fails repeatedly → add to _RAIL_NODE_BLOCKLIST.
+  4. If access_km > _MAX_ACCESS_KM → reduce _MAX_ACCESS_KM or expand rail bbox.
+
+Files needed: router.py (after fix-1 run)
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE D — Tooltip: verify {tooltip_html} literal is gone
+───────────────────────────────────────────────────────────────────────────────
+
+Status: visualization.py has tooltip_html set in ALL code paths (confirmed):
+  - Per-segment path (line 717): ✅
+  - Flat route fallback (line 750): ✅
+  - NaPTAN stop markers: ✅ (uses get_tooltip='name', not tooltip_html)
+  - No-GTFS route fallback (line 838, 853, 881, 946): ✅
+
+The {tooltip_html} literal seen in the screenshot likely came from the
+previous no-GTFS run where route_segments was empty and the flat-route path
+was taken — but this also sets tooltip_html, so it should have worked.
+
+Hypothesis: the literal appeared on NaPTAN ScatterplotLayer markers which
+had pickable=True but no tooltip_html column. Those use `get_tooltip='name'`
+not `tooltip='html: {tooltip_html}'`, so they should be fine.
+
+Action: run next simulation and screenshot any remaining {tooltip_html} literal.
+If still present, add at end of agent loop:
+  for row in segment_rows.get(mode, []):
+      row.setdefault('tooltip_html', '')
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE E — router.py refactoring (2811 lines, deferred)
+───────────────────────────────────────────────────────────────────────────────
+
+Proposed module split (from handoff 10, unchanged):
+
+  simulation/spatial/routing/
+    __init__.py               — exports Router class (backwards compatible)
+    router_core.py            — __init__, compute_route, compute_route_with_segments
+    router_road.py            — _compute_road_route, _has_heading_reversal,
+                                _find_reversal_node, _avoid_roundabout
+    router_transit.py         — _compute_gtfs_route, _gtfs_with_segments,
+                                _compute_access_leg, _transit_fallback
+    router_rail.py            — _intermodal_with_segments, _compute_intermodal_route,
+                                snap_to_transit_stop, _nearest_rail_node
+    router_ferry.py           — _compute_ferry_route, _ferry_with_segments
+    router_utils.py           — _interpolate, _extract_geometry, haversine_km,
+                                route_distance_km, _get_invalid_route
+
+Do NOT refactor until Issues A-C are resolved. Refactoring a 2811-line file
+while actively debugging routing will create merge conflicts.
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE F — Speed limits from OSM (enhancement, not a bug)
+───────────────────────────────────────────────────────────────────────────────
+
+Recommended approach (confirmed in session 10):
+  Use ox.add_edge_speeds() + ox.add_edge_travel_times() in environment_setup.py
+  after each OSMnx graph download. This reads maxspeed tags and fills UK
+  national defaults:
+    motorway: 70mph, trunk: 70mph, primary: 60mph, secondary: 60mph,
+    tertiary: 30mph, unclassified: 60mph, residential: 30mph
+
+  Then router._apply_generalised_weights() uses 'travel_time' (already the
+  weight key) which now has correct per-road speeds baked in.
+
+  The Overpass "roads missing maxspeed" query the user proposed is useful
+  for a visual audit overlay (transit_layers.py) but not needed for routing.
+
+Implementation:
+  environment_setup.py, after graph download for each OSMnx graph:
+    import osmnx as ox
+    try:
+        ox.add_edge_speeds(G)
+        ox.add_edge_travel_times(G)
+    except Exception as exc:
+        logger.debug("Speed enrichment failed (non-fatal): %s", exc)
+
+  Then bdi_planner persona speed factors (future enhancement):
+    freight_operator: speed × 0.85 (lorry restriction)
+    emergency_trade_worker: speed × 1.0 (road speed)
+
+
+================================================================================
+FILES MODIFIED IN SESSION 11
+================================================================================
+
+gtfs_graph.py
+  _slice_shape(): nearest_idx() global scan → monotonic forward _nearest_from()
+  Forward search for i_v from i_u prevents wrong-direction geometry on
+  bidirectional shapes. Reverse-scan fallback for terminal turnarounds.
+
+router.py
+  _compute_gtfs_route() bus elif branch:
+    Both fallback paths (noseg >0.5km and ≤0.5km) now use _interpolate()
+    instead of raw 2-point append. Log message at DEBUG level.
+
+bdi_planner.py
+  Leg routing loop (~line 598):
+    Detects 2-point access/egress stubs (mode ∈ {walk,car,bus}, len(path)==2)
+    Routes them via router._compute_access_leg() (4-tier walk→drive→interp)
+    Falls back to compute_route_with_segments for longer or non-stub legs.
+
+
+================================================================================
+FULL BUG HISTORY TABLE (sessions 1-11)
+================================================================================
+
+Session | File                         | Bug                              | Fix
+--------|------------------------------|----------------------------------|-----------------------------
+1-7     | router.py                    | Walk graph straight lines        | Drive-proxy fallback
+1-7     | bdi_planner.py               | _fused_override NameError        | Renamed to _fused_allowed
+1-7     | persona_fusion.py            | tram job missing from map        | Added _JOB_MODE_OVERRIDES
+1-7     | agent_creation.py            | Random OD misses corridor        | corridor_od() added
+8       | router.py                    | Heading reversal off-by-one      | range(check_up_to)
+8       | router.py                    | Reversal CW/CCW asymmetric       | Symmetric angle formula
+8       | router.py                    | restricted_view NetworkXNoPath   | Edge-penalty ×10000 retry
+8       | router.py                    | RLY grants tram access           | TMU-only filter
+8       | router.py                    | snap_to_transit_stop missing     | Added as public method
+8       | transport_loader.py          | Tram routes through carpark      | retain_all=False + prune
+8       | transport_loader.py          | Ferry uses linear interp         | fetch_maritime_graphs()
+8       | ferry_network.py             | HTTPError swallowed silently     | Catch before Exception
+8       | rail_network.py              | fetch_tram_relations missing     | Re-added function
+8       | trip_chain_builder.py        | New file: leg stub generator     | Written from scratch
+9       | bdi_planner.py               | TripChainBuilder never called    | _STRUCTURED_MODES block
+9       | bdi_planner.py               | Old abstract guard intercepts    | Removed route_via_stations
+9       | ferry_network.py             | Content-Type: application/json   | Fixed to form-urlencoded
+10      | router.py                    | if/if/else overwrote tram snap   | Restructured to if/elif/else
+10      | router.py                    | Tram spine via road routing      | Replaced with _interpolate()
+10      | router.py                    | Geometry+service 2-loop pass     | Merged into single loop
+10      | router.py                    | _last_gtfs_meta not in __init__  | Added to __init__
+10      | router.py                    | _gtfs_with_segments duplicate    | Thin wrapper via meta
+10      | story_driven_agent.py        | SyntaxError stray 'Z'            | Removed
+10      | cognitive_abm.py             | UnboundLocalError AgentRandom    | Removed inner import
+10      | sidebar_config.py            | RNG section inside form          | Moved outside form
+10      | presets.py                   | analytics/weather unguarded      | hasattr guards added
+10      | rng_seed_library.yaml        | 0xED1NBRG invalid hex            | Fixed to 0xED14B456
+10      | transit_stop_loader.py       | rail_spine hardcoded cities      | NEW: city-agnostic loader
+10      | transit_layers.py            | rail_visualizer single mode      | NEW: unified layer builder
+11      | bdi_planner.py               | "empty leg for walk" 160 hits    | Route stubs via _compute_access_leg
+11      | gtfs_graph.py                | _slice_shape wrong direction     | Monotonic forward search from i_u
+11      | router.py                    | bus noseg 2-point straight line  | Always _interpolate 50m spacing
+
+
+================================================================================
+WHAT TO UPLOAD IN NEXT SESSION
+================================================================================
+
+MUST UPLOAD:
+  bdi_planner.py              ← Issue A fix (walk cap 8.0→3.0, remove duplicate dict)
+  ferry_network.py            ← Issue B fix (member way geometry reconstruction)
+  Any new simulation log      ← Verify tram/rail trips now appear
+
+UPLOAD FOR CONTEXT IF CHANGED:
+  environment_setup.py        ← Issue F (add_edge_speeds/add_edge_travel_times)
+  visualization.py            ← Issue D verification
+
+DO NOT RE-UPLOAD (confirmed clean, no changes needed):
+  gtfs_graph.py               ← Fixed in session 11
+  router.py                   ← Fixed in session 11
+  trip_chain_builder.py       ← Correct and confirmed
+  gtfs_loader.py              ← Correct, single-load confirmed
+  transit_stop_loader.py      ← New file, correct
+  transit_layers.py           ← New file, correct
+  rng_seed_library.yaml       ← Fixed (0xED14B456)
+
+
+================================================================================
+EXPECTED IMPROVEMENTS IN NEXT RUN
+================================================================================
+
+After fix-1 (bdi_planner access leg routing):
+  "empty leg for walk — aborting chain"  → should drop from 160 to <10
+  "✅ TripChain tram  X.Xkm  3 legs"    → should appear for tram agents
+  "✅ TripChain local_train  X.Xkm"     → should appear for rail agents
+  Tram routes: board at Bankhead, ride to Gogarburn/Gyle etc., alight correctly
+
+After fix-2 (gtfs_graph _slice_shape):
+  Service 26 Leith–city centre: correct geometry, no diagonal cuts
+  Service 44 Morningside–Granton: correct geometry
+  All bidirectional routes: shape follows road, not the return leg
+
+After fix-3 (router noseg interpolation):
+  "No road path for agent_bus_noseg{N}"  → still warns but result is now
+    interpolated 50m-spaced line, not a straight cut through buildings
+  "walk+drive both failed (0.58km)"      → same: interpolated, not straight
+
+
+================================================================================
+END OF HANDOFF 11
+================================================================================

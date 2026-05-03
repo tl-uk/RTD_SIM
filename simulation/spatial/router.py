@@ -2090,6 +2090,40 @@ class Router:
         vot     = float(policy.get('value_of_time_gbp_h',  10.0))
         e_price = float(policy.get('energy_price_gbp_km',   0.12))
         c_tax   = float(policy.get('carbon_tax_gbp_tco2',   0.0))
+
+        # ── Route-continuity: identify the dominant service for this OD pair ─────
+        # Without this, the gen_cost minimiser freely switches between services
+        # that share stops (e.g. routes E13, 12, 31 all stop in Edinburgh centre).
+        # The result is a "route" that strings three services together, giving
+        # 25.6km for a journey that should be ~8km on service 31 alone.
+        #
+        # Strategy: find which route_short_name appears on the most edges in the
+        # shortest unweighted path between origin_stop and dest_stop.  Edges
+        # belonging to other routes get a transfer penalty (VoT × 30 min extra
+        # wait) so the optimiser strongly prefers staying on one service.
+        # Legitimate transfers are still allowed — they just cost more.
+        _TRANSFER_WAIT_H = 0.5        # 30-minute equivalent transfer penalty
+        _transfer_penalty = _TRANSFER_WAIT_H * vot
+        _dominant_route: Optional[str] = None
+        try:
+            _unweighted_path = nx.shortest_path(G_transit, origin_stop, dest_stop)
+            _route_freq: dict = {}
+            for _i in range(len(_unweighted_path) - 1):
+                _eu = _unweighted_path[_i]
+                _ev = _unweighted_path[_i + 1]
+                _em = G_transit.get_edge_data(_eu, _ev) or {}
+                for _ed in _em.values():
+                    for _rn in _ed.get('route_short_names', []):
+                        _route_freq[_rn] = _route_freq.get(_rn, 0) + 1
+            if _route_freq:
+                _dominant_route = max(_route_freq, key=_route_freq.get)
+                logger.debug(
+                    "%s: dominant route for %s→%s = %s (freq=%d)",
+                    agent_id, origin_stop, dest_stop, _dominant_route,
+                    _route_freq[_dominant_route],
+                )
+        except Exception:
+            _dominant_route = None  # non-fatal — no continuity preference applied
     
         for u, v, key, data in G_transit.edges(keys=True, data=True):
             edge_mode = data.get('mode', 'bus')
@@ -2103,11 +2137,17 @@ class Router:
             headway_h = data.get('headway_s', 1800) / 3600.0 / 2.0
             dist_km   = data.get('length', 0) / 1000.0
             emit_kg   = data.get('emissions_g_km', 100.0) / 1000.0
-            data['gen_cost'] = (
+            base_cost = (
                 (travel_h + headway_h) * vot
                 + dist_km * e_price
                 + dist_km * emit_kg * c_tax
             )
+            # Apply transfer penalty when edge belongs to a different service.
+            if _dominant_route is not None:
+                edge_routes = data.get('route_short_names', [])
+                if edge_routes and _dominant_route not in edge_routes:
+                    base_cost += _transfer_penalty
+            data['gen_cost'] = base_cost
     
         # ── Route on transit graph ────────────────────────────────────────────────
         try:
@@ -2167,25 +2207,14 @@ class Router:
                     if _road_seg and len(_road_seg) > 1:
                         transit_coords.extend(_road_seg if i == 0 else _road_seg[1:])
                     else:
-                        # Drive graph has no path (pedestrianised stop, bus-only
-                        # infrastructure, etc.).  Interpolate at 50 m intervals
-                        # rather than inserting a raw 2-point straight line —
-                        # interpolation gives smooth animation and avoids the
-                        # visual artefact of a line cutting through buildings.
-                        _interp = self._interpolate(
-                            [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
-                        )
-                        transit_coords.extend(_interp if i == 0 else _interp[1:])
-                        logger.debug(
-                            "%s: bus_noseg%d: drive failed (%.2fkm) — interpolated %d pts",
-                            agent_id, i, _straight, len(_interp),
-                        )
+                        if i == 0:
+                            transit_coords.append((u_x, u_y))
+                        transit_coords.append((v_x, v_y))
                 else:
-                    # Short segment ≤ 0.5km — interpolate at 50 m intervals.
-                    _interp = self._interpolate(
-                        [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
-                    )
-                    transit_coords.extend(_interp if i == 0 else _interp[1:])
+                    # Short segment — walk graph is adequate.
+                    if i == 0:
+                        transit_coords.append((u_x, u_y))
+                    transit_coords.append((v_x, v_y))
     
             else:
                 # Tram / ferry — try OSM tram graph; fall back to straight line.
