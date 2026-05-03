@@ -488,6 +488,16 @@ def render_sidebar_config():
     # code that still reads show_gtfs doesn't silently get False.
     st.session_state['show_gtfs'] = st.session_state['show_gtfs_routes']
 
+    # ── RNG defaults ────────────────────────────────────────────────────────
+    # The Randomness & Reproducibility widgets are rendered AFTER System
+    # Dynamics (below render_sd_info_box()) so the UI section is grouped with
+    # other settings.  Initialise the three variables here so SimulationConfig
+    # never raises UnboundLocalError if the widget block hasn't executed yet
+    # (e.g. on the very first Streamlit run before any interaction).
+    rng_reproducible = st.session_state.get('rng_reproducible', False)
+    rng_seed_name    = st.session_state.get('rng_seed_name',    None)
+    rng_seed_value   = st.session_state.get('rng_seed_value',   None)
+
     config = SimulationConfig(
         steps=steps,
         num_agents=num_agents,
@@ -740,7 +750,13 @@ def render_sidebar_config():
                     rng_seed_name = "override"
                 except ValueError:
                     st.error("Seed must be decimal or 0x-prefixed hex (e.g., 12345 or 0xDEADBEEF).")
-    
+
+    # Write resolved values back to session_state so the defaults block above
+    # (which runs before the widgets on the first pass) stays in sync.
+    st.session_state['rng_reproducible'] = rng_reproducible
+    st.session_state['rng_seed_name']    = rng_seed_name
+    st.session_state['rng_seed_value']   = rng_seed_value
+
     return config, run_btn
 
 
