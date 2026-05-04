@@ -56,13 +56,7 @@ _FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
 _TRAM_STOP_TYPES  = frozenset({'TMU', 'MET'})
 
 # Maximum km from origin/dest to nearest stop before rejecting the mode
-# Maximum walk distance from agent origin/destination to a transit stop.
-# MUST be ≤ router._compute_access_leg default cap (3.0 km) so that a snap
-# that succeeds here is guaranteed to produce a valid access/egress leg.
-# Previously 5.0 km — snap found stops at 3.29 km but _compute_access_leg
-# immediately rejected them ("access leg 3.29km exceeds cap 3.00km — skipping"),
-# causing the entire tram/rail chain to abort and fall through to bus.
-_MAX_STOP_SNAP_KM = 2.5
+_MAX_STOP_SNAP_KM = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -190,18 +184,22 @@ class TripChainBuilder:
         origin_coord = self._snap_stop(origin,      mode, agent_id, 'boarding')
         dest_coord   = self._snap_stop(destination, mode, agent_id, 'alighting')
 
-        # Reject if origin and destination snap to the same physical stop.
-        # This happens when an agent is located very close to a single stop
-        # that is also the nearest to their destination (common for MET stops
-        # near the tram terminus).  A zero-distance trunk leg produces an
-        # empty route geometry, which the BDI planner logs as 'empty leg for
-        # {mode} — aborting chain' and falls back to the next best mode.
-        if origin_coord == dest_coord:
+        # Reject stops that are physically the same (different NaPTAN IDs,
+        # same platform) or identical coords. Uses a 50m threshold — any
+        # board→alight distance under 50m is effectively the same stop.
+        try:
+            from simulation.spatial.coordinate_utils import haversine_km as _hkm
+            _board_alight_m = _hkm(origin_coord, dest_coord) * 1000
+        except Exception:
+            # Fallback: Euclidean proxy (degrees × 111km) — good enough for 50m check.
+            _dx = (origin_coord[0] - dest_coord[0]) * 111320 * 0.64  # lon at ~56°N
+            _dy = (origin_coord[1] - dest_coord[1]) * 111320
+            _board_alight_m = (_dx**2 + _dy**2) ** 0.5
+        if origin_coord == dest_coord or _board_alight_m < 50:
             raise ValueError(
-                f"{mode} {agent_id}: boarding stop == alighting stop "
-                f"{origin_coord} — agent too close to a single stop or "
-                f"destination is within the same stop catchment. "
-                f"Rejecting to prevent zero-distance trunk leg."
+                f"{mode} {agent_id}: boarding stop ≈ alighting stop "
+                f"({_board_alight_m:.0f}m apart) — too close for a meaningful "
+                f"trunk leg. Rejecting to prevent zero-distance route."
             )
 
         access_mode = self._pick_access_mode()

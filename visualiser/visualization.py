@@ -757,6 +757,14 @@ def render_map(
             total_segs, len(segment_rows),
         )
 
+        # ── Safety guard: ensure every row has tooltip_html ──────────────────────
+        # pydeck renders '{tooltip_html}' literally when the column is absent from
+        # a row dict. This guard catches any code path that built a route row
+        # without setting tooltip_html (e.g. fallback branches, stale state reads).
+        for _rows in segment_rows.values():
+            for _row in _rows:
+                _row.setdefault('tooltip_html', '')
+
         for seg_mode, rows in segment_rows.items():
             if not rows:
                 continue

@@ -825,8 +825,8 @@ class BDIPlanner:
             
             # For walking specifically, check if trip is extremely long
             # (This prevents Cramond→Balerno 12km+ straight-line walks, but allows 3-6km walks)
-            if mode == 'walk' and straight_line_distance > 8.0:
-                logger.debug(f"        Straight-line way too far for walking: {straight_line_distance:.1f}km")
+            if mode == 'walk' and straight_line_distance > 2.0:
+                logger.debug(f"        Straight-line too far for walking: {straight_line_distance:.1f}km (cap=2.0km)")
                 routing_results[mode] = f"unrealistic_walk: {straight_line_distance:.1f}km straight"
                 continue
             
