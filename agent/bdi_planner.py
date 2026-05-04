@@ -154,7 +154,7 @@ class BDIPlanner:
     
     # Distance-based mode constraints - EXPANDED  
     MODE_MAX_DISTANCE_KM = {
-        'walk': 3.0,  # Realistic walking distance
+        'walk': 2.0,  # Realistic walking distance
         'bike': 10.0,  # Regular bike comfortable range
         'cargo_bike': 20.0,  # E-cargo bike urban delivery range (realistic for Edinburgh)
         'bus': 100.0,
@@ -189,40 +189,40 @@ class BDIPlanner:
         'e_scooter': 30.0,
     }
     
-    # Distance-based mode constraints - EXPANDED  
-    MODE_MAX_DISTANCE_KM = {
-        'walk': 3.0,  # Realistic walking distance
-        'bike': 10.0,  # Regular bike comfortable range
-        'cargo_bike': 20.0,  # E-cargo bike urban delivery range (realistic for Edinburgh)
-        'bus': 100.0,
-        'car': 500.0,
-        'ev': 350.0,
+    # # Distance-based mode constraints - EXPANDED  
+    # MODE_MAX_DISTANCE_KM = {
+    #     'walk': 3.0,  # Realistic walking distance
+    #     'bike': 10.0,  # Regular bike comfortable range
+    #     'cargo_bike': 20.0,  # E-cargo bike urban delivery range (realistic for Edinburgh)
+    #     'bus': 100.0,
+    #     'car': 500.0,
+    #     'ev': 350.0,
         
-        # Freight modes
-        'van_electric': 200.0,
-        'van_diesel': 500.0,
-        'truck_electric': 250.0,
-        'truck_diesel': 600.0,
-        'hgv_electric': 300.0,
-        'hgv_diesel': 800.0,
-        'hgv_hydrogen': 600.0,
+    #     # Freight modes
+    #     'van_electric': 200.0,
+    #     'van_diesel': 500.0,
+    #     'truck_electric': 250.0,
+    #     'truck_diesel': 600.0,
+    #     'hgv_electric': 300.0,
+    #     'hgv_diesel': 800.0,
+    #     'hgv_hydrogen': 600.0,
         
-        # Public transport
-        'tram': 25.0,
-        'local_train': 150.0,
-        'intercity_train': 800.0,
+    #     # Public transport
+    #     'tram': 25.0,
+    #     'local_train': 150.0,
+    #     'intercity_train': 800.0,
         
-        # Maritime
-        'ferry_diesel': 200.0,
-        'ferry_electric': 50.0,
+    #     # Maritime
+    #     'ferry_diesel': 200.0,
+    #     'ferry_electric': 50.0,
         
-        # Aviation
-        'flight_domestic': 1000.0,
-        'flight_electric': 500.0,
+    #     # Aviation
+    #     'flight_domestic': 1000.0,
+    #     'flight_electric': 500.0,
         
-        # Micro-mobility
-        'e_scooter': 30.0,
-    }
+    #     # Micro-mobility
+    #     'e_scooter': 30.0,
+    # }
     
     
     def __init__(
@@ -606,7 +606,7 @@ class BDIPlanner:
                         # hits the walk graph which may return [] for stops in pedestrian-
                         # zone or graph-sparse areas — causing "empty leg for walk".
                         #
-                        # Fix: detect 2-point access/egress stubs and route them via
+                        # Detect 2-point access/egress stubs and route them via
                         # router._compute_access_leg(), which has a 4-tier fallback
                         # (walk → drive proxy → interpolated straight line) and never
                         # returns [] for a reachable coord pair.

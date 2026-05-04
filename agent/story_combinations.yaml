@@ -244,7 +244,7 @@ prohibited:
     reason: "Gig delivery drivers do not fly for business"
 
 
-# Recommended test cases — all jobs verified to exist in job context YAML files
+# Test cases — all jobs verified to exist in job context YAML files
 recommended_test_cases:
   - persona: "eco_warrior"
     job: "morning_commute"
