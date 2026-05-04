@@ -272,7 +272,7 @@ def render_sidebar_config():
     # ── RNG / reproducibility ───────────────────────────────────
     # OUTSIDE the form so the seed selectbox appears immediately on checkbox
     # toggle without requiring the Run Simulation button to be pressed.
-    st.markdown("---")
+    
     st.markdown("### 🎲 Randomness & Reproducibility")
     rng_reproducible = st.checkbox(
         "Enable reproducible simulation",
@@ -336,6 +336,8 @@ def render_sidebar_config():
     st.session_state['rng_reproducible'] = rng_reproducible
     st.session_state['rng_seed_name']    = rng_seed_name
     st.session_state['rng_seed_value']   = rng_seed_value
+
+    st.markdown("---")
 
     with st.form("config_form"):
         # Basic settings
