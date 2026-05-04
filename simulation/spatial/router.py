@@ -2202,12 +2202,36 @@ class Router:
                 transit_coords.extend(shape if i == 0 else shape[1:])
     
             elif mode in ('bus', 'van_electric', 'van_diesel'):
-                # Bus: three-tier proxy for missing-shape segments.
-                # 1. Drive graph (road-following)
-                # 2. Walk graph (covers pedestrianised stops the drive graph omits)
-                # 3. Interpolate at 50m (never a raw 2-point diagonal through buildings)
+                # Bus: three-tier proxy for missing GTFS shape_coords on a segment.
+                # Tier 1 — drive graph (road-following, correct geometry).
+                # Tier 2 — _compute_access_leg: walk graph with proper nearest-node
+                #           snapping, then drive proxy, then last-resort interpolation.
+                #           Replaces the old _compute_road_route(mode='walk') call
+                #           which failed on isolated bus-stop subgraphs because it
+                #           used graph_manager.get_nearest_node() without the snap
+                #           tolerance that _compute_access_leg provides.
+                # Hard cap — gaps > _MAX_BUS_NOSEG_KM have no GTFS shape and are
+                #           too large to route safely without one (19 km straight
+                #           lines cross the Firth of Forth or Edinburgh Pentlands).
+                #           Skip the segment rather than draw an ocean crossing.
                 _straight = haversine_km((u_x, u_y), (v_x, v_y))
-                if _straight > 0.5:
+                _MAX_BUS_NOSEG_KM = 5.0
+                if _straight > _MAX_BUS_NOSEG_KM:
+                    # GTFS shape missing on a long-haul express segment.
+                    # Skipping produces a visual gap rather than a straight line
+                    # through water or buildings.
+                    logger.warning(
+                        "%s: bus_noseg%d: gap %.1fkm exceeds %.1fkm cap — "
+                        "GTFS shape_coords missing on this segment; skipping.",
+                        agent_id, i, _straight, _MAX_BUS_NOSEG_KM,
+                    )
+                    # Ensure route continuity: append just the endpoint so the
+                    # path list never has a hard break.
+                    if transit_coords:
+                        transit_coords.append((v_x, v_y))
+                    else:
+                        transit_coords.extend([(u_x, u_y), (v_x, v_y)])
+                elif _straight > 0.5:
                     _road_seg = self._compute_road_route(
                         agent_id + f'_bus_noseg{i}',
                         (u_x, u_y), (v_x, v_y),
@@ -2216,26 +2240,34 @@ class Router:
                     if _road_seg and len(_road_seg) > 1:
                         transit_coords.extend(_road_seg if i == 0 else _road_seg[1:])
                     else:
-                        # Tier 2: walk graph covers bus stops in pedestrianised areas.
-                        _walk_seg = self._compute_road_route(
-                            agent_id + f'_bus_noseg{i}_walk',
+                        # Tier 2: _compute_access_leg (walk → drive proxy → interp).
+                        # This handles pedestrianised stops the drive graph omits
+                        # by snapping to the nearest walk-graph node with a tolerance
+                        # that the raw _compute_road_route(mode='walk') lacked.
+                        _access_seg = self._compute_access_leg(
+                            agent_id + f'_bus_noseg{i}',
                             (u_x, u_y), (v_x, v_y),
-                            'walk', _DEFAULT_POLICY,
+                            max_straight_km=min(_straight + 0.5, _MAX_BUS_NOSEG_KM),
                         )
-                        if _walk_seg and len(_walk_seg) > 1:
-                            transit_coords.extend(_walk_seg if i == 0 else _walk_seg[1:])
+                        if _access_seg and len(_access_seg) > 1:
+                            transit_coords.extend(
+                                _access_seg if i == 0 else _access_seg[1:]
+                            )
                             logger.debug(
-                                "%s: bus_noseg%d: walk graph used (%.2fkm)",
-                                agent_id, i, _straight,
+                                "%s: bus_noseg%d: access_leg used (%.2fkm, %d pts)",
+                                agent_id, i, _straight, len(_access_seg),
                             )
                         else:
-                            # Tier 3: interpolate — smooth, never cuts through buildings.
+                            # Last resort: fine interpolation (max 50 m steps).
+                            # Still produces a straight diagonal but never a raw
+                            # 2-point jump; at least the path renders smoothly.
                             _interp = self._interpolate(
                                 [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
                             )
                             transit_coords.extend(_interp if i == 0 else _interp[1:])
                             logger.debug(
-                                "%s: bus_noseg%d: drive+walk failed (%.2fkm) — interpolated %d pts",
+                                "%s: bus_noseg%d: all tiers failed (%.2fkm) — "
+                                "interpolated %d pts",
                                 agent_id, i, _straight, len(_interp),
                             )
                 else:
@@ -2281,11 +2313,22 @@ class Router:
                     transit_coords.append((v_x, v_y))
     
         # ── Service label ─────────────────────────────────────────────────────────
+        # When the router constrained the path to a single route (bus mode with a
+        # shared dominant service), _all_short_names still contains every
+        # route_short_name on every traversed edge — including co-located services
+        # that share infrastructure (e.g. 24 and 9 both use Princes Street).
+        # The label must reflect the constrained service only; showing "Bus 24, 9, 12"
+        # when the agent is riding the 24 is factually wrong and causes the tooltip
+        # to display "Service 12" as the primary service.
         _seen: set = set()
         _service_names = [
             sn for sn in _all_short_names
             if sn and not (sn in _seen or _seen.add(sn))  # type: ignore[func-returns-value]
         ]
+        # Constrained-route override: if routing was locked to one service, use
+        # only that service in the label regardless of what bleeds in from shared edges.
+        if _constrained_route is not None and _constrained_route in _service_names:
+            _service_names = [_constrained_route]
         _mode_title = mode.replace('_', ' ').title()
         _service_label = (
             f"{_mode_title} {', '.join(_service_names[:3])}"

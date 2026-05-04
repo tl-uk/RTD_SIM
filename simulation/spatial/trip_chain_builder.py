@@ -182,24 +182,30 @@ class TripChainBuilder:
         agent_id: str,
     ) -> List[TripLeg]:
         origin_coord = self._snap_stop(origin,      mode, agent_id, 'boarding')
-        dest_coord   = self._snap_stop(destination, mode, agent_id, 'alighting')
+        # Pass exclude_coord so the destination never snaps to the same station
+        # as the origin.  When origin and destination are both closest to a
+        # single Edinburgh station (e.g. Haymarket) this previously returned
+        # 0 m apart and rejected the mode.  Second-nearest resolves it.
+        dest_coord   = self._snap_stop(
+            destination, mode, agent_id, 'alighting',
+            exclude_coord=origin_coord,
+        )
 
-        # Reject stops that are physically the same (different NaPTAN IDs,
-        # same platform) or identical coords. Uses a 50m threshold — any
-        # board→alight distance under 50m is effectively the same stop.
+        # Safety net: reject stops that are physically the same even after the
+        # exclude_coord filter (can still happen at terminus stops with a single
+        # RLY stop within _MAX_STOP_SNAP_KM of both ends of a very short trip).
         try:
             from simulation.spatial.coordinate_utils import haversine_km as _hkm
             _board_alight_m = _hkm(origin_coord, dest_coord) * 1000
         except Exception:
-            # Fallback: Euclidean proxy (degrees × 111km) — good enough for 50m check.
-            _dx = (origin_coord[0] - dest_coord[0]) * 111320 * 0.64  # lon at ~56°N
+            _dx = (origin_coord[0] - dest_coord[0]) * 111320 * 0.64
             _dy = (origin_coord[1] - dest_coord[1]) * 111320
             _board_alight_m = (_dx**2 + _dy**2) ** 0.5
         if origin_coord == dest_coord or _board_alight_m < 50:
             raise ValueError(
                 f"{mode} {agent_id}: boarding stop ≈ alighting stop "
-                f"({_board_alight_m:.0f}m apart) — too close for a meaningful "
-                f"trunk leg. Rejecting to prevent zero-distance route."
+                f"({_board_alight_m:.0f}m apart) — no second station within "
+                f"{_MAX_STOP_SNAP_KM:.0f} km; mode not viable for this OD pair."
             )
 
         access_mode = self._pick_access_mode()
@@ -292,10 +298,11 @@ class TripChainBuilder:
 
     def _snap_stop(
         self,
-        coord:    Coord,
-        mode:     str,
-        agent_id: str,
-        role:     str,
+        coord:         Coord,
+        mode:          str,
+        agent_id:      str,
+        role:          str,
+        exclude_coord: Optional[Coord] = None,
     ) -> Coord:
         """
         Return (lon, lat) of the nearest stop for mode.
@@ -303,7 +310,26 @@ class TripChainBuilder:
         Tier 1: Router.snap_to_transit_stop()  (GTFS + NaPTAN)
         Tier 2: Direct NaPTAN nearest_naptan_stop()
         Raises ValueError if nothing found within _MAX_STOP_SNAP_KM.
+
+        Args:
+            coord:         (lon, lat) query coordinate.
+            mode:          Transport mode string.
+            agent_id:      For log messages.
+            role:          'boarding' or 'alighting' — for error messages.
+            exclude_coord: (lon, lat) to skip.  When the boarding stop has
+                           already been resolved, pass it here so the
+                           alighting snap never returns the exact same station
+                           (which would cause the 0 m apart rejection).
         """
+        _EXCLUDE_TOL_M = 10.0   # treat coords within 10 m as the same stop
+
+        def _is_excluded(candidate: Coord) -> bool:
+            if exclude_coord is None:
+                return False
+            dx = (candidate[0] - exclude_coord[0]) * 111320 * 0.64
+            dy = (candidate[1] - exclude_coord[1]) * 111320
+            return (dx**2 + dy**2) ** 0.5 < _EXCLUDE_TOL_M
+
         # Tier 1 — router (has GTFS + NaPTAN internally)
         router = getattr(self.env, 'router', None)
         if router is not None and hasattr(router, 'snap_to_transit_stop'):
@@ -311,10 +337,11 @@ class TripChainBuilder:
                 coord, mode,
                 max_distance_m=int(_MAX_STOP_SNAP_KM * 1000),
             )
-            if result is not None:
+            if result is not None and not _is_excluded(result):
                 return result
 
-        # Tier 2 — direct NaPTAN
+        # Tier 2 — direct NaPTAN (full stop list, sorted by distance so we can
+        # skip the excluded stop and return the second-nearest).
         naptan = (
             getattr(getattr(self.env, 'graph_manager', None), 'naptan_stops', None)
             or getattr(self.env, 'naptan_stops', [])
@@ -326,21 +353,31 @@ class TripChainBuilder:
             elif mode in ('ferry_diesel', 'ferry_electric'):
                 stop_types = _FERRY_STOP_TYPES
             elif mode in ('local_train', 'intercity_train', 'freight_rail'):
-                # CRITICAL: use RLY-only set, never MET (tram stops) or FER.
-                # Edinburgh has 74 MET stops vs 20 RLY stops; without this
-                # filter, rail agents snap to tram stops and the trunk leg
-                # routing fails because the tram stop has no rail graph node.
                 stop_types = RAIL_ONLY_STOP_TYPES
             else:
                 stop_types = RAIL_STOP_TYPES
 
-            hit = nearest_naptan_stop(
-                coord, naptan,
-                stop_types=stop_types,
-                max_km=_MAX_STOP_SNAP_KM,
-            )
-            if hit is not None:
-                return (hit.lon, hit.lat)
+            # Sort all matching stops by distance; skip the excluded coord.
+            try:
+                from simulation.spatial.coordinate_utils import haversine_km as _hkm
+                candidates = [
+                    s for s in naptan
+                    if (stop_types is None or s.stop_type in stop_types)
+                    and _hkm(coord, (s.lon, s.lat)) <= _MAX_STOP_SNAP_KM
+                    and not _is_excluded((s.lon, s.lat))
+                ]
+                if candidates:
+                    best = min(candidates, key=lambda s: _hkm(coord, (s.lon, s.lat)))
+                    return (best.lon, best.lat)
+            except Exception:
+                # Fallback: original nearest_naptan_stop without exclude
+                hit = nearest_naptan_stop(
+                    coord, naptan,
+                    stop_types=stop_types,
+                    max_km=_MAX_STOP_SNAP_KM,
+                )
+                if hit is not None and not _is_excluded((hit.lon, hit.lat)):
+                    return (hit.lon, hit.lat)
 
         raise ValueError(
             f"No {mode} {role} stop within {_MAX_STOP_SNAP_KM:.0f} km of "
