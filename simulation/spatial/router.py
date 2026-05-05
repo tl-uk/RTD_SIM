@@ -2091,40 +2091,50 @@ class Router:
         e_price = float(policy.get('energy_price_gbp_km',   0.12))
         c_tax   = float(policy.get('carbon_tax_gbp_tco2',   0.0))
 
-        # ── Route-continuity: identify the dominant service for this OD pair ─────
-        # Without this, the gen_cost minimiser freely switches between services
-        # that share stops (e.g. routes E13, 12, 31 all stop in Edinburgh centre).
-        # The result is a "route" that strings three services together, giving
-        # 25.6km for a journey that should be ~8km on service 31 alone.
-        #
-        # Strategy: find which route_short_name appears on the most edges in the
-        # shortest unweighted path between origin_stop and dest_stop.  Edges
-        # belonging to other routes get a transfer penalty (VoT × 30 min extra
-        # wait) so the optimiser strongly prefers staying on one service.
-        # Legitimate transfers are still allowed — they just cost more.
-        _TRANSFER_WAIT_H = 0.5        # 30-minute equivalent transfer penalty
-        _transfer_penalty = _TRANSFER_WAIT_H * vot
-        _dominant_route: Optional[str] = None
-        try:
-            _unweighted_path = nx.shortest_path(G_transit, origin_stop, dest_stop)
-            _route_freq: dict = {}
-            for _i in range(len(_unweighted_path) - 1):
-                _eu = _unweighted_path[_i]
-                _ev = _unweighted_path[_i + 1]
-                _em = G_transit.get_edge_data(_eu, _ev) or {}
-                for _ed in _em.values():
-                    for _rn in _ed.get('route_short_names', []):
-                        _route_freq[_rn] = _route_freq.get(_rn, 0) + 1
-            if _route_freq:
-                _dominant_route = max(_route_freq, key=_route_freq.get)
-                logger.debug(
-                    "%s: dominant route for %s→%s = %s (freq=%d)",
-                    agent_id, origin_stop, dest_stop, _dominant_route,
-                    _route_freq[_dominant_route],
-                )
-        except Exception:
-            _dominant_route = None  # non-fatal — no continuity preference applied
-    
+        # ── Route-constrained stop snapping (bus mode only) ─────────────────────
+        # The soft-penalty approach (previous) allowed multi-service paths because
+        # a £5 transfer penalty is negligible vs £42 total gen_cost for a 30-stop path.
+        # The correct fix: find routes that serve BOTH origin_stop and dest_stop,
+        # then hard-block (gen_cost=inf) all edges from other routes.
+        # When no single route serves both stops, multi-service is logged and allowed.
+        _constrained_route: Optional[str] = None
+        if mode == 'bus':
+            try:
+                _origin_routes: set = set()
+                for _eu, _ev, _ek, _ed in G_transit.out_edges(origin_stop, keys=True, data=True):
+                    if _ed.get('mode') == 'bus':
+                        _origin_routes.update(_ed.get('route_short_names', []))
+                _dest_routes: set = set()
+                for _eu, _ev, _ek, _ed in G_transit.in_edges(dest_stop, keys=True, data=True):
+                    if _ed.get('mode') == 'bus':
+                        _dest_routes.update(_ed.get('route_short_names', []))
+                for _eu, _ev, _ek, _ed in G_transit.out_edges(dest_stop, keys=True, data=True):
+                    if _ed.get('mode') == 'bus':
+                        _dest_routes.update(_ed.get('route_short_names', []))
+                _shared = _origin_routes & _dest_routes
+                if _shared:
+                    _best_freq, _best_rn = -1, None
+                    for _rn in sorted(_shared):
+                        _freq = sum(
+                            1 for _, _, _, _ed in G_transit.edges(data=True, keys=True)
+                            if _rn in _ed.get('route_short_names', [])
+                            and _ed.get('mode') == 'bus'
+                        )
+                        if _freq > _best_freq:
+                            _best_freq, _best_rn = _freq, _rn
+                    _constrained_route = _best_rn
+                    logger.debug(
+                        "%s: route-constrained to %s (shared by origin+dest, freq=%d)",
+                        agent_id, _constrained_route, _best_freq,
+                    )
+                else:
+                    logger.debug(
+                        "%s: no shared route for %s→%s — multi-service allowed",
+                        agent_id, origin_stop, dest_stop,
+                    )
+            except Exception as _rc_exc:
+                logger.debug("%s: route-constraint failed: %s", agent_id, _rc_exc)
+
         for u, v, key, data in G_transit.edges(keys=True, data=True):
             edge_mode = data.get('mode', 'bus')
             if edge_mode == 'walk' or data.get('highway') == 'transfer':
@@ -2142,11 +2152,11 @@ class Router:
                 + dist_km * e_price
                 + dist_km * emit_kg * c_tax
             )
-            # Apply transfer penalty when edge belongs to a different service.
-            if _dominant_route is not None:
+            # Hard-block edges not on the constrained route.
+            if _constrained_route is not None:
                 edge_routes = data.get('route_short_names', [])
-                if edge_routes and _dominant_route not in edge_routes:
-                    base_cost += _transfer_penalty
+                if edge_routes and _constrained_route not in edge_routes:
+                    base_cost = float('inf')
             data['gen_cost'] = base_cost
     
         # ── Route on transit graph ────────────────────────────────────────────────
@@ -2202,29 +2212,12 @@ class Router:
                 transit_coords.extend(shape if i == 0 else shape[1:])
     
             elif mode in ('bus', 'van_electric', 'van_diesel'):
-                # Bus: three-tier proxy for missing GTFS shape_coords on a segment.
-                # Tier 1 — drive graph (road-following, correct geometry).
-                # Tier 2 — _compute_access_leg: four-tier walk graph with proper
-                #           nearest-node snapping.  Replaces the old
-                #           _compute_road_route(mode='walk') call which failed on
-                #           isolated bus-stop subgraphs because get_nearest_node()
-                #           has no snap tolerance. _compute_access_leg also handles
-                #           the drive-proxy and fine-interpolation fallbacks
-                #           internally, so a noseg gap never silently becomes a
-                #           raw 2-point straight line through a building.
-                # Hard cap — gaps > _MAX_BUS_NOSEG_KM lack GTFS shape geometry.
-                #           Skipping them produces a visual gap rather than a
-                #           19 km straight line across the Firth of Forth.
+                # Bus: three-tier proxy for missing-shape segments.
+                # 1. Drive graph (road-following)
+                # 2. Walk graph (covers pedestrianised stops the drive graph omits)
+                # 3. Interpolate at 50m (never a raw 2-point diagonal through buildings)
                 _straight = haversine_km((u_x, u_y), (v_x, v_y))
-                _MAX_BUS_NOSEG_KM = 5.0
-                if _straight > _MAX_BUS_NOSEG_KM:
-                    logger.warning(
-                        "%s: bus_noseg%d: gap %.1fkm exceeds %.1fkm cap — "                        "GTFS shape_coords missing; skipping to avoid ocean crossing.",
-                        agent_id, i, _straight, _MAX_BUS_NOSEG_KM,
-                    )
-                    # Preserve path continuity — append the endpoint only.
-                    transit_coords.append((v_x, v_y)) if transit_coords else                         transit_coords.extend([(u_x, u_y), (v_x, v_y)])
-                elif _straight > 0.5:
+                if _straight > 0.5:
                     _road_seg = self._compute_road_route(
                         agent_id + f'_bus_noseg{i}',
                         (u_x, u_y), (v_x, v_y),
@@ -2233,32 +2226,30 @@ class Router:
                     if _road_seg and len(_road_seg) > 1:
                         transit_coords.extend(_road_seg if i == 0 else _road_seg[1:])
                     else:
-                        # Tier 2: _compute_access_leg handles pedestrianised stops
-                        # with proper walk-graph snapping and its own fallback chain.
-                        _access_seg = self._compute_access_leg(
-                            agent_id + f'_bus_noseg{i}',
+                        # Tier 2: walk graph covers bus stops in pedestrianised areas.
+                        _walk_seg = self._compute_road_route(
+                            agent_id + f'_bus_noseg{i}_walk',
                             (u_x, u_y), (v_x, v_y),
-                            max_straight_km=min(_straight + 0.5, _MAX_BUS_NOSEG_KM),
+                            'walk', _DEFAULT_POLICY,
                         )
-                        if _access_seg and len(_access_seg) > 1:
-                            transit_coords.extend(
-                                _access_seg if i == 0 else _access_seg[1:]
-                            )
+                        if _walk_seg and len(_walk_seg) > 1:
+                            transit_coords.extend(_walk_seg if i == 0 else _walk_seg[1:])
                             logger.debug(
-                                "%s: bus_noseg%d: access_leg used (%.2fkm, %d pts)",
-                                agent_id, i, _straight, len(_access_seg),
+                                "%s: bus_noseg%d: walk graph used (%.2fkm)",
+                                agent_id, i, _straight,
                             )
                         else:
+                            # Tier 3: interpolate — smooth, never cuts through buildings.
                             _interp = self._interpolate(
                                 [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
                             )
                             transit_coords.extend(_interp if i == 0 else _interp[1:])
                             logger.debug(
-                                "%s: bus_noseg%d: drive+access_leg both failed "                                "(%.2fkm) — interpolated %d pts",
+                                "%s: bus_noseg%d: drive+walk failed (%.2fkm) — interpolated %d pts",
                                 agent_id, i, _straight, len(_interp),
                             )
                 else:
-                    # Short segment ≤ 0.5km — fine interpolation, not a 2-point line.
+                    # Short segment ≤ 0.5km — interpolate rather than 2-point line.
                     _interp = self._interpolate(
                         [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
                     )
