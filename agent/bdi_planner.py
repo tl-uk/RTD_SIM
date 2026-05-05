@@ -152,77 +152,62 @@ class BDIPlanner:
         'hgv_depot': 720.0,
     }
     
-    # Distance-based mode constraints - EXPANDED  
+    # Distance-based mode constraints.
+    # Applied against both straight-line distance (pre-routing gate) and
+    # actual_route_distance (post-routing check) so agents never attempt
+    # routing for obviously infeasible distances.
+    # NOTE: there was previously a duplicate definition of this dict here.
+    # The second copy silently overwrote the first and was missing taxi_ev
+    # and taxi_diesel, leaving those modes uncapped (float('inf')). Fixed.
     MODE_MAX_DISTANCE_KM = {
-        'walk': 2.0,  # Realistic walking distance
-        'bike': 10.0,  # Regular bike comfortable range
-        'cargo_bike': 20.0,  # E-cargo bike urban delivery range (realistic for Edinburgh)
-        'bus': 100.0,
-        'car': 500.0,
-        'ev': 350.0,
-        'taxi_ev': 400.0,     
-        'taxi_diesel': 600.0,
-        
-        # Freight modes
-        'van_electric': 200.0,
-        'van_diesel': 500.0,
-        'truck_electric': 250.0,
-        'truck_diesel': 600.0,
-        'hgv_electric': 300.0,
-        'hgv_diesel': 800.0,
-        'hgv_hydrogen': 600.0,
-        
-        # Public transport
-        'tram': 25.0,
-        'local_train': 150.0,
-        'intercity_train': 800.0,
-        
-        # Maritime
-        'ferry_diesel': 200.0,
-        'ferry_electric': 50.0,
-        
-        # Aviation
+        'walk':               3.0,   # default; overridden per-persona via PERSONA_WALK_MAX_KM
+        'bike':              10.0,
+        'cargo_bike':        20.0,
+        'e_scooter':         30.0,
+        'bus':              100.0,
+        'tram':              25.0,
+        'car':              500.0,
+        'ev':               350.0,
+        'taxi_ev':          400.0,
+        'taxi_diesel':      600.0,
+        'local_train':      150.0,
+        'intercity_train':  800.0,
+        'freight_rail':     800.0,
+        'ferry_diesel':     200.0,
+        'ferry_electric':    50.0,
         'flight_domestic': 1000.0,
-        'flight_electric': 500.0,
-        
-        # Micro-mobility
-        'e_scooter': 30.0,
+        'flight_electric':  500.0,
+        'van_electric':     200.0,
+        'van_diesel':       500.0,
+        'truck_electric':   250.0,
+        'truck_diesel':     600.0,
+        'hgv_electric':     300.0,
+        'hgv_diesel':       800.0,
+        'hgv_hydrogen':     600.0,
     }
-    
-    # # Distance-based mode constraints - EXPANDED  
-    # MODE_MAX_DISTANCE_KM = {
-    #     'walk': 3.0,  # Realistic walking distance
-    #     'bike': 10.0,  # Regular bike comfortable range
-    #     'cargo_bike': 20.0,  # E-cargo bike urban delivery range (realistic for Edinburgh)
-    #     'bus': 100.0,
-    #     'car': 500.0,
-    #     'ev': 350.0,
-        
-    #     # Freight modes
-    #     'van_electric': 200.0,
-    #     'van_diesel': 500.0,
-    #     'truck_electric': 250.0,
-    #     'truck_diesel': 600.0,
-    #     'hgv_electric': 300.0,
-    #     'hgv_diesel': 800.0,
-    #     'hgv_hydrogen': 600.0,
-        
-    #     # Public transport
-    #     'tram': 25.0,
-    #     'local_train': 150.0,
-    #     'intercity_train': 800.0,
-        
-    #     # Maritime
-    #     'ferry_diesel': 200.0,
-    #     'ferry_electric': 50.0,
-        
-    #     # Aviation
-    #     'flight_domestic': 1000.0,
-    #     'flight_electric': 500.0,
-        
-    #     # Micro-mobility
-    #     'e_scooter': 30.0,
-    # }
+
+    # Per-persona maximum walk distance (km, straight-line).
+    # Overrides the flat 3.0 km default in MODE_MAX_DISTANCE_KM.
+    # Rationale:
+    #   tourist / eco_warrior / rail_enthusiast: walk willingly and at length.
+    #   budget_student: young, healthy, walks to save money.
+    #   concerned_parent: children in tow; 1.5 km is already a stretch.
+    #   business_commuter: time-pressed; >1.5 km walk before transit is implausible.
+    #   accessible_traveller / elderly_resident: 1.0 km hard cap.
+    #   freight personas: vehicle_type guards these, but capped defensively.
+    PERSONA_WALK_MAX_KM: dict = {
+        'tourist':               3.0,
+        'eco_warrior':           3.0,
+        'rail_enthusiast':       2.5,
+        'budget_student':        2.5,
+        'concerned_parent':      1.5,
+        'business_commuter':     1.5,
+        'accessible_traveller':  1.0,
+        'elderly_resident':      1.0,
+        'freight_operator':      0.5,
+        'delivery_driver':       0.5,
+    }
+    _DEFAULT_WALK_MAX_KM: float = 2.0   # fallback for any persona not listed above
     
     
     def __init__(
@@ -606,7 +591,7 @@ class BDIPlanner:
                         # hits the walk graph which may return [] for stops in pedestrian-
                         # zone or graph-sparse areas — causing "empty leg for walk".
                         #
-                        # Detect 2-point access/egress stubs and route them via
+                        # Fix: detect 2-point access/egress stubs and route them via
                         # router._compute_access_leg(), which has a 4-tier fallback
                         # (walk → drive proxy → interpolated straight line) and never
                         # returns [] for a reachable coord pair.
@@ -803,10 +788,23 @@ class BDIPlanner:
                 routing_results[mode] = "zero_distance"
                 continue
             
-            # Apply strict distance constraint
+            # Apply strict distance constraint.
+            # For walk, the global default (3.0 km) is overridden by the
+            # per-persona cap in PERSONA_WALK_MAX_KM so that concerned_parent
+            # and business_commuter agents never walk more than 1.5 km while
+            # tourists and eco_warriors retain the full 3.0 km allowance.
             max_distance = self.MODE_MAX_DISTANCE_KM.get(mode, float('inf'))
+            if mode == 'walk':
+                _persona = context.get('user_story_id', context.get('persona_type', ''))
+                max_distance = self.PERSONA_WALK_MAX_KM.get(
+                    _persona, self._DEFAULT_WALK_MAX_KM
+                )
             if actual_route_distance >= max_distance:
-                logger.debug(f"        Route too long: {actual_route_distance:.1f}km >= {max_distance}km")
+                logger.debug(
+                    "        Route too long: %.1fkm >= %.1fkm (mode=%s, persona=%s)",
+                    actual_route_distance, max_distance, mode,
+                    context.get('user_story_id', 'unknown'),
+                )
                 routing_results[mode] = f"too_long: {actual_route_distance:.1f}km"
                 continue
             
@@ -823,12 +821,24 @@ class BDIPlanner:
                     routing_results[mode] = f"too_circuitous: {detour_ratio:.1f}x"
                     continue
             
-            # For walking specifically, check if trip is extremely long
-            # (This prevents Cramond→Balerno 12km+ straight-line walks, but allows 3-6km walks)
-            if mode == 'walk' and straight_line_distance > 2.0:
-                logger.debug(f"        Straight-line too far for walking: {straight_line_distance:.1f}km (cap=2.0km)")
-                routing_results[mode] = f"unrealistic_walk: {straight_line_distance:.1f}km straight"
-                continue
+            # Pre-routing straight-line cap for walk — prevents the router
+            # spending 1-2s on a 6 km walk path that will be rejected post-routing.
+            # Uses the same per-persona cap as the post-routing check above.
+            if mode == 'walk':
+                _persona_sl = context.get('user_story_id', context.get('persona_type', ''))
+                _walk_cap_sl = self.PERSONA_WALK_MAX_KM.get(
+                    _persona_sl, self._DEFAULT_WALK_MAX_KM
+                )
+                if straight_line_distance > _walk_cap_sl:
+                    logger.debug(
+                        "        Straight-line %.1fkm exceeds walk cap %.1fkm for persona '%s' — skipping routing",
+                        straight_line_distance, _walk_cap_sl, _persona_sl,
+                    )
+                    routing_results[mode] = (
+                        f"unrealistic_walk: {straight_line_distance:.1f}km > {_walk_cap_sl:.1f}km"
+                        f" ({_persona_sl or 'unknown'})"
+                    )
+                    continue
             
             # SUCCESS! Track the successful route and generate action
             logger.info(f"         SUCCESS: {actual_route_distance:.1f}km route")
