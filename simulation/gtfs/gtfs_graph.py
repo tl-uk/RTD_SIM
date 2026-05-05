@@ -639,7 +639,7 @@ class GTFSGraph:
             List of (lon, lat) tuples.
         """
         if not shape_coords or len(shape_coords) < 2:
-            return [(u_lon, u_lat), (v_lon, v_lat)]
+            return [] # [(u_lon, u_lat), (v_lon, v_lat)]
 
         # ── Step 1: Find i_u by scanning the full shape ───────────────────────
         # This is the only unrestricted global scan — departure stop U anchors
@@ -658,7 +658,7 @@ class GTFSGraph:
 
         i_u = _nearest_from(u_lon, u_lat, 0)
         if i_u < 0:
-            return [(u_lon, u_lat), (v_lon, v_lat)]
+            return [] # [(u_lon, u_lat), (v_lon, v_lat)]
 
         # ── Step 2: Search for i_v FORWARD from i_u ───────────────────────────
         # Scanning forward from i_u prevents snapping to a shape point on the
@@ -679,7 +679,7 @@ class GTFSGraph:
             if best_rev >= 0 and best_d_rev < window_m:
                 i_v = best_rev
             else:
-                return [(u_lon, u_lat), (v_lon, v_lat)]
+                return [] #[(u_lon, u_lat), (v_lon, v_lat)]
 
         # ── Step 3: Slice — direction is always i_u → i_v ────────────────────
         if i_u <= i_v:
@@ -687,4 +687,4 @@ class GTFSGraph:
         else:
             sliced = list(reversed(shape_coords[i_v: i_u + 1]))
 
-        return sliced if len(sliced) >= 2 else [(u_lon, u_lat), (v_lon, v_lat)]
+        return sliced if len(sliced) >= 2 else [] #[(u_lon, u_lat), (v_lon, v_lat)]

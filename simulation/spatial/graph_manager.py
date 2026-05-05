@@ -209,7 +209,7 @@ class GraphManager:
         self,
         place: Optional[str] = None,
         bbox: Optional[Tuple[float, float, float, float]] = None,
-        modes: List[str] = None,
+        modes: Optional[List[str]] = None,
         use_cache: bool = True,
     ) -> bool:
         """
