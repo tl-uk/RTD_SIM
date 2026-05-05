@@ -558,7 +558,13 @@ def run_simulation_loop(
     if weather_manager:
         logger.info("✅ Weather system initialized")
         logger.info(f"   Source: {config.weather_source}")
-        logger.info(f"   Location: ({config.latitude:.2f}, {config.longitude:.2f})")
+        _lat = config.latitude
+        _lon = config.longitude
+        logger.info(
+            f"   Location: ({_lat:.4f}, {_lon:.4f})"
+            if _lat is not None and _lon is not None
+            else "   Location: not set (place name used for geocoding)"
+        )
         
         # Connect weather to policy engine
         if policy_engine:
