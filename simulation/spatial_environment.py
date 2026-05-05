@@ -66,6 +66,15 @@ from simulation.spatial.coordinate_utils import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module-level GTFS transit graph cache.
+# Prevents the 2-minute GTFS parse running twice when startup_manager and
+# simulation_runner each create a fresh SpatialEnvironment for the same feed.
+# Key: (feed_path, service_date_or_None) → built GTFSGraph object.
+# ---------------------------------------------------------------------------
+_GTFS_TRANSIT_CACHE: dict = {}
+
+
 
 class SpatialEnvironment:
     """
@@ -361,9 +370,27 @@ class SpatialEnvironment:
         Returns:
             True if transit graph loaded and registered successfully.
         """
-        # Idempotent: skip if already loaded.
+        # Idempotent: skip if already loaded on this instance.
         if self.graph_manager.get_graph('transit') is not None:
             logger.debug("GTFS transit graph already loaded — skipping")
+            return True
+
+        # Module-level cache: reuse a previously-built transit graph when a
+        # second SpatialEnvironment is created for the same feed (e.g.
+        # startup_manager preview followed by simulation_runner setup).
+        # Parsing 3.2M stop_times takes ~2 minutes; this eliminates the
+        # redundant second pass without any loss of correctness.
+        _cache_key = (str(feed_path), str(service_date))
+        if _cache_key in _GTFS_TRANSIT_CACHE:
+            cached = _GTFS_TRANSIT_CACHE[_cache_key]
+            self.graph_manager.graphs['transit'] = cached['graph']
+            self.gtfs_loader = cached['loader']
+            logger.info(
+                "GTFS transit graph: reused from module cache (feed=%s, date=%s) "                "— %d stops, %d edges",
+                feed_path, service_date,
+                cached['graph'].number_of_nodes(),
+                cached['graph'].number_of_edges(),
+            )
             return True
 
         try:
@@ -442,6 +469,12 @@ class SpatialEnvironment:
             self.graph_manager.graphs['transit'] = G_transit
             self.gtfs_loader = loader   # stash for analytics / pydeck layers
 
+            # Populate the module-level cache so any subsequent SpatialEnvironment
+            # instance for the same feed can skip the 2-minute parse.
+            _GTFS_TRANSIT_CACHE[_cache_key] = {
+                'graph':  G_transit,
+                'loader': loader,
+            }
             logger.info(
                 "✅ GTFS transit graph: %d stops, %d service edges",
                 G_transit.number_of_nodes(), G_transit.number_of_edges(),

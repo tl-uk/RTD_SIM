@@ -131,7 +131,8 @@ def init_session_state():
         'show_gtfs_stops':          False,
         'show_gtfs_electric_only':  False,
         'show_naptan_stops':        False,
-        'show_ferry_routes':        True,    # Ferry lanes on by default
+        'show_ferry_routes':        True,    # Ferry routes (agent paths through ferry graph)
+        'show_shipping_lanes':      True,    # Static TSS / shipping lane background layer
         # ── Environment ───────────────────────────────────────────────────────
         'show_congestion':          False,
         # ── Basemap ───────────────────────────────────────────────────────────

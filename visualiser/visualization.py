@@ -113,7 +113,7 @@ def render_map(
     show_naptan_stops: bool = False,
     show_ferry_routes: bool = True,
     show_airports: bool = True,
-    show_shipping_lanes: bool = False,
+    show_shipping_lanes: bool = True,   # TSS lanes in Firth of Forth — on by default
     show_waterways: bool = False,
     infrastructure_manager: Optional[Any] = None,
     env: Optional[Any] = None,
@@ -392,6 +392,7 @@ def render_map(
     # they have.
     _show_any_transit = any([
         show_rail, show_gtfs, show_gtfs_stops, show_ferry_routes, show_airports,
+        show_shipping_lanes,
         kwargs.get('show_tram', False),
         kwargs.get('show_contraflow', False),
     ])
@@ -686,16 +687,12 @@ def render_map(
                     seg_emit_str = f' · {seg_emit_g:.0f} g CO₂' if seg_emit_g > 0 else ''
 
                     # Bus/tram service number — from route_short_name field or
-                    # from the label prefix (router sets "Bus 23", "Tram N3").
-                    # Use the FIRST service in the label — taking the last token
-                    # ("Bus 21, 22, 12" → "12") showed the wrong service when
-                    # the path traversed shared infrastructure with other routes.
+                    # from the label suffix (router sets "Bus 23", "Tram N3")
                     _rsn = seg.get('route_short_name', '')
                     if not _rsn and seg_mode in ('bus', 'tram'):
                         _lbl_parts = seg_label.strip().split()
                         if len(_lbl_parts) >= 2:
-                            # _lbl_parts[0] = mode ("Bus"), [1] = first service ("21,")
-                            _rsn = _lbl_parts[1].rstrip(',')
+                            _rsn = _lbl_parts[-1]
                     _svc_line = (
                         f'🚌 Service {_rsn}<br/>'
                         if _rsn and seg_mode in ('bus', 'tram', 'local_train', 'intercity_train')
