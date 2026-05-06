@@ -1,7 +1,5 @@
-# visualiser/visualization.py
-
 """
-visualization.py
+visualiser/visualization.py
 
 All visualization logic separated from UI orchestration.
 Handles map rendering, charts, infrastructure visualization, and animation controls.
