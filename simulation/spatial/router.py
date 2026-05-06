@@ -2172,26 +2172,54 @@ class Router:
     
         # ── Circus-path guard ────────────────────────────────────────────────────
         # The route-constraint picks the globally highest-frequency route, which
-        # maximises edge count across the whole graph but may route the OD pair
-        # via a 109-stop, 38.7 km path (route "4" going the long way round Edinburgh).
-        # If the constrained path has more stops than straight-line distance × 5
-        # (capped at 25 minimum), it is a circus route — drop the constraint and
-        # re-cost the graph multi-service, then retry shortest-path.
+        # may route via a massive detour (X51: Edinburgh→Queensferry→back, ×3.6;
+        # service 32: 18km loop for a 1.3km OD, ×14).
+        #
+        # Previous guard only checked STOP COUNT (≤ max(25, od_km×5)).
+        # That passes X51 (30 stops < 40 limit) and service 32 (24 stops < 25 limit).
+        # Adding a DISTANCE RATIO check catches all detour routes regardless of
+        # whether they are short-stop expresses or long-stop circuses.
+        #
+        # Path distance is estimated as sum of haversine(stop_i, stop_i+1).
+        # This underestimates actual road distance (~15%) but is conservative:
+        # a route that looks 3× longer by crow-fly is almost certainly a detour.
         if _constrained_route is not None:
             _od_straight_km = haversine_km(origin, dest)
             _max_sensible   = max(25, int(_od_straight_km * 5))
-            if len(transit_nodes) > _max_sensible:
+
+            # Estimate geographic path length from stop coordinates
+            _path_km = 0.0
+            for _ni in range(len(transit_nodes) - 1):
+                _na_d = G_transit.nodes.get(transit_nodes[_ni], {})
+                _nb_d = G_transit.nodes.get(transit_nodes[_ni + 1], {})
+                _path_km += haversine_km(
+                    (_na_d.get('x', _na_d.get('lon', 0.0)),
+                     _na_d.get('y', _na_d.get('lat', 0.0))),
+                    (_nb_d.get('x', _nb_d.get('lon', 0.0)),
+                     _nb_d.get('y', _nb_d.get('lat', 0.0))),
+                )
+
+            # Two independent circus signals — either alone is sufficient:
+            #   stop count  : path visits too many stops for the OD distance
+            #   distance ratio: path is >2.5× straight-line (catches X51, service 32)
+            _MAX_DETOUR = 2.5
+            _circus_stops    = len(transit_nodes) > _max_sensible
+            _circus_distance = (_path_km > _od_straight_km * _MAX_DETOUR
+                                and _path_km > 3.0)   # ignore tiny OD jitter
+
+            if _circus_stops or _circus_distance:
+                _reason = (
+                    f"{len(transit_nodes)} stops > limit {_max_sensible}"
+                    if _circus_stops
+                    else f"{_path_km:.1f}km path > {_od_straight_km:.1f}km×{_MAX_DETOUR}"
+                )
                 logger.debug(
-                    "%s: constrained path via '%s' has %d stops "
-                    "(%.1fkm straight, limit=%d) — dropping constraint, "
-                    "re-routing multi-service",
-                    agent_id, _constrained_route,
-                    len(transit_nodes), _od_straight_km, _max_sensible,
+                    "%s: constrained path via '%s' is a circus (%s, "
+                    "%.1fkm straight) — dropping constraint, re-routing multi-service",
+                    agent_id, _constrained_route, _reason, _od_straight_km,
                 )
                 _constrained_route = None
-                # Re-cost every edge without the hard-block and re-route.
-                # Mirrors the original cost loop exactly, just without the
-                # `if _constrained_route not in edge_routes: inf` branch.
+                # Re-cost edges without the hard-block, then retry.
                 for _u, _v, _k, _d in G_transit.edges(keys=True, data=True):
                     _em = _d.get('mode', 'bus')
                     if _em == 'walk' or _d.get('highway') == 'transfer':

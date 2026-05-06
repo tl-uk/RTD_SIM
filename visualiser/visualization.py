@@ -24,7 +24,7 @@ import plotly.express as px
 
 MODE_COLORS_RGB = {
     # Personal transport
-    'walk': [34, 197, 94],      # Green
+    'walk': [250, 158, 160],    # Salmon pink — matches OSM footway dashed line spec
     'bike': [59, 130, 246],     # Blue
     'bus': [245, 158, 11],      # Orange
     'car': [239, 68, 68],       # Red
@@ -692,7 +692,10 @@ def render_map(
                     if not _rsn and seg_mode in ('bus', 'tram'):
                         _lbl_parts = seg_label.strip().split()
                         if len(_lbl_parts) >= 2:
-                            _rsn = _lbl_parts[-1]
+                            # Use FIRST service, not last.
+                            # "Bus 35, 13, 1" [-1] = "1" which is wrong;
+                            # [1].rstrip(',') = "35" which is the dominant service.
+                            _rsn = _lbl_parts[1].rstrip(',')
                     _svc_line = (
                         f'🚌 Service {_rsn}<br/>'
                         if _rsn and seg_mode in ('bus', 'tram', 'local_train', 'intercity_train')
@@ -772,11 +775,15 @@ def render_map(
             is_active  = seg_mode in _ACTIVE_MODES
             is_private = seg_mode in _PRIVATE_MODES
             is_pt      = seg_mode in _PT_MODES
-            # Active travel: thin dashed. Private: medium. PT/ferry: bold.
-            w_min   = 1 if is_active else (2 if is_private else 3)
-            w_max   = 3 if is_active else (5 if is_private else 7)
-            opacity = 0.50 if is_active else (0.70 if is_private else 0.92)
-            alpha   = 130  if is_active else (170 if is_private else 210)
+            is_walk    = seg_mode == 'walk'
+            # Walk: very thin, heavily dashed, semi-transparent — visually distinct
+            # from road carriageways (salmon dashed line mirrors OSM footway style).
+            # Active non-walk (bike, e_scooter): thin dashed.
+            # Private (car, ev): medium solid. PT/ferry: bold solid.
+            w_min   = 1 if is_walk else (1 if is_active else (2 if is_private else 3))
+            w_max   = 2 if is_walk else (3 if is_active else (5 if is_private else 7))
+            opacity = 0.55 if is_walk else (0.50 if is_active else (0.70 if is_private else 0.92))
+            alpha   = 140  if is_walk else (130 if is_active else (170 if is_private else 210))
 
             layer_kwargs: Dict = dict(
                 data=rows,
@@ -789,7 +796,11 @@ def render_map(
                 pickable=True,
                 auto_highlight=True,
             )
-            if is_active:
+            if is_walk:
+                # Denser dash pattern for walk: short dash, longer gap — clearly
+                # different from road geometry at all zoom levels.
+                layer_kwargs['dash_array'] = [4, 6]
+            elif is_active:
                 layer_kwargs['dash_array'] = [6, 4]
 
             layers.append(pdk.Layer('PathLayer', **layer_kwargs))
