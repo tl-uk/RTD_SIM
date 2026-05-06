@@ -2165,10 +2165,45 @@ class Router:
                 G_transit, origin_stop, dest_stop, weight='gen_cost',
             )
         except Exception:
-            logger.debug(
-                "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
-            )
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            if _constrained_route is not None:
+                # The constraint blocked all paths (shared route doesn't connect
+                # this OD pair end-to-end). Retry without constraint so we get
+                # a real transit path rather than falling back to raw road routing.
+                logger.debug(
+                    "%s: constrained path %s→%s failed — retrying unconstrained",
+                    agent_id, origin_stop, dest_stop,
+                )
+                for u, v, key, data in G_transit.edges(keys=True, data=True):
+                    edge_mode = data.get('mode', 'bus')
+                    if edge_mode == 'walk' or data.get('highway') == 'transfer':
+                        data['gen_cost'] = 9999.0
+                    elif edge_mode not in _allowed:
+                        data['gen_cost'] = float('inf')
+                    else:
+                        travel_h  = data.get('travel_time_s', 300) / 3600.0
+                        headway_h = data.get('headway_s', 1800) / 3600.0 / 2.0
+                        dist_km   = data.get('length', 0) / 1000.0
+                        emit_kg   = data.get('emissions_g_km', 100.0) / 1000.0
+                        data['gen_cost'] = (
+                            (travel_h + headway_h) * vot
+                            + dist_km * e_price
+                            + dist_km * emit_kg * c_tax
+                        )
+                try:
+                    transit_nodes = nx.shortest_path(
+                        G_transit, origin_stop, dest_stop, weight='gen_cost',
+                    )
+                except Exception:
+                    logger.debug(
+                        "%s: no GTFS path %s→%s even unconstrained — fallback",
+                        agent_id, origin_stop, dest_stop,
+                    )
+                    return self._transit_fallback(agent_id, origin, dest, mode, policy)
+            else:
+                logger.debug(
+                    "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
+                )
+                return self._transit_fallback(agent_id, origin, dest, mode, policy)
     
         # ── Single combined pass: geometry extraction + service-name collection ───
         transit_coords = []

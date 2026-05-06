@@ -558,13 +558,7 @@ def run_simulation_loop(
     if weather_manager:
         logger.info("✅ Weather system initialized")
         logger.info(f"   Source: {config.weather_source}")
-        _lat = config.latitude
-        _lon = config.longitude
-        logger.info(
-            f"   Location: ({_lat:.4f}, {_lon:.4f})"
-            if _lat is not None and _lon is not None
-            else "   Location: not set (place name used for geocoding)"
-        )
+        logger.info(f"   Location: ({config.latitude:.2f}, {config.longitude:.2f})")
         
         # Connect weather to policy engine
         if policy_engine:
@@ -1194,10 +1188,25 @@ def run_simulation_loop(
                         influence_strength=getattr(config, 'influence_strength', 0.2),
                         conformity_pressure=getattr(config, 'conformity_pressure', 0.3),
                     )
-                    # Apply influence 50% of time to preserve diversity
-                    if random.random() < 0.5:
+                    # Apply influence 50% of time to preserve diversity.
+                    # CRITICAL: only override mode if the agent has not yet
+                    # started moving (route is empty or agent is at origin).
+                    # Overriding mode mid-journey corrupts route/route_segments —
+                    # the agent ends up with a tram route but mode='walk', causing
+                    # the visualization to show the wrong label and the agent to
+                    # navigate incorrectly along the wrong geometry.
+                    _at_origin = (
+                        agent.state.route is None
+                        or len(agent.state.route) == 0
+                        or agent.state.distance_km < 0.05
+                    )
+                    if _at_origin and random.random() < 0.5:
                         best_mode = min(adjusted, key=adjusted.get)
-                        agent.state.mode = best_mode
+                        if best_mode != agent.state.mode:
+                            # Clear route so the agent replans on next step
+                            agent.state.mode = best_mode
+                            agent.state.route = []
+                            agent.state.route_segments = []
                 
                 # Record satisfaction for influence system
                 if influence_system and not agent.state.arrived:
