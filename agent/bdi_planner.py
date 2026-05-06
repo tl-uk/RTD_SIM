@@ -208,6 +208,25 @@ class BDIPlanner:
         'delivery_driver':       0.5,
     }
     _DEFAULT_WALK_MAX_KM: float = 2.0   # fallback for any persona not listed above
+
+    def _persona_walk_cap(self, context: dict) -> float:
+        """
+        Return the walk distance cap (km) for the agent described by context.
+
+        PERSONA_WALK_MAX_KM keys are persona type prefixes such as
+        'concerned_parent' or 'business_commuter'.  context['user_story_id']
+        is the full story name, e.g. 'concerned_parent_morning_commute_1214'.
+        A direct dict.get() always misses because the full name is never a key.
+
+        Fix: longest-prefix match so 'concerned_parent_morning_commute_1214'
+        resolves to 'concerned_parent' → 1.5 km cap, not the 2.0 km default.
+        """
+        story_id = context.get('user_story_id', context.get('persona_type', ''))
+        best_len, best_cap = 0, self._DEFAULT_WALK_MAX_KM
+        for _key, _cap in self.PERSONA_WALK_MAX_KM.items():
+            if story_id.startswith(_key) and len(_key) > best_len:
+                best_len, best_cap = len(_key), _cap
+        return best_cap
     
     
     def __init__(
@@ -795,10 +814,9 @@ class BDIPlanner:
             # tourists and eco_warriors retain the full 3.0 km allowance.
             max_distance = self.MODE_MAX_DISTANCE_KM.get(mode, float('inf'))
             if mode == 'walk':
-                _persona = context.get('user_story_id', context.get('persona_type', ''))
-                max_distance = self.PERSONA_WALK_MAX_KM.get(
-                    _persona, self._DEFAULT_WALK_MAX_KM
-                )
+                # Use longest-prefix match so 'concerned_parent_morning_commute_1214'
+                # resolves to the 'concerned_parent' cap (1.5 km), not the default.
+                max_distance = self._persona_walk_cap(context)
             if actual_route_distance >= max_distance:
                 logger.debug(
                     "        Route too long: %.1fkm >= %.1fkm (mode=%s, persona=%s)",
@@ -825,18 +843,16 @@ class BDIPlanner:
             # spending 1-2s on a 6 km walk path that will be rejected post-routing.
             # Uses the same per-persona cap as the post-routing check above.
             if mode == 'walk':
-                _persona_sl = context.get('user_story_id', context.get('persona_type', ''))
-                _walk_cap_sl = self.PERSONA_WALK_MAX_KM.get(
-                    _persona_sl, self._DEFAULT_WALK_MAX_KM
-                )
+                _walk_cap_sl = self._persona_walk_cap(context)
                 if straight_line_distance > _walk_cap_sl:
+                    _story_sl = context.get('user_story_id', 'unknown')
                     logger.debug(
-                        "        Straight-line %.1fkm exceeds walk cap %.1fkm for persona '%s' — skipping routing",
-                        straight_line_distance, _walk_cap_sl, _persona_sl,
+                        "        Straight-line %.1fkm > walk cap %.1fkm for '%s' — skipping routing",
+                        straight_line_distance, _walk_cap_sl, _story_sl,
                     )
                     routing_results[mode] = (
                         f"unrealistic_walk: {straight_line_distance:.1f}km > {_walk_cap_sl:.1f}km"
-                        f" ({_persona_sl or 'unknown'})"
+                        f" ({_story_sl})"
                     )
                     continue
             

@@ -558,7 +558,13 @@ def run_simulation_loop(
     if weather_manager:
         logger.info("✅ Weather system initialized")
         logger.info(f"   Source: {config.weather_source}")
-        logger.info(f"   Location: ({config.latitude:.2f}, {config.longitude:.2f})")
+        _lat = config.latitude
+        _lon = config.longitude
+        logger.info(
+            f"   Location: ({_lat:.4f}, {_lon:.4f})"
+            if _lat is not None and _lon is not None
+            else "   Location: not set (place name used for geocoding)"
+        )
         
         # Connect weather to policy engine
         if policy_engine:
@@ -1189,24 +1195,26 @@ def run_simulation_loop(
                         conformity_pressure=getattr(config, 'conformity_pressure', 0.3),
                     )
                     # Apply influence 50% of time to preserve diversity.
-                    # CRITICAL: only override mode if the agent has not yet
-                    # started moving (route is empty or agent is at origin).
-                    # Overriding mode mid-journey corrupts route/route_segments —
-                    # the agent ends up with a tram route but mode='walk', causing
-                    # the visualization to show the wrong label and the agent to
-                    # navigate incorrectly along the wrong geometry.
-                    _at_origin = (
-                        agent.state.route is None
-                        or len(agent.state.route) == 0
-                        or agent.state.distance_km < 0.05
-                    )
-                    if _at_origin and random.random() < 0.5:
+                    # BUG 1 FIX: only switch mode when the agent is NOT
+                    # mid-journey.  Changing mode while route is active
+                    # leaves stale route geometry in state — the map then
+                    # shows a tram corridor labelled "Walk" (or vice versa).
+                    # Agents already moving keep their current mode until
+                    # they arrive; social influence applies at journey start.
+                    if random.random() < 0.5:
                         best_mode = min(adjusted, key=adjusted.get)
-                        if best_mode != agent.state.mode:
-                            # Clear route so the agent replans on next step
+                        _is_mid_journey = (
+                            not agent.state.arrived
+                            and getattr(agent.state, 'distance_km', 0.0) > 0.0
+                            and bool(getattr(agent.state, 'route', None))
+                        )
+                        if not _is_mid_journey and best_mode != agent.state.mode:
                             agent.state.mode = best_mode
+                            # Clear stale route so agent replans next step
+                            # with the newly-preferred mode.
                             agent.state.route = []
-                            agent.state.route_segments = []
+                            if hasattr(agent.state, 'route_segments'):
+                                agent.state.route_segments = []
                 
                 # Record satisfaction for influence system
                 if influence_system and not agent.state.arrived:

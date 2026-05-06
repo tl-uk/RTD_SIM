@@ -2165,29 +2165,48 @@ class Router:
                 G_transit, origin_stop, dest_stop, weight='gen_cost',
             )
         except Exception:
-            if _constrained_route is not None:
-                # The constraint blocked all paths (shared route doesn't connect
-                # this OD pair end-to-end). Retry without constraint so we get
-                # a real transit path rather than falling back to raw road routing.
+            logger.debug(
+                "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
+            )
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+    
+        # ── Circus-path guard ────────────────────────────────────────────────────
+        # The route-constraint picks the globally highest-frequency route, which
+        # maximises edge count across the whole graph but may route the OD pair
+        # via a 109-stop, 38.7 km path (route "4" going the long way round Edinburgh).
+        # If the constrained path has more stops than straight-line distance × 5
+        # (capped at 25 minimum), it is a circus route — drop the constraint and
+        # re-cost the graph multi-service, then retry shortest-path.
+        if _constrained_route is not None:
+            _od_straight_km = haversine_km(origin, dest)
+            _max_sensible   = max(25, int(_od_straight_km * 5))
+            if len(transit_nodes) > _max_sensible:
                 logger.debug(
-                    "%s: constrained path %s→%s failed — retrying unconstrained",
-                    agent_id, origin_stop, dest_stop,
+                    "%s: constrained path via '%s' has %d stops "
+                    "(%.1fkm straight, limit=%d) — dropping constraint, "
+                    "re-routing multi-service",
+                    agent_id, _constrained_route,
+                    len(transit_nodes), _od_straight_km, _max_sensible,
                 )
-                for u, v, key, data in G_transit.edges(keys=True, data=True):
-                    edge_mode = data.get('mode', 'bus')
-                    if edge_mode == 'walk' or data.get('highway') == 'transfer':
-                        data['gen_cost'] = 9999.0
-                    elif edge_mode not in _allowed:
-                        data['gen_cost'] = float('inf')
+                _constrained_route = None
+                # Re-cost every edge without the hard-block and re-route.
+                # Mirrors the original cost loop exactly, just without the
+                # `if _constrained_route not in edge_routes: inf` branch.
+                for _u, _v, _k, _d in G_transit.edges(keys=True, data=True):
+                    _em = _d.get('mode', 'bus')
+                    if _em == 'walk' or _d.get('highway') == 'transfer':
+                        _d['gen_cost'] = 9999.0
+                    elif _em not in _allowed:
+                        _d['gen_cost'] = float('inf')
                     else:
-                        travel_h  = data.get('travel_time_s', 300) / 3600.0
-                        headway_h = data.get('headway_s', 1800) / 3600.0 / 2.0
-                        dist_km   = data.get('length', 0) / 1000.0
-                        emit_kg   = data.get('emissions_g_km', 100.0) / 1000.0
-                        data['gen_cost'] = (
-                            (travel_h + headway_h) * vot
-                            + dist_km * e_price
-                            + dist_km * emit_kg * c_tax
+                        _th = _d.get('travel_time_s', 300) / 3600.0
+                        _hh = _d.get('headway_s', 1800) / 3600.0 / 2.0
+                        _dk = _d.get('length', 0) / 1000.0
+                        _ek = _d.get('emissions_g_km', 100.0) / 1000.0
+                        _d['gen_cost'] = (
+                            (_th + _hh) * vot
+                            + _dk * e_price
+                            + _dk * _ek * c_tax
                         )
                 try:
                     transit_nodes = nx.shortest_path(
@@ -2195,16 +2214,11 @@ class Router:
                     )
                 except Exception:
                     logger.debug(
-                        "%s: no GTFS path %s→%s even unconstrained — fallback",
-                        agent_id, origin_stop, dest_stop,
+                        "%s: unconstrained re-route also failed — road fallback",
+                        agent_id,
                     )
-                    return self._transit_fallback(agent_id, origin, dest, mode, policy)
-            else:
-                logger.debug(
-                    "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
-                )
-                return self._transit_fallback(agent_id, origin, dest, mode, policy)
-    
+                    return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
         # ── Single combined pass: geometry extraction + service-name collection ───
         transit_coords = []
         _all_short_names = []
