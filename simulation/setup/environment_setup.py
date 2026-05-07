@@ -176,6 +176,42 @@ def setup_environment(
     except Exception as exc:
         logger.warning("Walk graph load failed (non-fatal): %s", exc)
 
+    # ── 2b. Dedicated footway graph ───────────────────────────────────────────
+    # The OSMnx 'walk' graph includes road-adjacent footways whose geometry
+    # follows the road carriageway, so agents appear to walk in traffic lanes.
+    # The dedicated footway graph fetches only highway=footway/pedestrian/
+    # steps/path from Overpass — agents follow real pedestrian infrastructure.
+    # Router._compute_access_leg prefers this graph ('walk_footways') when
+    # present and falls back to the OSMnx walk graph automatically.
+    if progress_callback:
+        progress_callback(0.145, "🚶 Loading dedicated pedestrian footways…")
+    try:
+        from simulation.spatial.walk_network import build_walk_network
+        if bbox is not None:
+            _fn, _fs, _fe, _fw = bbox   # (north, south, east, west)
+            _city_tag = getattr(config, 'place', 'default')
+            if isinstance(_city_tag, str):
+                _city_tag = _city_tag.replace(' ', '_').replace(',', '').lower()[:30]
+            G_footways = build_walk_network(
+                bbox     = (_fn, _fs, _fe, _fw),
+                city_tag = _city_tag,
+                use_cache = True,
+            )
+            if G_footways is not None and G_footways.number_of_nodes() > 0:
+                env.graph_manager.graphs['walk_footways'] = G_footways
+                logger.info(
+                    "✅ Dedicated footway graph: %d nodes, %d edges "                    "(highway=footway/pedestrian/steps/path)",
+                    G_footways.number_of_nodes(), G_footways.number_of_edges(),
+                )
+            else:
+                logger.debug(
+                    "Dedicated footway graph empty — walk routing uses OSMnx walk graph"
+                )
+        else:
+            logger.debug("No bbox available — skipping dedicated footway graph")
+    except Exception as exc:
+        logger.warning("Dedicated footway graph load failed (non-fatal): %s", exc)
+
     # ── 3. Bike graph ─────────────────────────────────────────────────────────
     # Required for bike, cargo_bike, and e_scooter routing.  Without it these
     # modes silently fall back to the drive graph, routing cyclists on motorways.

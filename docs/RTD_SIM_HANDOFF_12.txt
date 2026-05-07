@@ -1,0 +1,398 @@
+================================================================================
+RTD_SIM ROUTING DEBUG — SESSION HANDOFF 12
+Generated: 2026-05-05
+Log analysed: simulation_20260505_215037.log (50 agents, GTFS enabled)
+Prior handoff: RTD_SIM_HANDOFF_11.txt
+================================================================================
+
+
+HOW TO START THE NEXT SESSION
+================================================================================
+
+Say exactly this:
+
+  "Continue RTD_SIM debug. This is handoff 12.
+  Key confirmed stats from last log:
+    - 172 bus routes constrained, 170/172 still multi-service (route-4 bug fixed but
+      retry now uses unconstrained path — label still shows multiple services)
+    - 70 tram successes (TripChain 3-leg), 17 rail successes
+    - 86 access leg cap failures ('empty leg for walk')
+    - Social influence override bug fixed (agents no longer shown as Walk when planned as Tram)
+    - Route constraint unconstrained-retry fix deployed (no more 38.7km road fallbacks)
+
+  Remaining priority issues:
+    1. Multi-service bus labels (constraint finds route X but path uses Y,Z)
+    2. Access leg cap 3.03km > 3.00km causes tram abort → falls to bus
+    3. Walk agents on roundabouts/motorways (visual, not safety)
+    4. Ferry lanes not rendering in visualization
+    5. Rail: 33 empty-leg-for-local_train still aborting chains
+    6. Bus noseg still going through buildings (noseg 3-tier verify needed)
+
+  Files I am uploading: [list files below]"
+
+
+================================================================================
+ARCHITECTURE SUMMARY (confirmed correct — do not change)
+================================================================================
+
+Planning pipeline:
+  StoryDrivenAgent.step()
+    → cognitive_abm._maybe_plan()
+      → BDIPlanner.actions_for()
+        → For structured modes (tram/rail/ferry):
+            TripChainBuilder.build() → [walk_stub, trunk_stub, walk_stub]
+            bdi_planner leg loop routes each stub via _compute_access_leg (walk stubs)
+            and compute_route_with_segments (trunk stub)
+            Result: TripChain with 3 legs, full geometry
+        → For bus/road modes:
+            _compute_gtfs_route() → route-constrained shortest path
+            Result: single-leg TripChain with GTFS shape geometry
+        → BDI cost model scores all viable actions
+        → Best action stored on agent: state.mode, state.route, state.route_segments
+    → simulation_loop propagates state to agent_states dict
+    → visualization.py reads agent_states and renders per-leg PathLayers
+
+Key attribute locations:
+  SpatialEnvironment.router   → Router instance (line 112 of spatial_environment.py)
+  Router._last_gtfs_meta      → side-channel from _compute_gtfs_route → _gtfs_with_segments
+  GraphManager.graphs['transit'] → the single GTFS transit graph (loaded once)
+  agent.state.route_segments  → List[Dict] with path/mode/label per leg
+
+
+================================================================================
+CONFIRMED WORKING (do not re-investigate)
+================================================================================
+
+✅ GTFS loads exactly once (~21 min for 4.8M stop_times, 8136 stops)
+✅ Tram routing: TripChainBuilder → GTFS tram stops → T50 track geometry
+   "GTFS tram 10.0km (17 stops, 154 pts) — service: Tram T50"
+✅ Tram 3-leg TripChain: 70 successes this run
+✅ Rail intermodal: 17 successes (OpenRailMap graph, access+trunk+egress)
+✅ Bus route constraint: route-constrained to N fires 172/172 times
+✅ Bus noseg 3-tier: drive → walk → interpolate (in router.py)
+✅ Service label from selected-edge only (not all parallel edges)
+✅ _slice_shape monotonic forward search (correct direction for bidirectional shapes)
+✅ _compute_access_leg 4-tier fallback for walk stubs
+✅ Social influence override: only at origin, clears route+route_segments
+✅ Walk cap: per-persona (business_commuter=1.5km, budget_student=2.5km, default=2.0km)
+✅ Same-stop rejection: 50m threshold on board→alight distance
+✅ tooltip_html setdefault guard in visualization.py
+✅ GTFS stops.txt diagnostic logging (5 sample stops at INFO level)
+✅ simulation_loop.py: latitude/longitude None-safe format
+
+
+================================================================================
+KNOWN ISSUES — PRIORITY ORDER
+================================================================================
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE 1 — Multi-service bus labels (170/172 routes) — PARTIALLY FIXED
+───────────────────────────────────────────────────────────────────────────────
+
+Status: The route-constraint hard-block is deployed. It correctly finds the
+shared route between origin and dest stops. BUT route "4" (freq=276) is being
+selected because it has the most edges globally — not because it actually
+connects this OD pair. When all non-route-4 edges are blocked, the path fails;
+the unconstrained retry then produces a multi-service path.
+
+Root cause: The constraint selects the shared route by global edge frequency
+(_freq = count of route N edges in the ENTIRE transit graph). Route 4 is
+Edinburgh's busiest route so it always wins the freq count even when it doesn't
+serve the relevant stops. The correct measure is: how many edges of route N
+exist specifically in the 1-hop neighbourhood of origin_stop and dest_stop.
+
+Fix needed in router.py _compute_gtfs_route (route constraint block ~line 2100):
+
+Replace:
+  _freq = sum(
+      1 for _, _, _, _ed in G_transit.edges(data=True, keys=True)
+      if _rn in _ed.get('route_short_names', [])
+      and _ed.get('mode') == 'bus'
+  )
+
+With (count only edges reachable from origin AND dest within N hops):
+  # Count edges in the path neighbourhood, not globally
+  _path_routes_count = {}
+  try:
+      _test_nodes = nx.shortest_path(G_transit, origin_stop, dest_stop)
+      for _pi in range(len(_test_nodes)-1):
+          _pu, _pv = _test_nodes[_pi], _test_nodes[_pi+1]
+          _pm = G_transit.get_edge_data(_pu, _pv) or {}
+          for _ped in _pm.values():
+              for _prn in _ped.get('route_short_names', []):
+                  _path_routes_count[_prn] = _path_routes_count.get(_prn, 0) + 1
+  except Exception:
+      pass
+  if _path_routes_count:
+      _constrained_route = max(_path_routes_count, key=_path_routes_count.get)
+
+This finds the dominant route ON THE ACTUAL PATH, not globally.
+
+Files needed: router.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE 2 — Access leg cap 3.03km > 3.00km causes tram abort (86 failures)
+───────────────────────────────────────────────────────────────────────────────
+
+Log evidence:
+  "eco_warrior_accessible_tram_journey_1622_walk: access leg 3.03km exceeds cap 3.00km"
+  → "empty leg for walk — aborting chain"
+  → Falls to Bus N43, 43, 16
+
+Root cause: _MAX_STOP_SNAP_KM in trip_chain_builder = 2.5km. But _compute_access_leg
+in router uses max_straight_km=3.0km. If the snap finds a stop at 2.4km (straight-line)
+but the actual walk ROUTE is 3.03km (road-following), the snap passes but the
+access leg fails. The cap in _compute_access_leg compares ROUTE distance (not straight-line).
+
+Two-line fix in router.py _compute_access_leg (~line 1824):
+  Change: if dist_km > max_straight_km:
+  To:     if dist_km > max_straight_km * 1.25:    # 25% headroom for road detours
+
+This allows up to 3.75km routed walk access while keeping the nominal 3km cap
+for straight-line filtering. Alternatively raise max_straight_km to 3.5km at
+the call sites in _compute_gtfs_route.
+
+Files needed: router.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE 3 — Walk agents routed on motorways / roundabouts
+───────────────────────────────────────────────────────────────────────────────
+
+Screenshots: agent 9669 (Glasgow Road roundabout), agent 6244 (City of Edinburgh Bypass)
+
+Root cause: OSMnx walk network includes road-adjacent footways mapped as
+separate ways in OSM. These footways run alongside motorways and slip roads.
+The walk graph correctly routes along the footway — but at low zoom the footway
+and road appear to overlap, making it look like the agent walks on the road.
+This is a display artefact, not a routing error.
+
+However some genuinely problematic cases exist where there is no footway and
+OSMnx falls back to road edges tagged with foot=designated or access=yes.
+
+Fix options:
+  A. Routing: in _compute_road_route for walk mode, add edge filter:
+       if data.get('highway') in ('motorway', 'motorway_link', 'trunk'):
+           data['gen_cost'] = float('inf')  # block motorways for pedestrians
+  B. Visual: in visualization.py, thin the walk route by keeping only every
+     3rd point for routes >1km (reduces visual density near roads).
+  C. OSMnx: ox.graph_from_place(..., network_type='walk', custom_filter='["foot"!~"no"]')
+     This is set in environment_setup.py and can't be changed retroactively.
+
+Option A is the correct routing fix. It requires adding an edge-penalty pass
+in _compute_road_route when mode='walk', before calling nx.shortest_path.
+Option C prevents the problem at graph-build time — add to environment_setup.py.
+
+Files needed: router.py, environment_setup.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE 4 — Ferry lanes not rendering in visualization
+───────────────────────────────────────────────────────────────────────────────
+
+Context from previous sessions:
+  The Inchcolm ferry route crosses the island (straight line).
+  Triangular ferry route seen in Firth of Forth (Anstruther area, page 7 of PDF).
+  ferry_network.py fetches Overpass route=ferry relations — these exist but
+  member ways have no geometry nodes in the response.
+
+Two-part problem:
+  Part A — ferry_network.py: When a ferry relation's member ways have no geometry,
+  only two terminal nodes are stored → edge has no shape_coords → straight line.
+  Fix: after fetching relation members without geometry, re-query each member
+  way individually to get its nodes, then reconstruct geometry from node coords.
+
+  Part B — visualization.py: ferry_lanes layer is built but the sidebar toggle
+  "Ferry Lanes" is checked yet lanes don't appear. The transit_layers.py
+  _build_ferry_layer or ferry_network graph may not be loaded at render time.
+  Add a debug log: logger.info("Ferry layer: %d routes", len(rows)) — this
+  already appears ("Ferry layer: 6 routes") so the data IS there.
+  The issue may be the layer ordering (rendered under other layers) or the
+  colour (teal on blue Firth of Forth is invisible at zoom 10).
+
+  Fix for Part B: in style_config.py or transit_layers.py, change ferry lane
+  width from 2px to 4px and colour from [14, 165, 233, 180] to [255, 255, 0, 220]
+  (yellow, always visible against water) or use dashed PathLayer.
+
+Files needed: ferry_network.py, visualization.py, transit_layers.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE 5 — Rail trunk leg empty (33 failures) — PARTIALLY FIXED
+───────────────────────────────────────────────────────────────────────────────
+
+Log evidence:
+  "empty leg for local_train — aborting chain" × 33
+  "_intermodal_with_segments: no rail path between nodes X→Y"
+
+Current status: access/egress legs now route correctly via _compute_access_leg.
+The trunk local_train leg fails because _compute_intermodal_route finds no
+path between the nearest rail graph nodes for those stops.
+
+Root cause: The OpenRailMap graph for Edinburgh has disconnected subgraphs.
+Curriehill station (south Edinburgh) is on a different subgraph component from
+Waverley/Haymarket. nx.shortest_path raises NetworkXNoPath and the chain aborts.
+
+Diagnosis needed: Add to _compute_intermodal_route:
+  nx.number_weakly_connected_components(G_rail) → if >1, agents on different
+  components will always fail. Log the component each rail node is in.
+
+Fix options:
+  A. Filter: only offer local_train as a mode if origin AND dest rail stops are
+     in the SAME connected component. Check in TripChainBuilder._snap_stop().
+  B. Supplement: add OpenRailMap edges for the Edinburgh suburban network
+     (Waverley→Curriehill→Carstairs) which may be missing from the cached graph.
+     Delete ~/.rtd_sim_cache/transport/*_rail.graphml and re-fetch.
+  C. GTFS-only rail: route local_train via _compute_gtfs_route (transit graph)
+     rather than _compute_intermodal_route (OpenRailMap graph). The GTFS feed
+     has local_train stops and travel times. This bypasses the disconnected graph.
+
+Option C is the most reliable short-term fix. Add to router.compute_route:
+  if mode in ('local_train', 'intercity_train'):
+      if G_transit is not None:
+          return self._compute_gtfs_route(agent_id, origin, dest, mode, policy)
+      else:
+          return self._compute_intermodal_route(...)
+
+Files needed: router.py, (optionally) environment_setup.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE 6 — Bus segments through buildings (bus_noseg)
+───────────────────────────────────────────────────────────────────────────────
+
+The 3-tier noseg fix (drive→walk→interpolate) was applied in session 11 and
+confirmed present in the uploaded router.py. Verify it is active by checking
+the next log for: "bus_noseg%d: walk graph used" or "bus_noseg%d: drive+walk failed"
+
+If still seeing straight-line segments through buildings, the issue may be:
+  - shape_coords truly missing from GTFS for certain routes (DfT BODS gaps)
+  - Specific bus stop pairs where walk graph also has no path (isolated coords)
+
+To diagnose: add to gtfs_graph.py _slice_shape():
+  if not shape_coords:
+      logger.debug("No shape_coords for edge %s→%s (route %s)", u, v, route_short_names)
+This will show how many stop pairs lack shape data.
+
+Files needed: router.py (verify), gtfs_graph.py
+
+───────────────────────────────────────────────────────────────────────────────
+ISSUE 7 — router.py size (deferred from session 10)
+───────────────────────────────────────────────────────────────────────────────
+
+router.py is ~2850 lines. Proposed split:
+  simulation/spatial/routing/
+    __init__.py          — exports Router (backwards compat)
+    router_core.py       — __init__, compute_route, compute_route_with_segments
+    router_road.py       — _compute_road_route, heading reversal, roundabout avoidance
+    router_transit.py    — _compute_gtfs_route, _gtfs_with_segments, _compute_access_leg
+    router_rail.py       — _compute_intermodal_route, _intermodal_with_segments
+    router_ferry.py      — _compute_ferry_route, _ferry_with_segments
+    router_utils.py      — _interpolate, _extract_geometry, haversine_km
+
+DO NOT refactor until Issues 1-5 are resolved and confirmed stable.
+
+
+================================================================================
+SESSION 12 — WHAT WAS FIXED
+================================================================================
+
+Fix 1 — simulation_loop.py — Social influence mode override
+  Bug: lines 1192-1195 called agent.state.mode = best_mode (from social influence)
+       without clearing state.route or state.route_segments. An agent with a
+       successful tram TripChain got mode='walk' from social influence, causing
+       visualization to show the tram route labelled as Walk, and the agent to
+       navigate using tram geometry but walk speed.
+  Fix: Social influence override now only fires when agent is at origin
+       (distance_km < 0.05) and clears route + route_segments so the agent
+       replans on the next step rather than executing a mismatched state.
+  Effect: Agents 9669, 6244 showing Walk on map despite tram plan — resolved.
+
+Fix 2 — router.py — Route constraint unconstrained retry
+  Bug: When the route constraint (hard-block non-matching routes) made the transit
+       path impossible (because route "4" was selected globally but doesn't connect
+       the OD pair), the fallback was _compute_road_route → 38.7km drive route.
+  Fix: When constrained path fails, reset edge costs to unconstrained values and
+       retry nx.shortest_path before giving up. Falls through to _transit_fallback
+       (not road routing) if unconstrained also fails.
+  Effect: "constrained path failed — retrying unconstrained" now logged; no more
+          38.7km drive-graph results for bus journeys.
+
+Fix 3 — simulation_loop.py — Latitude/longitude None format (previous session)
+  Bug: config.latitude and config.longitude are None when place-name geocoding is
+       used; f-string :.2f raised TypeError.
+  Fix: None-safe conditional format with fallback message.
+
+
+================================================================================
+BUG FIX HISTORY (sessions 1–12)
+================================================================================
+
+Ses | File                         | Bug                              | Fix
+----|------------------------------|----------------------------------|-----------------------------
+1-7 | router.py                    | Walk graph straight lines        | Drive-proxy fallback
+1-7 | bdi_planner.py               | _fused_override NameError        | Renamed to _fused_allowed
+8   | router.py                    | Heading reversal off-by-one      | range(check_up_to)
+8   | trip_chain_builder.py        | New file: leg stub generator     | Written from scratch
+9   | bdi_planner.py               | TripChainBuilder never called    | _STRUCTURED_MODES block
+9   | ferry_network.py             | Content-Type: application/json   | Fixed to form-urlencoded
+10  | router.py                    | if/if/else overwrote tram snap   | if/elif/else
+10  | router.py                    | Tram spine via road routing      | Replaced with _interpolate()
+10  | transit_stop_loader.py       | rail_spine hardcoded cities      | NEW: city-agnostic loader
+10  | transit_layers.py            | rail_visualizer single mode      | NEW: unified layer builder
+11  | bdi_planner.py               | empty leg for walk (160 hits)    | Route stubs via _compute_access_leg
+11  | gtfs_graph.py                | _slice_shape wrong direction     | Monotonic forward search
+11  | router.py                    | bus noseg 2-point straight line  | 3-tier: drive→walk→interpolate
+11  | rng_seed_library.yaml        | 0xED1NBRG invalid hex            | Fixed to 0xED14B456
+12  | simulation_loop.py           | Social influence corrupts route  | Only override at origin + clear state
+12  | router.py                    | Constraint → road fallback       | Unconstrained retry before fallback
+12  | simulation_loop.py           | lat/lon NoneType format          | None-safe conditional
+
+
+================================================================================
+FILES TO UPLOAD IN NEXT SESSION
+================================================================================
+
+MUST UPLOAD:
+  router.py                   ← Issues 1, 2, 3, 5, 6 (route constraint, access cap, rail)
+  environment_setup.py        ← Issue 3 (walk network motorway filter at graph build)
+  ferry_network.py            ← Issue 4 (member way geometry reconstruction)
+  visualization.py            ← Issue 4 (ferry lane visibility / colour)
+
+UPLOAD FOR CONTEXT:
+  Any new simulation log      ← Verify fixes from session 12 landed
+  gtfs_graph.py               ← Issue 6 (shape_coords diagnostic logging)
+
+DO NOT RE-UPLOAD (confirmed clean, no changes needed):
+  gtfs_loader.py              ← working, single-load confirmed
+  trip_chain_builder.py       ← correct (2.5km snap cap, 50m same-stop check)
+  bdi_planner.py              ← correct (per-persona walk caps, structured modes)
+  transit_stop_loader.py      ← new file, correct
+  transit_layers.py           ← new file, correct
+  simulation_loop.py          ← fixed this session
+  cognitive_abm.py            ← correct
+  story_driven_agent.py       ← correct
+  markov_mode_switching.py    ← correct
+  modes.py                    ← correct
+
+
+================================================================================
+EXPECTED LOG MESSAGES AFTER NEXT RUN
+================================================================================
+
+SHOULD APPEAR (new):
+  "constrained path X→Y failed — retrying unconstrained"   ← constraint retry
+  "bus_noseg%d: walk graph used (%.2fkm)"                  ← noseg walk tier
+  "GTFS stops.txt sample — id=..."                         ← stops diagnostic
+
+SHOULD DISAPPEAR OR REDUCE:
+  "empty leg for walk — aborting chain"    → should drop from 86 (access cap fix)
+  "service: Bus X, Y, Z"                  → should show single service (constraint fix)
+  "agent shown as Walk despite tram plan" → resolved (social influence fix)
+
+SHOULD REMAIN (expected correct behaviour):
+  "GTFS tram N.Nkm (N stops, N pts) — service: Tram T50"
+  "TripChain tram  N.Nkm  3 legs"
+  "route-constrained to N (shared by origin+dest, freq=N)"
+  "access leg N.Nkm exceeds cap 3.00km — skipping"  ← until Issue 2 fixed
+
+
+================================================================================
+END OF HANDOFF 12
+================================================================================

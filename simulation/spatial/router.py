@@ -1829,7 +1829,15 @@ class Router:
             return []
 
         # ── Tier 1: Walk graph ────────────────────────────────────────────────
-        G_walk = self.graph_manager.get_graph('walk')
+        # Prefer the dedicated footway graph ('walk_footways') when available.
+        # It contains only highway=footway/pedestrian/steps/path edges from
+        # Overpass — agents follow proper pedestrian infrastructure rather than
+        # the road carriageway geometry in the OSMnx 'walk' graph.
+        # Falls back to the OSMnx walk graph if footways graph is absent.
+        G_walk = (
+            self.graph_manager.get_graph('walk_footways')
+            or self.graph_manager.get_graph('walk')
+        )
         if G_walk is not None and G_walk.number_of_nodes() > 10:
             try:
                 orig_node = self.graph_manager.get_nearest_node(origin, 'walk')
@@ -2114,12 +2122,36 @@ class Router:
                 _shared = _origin_routes & _dest_routes
                 if _shared:
                     _best_freq, _best_rn = -1, None
+                    # Score routes by edges within the OD catchment only.
+                    # Previously used global edge count, which made long
+                    # regional expresses (X51: Dunfermline→Livingston, 50+
+                    # stops across the whole region) always beat city routes
+                    # (service 24: 20 Edinburgh stops) because they have more
+                    # total edges.  A journey entirely within Edinburgh should
+                    # prefer the route with most LOCAL coverage, not most
+                    # country-wide coverage.
+                    #
+                    # Catchment = OD midpoint ± 1.5× straight-line distance,
+                    # minimum 3 km.  X51 scores 1–2 edges near origin/dest
+                    # while service 24/44 scores 15–20 Edinburgh city edges.
+                    _od_mid = ((origin[0] + dest[0]) / 2.0,
+                               (origin[1] + dest[1]) / 2.0)
+                    _od_radius = max(haversine_km(origin, dest) * 1.5, 3.0)
                     for _rn in sorted(_shared):
-                        _freq = sum(
-                            1 for _, _, _, _ed in G_transit.edges(data=True, keys=True)
-                            if _rn in _ed.get('route_short_names', [])
-                            and _ed.get('mode') == 'bus'
-                        )
+                        _freq = 0
+                        for _eu, _ev, _ek, _ed in G_transit.edges(
+                            data=True, keys=True
+                        ):
+                            if _rn not in _ed.get('route_short_names', []):
+                                continue
+                            if _ed.get('mode') != 'bus':
+                                continue
+                            _eu_d = G_transit.nodes.get(_eu, {})
+                            if haversine_km(
+                                (_eu_d.get('x', 0.0), _eu_d.get('y', 0.0)),
+                                _od_mid,
+                            ) <= _od_radius:
+                                _freq += 1
                         if _freq > _best_freq:
                             _best_freq, _best_rn = _freq, _rn
                     _constrained_route = _best_rn
@@ -2170,24 +2202,68 @@ class Router:
             )
             return self._compute_road_route(agent_id, origin, dest, mode, policy)
     
+        # ── U-turn / pass-through guard ───────────────────────────────────────
+        # A valid path must NOT visit dest_stop before the final element.
+        # If it does, the route passed through the destination and reversed
+        # (e.g. service 1 going east along Princes Street past the destination,
+        # then routing back west via a westbound service-1 edge).  This produces
+        # the nonsensical reversal seen on page 6 of the PDF screenshots.
+        # This check applies to both constrained AND unconstrained paths.
+        if dest_stop in transit_nodes[:-1]:
+            if _constrained_route is not None:
+                logger.debug(
+                    "%s: constrained path visits dest_stop before terminus "
+                    "(U-turn via '%s') — dropping constraint, re-routing",
+                    agent_id, _constrained_route,
+                )
+                _constrained_route = None
+                for _u2, _v2, _k2, _d2 in G_transit.edges(keys=True, data=True):
+                    _em2 = _d2.get('mode', 'bus')
+                    if _em2 == 'walk' or _d2.get('highway') == 'transfer':
+                        _d2['gen_cost'] = 9999.0
+                    elif _em2 not in _allowed:
+                        _d2['gen_cost'] = float('inf')
+                    else:
+                        _th2 = _d2.get('travel_time_s', 300) / 3600.0
+                        _hh2 = _d2.get('headway_s', 1800) / 3600.0 / 2.0
+                        _dk2 = _d2.get('length', 0) / 1000.0
+                        _ek2 = _d2.get('emissions_g_km', 100.0) / 1000.0
+                        _d2['gen_cost'] = (
+                            (_th2 + _hh2) * vot
+                            + _dk2 * e_price
+                            + _dk2 * _ek2 * c_tax
+                        )
+                try:
+                    transit_nodes = nx.shortest_path(
+                        G_transit, origin_stop, dest_stop, weight='gen_cost',
+                    )
+                except Exception:
+                    return self._compute_road_route(agent_id, origin, dest, mode, policy)
+                # If the unconstrained path ALSO passes through dest early,
+                # the stop layout genuinely doesn't support direct routing —
+                # fall back to road rather than drawing a U-turn on the map.
+                if dest_stop in transit_nodes[:-1]:
+                    logger.debug(
+                        "%s: unconstrained path also has U-turn — road fallback",
+                        agent_id,
+                    )
+                    return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            else:
+                logger.debug(
+                    "%s: unconstrained GTFS path visits dest before terminus "
+                    "(U-turn) — road fallback",
+                    agent_id,
+                )
+                return self._compute_road_route(agent_id, origin, dest, mode, policy)
+
         # ── Circus-path guard ────────────────────────────────────────────────────
-        # The route-constraint picks the globally highest-frequency route, which
-        # may route via a massive detour (X51: Edinburgh→Queensferry→back, ×3.6;
-        # service 32: 18km loop for a 1.3km OD, ×14).
-        #
-        # Previous guard only checked STOP COUNT (≤ max(25, od_km×5)).
-        # That passes X51 (30 stops < 40 limit) and service 32 (24 stops < 25 limit).
-        # Adding a DISTANCE RATIO check catches all detour routes regardless of
-        # whether they are short-stop expresses or long-stop circuses.
-        #
-        # Path distance is estimated as sum of haversine(stop_i, stop_i+1).
-        # This underestimates actual road distance (~15%) but is conservative:
-        # a route that looks 3× longer by crow-fly is almost certainly a detour.
+        # Checks both stop count AND geographic detour ratio.
+        # The distance check catches express services (X51: 30 stops but
+        # 3.6× detour via Queensferry) that pass the stop-count limit.
         if _constrained_route is not None:
             _od_straight_km = haversine_km(origin, dest)
             _max_sensible   = max(25, int(_od_straight_km * 5))
 
-            # Estimate geographic path length from stop coordinates
             _path_km = 0.0
             for _ni in range(len(transit_nodes) - 1):
                 _na_d = G_transit.nodes.get(transit_nodes[_ni], {})
@@ -2199,52 +2275,43 @@ class Router:
                      _nb_d.get('y', _nb_d.get('lat', 0.0))),
                 )
 
-            # Two independent circus signals — either alone is sufficient:
-            #   stop count  : path visits too many stops for the OD distance
-            #   distance ratio: path is >2.5× straight-line (catches X51, service 32)
-            _MAX_DETOUR = 2.5
-            _circus_stops    = len(transit_nodes) > _max_sensible
-            _circus_distance = (_path_km > _od_straight_km * _MAX_DETOUR
-                                and _path_km > 3.0)   # ignore tiny OD jitter
+            _MAX_DETOUR   = 2.5
+            _circus_stops = len(transit_nodes) > _max_sensible
+            _circus_dist  = _path_km > _od_straight_km * _MAX_DETOUR and _path_km > 3.0
 
-            if _circus_stops or _circus_distance:
-                _reason = (
-                    f"{len(transit_nodes)} stops > limit {_max_sensible}"
+            if _circus_stops or _circus_dist:
+                _why = (
+                    f"{len(transit_nodes)} stops > {_max_sensible}"
                     if _circus_stops
-                    else f"{_path_km:.1f}km path > {_od_straight_km:.1f}km×{_MAX_DETOUR}"
+                    else f"{_path_km:.1f}km > {_od_straight_km:.1f}×{_MAX_DETOUR}"
                 )
                 logger.debug(
-                    "%s: constrained path via '%s' is a circus (%s, "
-                    "%.1fkm straight) — dropping constraint, re-routing multi-service",
-                    agent_id, _constrained_route, _reason, _od_straight_km,
+                    "%s: constrained path via '%s' is circus (%s) — "
+                    "re-routing multi-service",
+                    agent_id, _constrained_route, _why,
                 )
                 _constrained_route = None
-                # Re-cost edges without the hard-block, then retry.
-                for _u, _v, _k, _d in G_transit.edges(keys=True, data=True):
-                    _em = _d.get('mode', 'bus')
-                    if _em == 'walk' or _d.get('highway') == 'transfer':
-                        _d['gen_cost'] = 9999.0
-                    elif _em not in _allowed:
-                        _d['gen_cost'] = float('inf')
+                for _u3, _v3, _k3, _d3 in G_transit.edges(keys=True, data=True):
+                    _em3 = _d3.get('mode', 'bus')
+                    if _em3 == 'walk' or _d3.get('highway') == 'transfer':
+                        _d3['gen_cost'] = 9999.0
+                    elif _em3 not in _allowed:
+                        _d3['gen_cost'] = float('inf')
                     else:
-                        _th = _d.get('travel_time_s', 300) / 3600.0
-                        _hh = _d.get('headway_s', 1800) / 3600.0 / 2.0
-                        _dk = _d.get('length', 0) / 1000.0
-                        _ek = _d.get('emissions_g_km', 100.0) / 1000.0
-                        _d['gen_cost'] = (
-                            (_th + _hh) * vot
-                            + _dk * e_price
-                            + _dk * _ek * c_tax
+                        _th3 = _d3.get('travel_time_s', 300) / 3600.0
+                        _hh3 = _d3.get('headway_s', 1800) / 3600.0 / 2.0
+                        _dk3 = _d3.get('length', 0) / 1000.0
+                        _ek3 = _d3.get('emissions_g_km', 100.0) / 1000.0
+                        _d3['gen_cost'] = (
+                            (_th3 + _hh3) * vot
+                            + _dk3 * e_price
+                            + _dk3 * _ek3 * c_tax
                         )
                 try:
                     transit_nodes = nx.shortest_path(
                         G_transit, origin_stop, dest_stop, weight='gen_cost',
                     )
                 except Exception:
-                    logger.debug(
-                        "%s: unconstrained re-route also failed — road fallback",
-                        agent_id,
-                    )
                     return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
         # ── Single combined pass: geometry extraction + service-name collection ───
