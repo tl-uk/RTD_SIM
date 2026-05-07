@@ -177,8 +177,6 @@ def setup_environment(
         logger.warning("Walk graph load failed (non-fatal): %s", exc)
 
     # ── 2b. Dedicated footway graph ───────────────────────────────────────────
-    # The OSMnx 'walk' graph includes road-adjacent footways whose geometry
-    # follows the road carriageway, so agents appear to walk in traffic lanes.
     # The dedicated footway graph fetches only highway=footway/pedestrian/
     # steps/path from Overpass — agents follow real pedestrian infrastructure.
     # Router._compute_access_leg prefers this graph ('walk_footways') when
