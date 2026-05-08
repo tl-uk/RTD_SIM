@@ -55,8 +55,26 @@ _FERRY_STOP_TYPES = frozenset({'FER', 'FBT'})
 # Edinburgh Trams uses MET in NaPTAN, not TMU — include both for portability
 _TRAM_STOP_TYPES  = frozenset({'TMU', 'MET'})
 
-# Maximum km from origin/dest to nearest stop before rejecting the mode
-_MAX_STOP_SNAP_KM = 5.0
+# Mode-specific maximum snap distances (km) from origin/dest to nearest stop.
+# A mode is rejected when no stop of the right type exists within this radius.
+#
+# Tram: 1.5 km — Edinburgh tram stops are spaced ~500 m apart on-corridor;
+#   a 1.5 km walk to reach the line is already at the upper limit of what
+#   any persona would tolerate.  5.0 km was causing agents at Kirkliston to
+#   walk to Edinburgh Gateway (4 km) then ride 1 stop — absurd and slow.
+# Bus:  3.0 km — buses run on almost every road; 3 km catches rural gaps.
+# Rail: 5.0 km — ScotRail stations are sparse; Haymarket to Waverley is 1.7 km.
+# Ferry:5.0 km — Forth ferry terminals are few and far between.
+_MAX_STOP_SNAP_KM = 5.0          # default / rail / ferry
+_MODE_SNAP_KM: dict = {
+    'tram':              1.5,    # Edinburgh Trams corridor
+    'bus':               3.0,    # Lothian Buses / Stagecoach
+    'local_train':       5.0,
+    'intercity_train':   5.0,
+    'freight_rail':      5.0,
+    'ferry_diesel':      5.0,
+    'ferry_electric':    5.0,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +322,8 @@ class TripChainBuilder:
         role:          str,
         exclude_coord: Optional[Coord] = None,
     ) -> Coord:
+        # Use mode-specific snap radius; fall back to global default.
+        _snap_km = _MODE_SNAP_KM.get(mode, _MAX_STOP_SNAP_KM)
         """
         Return (lon, lat) of the nearest stop for mode.
 
@@ -335,7 +355,7 @@ class TripChainBuilder:
         if router is not None and hasattr(router, 'snap_to_transit_stop'):
             result = router.snap_to_transit_stop(
                 coord, mode,
-                max_distance_m=int(_MAX_STOP_SNAP_KM * 1000),
+                max_distance_m=int(_snap_km * 1000),
             )
             if result is not None and not _is_excluded(result):
                 return result
@@ -363,7 +383,7 @@ class TripChainBuilder:
                 candidates = [
                     s for s in naptan
                     if (stop_types is None or s.stop_type in stop_types)
-                    and _hkm(coord, (s.lon, s.lat)) <= _MAX_STOP_SNAP_KM
+                    and _hkm(coord, (s.lon, s.lat)) <= _snap_km
                     and not _is_excluded((s.lon, s.lat))
                 ]
                 if candidates:
@@ -403,7 +423,7 @@ class TripChainBuilder:
                     logger.debug("trip_chain_builder _snap_stop Tier 3 failed: %s", _tsl_e)
 
         raise ValueError(
-            f"No {mode} {role} stop within {_MAX_STOP_SNAP_KM:.0f} km of "
+            f"No {mode} {role} stop within {_snap_km:.1f} km of "
             f"({coord[1]:.4f}N, {abs(coord[0]):.4f}W) — agent {agent_id}"
         )
 

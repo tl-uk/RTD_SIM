@@ -782,13 +782,23 @@ class SpatialEnvironment:
     def get_random_origin_dest(
         self,
         min_distance_km: float = 0.5,
-        max_attempts: int = 20,
+        max_attempts: int = 30,
     ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
         """
-        Return a random (origin, destination) pair from the drive graph.
+        Return a random (origin, destination) pair sampled from OSM
+        building/address nodes, snapped to the nearest drive graph node.
 
-        Uses a cryptographic RNG for better spatial distribution across
-        the graph and verifies that a road path exists before returning.
+        Agents MUST start and end at real-world addresses — not at road
+        intersections, which are the only coordinates that pure drive-graph
+        sampling produces.  Starting on a road makes agents appear to walk
+        out of the tarmac and violates the simulation's realism contract.
+
+        Priority:
+          1. OSM building/address centroids (loaded via _ensure_address_nodes)
+          2. Drive graph nodes as fallback (original behaviour)
+
+        Both sources are snapped to the nearest drive node so routing
+        still works; the sampled address is kept as the display coordinate.
 
         Args:
             min_distance_km: Minimum straight-line distance between OD pair.
@@ -809,12 +819,31 @@ class SpatialEnvironment:
         from simulation.spatial.coordinate_utils import haversine_km
         import networkx as nx
 
-        # Use a secure RNG for better spatial distribution, especially in large graphs.
-        nodes = list(graph.nodes())
+        # ── Prefer address/building nodes ─────────────────────────────────────
+        address_nodes = self._ensure_address_nodes()
+        use_addresses = len(address_nodes) >= 10
+
         for _ in range(max_attempts):
-            node1, node2 = self._od_rng.sample(nodes, 2)
-            origin = (graph.nodes[node1]['x'], graph.nodes[node1]['y'])
-            dest   = (graph.nodes[node2]['x'], graph.nodes[node2]['y'])
+            if use_addresses:
+                raw_origin = address_nodes[self._od_rng.randrange(len(address_nodes))]
+                raw_dest   = address_nodes[self._od_rng.randrange(len(address_nodes))]
+            else:
+                drive_nodes = list(graph.nodes())
+                n1, n2 = self._od_rng.sample(drive_nodes, 2)
+                raw_origin = (graph.nodes[n1]['x'], graph.nodes[n1]['y'])
+                raw_dest   = (graph.nodes[n2]['x'], graph.nodes[n2]['y'])
+
+            if haversine_km(raw_origin, raw_dest) < min_distance_km:
+                continue
+
+            # Snap to nearest drive node for routing
+            node1 = self.graph_manager.get_nearest_node(raw_origin, 'drive')
+            node2 = self.graph_manager.get_nearest_node(raw_dest,   'drive')
+            if node1 is None or node2 is None or node1 == node2:
+                continue
+
+            origin = (float(graph.nodes[node1]['x']), float(graph.nodes[node1]['y']))
+            dest   = (float(graph.nodes[node2]['x']), float(graph.nodes[node2]['y']))
 
             if haversine_km(origin, dest) < min_distance_km:
                 continue
@@ -823,19 +852,68 @@ class SpatialEnvironment:
                 path = nx.shortest_path(graph, node1, node2, weight='length')
                 if len(path) >= 2:
                     logger.debug(
-                        "Generated OD pair: %.1fkm apart",
-                        haversine_km(origin, dest),
+                        "Generated OD pair: %.1fkm apart (addresses: %s)",
+                        haversine_km(origin, dest), use_addresses,
                     )
                     return (origin, dest)
             except nx.NetworkXNoPath:
                 continue
 
         logger.error(
-            "Failed to generate valid OD pair after %d attempts — "
-            "graph may have connectivity issues or bbox is too small",
+            "Failed to generate valid OD pair after %d attempts",
             max_attempts,
         )
         return None
+
+    def _ensure_address_nodes(self) -> list:
+        """
+        Return cached list of (lon, lat) building/address centroids.
+
+        Fetches from Overpass on first call and caches for the lifetime of
+        the environment.  Falls back to [] if Overpass is unavailable.
+        """
+        if hasattr(self, '_address_node_cache') and self._address_node_cache:
+            return self._address_node_cache
+
+        self._address_node_cache = []
+
+        try:
+            bbox = self.graph_manager.get_bbox()
+            if bbox is None:
+                return []
+            north, south, east, west = bbox
+
+            # Fetch building and address nodes from Overpass.
+            # We request centroids (out center) to get one coord per building.
+            import json, urllib.request, urllib.parse
+            query = (
+                f"[out:json][timeout:45];"                f"("                f"  node['addr:street']({south},{west},{north},{east});"                f"  way['building']({south},{west},{north},{east});"                f"  way['amenity']['amenity'!~'parking|parking_space']"                f"    ({south},{west},{north},{east});"                f");"                f"out center;"            )
+            body = urllib.parse.urlencode({'data': query}).encode('utf-8')
+            req  = urllib.request.Request(
+                'https://overpass-api.de/api/interpreter',
+                data=body, method='POST',
+                headers={'Content-Type': 'application/x-www-form-urlencoded',
+                         'User-Agent':   'RTD_SIM_AddressSampler/1.0'},
+            )
+            with urllib.request.urlopen(req, timeout=50) as resp:
+                data = json.loads(resp.read())
+
+            nodes = []
+            for el in data.get('elements', []):
+                if el['type'] == 'node':
+                    nodes.append((float(el['lon']), float(el['lat'])))
+                elif el['type'] == 'way' and 'center' in el:
+                    nodes.append((float(el['center']['lon']), float(el['center']['lat'])))
+
+            self._address_node_cache = nodes
+            logger.info(
+                "✅ Address/building nodes loaded: %d locations for agent OD sampling",
+                len(nodes),
+            )
+        except Exception as exc:
+            logger.warning("Address node fetch failed (%s) — falling back to drive nodes", exc)
+
+        return self._address_node_cache
 
     # =========================================================================
     # GRAPH STATS & UTILITIES

@@ -563,6 +563,61 @@ def setup_environment(
     else:
         logger.debug("No gtfs_feed_path in config — GTFS transit routing skipped")
 
+    # ── 6b. Bus shape enrichment ──────────────────────────────────────────────
+    # BODS shapes.txt is incomplete: many bus trips have no geometry, leaving
+    # transit edges with shape_coords=[].  Without enrichment those edges fall
+    # back to straight-line interpolation at routing time, producing routes
+    # that cut through buildings and cross water.
+    #
+    # enrich_transit_shapes() fills every empty edge by routing between the
+    # two stop coordinates on the OSMnx drive graph — road-following geometry
+    # computed once at setup time and cached for 72 h.  This is the correct
+    # architectural fix: shapes are ground truth, set at graph-build time, not
+    # patched per-agent at runtime.
+    try:
+        G_transit_check = env.get_transit_graph() if hasattr(env, 'get_transit_graph') else                           env.graph_manager.get_graph('transit')
+        if G_transit_check is not None and G_transit_check.number_of_edges() > 0:
+            if progress_callback:
+                progress_callback(0.195, "🚌 Enriching bus route shapes…")
+            from simulation.spatial.bus_network import enrich_transit_shapes
+            _city_tag = getattr(config, 'place', 'default')
+            if isinstance(_city_tag, str):
+                _city_tag = _city_tag.replace(' ', '_').replace(',', '').lower()[:30]
+            n_enriched = enrich_transit_shapes(
+                env.graph_manager,
+                city_tag=_city_tag,
+            )
+            if n_enriched:
+                logger.info(
+                    "✅ Bus shape enrichment: %d transit edges filled with "                    "road-following geometry",
+                    n_enriched,
+                )
+        else:
+            logger.debug("No transit graph to enrich — bus shape enrichment skipped")
+    except Exception as exc:
+        logger.warning("Bus shape enrichment failed (non-fatal): %s", exc)
+
+    # ── Preload address/building nodes for agent OD sampling ─────────────────
+    # get_random_origin_dest() now samples from OSM building/address centroids
+    # rather than drive graph nodes (road intersections).  Pre-warming the
+    # cache at setup time means the first random_od() call is instant.
+    try:
+        if hasattr(env, '_ensure_address_nodes'):
+            if progress_callback:
+                progress_callback(0.197, "📍 Preloading address nodes…")
+            addr_nodes = env._ensure_address_nodes()
+            if addr_nodes:
+                logger.info(
+                    "✅ Address nodes preloaded: %d buildings/addresses for "                    "agent placement",
+                    len(addr_nodes),
+                )
+            else:
+                logger.warning(
+                    "Address node preload returned 0 locations — "                    "agent OD sampling will fall back to drive graph nodes"
+                )
+    except Exception as exc:
+        logger.warning("Address node preload failed (non-fatal): %s", exc)
+
     # ── Congestion tracking ───────────────────────────────────────────────────
     if config.use_congestion:
         try:
