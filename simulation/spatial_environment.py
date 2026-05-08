@@ -825,8 +825,8 @@ class SpatialEnvironment:
 
         for _ in range(max_attempts):
             if use_addresses:
-                raw_origin = address_nodes[self._od_rng.randrange(len(address_nodes))]
-                raw_dest   = address_nodes[self._od_rng.randrange(len(address_nodes))]
+                raw_origin = self._od_rng.choice(address_nodes)
+                raw_dest   = self._od_rng.choice(address_nodes)
             else:
                 drive_nodes = list(graph.nodes())
                 n1, n2 = self._od_rng.sample(drive_nodes, 2)

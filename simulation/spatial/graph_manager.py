@@ -667,6 +667,32 @@ class GraphManager:
 
         return stats
 
+    def get_bbox(self) -> Optional[Tuple[float, float, float, float]]:
+        """
+        Return the (north, south, east, west) bounding box of the drive graph.
+
+        Derived from the actual node coordinates of the loaded drive graph so
+        the result is always consistent with the graph in memory, regardless of
+        how the graph was originally requested (place name or explicit bbox).
+
+        Used by SpatialEnvironment._ensure_address_nodes() to build the Overpass
+        query window for building/address centroid sampling.
+
+        Returns:
+            (north, south, east, west) float tuple, or None if no drive graph
+            (or primary graph) is currently loaded.
+        """
+        G = self.get_graph('drive') or self.primary_graph
+        if G is None or G.number_of_nodes() == 0:
+            return None
+        try:
+            lons = [d['x'] for _, d in G.nodes(data=True)]
+            lats = [d['y'] for _, d in G.nodes(data=True)]
+            return (max(lats), min(lats), max(lons), min(lons))
+        except Exception as exc:
+            logger.warning("get_bbox: failed to derive bbox from graph nodes: %s", exc)
+            return None
+
     def clear_cache(self) -> None:
         """Delete all .pkl files from the disk cache directory."""
         if self.cache_dir.exists():
