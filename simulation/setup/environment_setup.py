@@ -167,6 +167,27 @@ def setup_environment(
         )
         G_walk = env.graph_manager.get_graph('walk')
         if G_walk is not None:
+            # Strip NaN-coordinate nodes.  The walk graph pickle can contain nodes
+            # whose x or y is float('nan') — typically intermediate Overpass waypoints
+            # that were not geometry-resolved.  A single NaN node causes
+            # ox.distance.nearest_nodes to raise "Input contains NaN" for every agent
+            # query, making walk mode fail completely.
+            import math as _math
+            for _g_label, _g_obj in [('walk', G_walk)] + (
+                [('walk_footways', env.graph_manager.graphs.get('walk_footways'))]
+                if env.graph_manager.graphs.get('walk_footways') is not None else []
+            ):
+                _nan_nodes = [
+                    n for n, d in _g_obj.nodes(data=True)
+                    if not (_math.isfinite(float(d.get('x', float('nan'))))
+                            and _math.isfinite(float(d.get('y', float('nan')))))
+                ]
+                if _nan_nodes:
+                    _g_obj.remove_nodes_from(_nan_nodes)
+                    logger.info(
+                        "Removed %d NaN-coordinate nodes from '%s' graph",
+                        len(_nan_nodes), _g_label,
+                    )
             logger.info(
                 "✅ Walk graph: %d nodes, %d edges",
                 G_walk.number_of_nodes(), G_walk.number_of_edges(),

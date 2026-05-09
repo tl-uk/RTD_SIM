@@ -39,6 +39,7 @@ code (Router, GTFS, Visualizer) continues to receive lon/lat coordinates.
 
 from __future__ import annotations
 import logging
+import math
 import pickle
 import hashlib
 from pathlib import Path
@@ -546,6 +547,22 @@ class GraphManager:
             return None
 
         try:
+            # Strip NaN-coordinate nodes before querying so ox.distance.nearest_nodes
+            # does not raise "Input contains NaN" when the graph has bad entries.
+            # This is a one-time operation cached on the graph object.
+            if not getattr(graph, '_rtd_nan_nodes_stripped', False):
+                _nan_nodes = [
+                    n for n, d in graph.nodes(data=True)
+                    if not (math.isfinite(float(d.get('x', float('nan'))))
+                            and math.isfinite(float(d.get('y', float('nan')))))
+                ]
+                if _nan_nodes:
+                    graph.remove_nodes_from(_nan_nodes)
+                    logger.info(
+                        "get_nearest_node: removed %d NaN-coordinate nodes from "
+                        "'%s' graph", len(_nan_nodes), network_type,
+                    )
+                graph._rtd_nan_nodes_stripped = True
             node = ox.distance.nearest_nodes(graph, coord[0], coord[1])
             cache[cache_key] = node
             return node

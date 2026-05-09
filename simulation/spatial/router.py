@@ -114,8 +114,10 @@ _MIN_WALK_LEG_KM: float = 0.05
 #   Δbearing ≈177° on every route through Edinburgh city centre.
 #   Fires 117× per 50-agent run; penalty retry never resolves it.
 _RAIL_NODE_BLOCKLIST: frozenset = frozenset({
-    10177900090,   # Craiglockhart/Slateford (Edinburgh) — phantom U-turn
-})
+        10177900090,   # Craiglockhart/Slateford — Δbearing≈177° on every route
+        966807301,     # Edinburgh Suburban/South Sub — fires on every run
+        36438075,      # Haymarket area — bidirectional track topology artefact
+    })
 
 # ── Default policy parameters ─────────────────────────────────────────────────
 _DEFAULT_POLICY: Dict[str, float] = {
@@ -155,6 +157,7 @@ class Router:
     def __init__(self, graph_manager: 'GraphManager', congestion_manager=None):
         self.graph_manager      = graph_manager
         self.congestion_manager = congestion_manager
+        self._raptor = None
 
         # Rail graph loaded lazily on first rail request.
         self._rail_graph: Optional[Any]  = None
@@ -2109,108 +2112,161 @@ class Router:
         e_price = float(policy.get('energy_price_gbp_km',   0.12))
         c_tax   = float(policy.get('carbon_tax_gbp_tco2',   0.0))
 
-        # ── Route-constrained stop snapping (bus mode only) ─────────────────────
-        # The soft-penalty approach (previous) allowed multi-service paths because
-        # a £5 transfer penalty is negligible vs £42 total gen_cost for a 30-stop path.
-        # The correct fix: find routes that serve BOTH origin_stop and dest_stop,
-        # then hard-block (gen_cost=inf) all edges from other routes.
-        # When no single route serves both stops, multi-service is logged and allowed.
-        _constrained_route: Optional[str] = None
-        if mode == 'bus':
-            try:
-                _origin_routes: set = set()
-                for _eu, _ev, _ek, _ed in G_transit.out_edges(origin_stop, keys=True, data=True):
-                    if _ed.get('mode') == 'bus':
-                        _origin_routes.update(_ed.get('route_short_names', []))
-                _dest_routes: set = set()
-                for _eu, _ev, _ek, _ed in G_transit.in_edges(dest_stop, keys=True, data=True):
-                    if _ed.get('mode') == 'bus':
-                        _dest_routes.update(_ed.get('route_short_names', []))
-                for _eu, _ev, _ek, _ed in G_transit.out_edges(dest_stop, keys=True, data=True):
-                    if _ed.get('mode') == 'bus':
-                        _dest_routes.update(_ed.get('route_short_names', []))
-                _shared = _origin_routes & _dest_routes
-                if _shared:
-                    _best_freq, _best_rn = -1, None
-                    # Score routes by edges within the OD catchment only.
-                    # Previously used global edge count, which made long
-                    # regional expresses (X51: Dunfermline→Livingston, 50+
-                    # stops across the whole region) always beat city routes
-                    # (service 24: 20 Edinburgh stops) because they have more
-                    # total edges.  A journey entirely within Edinburgh should
-                    # prefer the route with most LOCAL coverage, not most
-                    # country-wide coverage.
-                    #
-                    # Catchment = OD midpoint ± 1.5× straight-line distance,
-                    # minimum 3 km.  X51 scores 1–2 edges near origin/dest
-                    # while service 24/44 scores 15–20 Edinburgh city edges.
-                    _od_mid = ((origin[0] + dest[0]) / 2.0,
-                               (origin[1] + dest[1]) / 2.0)
-                    _od_radius = max(haversine_km(origin, dest) * 1.5, 3.0)
-                    for _rn in sorted(_shared):
-                        _freq = 0
-                        for _eu, _ev, _ek, _ed in G_transit.edges(
-                            data=True, keys=True
-                        ):
-                            if _rn not in _ed.get('route_short_names', []):
-                                continue
-                            if _ed.get('mode') != 'bus':
-                                continue
-                            _eu_d = G_transit.nodes.get(_eu, {})
-                            if haversine_km(
-                                (_eu_d.get('x', 0.0), _eu_d.get('y', 0.0)),
-                                _od_mid,
-                            ) <= _od_radius:
-                                _freq += 1
-                        if _freq > _best_freq:
-                            _best_freq, _best_rn = _freq, _rn
-                    _constrained_route = _best_rn
-                    logger.debug(
-                        "%s: route-constrained to %s (shared by origin+dest, freq=%d)",
-                        agent_id, _constrained_route, _best_freq,
-                    )
-                else:
-                    logger.debug(
-                        "%s: no shared route for %s→%s — multi-service allowed",
-                        agent_id, origin_stop, dest_stop,
-                    )
-            except Exception as _rc_exc:
-                logger.debug("%s: route-constraint failed: %s", agent_id, _rc_exc)
+        # # ── Route-constrained stop snapping (bus mode only) ─────────────────────
+        # # The soft-penalty approach (previous) allowed multi-service paths because
+        # # a £5 transfer penalty is negligible vs £42 total gen_cost for a 30-stop path.
+        # # The correct fix: find routes that serve BOTH origin_stop and dest_stop,
+        # # then hard-block (gen_cost=inf) all edges from other routes.
+        # # When no single route serves both stops, multi-service is logged and allowed.
+        # _constrained_route: Optional[str] = None
+        # if mode == 'bus':
+        #     try:
+        #         _origin_routes: set = set()
+        #         for _eu, _ev, _ek, _ed in G_transit.out_edges(origin_stop, keys=True, data=True):
+        #             if _ed.get('mode') == 'bus':
+        #                 _origin_routes.update(_ed.get('route_short_names', []))
+        #         _dest_routes: set = set()
+        #         for _eu, _ev, _ek, _ed in G_transit.in_edges(dest_stop, keys=True, data=True):
+        #             if _ed.get('mode') == 'bus':
+        #                 _dest_routes.update(_ed.get('route_short_names', []))
+        #         for _eu, _ev, _ek, _ed in G_transit.out_edges(dest_stop, keys=True, data=True):
+        #             if _ed.get('mode') == 'bus':
+        #                 _dest_routes.update(_ed.get('route_short_names', []))
+        #         _shared = _origin_routes & _dest_routes
+        #         if _shared:
+        #             _best_freq, _best_rn = -1, None
+        #             # Score routes by edges within the OD catchment only.
+        #             # Previously used global edge count, which made long
+        #             # regional expresses (X51: Dunfermline→Livingston, 50+
+        #             # stops across the whole region) always beat city routes
+        #             # (service 24: 20 Edinburgh stops) because they have more
+        #             # total edges.  A journey entirely within Edinburgh should
+        #             # prefer the route with most LOCAL coverage, not most
+        #             # country-wide coverage.
+        #             #
+        #             # Catchment = OD midpoint ± 1.5× straight-line distance,
+        #             # minimum 3 km.  X51 scores 1–2 edges near origin/dest
+        #             # while service 24/44 scores 15–20 Edinburgh city edges.
+        #             _od_mid = ((origin[0] + dest[0]) / 2.0,
+        #                        (origin[1] + dest[1]) / 2.0)
+        #             _od_radius = max(haversine_km(origin, dest) * 1.5, 3.0)
+        #             for _rn in sorted(_shared):
+        #                 _freq = 0
+        #                 for _eu, _ev, _ek, _ed in G_transit.edges(
+        #                     data=True, keys=True
+        #                 ):
+        #                     if _rn not in _ed.get('route_short_names', []):
+        #                         continue
+        #                     if _ed.get('mode') != 'bus':
+        #                         continue
+        #                     _eu_d = G_transit.nodes.get(_eu, {})
+        #                     if haversine_km(
+        #                         (_eu_d.get('x', 0.0), _eu_d.get('y', 0.0)),
+        #                         _od_mid,
+        #                     ) <= _od_radius:
+        #                         _freq += 1
+        #                 if _freq > _best_freq:
+        #                     _best_freq, _best_rn = _freq, _rn
+        #             _constrained_route = _best_rn
+        #             logger.debug(
+        #                 "%s: route-constrained to %s (shared by origin+dest, freq=%d)",
+        #                 agent_id, _constrained_route, _best_freq,
+        #             )
+        #         else:
+        #             logger.debug(
+        #                 "%s: no shared route for %s→%s — multi-service allowed",
+        #                 agent_id, origin_stop, dest_stop,
+        #             )
+        #     except Exception as _rc_exc:
+        #         logger.debug("%s: route-constraint failed: %s", agent_id, _rc_exc)
 
-        for u, v, key, data in G_transit.edges(keys=True, data=True):
-            edge_mode = data.get('mode', 'bus')
-            if edge_mode == 'walk' or data.get('highway') == 'transfer':
-                data['gen_cost'] = 9999.0
-                continue
-            if edge_mode not in _allowed:
-                data['gen_cost'] = float('inf')
-                continue
-            travel_h  = data.get('travel_time_s', 300) / 3600.0
-            headway_h = data.get('headway_s', 1800) / 3600.0 / 2.0
-            dist_km   = data.get('length', 0) / 1000.0
-            emit_kg   = data.get('emissions_g_km', 100.0) / 1000.0
-            base_cost = (
-                (travel_h + headway_h) * vot
-                + dist_km * e_price
-                + dist_km * emit_kg * c_tax
-            )
-            # Hard-block edges not on the constrained route.
-            if _constrained_route is not None:
-                edge_routes = data.get('route_short_names', [])
-                if edge_routes and _constrained_route not in edge_routes:
-                    base_cost = float('inf')
-            data['gen_cost'] = base_cost
+        # for u, v, key, data in G_transit.edges(keys=True, data=True):
+        #     edge_mode = data.get('mode', 'bus')
+        #     if edge_mode == 'walk' or data.get('highway') == 'transfer':
+        #         data['gen_cost'] = 9999.0
+        #         continue
+        #     if edge_mode not in _allowed:
+        #         data['gen_cost'] = float('inf')
+        #         continue
+        #     travel_h  = data.get('travel_time_s', 300) / 3600.0
+        #     headway_h = data.get('headway_s', 1800) / 3600.0 / 2.0
+        #     dist_km   = data.get('length', 0) / 1000.0
+        #     emit_kg   = data.get('emissions_g_km', 100.0) / 1000.0
+        #     base_cost = (
+        #         (travel_h + headway_h) * vot
+        #         + dist_km * e_price
+        #         + dist_km * emit_kg * c_tax
+        #     )
+        #     # Hard-block edges not on the constrained route.
+        #     if _constrained_route is not None:
+        #         edge_routes = data.get('route_short_names', [])
+        #         if edge_routes and _constrained_route not in edge_routes:
+        #             base_cost = float('inf')
+        #     data['gen_cost'] = base_cost
     
-        # ── Route on transit graph ────────────────────────────────────────────────
-        try:
-            transit_nodes = nx.shortest_path(
-                G_transit, origin_stop, dest_stop, weight='gen_cost',
+        # ── RAPTOR transit routing ────────────────────────────────────────────
+        # Dijkstra cannot stay on one physical service because all routes that
+        # call at both stops share the same graph edge.  RAPTOR processes each
+        # route's ordered stop sequence exactly once per round:
+        #   Round 0 = direct journey (one route, no transfer)
+        #   Round 1 = one-transfer journey
+        # See: Delling et al., "Round-Based Public Transit Routing", ALENEX 2012.
+ 
+        # Lazy-build the RAPTOR router, cached on the Router instance.
+        if not hasattr(self, '_raptor') or self._raptor is None:
+            try:
+                from simulation.routing.raptor_router import RaptorRouter
+                self._raptor = RaptorRouter(G_transit)
+                logger.debug("RaptorRouter initialised (%d routes indexed)",
+                             len(G_transit.graph.get('route_stop_sequences', {})))
+            except Exception as _raptor_exc:
+                logger.warning("RaptorRouter init failed: %s", _raptor_exc)
+                self._raptor = None
+ 
+        journey = None
+        if self._raptor is not None:
+            journey = self._raptor.route(
+                origin_stop,
+                dest_stop,
+                mode_filter = mode if mode != 'transit' else None,
             )
-        except Exception:
+ 
+        if journey is None or not journey.legs:
+            # RAPTOR found no path — fall back to Dijkstra on the full transit
+            # graph (no route constraint, so it will mix services, but this is
+            # the last resort and triggers a warning so we know to investigate).
+            logger.warning(
+                "%s: RAPTOR found no path %s→%s — falling back to unconstrained "
+                "Dijkstra (result may mix services)",
+                agent_id, origin_stop, dest_stop,
+            )
+            try:
+                transit_nodes = list(nx.shortest_path(
+                    G_transit, origin_stop, dest_stop, weight='gen_cost'
+                ))
+            except Exception:
+                return self._compute_road_route(agent_id, origin, dest, mode, policy)
+        else:
+            # Use the RAPTOR journey stop sequence directly.
+            # all_stops flattens legs, deduplicating shared transfer stops.
+            transit_nodes = journey.all_stops
+            _constrained_route = journey.legs[0].route if journey.legs else None
             logger.debug(
-                "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
+                "%s: RAPTOR %s→%s: %d legs, %d stops, %d transfer(s)",
+                agent_id, origin_stop, dest_stop,
+                len(journey.legs), len(transit_nodes), journey.n_transfers,
             )
-            return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            
+        # ── Route on transit graph ────────────────────────────────────────────────
+        # try:
+        #     transit_nodes = nx.shortest_path(
+        #         G_transit, origin_stop, dest_stop, weight='gen_cost',
+        #     )
+        # except Exception:
+        #     logger.debug(
+        #         "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
+        #     )
+        #     return self._compute_road_route(agent_id, origin, dest, mode, policy)
     
         # ── U-turn / pass-through guard ───────────────────────────────────────
         # A valid path must NOT visit dest_stop before the final element.
@@ -2219,6 +2275,7 @@ class Router:
         # then routing back west via a westbound service-1 edge).  This produces
         # the nonsensical reversal seen on page 6 of the PDF screenshots.
         # This check applies to both constrained AND unconstrained paths.
+        _constrained_route: Optional[str] = None
         if dest_stop in transit_nodes[:-1]:
             if _constrained_route is not None:
                 logger.debug(

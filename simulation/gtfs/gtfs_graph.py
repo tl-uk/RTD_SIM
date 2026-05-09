@@ -327,9 +327,89 @@ class GTFSGraph:
                 G.nodes[node].get('route_types', set())
             )
 
+        # ── Build RAPTOR index structures ─────────────────────────────────────
+        # Dijkstra on a shared-edge transit multigraph cannot stay on one
+        # physical service — all routes sharing a stop pair share one edge,
+        # so the shortest path freely mixes services 7, 11, and 25 in a
+        # single journey.  RAPTOR avoids this by processing each route's
+        # ordered stop sequence exactly once per round.
+        #
+        # route_stop_sequences:  {short_name: [[stop_id, ...], ...]}
+        #   Each inner list is the ordered stop sequence for ONE trip.
+        #   Multiple entries per route capture different directions / variants.
+        #   Sequences with fewer than 2 in-graph stops are discarded.
+        #
+        # stop_routes:           {stop_id: [short_name, ...]}
+        #   For each stop, which route short names serve it.
+        #   Used in RAPTOR's marking step to limit route scanning to routes
+        #   that touch stops improved in the previous round.
+        #
+        # route_avg_times:       {short_name: {(u_stop, v_stop): avg_s}}
+        #   Per-route average travel time for each consecutive stop pair.
+        #   Used to estimate journey time along a sequence-lookup path.
+
+        route_seqs:  Dict[str, List[List[str]]]           = defaultdict(list)
+        stop_routes: Dict[str, List[str]]                  = defaultdict(list)
+        route_times: Dict[str, Dict[Tuple[str,str], float]] = defaultdict(dict)
+
+        for trip_id, stops in loader.stop_times.items():
+            trip = loader.trips.get(trip_id)
+            if not trip:
+                continue
+            route_id = trip.get('route_id', '')
+            route    = loader.routes.get(route_id, {})
+            sn = str(
+                route.get('short_name')
+                or route.get('route_short_name', '')
+            ).strip()
+            if not sn:
+                continue
+
+            # Build ordered stop list for this trip (in-graph stops only)
+            seq: List[str] = [
+                s['stop_id'] for s in stops if s['stop_id'] in G.nodes
+            ]
+            if len(seq) < 2:
+                continue
+
+            # Store unique sequences per route (direction / terminal variants)
+            # Two trips with identical stop sequences are deduplicated.
+            if seq not in route_seqs[sn]:
+                route_seqs[sn].append(seq)
+
+            # Update stop→routes index
+            for sid in seq:
+                if sn not in stop_routes[sid]:
+                    stop_routes[sid].append(sn)
+
+            # Accumulate per-route stop-pair travel times (running mean)
+            for i in range(len(stops) - 1):
+                u = stops[i]['stop_id']
+                v = stops[i + 1]['stop_id']
+                if u not in G.nodes or v not in G.nodes:
+                    continue
+                dep_s    = stops[i]['departure_s']
+                arr_s    = stops[i + 1]['arrival_s']
+                travel_s = max(0.0, float(arr_s - dep_s)) if arr_s >= dep_s else 60.0
+                key      = (u, v)
+                prev     = route_times[sn].get(key)
+                route_times[sn][key] = (
+                    travel_s if prev is None else (prev + travel_s) / 2.0
+                )
+
+        G.graph['route_stop_sequences'] = dict(route_seqs)
+        G.graph['stop_routes']          = dict(stop_routes)
+        G.graph['route_avg_times']      = {
+            sn: dict(pairs) for sn, pairs in route_times.items()
+        }
+
+        n_routes = len(route_seqs)
+        n_seqs   = sum(len(v) for v in route_seqs.values())
         logger.info(
-            "GTFSGraph built: %d stop nodes, %d transit edges",
+            "GTFSGraph built: %d stop nodes, %d transit edges, "
+            "%d routes indexed (%d sequences) for RAPTOR routing",
             G.number_of_nodes(), G.number_of_edges(),
+            n_routes, n_seqs,
         )
         return G
 
