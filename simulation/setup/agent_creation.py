@@ -300,6 +300,19 @@ def create_agents(
                 dn = env._get_nearest_node(raw_d, 'drive')
                 if on is None or dn is None or on == dn:
                     continue
+                # Prefer the nearest ADDRESS node to the snapped drive node —
+                # agents should appear to start/end at buildings, not road
+                # intersections.  _ensure_address_nodes() returns [] when
+                # Overpass is unavailable so the drive node fallback still works.
+                _addr = getattr(env, '_address_node_cache', [])
+                if _addr:
+                    # Find the address node closest to the raw jitter point
+                    _best_o = min(_addr, key=lambda p: haversine_km(p, raw_o))
+                    _best_d = min(_addr, key=lambda p: haversine_km(p, raw_d))
+                    on2 = env._get_nearest_node(_best_o, 'drive')
+                    dn2 = env._get_nearest_node(_best_d, 'drive')
+                    if on2 and dn2 and on2 != dn2:
+                        on, dn = on2, dn2
                 origin = (float(drive_graph.nodes[on]['x']), float(drive_graph.nodes[on]['y']))
                 dest   = (float(drive_graph.nodes[dn]['x']), float(drive_graph.nodes[dn]['y']))
             else:

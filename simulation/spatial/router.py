@@ -1833,15 +1833,25 @@ class Router:
         # It contains only highway=footway/pedestrian/steps/path edges from
         # Overpass — agents follow proper pedestrian infrastructure rather than
         # the road carriageway geometry in the OSMnx 'walk' graph.
-        # Falls back to the OSMnx walk graph if footways graph is absent.
-        G_walk = (
-            self.graph_manager.get_graph('walk_footways')
-            or self.graph_manager.get_graph('walk')
+        #
+        # CRITICAL: use the SAME graph key for BOTH graph retrieval AND node
+        # lookup.  walk_footways uses string OSM node IDs (e.g. '123456789');
+        # the OSMnx walk graph uses integer node IDs.  Calling
+        # get_nearest_node(coord, 'walk') while routing on the footways graph
+        # returns an integer that does not exist in the footways graph, causing
+        # every walk routing attempt to raise NodeNotFound and fall through to
+        # Tier 3 straight-line interpolation — the root cause of agents walking
+        # on road carriageways even when walk_footways is loaded.
+        _walk_key = (
+            'walk_footways'
+            if self.graph_manager.get_graph('walk_footways') is not None
+            else 'walk'
         )
+        G_walk = self.graph_manager.get_graph(_walk_key)
         if G_walk is not None and G_walk.number_of_nodes() > 10:
             try:
-                orig_node = self.graph_manager.get_nearest_node(origin, 'walk')
-                dest_node = self.graph_manager.get_nearest_node(dest,   'walk')
+                orig_node = self.graph_manager.get_nearest_node(origin, _walk_key)
+                dest_node = self.graph_manager.get_nearest_node(dest,   _walk_key)
                 orig_node = self._avoid_roundabout(G_walk, orig_node)
                 dest_node = self._avoid_roundabout(G_walk, dest_node)
 

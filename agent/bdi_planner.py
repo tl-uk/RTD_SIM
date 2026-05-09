@@ -465,9 +465,45 @@ class BDIPlanner:
         logger.debug(f"   Modes offered: {available_modes}")
         
         if not available_modes:
-            logger.error(f"âŒ NO MODES OFFERED - this will cause fallback to walk!")
+            logger.error(f"NO MODES OFFERED - this will cause fallback to walk!")
             return []
-        
+
+        # ── TripPlanner dispatch ──────────────────────────────────────────────
+        # Route to TripPlanner when:
+        #   (a) context carries explicit waypoints (multi-stop delivery run)
+        #   (b) freight agent with n_stops > 1 (postal round, food delivery,
+        #       gig economy, first-mile/last-mile logistics)
+        #   (c) bus-as-freight or tram-as-freight DfT scenarios
+        #       (vehicle_type='freight_transit')
+        #
+        # For all other agents, the existing single-leg mode loop continues
+        # below.  TripPlanner returns a list containing ONE Action whose
+        # route_segments list holds the full multi-leg geometry — the existing
+        # simulation loop and visualiser need no changes.
+        _waypoints = context.get('waypoints', [])
+        _n_stops   = context.get('n_stops', 1)
+        _is_freight = vehicle_type in (
+            'commercial', 'medium_freight', 'heavy_freight',
+            'micro_mobility', 'freight_transit',
+        )
+        _needs_trip_planner = bool(_waypoints) or (_is_freight and _n_stops > 1)
+
+        if _needs_trip_planner:
+            _tp_actions = self._plan_with_trip_planner(
+                env, state, origin, dest, context, agent_id,
+                vehicle_type=vehicle_type,
+                waypoints=_waypoints,
+                n_stops=_n_stops,
+            )
+            if _tp_actions:
+                return _tp_actions
+            # Fall through to single-leg planner if TripPlanner failed
+            logger.debug(
+                "%s: TripPlanner returned no actions — falling back to single-leg",
+                agent_id,
+            )
+        # ── End TripPlanner dispatch ──────────────────────────────────────────
+
         # Track routing attempts
         routing_results = {}
         # ── Phase 10c: ASI Intent Tier Selection ─────────────────────────
@@ -948,6 +984,187 @@ class BDIPlanner:
         return actions
     
     # Revised mode filtering logic
+    # ── TripPlanner integration ──────────────────────────────────────────────
+
+    def _plan_with_trip_planner(
+        self,
+        env,
+        state,
+        origin,
+        dest,
+        context: dict,
+        agent_id: str,
+        vehicle_type: str = 'personal',
+        waypoints: list = None,
+        n_stops: int = 1,
+    ) -> list:
+        """
+        Delegate planning to TripPlanner for multi-stop and freight trips.
+
+        Converts a TripPlan into the list[Action] schema that BDIPlanner
+        normally returns — simulation loop and visualiser need no changes.
+
+        Covers:
+          Passenger multi-stop  (waypoints in context)
+          Postal delivery round (n_stops > 1, vehicle_type='commercial')
+          Gig-economy delivery  (n_stops > 1, vehicle_type='micro_mobility')
+          Bus/tram-as-freight   (vehicle_type='freight_transit')
+          First-mile/last-mile  (legs split across modes automatically)
+        """
+        try:
+            from simulation.spatial.trip_planner import TripPlanner, TripConstraints
+        except ImportError as exc:
+            logger.warning("TripPlanner not available (%s) — single-leg fallback", exc)
+            return []
+
+        _persona  = context.get('user_story_id', context.get('persona_type', 'default'))
+        _allowed  = list(context.get('allowed_modes', []))
+        _payload  = float(context.get('payload_kg', 0.0))
+        _windows  = context.get('time_windows', {})
+        _max_walk = self._persona_walk_cap(context)
+
+        _is_freight         = vehicle_type in (
+            'commercial', 'medium_freight', 'heavy_freight',
+            'micro_mobility', 'freight_transit',
+        )
+        _is_freight_transit = (vehicle_type == 'freight_transit')
+
+        # Bus-as-freight DfT trial: parcels on tram/bus, last-metre on cargo bike
+        if _is_freight_transit:
+            _allowed = _allowed or ['tram', 'bus', 'walk', 'cargo_bike']
+            _payload = _payload or float(context.get('parcel_kg', 15.0))
+
+        constraints = TripConstraints(
+            persona          = _persona,
+            vehicle_type     = vehicle_type,
+            allowed_modes    = _allowed,
+            payload_kg       = _payload,
+            time_windows     = {
+                (tuple(k) if isinstance(k, list) else k): v
+                for k, v in _windows.items()
+            },
+            optimise_stops   = _is_freight and not bool(_windows),
+            return_to_origin = bool(context.get('return_to_origin', False)),
+            allow_mode_change= True,
+            max_transfers    = 4 if _is_freight else 2,
+            max_walk_km      = _max_walk,
+            carbon_limit_g   = float(context.get('carbon_limit_g', float('inf'))),
+            time_budget_s    = float(context.get('time_budget_s', float('inf'))),
+        )
+
+        planner = TripPlanner(env)
+        try:
+            if _is_freight and (waypoints or n_stops > 1):
+                _wpts = list(waypoints or [])
+                if not _wpts and n_stops > 1:
+                    _wpts = self._synthesise_freight_stops(origin, dest, n_stops - 1, env)
+                plan = planner.plan_freight_run(
+                    depot              = origin,
+                    delivery_addresses = _wpts,
+                    constraints        = constraints,
+                )
+            else:
+                plan = planner.plan(
+                    origin      = origin,
+                    destination = dest,
+                    waypoints   = list(waypoints or []),
+                    constraints = constraints,
+                )
+        except Exception as exc:
+            logger.warning("%s: TripPlanner raised %s", agent_id, exc)
+            return []
+
+        if not plan.feasible or not plan.legs:
+            logger.debug("%s: TripPlanner infeasible — %s", agent_id, plan.rejection_reason)
+            return []
+
+        try:
+            flat_route = plan.flat_route()
+            segments   = plan.route_segments()
+            primary    = plan.primary_mode()
+
+            # RouteAlternative: DfT research metrics (lifecycle CO₂, monetary cost)
+            _research: dict = {}
+            try:
+                from simulation.route_alternative import RouteAlternative
+                ra = RouteAlternative(route=flat_route, mode=primary, variant='trip_planner')
+                ra.compute_metrics(env)
+                _research = ra.metrics
+            except Exception:
+                pass
+
+            # TripChain for downstream consumers
+            tc = None
+            try:
+                from simulation.spatial.trip_chain import TripChain
+                tc = TripChain.from_route_segments(
+                    origin=origin, destination=dest, route_segments=segments,
+                )
+            except Exception:
+                pass
+
+            params = {
+                'route_segments':    segments,
+                'trip_chain':        tc,
+                'trip_plan':         plan,
+                'n_legs':            len(plan.legs),
+                'n_stops':           n_stops,
+                'is_freight':        _is_freight,
+                'payload_kg':        _payload,
+                'lifecycle_co2_kg':  _research.get('lifecycle_co2_kg', 0.0),
+                'monetary_cost':     _research.get('monetary_cost', 0.0),
+                'total_emissions_g': plan.total_emissions_g,
+                'total_duration_s':  plan.total_duration_s,
+                'total_distance_km': plan.total_distance_km,
+            }
+
+            logger.info(
+                "✅ %s: TripPlanner %s %.1fkm %d legs %d stops",
+                agent_id, primary, plan.total_distance_km, len(plan.legs), n_stops,
+            )
+            return [Action(mode=primary, route=flat_route, params=params)]
+
+        except Exception as exc:
+            logger.warning("%s: TripPlan→Action failed: %s", agent_id, exc)
+            return []
+
+    def _synthesise_freight_stops(
+        self,
+        origin,
+        dest,
+        n_intermediate: int,
+        env,
+    ) -> list:
+        """
+        Generate intermediate delivery addresses between origin and dest.
+
+        Prefers real building/address nodes from env._address_node_cache.
+        Falls back to linear interpolation along the OD corridor.
+        """
+        _addr = getattr(env, '_address_node_cache', [])
+        if len(_addr) >= n_intermediate:
+            o_mid = ((origin[0] + dest[0]) / 2.0, (origin[1] + dest[1]) / 2.0)
+            _sorted = sorted(_addr, key=lambda p: (
+                (p[0] - o_mid[0])**2 + (p[1] - o_mid[1])**2
+            ))
+            result, seen = [], set()
+            for addr in _sorted:
+                key = (round(addr[0], 3), round(addr[1], 3))
+                if key not in seen and tuple(addr) not in (tuple(origin), tuple(dest)):
+                    seen.add(key)
+                    result.append(addr)
+                if len(result) >= n_intermediate:
+                    return result
+
+        # Linear interpolation fallback
+        o_lon, o_lat = float(origin[0]), float(origin[1])
+        d_lon, d_lat = float(dest[0]),   float(dest[1])
+        return [
+            (o_lon + i / (n_intermediate + 1) * (d_lon - o_lon),
+             o_lat + i / (n_intermediate + 1) * (d_lat - o_lat))
+            for i in range(1, n_intermediate + 1)
+        ]
+
     def _filter_modes_by_context(self, context: Dict, trip_distance_km: float = 0.0) -> List[str]:
         """Fixed version with better cargo_bike handling."""
         
@@ -1758,7 +1975,25 @@ class BDIPlanner:
 
         # Add stochastic noise (±15%)
         total_cost += self.rng.uniform(-0.15, 0.15)
-        
+
+        # ── DfT research metrics via RouteAlternative ─────────────────────────
+        # Attach lifecycle CO₂ and monetary cost to the params dict that
+        # accompanies this action, enabling downstream analysis (policy tabs,
+        # combination reports, Pareto-optimal route filtering) without
+        # recomputing.  Non-blocking — if RouteAlternative is unavailable the
+        # cost score is returned unchanged.
+        try:
+            from simulation.route_alternative import RouteAlternative
+            _ra = RouteAlternative(route=route, mode=mode, variant='bdi_cost')
+            _ra.compute_metrics(env)
+            if isinstance(params, dict):
+                params.setdefault('lifecycle_co2_kg',
+                                  _ra.metrics.get('lifecycle_co2_kg', 0.0))
+                params.setdefault('monetary_cost',
+                                  _ra.metrics.get('monetary_cost', 0.0))
+        except Exception:
+            pass
+
         return total_cost
     
     # This function evaluates all feasible actions by calculating their costs and optionally 
