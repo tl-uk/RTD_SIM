@@ -2244,6 +2244,7 @@ class Router:
                 transit_nodes = list(nx.shortest_path(
                     G_transit, origin_stop, dest_stop, weight='gen_cost'
                 ))
+                _used_raptor = False
             except Exception:
                 return self._compute_road_route(agent_id, origin, dest, mode, policy)
         else:
@@ -2251,6 +2252,7 @@ class Router:
             # all_stops flattens legs, deduplicating shared transfer stops.
             transit_nodes = journey.all_stops
             _constrained_route = journey.legs[0].route if journey.legs else None
+            _used_raptor = True
             logger.debug(
                 "%s: RAPTOR %s→%s: %d legs, %d stops, %d transfer(s)",
                 agent_id, origin_stop, dest_stop,
@@ -2274,9 +2276,8 @@ class Router:
         # (e.g. service 1 going east along Princes Street past the destination,
         # then routing back west via a westbound service-1 edge).  This produces
         # the nonsensical reversal seen on page 6 of the PDF screenshots.
-        # This check applies to both constrained AND unconstrained paths.
-        _constrained_route: Optional[str] = None
-        if dest_stop in transit_nodes[:-1]:
+        # RAPTOR sequences are directional by construction; skip this guard.
+        if not _used_raptor and dest_stop in transit_nodes[:-1]:
             if _constrained_route is not None:
                 logger.debug(
                     "%s: constrained path visits dest_stop before terminus "
@@ -2327,7 +2328,9 @@ class Router:
         # Checks both stop count AND geographic detour ratio.
         # The distance check catches express services (X51: 30 stops but
         # 3.6× detour via Queensferry) that pass the stop-count limit.
-        if _constrained_route is not None:
+        # Circus guard is Dijkstra-specific. RAPTOR sub-sequences already
+        # reflect the real GTFS stop ordering and need no circus check.
+        if not _used_raptor and _constrained_route is not None:
             _od_straight_km = haversine_km(origin, dest)
             _max_sensible   = max(25, int(_od_straight_km * 5))
 

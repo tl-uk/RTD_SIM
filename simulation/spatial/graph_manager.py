@@ -563,7 +563,33 @@ class GraphManager:
                         "'%s' graph", len(_nan_nodes), network_type,
                     )
                 graph._rtd_nan_nodes_stripped = True
-            node = ox.distance.nearest_nodes(graph, coord[0], coord[1])
+            # Use ox.distance.nearest_nodes for OSMnx graphs (have CRS metadata).
+            # Fall back to a manual haversine scan for hand-built graphs such as
+            # the walk_footways graph from walk_network.py, which has WGS84 x/y
+            # node attributes but no CRS key and no geopandas geometry column.
+            # Both paths cache results identically.
+            graph_crs = getattr(graph, 'graph', {}).get('crs', '') if hasattr(graph, 'graph') else ''
+            if graph_crs and str(graph_crs).lower() not in ('none', ''):
+                node = ox.distance.nearest_nodes(graph, coord[0], coord[1])
+            else:
+                # Manual haversine scan — O(N) but cached after first call.
+                q_lon, q_lat = coord[0], coord[1]
+                best_node, best_dist = None, float('inf')
+                for _nid, _ndata in graph.nodes(data=True):
+                    _nx = float(_ndata.get('x', float('nan')))
+                    _ny = float(_ndata.get('y', float('nan')))
+                    if not (math.isfinite(_nx) and math.isfinite(_ny)):
+                        continue
+                    _dlat = math.radians(_ny - q_lat)
+                    _dlon = math.radians(_nx - q_lon)
+                    _a = (math.sin(_dlat / 2) ** 2
+                          + math.cos(math.radians(q_lat))
+                          * math.cos(math.radians(_ny))
+                          * math.sin(_dlon / 2) ** 2)
+                    _d = 6_371_000 * 2 * math.asin(math.sqrt(_a))
+                    if _d < best_dist:
+                        best_dist, best_node = _d, _nid
+                node = best_node
             cache[cache_key] = node
             return node
         except Exception as e:

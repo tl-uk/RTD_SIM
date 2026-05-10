@@ -109,6 +109,11 @@ def build_walk_network(
     data = _overpass_post(query)
     G = nx.MultiDiGraph()
     G.graph['name'] = 'walk'
+    # OSMnx's ox.distance.nearest_nodes requires the graph CRS to select
+    # the correct distance metric (haversine for WGS84, Euclidean for
+    # projected).  Without this, nearest_nodes silently falls back to the
+    # OSMnx walk graph instead of the footways graph on every call.
+    G.graph['crs'] = 'epsg:4326'
 
     if not data or 'elements' not in data:
         return G

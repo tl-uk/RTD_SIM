@@ -145,12 +145,19 @@ class RaptorRouter:
         )
 
         # Pre-build headway lookup from graph edges (stop_id_u, stop_id_v → headway_s)
-        self._headways: Dict[Tuple[str,str], float] = {}
+        # AND an O(1) route→mode index so _route_matches_mode is a dict lookup
+        # rather than an O(E) edge scan (10,653 edges × many routes per round).
+        self._headways:    Dict[Tuple[str,str], float] = {}
+        self._route_mode:  Dict[str, str]              = {}   # short_name → mode string
         if G_transit is not None:
             for u, v, edata in G_transit.edges(data=True):
                 key = (u, v)
                 if key not in self._headways:
                     self._headways[key] = float(edata.get('headway_s', 3600))
+                edge_mode = edata.get('mode', 'bus')
+                for rn in edata.get('route_short_names', []):
+                    if rn not in self._route_mode:
+                        self._route_mode[rn] = edge_mode
 
         if not self._route_seqs:
             logger.warning(
@@ -387,15 +394,17 @@ class RaptorRouter:
         return travel + headway / 2.0
 
     def _route_matches_mode(self, route_name: str, mode_filter: str) -> bool:
-        """Check if a route's edges match the mode filter."""
-        G = self._G
-        if G is None:
-            return True
-        # Sample one edge for this route name — mode is stored on graph edges
-        for _, _, edata in G.edges(data=True):
-            if route_name in edata.get('route_short_names', []):
-                return edata.get('mode', 'bus') == mode_filter
-        return True   # default: allow if no edge found (mode unknown)
+        """
+        Return True when route_name serves the given mode_filter.
+
+        O(1) dict lookup against self._route_mode built at __init__ time.
+        Previously this was an O(E) scan of all 10 k+ transit edges called
+        for every route in every RAPTOR round.
+        """
+        mode = self._route_mode.get(route_name)
+        if mode is None:
+            return True   # unknown route — allow by default
+        return mode == mode_filter
 
     def _reconstruct(
         self,
