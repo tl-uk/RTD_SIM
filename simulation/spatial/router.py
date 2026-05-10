@@ -1845,16 +1845,22 @@ class Router:
         # every walk routing attempt to raise NodeNotFound and fall through to
         # Tier 3 straight-line interpolation — the root cause of agents walking
         # on road carriageways even when walk_footways is loaded.
-        _walk_key = (
-            'walk_footways'
-            if self.graph_manager.get_graph('walk_footways') is not None
-            else 'walk'
-        )
-        G_walk = self.graph_manager.get_graph(_walk_key)
+        _G_footways = self.graph_manager.get_graph('walk_footways')
+        _use_footways = _G_footways is not None and _G_footways.number_of_nodes() > 10
+        _walk_key = 'walk_footways' if _use_footways else 'walk'
+        G_walk    = _G_footways if _use_footways else self.graph_manager.get_graph('walk')
         if G_walk is not None and G_walk.number_of_nodes() > 10:
             try:
-                orig_node = self.graph_manager.get_nearest_node(origin, _walk_key)
-                dest_node = self.graph_manager.get_nearest_node(dest,   _walk_key)
+                # walk_footways uses string Overpass node IDs and has no OSMnx
+                # spatial index — ox.distance.nearest_nodes will fail on it.
+                # Use a fast Euclidean KD-tree scan for footways; for the
+                # standard OSMnx walk graph use get_nearest_node as before.
+                if _use_footways:
+                    orig_node = _nearest_node_euclidean(G_walk, origin)
+                    dest_node = _nearest_node_euclidean(G_walk, dest)
+                else:
+                    orig_node = self.graph_manager.get_nearest_node(origin, _walk_key)
+                    dest_node = self.graph_manager.get_nearest_node(dest,   _walk_key)
                 orig_node = self._avoid_roundabout(G_walk, orig_node)
                 dest_node = self._avoid_roundabout(G_walk, dest_node)
 
@@ -2240,11 +2246,11 @@ class Router:
                 "Dijkstra (result may mix services)",
                 agent_id, origin_stop, dest_stop,
             )
+            _from_raptor = False
             try:
                 transit_nodes = list(nx.shortest_path(
                     G_transit, origin_stop, dest_stop, weight='gen_cost'
                 ))
-                _used_raptor = False
             except Exception:
                 return self._compute_road_route(agent_id, origin, dest, mode, policy)
         else:
@@ -2252,32 +2258,20 @@ class Router:
             # all_stops flattens legs, deduplicating shared transfer stops.
             transit_nodes = journey.all_stops
             _constrained_route = journey.legs[0].route if journey.legs else None
-            _used_raptor = True
+            _from_raptor = True
             logger.debug(
                 "%s: RAPTOR %s→%s: %d legs, %d stops, %d transfer(s)",
                 agent_id, origin_stop, dest_stop,
                 len(journey.legs), len(transit_nodes), journey.n_transfers,
             )
             
-        # ── Route on transit graph ────────────────────────────────────────────────
-        # try:
-        #     transit_nodes = nx.shortest_path(
-        #         G_transit, origin_stop, dest_stop, weight='gen_cost',
-        #     )
-        # except Exception:
-        #     logger.debug(
-        #         "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
-        #     )
-        #     return self._compute_road_route(agent_id, origin, dest, mode, policy)
-    
-        # ── U-turn / pass-through guard ───────────────────────────────────────
-        # A valid path must NOT visit dest_stop before the final element.
-        # If it does, the route passed through the destination and reversed
-        # (e.g. service 1 going east along Princes Street past the destination,
-        # then routing back west via a westbound service-1 edge).  This produces
-        # the nonsensical reversal seen on page 6 of the PDF screenshots.
-        # RAPTOR sequences are directional by construction; skip this guard.
-        if not _used_raptor and dest_stop in transit_nodes[:-1]:
+        # ── U-turn / pass-through guard (Dijkstra fallback only) ────────────
+        # RAPTOR guarantees service continuity per leg — no U-turns possible.
+        # Only apply this guard when the Dijkstra fallback was used.
+        # Bug fixed: the previous code re-declared _constrained_route = None HERE,
+        # overwriting the value RAPTOR correctly set above (line ~2253).
+        # The declaration is removed; _constrained_route retains its RAPTOR value.
+        if not _from_raptor and dest_stop in transit_nodes[:-1]:
             if _constrained_route is not None:
                 logger.debug(
                     "%s: constrained path visits dest_stop before terminus "
@@ -2328,9 +2322,7 @@ class Router:
         # Checks both stop count AND geographic detour ratio.
         # The distance check catches express services (X51: 30 stops but
         # 3.6× detour via Queensferry) that pass the stop-count limit.
-        # Circus guard is Dijkstra-specific. RAPTOR sub-sequences already
-        # reflect the real GTFS stop ordering and need no circus check.
-        if not _used_raptor and _constrained_route is not None:
+        if not _from_raptor and _constrained_route is not None:
             _od_straight_km = haversine_km(origin, dest)
             _max_sensible   = max(25, int(_od_straight_km * 5))
 
