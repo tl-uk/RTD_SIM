@@ -965,11 +965,32 @@ class BDIPlanner:
             logger.error(f"   Routing results:")
             for mode, result in routing_results.items():
                 logger.error(f"     {mode}: {result}")
-            
-            # If vehicle required, this is CRITICAL
+
             if vehicle_required:
                 logger.error(f"   CRITICAL: vehicle_required=True but no vehicle modes worked!")
-                logger.error(f"   This agent will fall back to walk despite needing a vehicle.")
+
+            # Return a zero-distance "wait at origin" action instead of [].
+            # Returning [] causes agent_creation to attach a walk fallback that
+            # produces cross-city straight lines in the visualiser.
+            # A [origin, origin] route keeps the agent stationary and lets
+            # cognitive_abm mark it as "unable to route" without drawing anything.
+            logger.error(
+                f"   Returning wait-at-origin action to prevent straight-line "
+                f"visualisation artefact."
+            )
+            return [Action(
+                mode='walk',
+                route=[origin, origin],
+                params={
+                    'no_viable_route': True,
+                    'trip_distance_km': 0.0,
+                    'abstract': True,
+                    'status': 'no_route',
+                    'failure_reason': '; '.join(
+                        f"{m}: {r}" for m, r in routing_results.items()
+                    ),
+                },
+            )]
         else:
             logger.info(f"âœ… Generated {len(actions)} viable actions for {agent_id}")
             for action in actions:

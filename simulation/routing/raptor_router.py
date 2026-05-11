@@ -145,19 +145,24 @@ class RaptorRouter:
         )
 
         # Pre-build headway lookup from graph edges (stop_id_u, stop_id_v → headway_s)
-        # AND an O(1) route→mode index so _route_matches_mode is a dict lookup
-        # rather than an O(E) edge scan (10,653 edges × many routes per round).
-        self._headways:    Dict[Tuple[str,str], float] = {}
-        self._route_mode:  Dict[str, str]              = {}   # short_name → mode string
+        self._headways: Dict[Tuple[str,str], float] = {}
         if G_transit is not None:
             for u, v, edata in G_transit.edges(data=True):
                 key = (u, v)
                 if key not in self._headways:
                     self._headways[key] = float(edata.get('headway_s', 3600))
-                edge_mode = edata.get('mode', 'bus')
+
+        # O(1) route→mode lookup — built once from graph edges in __init__.
+        # Replaces the previous _route_matches_mode which was O(E) per route
+        # per round (scanned all 10,653 edges for every mode check).
+        # Edinburgh GTFS: 446 routes × avg 24 stops × 2 directions ≈ 21k edge
+        # lookups per query.  This reduces that to a single dict hit.
+        self._route_mode: Dict[str, str] = {}
+        if G_transit is not None:
+            for _, _, edata in G_transit.edges(data=True):
                 for rn in edata.get('route_short_names', []):
-                    if rn not in self._route_mode:
-                        self._route_mode[rn] = edge_mode
+                    if rn and rn not in self._route_mode:
+                        self._route_mode[rn] = edata.get('mode', 'bus')
 
         if not self._route_seqs:
             logger.warning(
@@ -395,11 +400,11 @@ class RaptorRouter:
 
     def _route_matches_mode(self, route_name: str, mode_filter: str) -> bool:
         """
-        Return True when route_name serves the given mode_filter.
+        Check if a route serves the given mode.
 
-        O(1) dict lookup against self._route_mode built at __init__ time.
-        Previously this was an O(E) scan of all 10 k+ transit edges called
-        for every route in every RAPTOR round.
+        O(1) lookup from the self._route_mode cache built in __init__.
+        The previous implementation scanned all edges (O(E)) on every call,
+        adding ~10,000 iterations per round across all 446 routes.
         """
         mode = self._route_mode.get(route_name)
         if mode is None:

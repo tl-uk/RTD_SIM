@@ -190,8 +190,9 @@ def enrich_transit_shapes(
             d  = math.sqrt(dx * dx + dy * dy)
             if d < best_dist:
                 best_dist, best_node = d, node
-        # Convert degrees-distance back to metres for threshold check
-        return best_node if best_dist * 1000 <= max_stop_snap_m else None
+        # best_dist is already in metres (degrees x 111_320 m/deg).
+        # Do NOT multiply by 1000 -- that compares millimetres against metres.
+        return best_node if best_dist <= max_stop_snap_m else None
 
     # ── Iterate transit edges ─────────────────────────────────────────────────
     enriched = 0
@@ -244,7 +245,8 @@ def enrich_transit_shapes(
 
         if u_node is None or v_node is None:
             skipped_no_snap += 1
-            shape_cache[cache_key] = []   # mark as unresolvable
+            # Do not cache failures. Empty entries block retries when the
+            # drive graph or snap radius changes. Let the next run retry.
             continue
 
         if u_node == v_node:

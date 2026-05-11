@@ -1845,22 +1845,16 @@ class Router:
         # every walk routing attempt to raise NodeNotFound and fall through to
         # Tier 3 straight-line interpolation — the root cause of agents walking
         # on road carriageways even when walk_footways is loaded.
-        _G_footways = self.graph_manager.get_graph('walk_footways')
-        _use_footways = _G_footways is not None and _G_footways.number_of_nodes() > 10
-        _walk_key = 'walk_footways' if _use_footways else 'walk'
-        G_walk    = _G_footways if _use_footways else self.graph_manager.get_graph('walk')
+        _walk_key = (
+            'walk_footways'
+            if self.graph_manager.get_graph('walk_footways') is not None
+            else 'walk'
+        )
+        G_walk = self.graph_manager.get_graph(_walk_key)
         if G_walk is not None and G_walk.number_of_nodes() > 10:
             try:
-                # walk_footways uses string Overpass node IDs and has no OSMnx
-                # spatial index — ox.distance.nearest_nodes will fail on it.
-                # Use a fast Euclidean KD-tree scan for footways; for the
-                # standard OSMnx walk graph use get_nearest_node as before.
-                if _use_footways:
-                    orig_node = _nearest_node_euclidean(G_walk, origin)
-                    dest_node = _nearest_node_euclidean(G_walk, dest)
-                else:
-                    orig_node = self.graph_manager.get_nearest_node(origin, _walk_key)
-                    dest_node = self.graph_manager.get_nearest_node(dest,   _walk_key)
+                orig_node = self.graph_manager.get_nearest_node(origin, _walk_key)
+                dest_node = self.graph_manager.get_nearest_node(dest,   _walk_key)
                 orig_node = self._avoid_roundabout(G_walk, orig_node)
                 dest_node = self._avoid_roundabout(G_walk, dest_node)
 
@@ -2229,49 +2223,100 @@ class Router:
                 logger.warning("RaptorRouter init failed: %s", _raptor_exc)
                 self._raptor = None
  
-        journey = None
+        journey      = None
+        _used_raptor = False
+        _mode_filter = mode if mode != 'transit' else None
+
         if self._raptor is not None:
+            # ── Primary RAPTOR attempt ────────────────────────────────────────
             journey = self._raptor.route(
-                origin_stop,
-                dest_stop,
-                mode_filter = mode if mode != 'transit' else None,
+                origin_stop, dest_stop, mode_filter=_mode_filter,
             )
- 
-        if journey is None or not journey.legs:
-            # RAPTOR found no path — fall back to Dijkstra on the full transit
-            # graph (no route constraint, so it will mix services, but this is
-            # the last resort and triggers a warning so we know to investigate).
+
+            # ── Stop expansion ────────────────────────────────────────────────
+            # If the nearest stop is a terminus it appears only at the END of
+            # sequences; RAPTOR scans forward and finds nothing.  Try the next
+            # 2 nearest stops at each end before falling back to Dijkstra.
+            if journey is None or not journey.legs:
+                _alt_origins, _alt_dests = [], []
+                try:
+                    for _exc_stop, _coord, _lst in [
+                        (origin_stop, origin, _alt_origins),
+                        (dest_stop,   dest,   _alt_dests),
+                    ]:
+                        _seen = {_exc_stop}
+                        for _ in range(2):
+                            _c = builder.nearest_stop(
+                                G_transit, _coord,
+                                mode_filter=_mode_filter,
+                                max_distance_m=3000,
+                                exclude_stop=next(iter(_seen)),
+                            ) if len(_seen) == 1 else None
+                            if _c and _c not in _seen:
+                                _lst.append(_c)
+                                _seen.add(_c)
+                            else:
+                                break
+                except Exception:
+                    pass
+
+                for _os, _ds in (
+                    [(origin_stop, d) for d in _alt_dests]
+                    + [(o, dest_stop) for o in _alt_origins]
+                    + [(o, d) for o in _alt_origins for d in _alt_dests]
+                ):
+                    if _os == _ds:
+                        continue
+                    _j = self._raptor.route(_os, _ds, mode_filter=_mode_filter)
+                    if _j and _j.legs:
+                        journey = _j
+                        logger.debug(
+                            "%s: RAPTOR stop-expansion %s→%s",
+                            agent_id, _os, _ds,
+                        )
+                        break
+
+        if journey and journey.legs:
+            transit_nodes      = journey.all_stops
+            _constrained_route = journey.legs[0].route if journey.legs else None
+            _used_raptor       = True
+            logger.debug(
+                "%s: RAPTOR %s→%s: %d leg(s), %d stops, %d transfer(s)",
+                agent_id, origin_stop, dest_stop,
+                len(journey.legs), len(transit_nodes), journey.n_transfers,
+            )
+        else:
             logger.warning(
-                "%s: RAPTOR found no path %s→%s — falling back to unconstrained "
-                "Dijkstra (result may mix services)",
+                "%s: RAPTOR found no path %s→%s — unconstrained Dijkstra fallback",
                 agent_id, origin_stop, dest_stop,
             )
-            _from_raptor = False
             try:
                 transit_nodes = list(nx.shortest_path(
                     G_transit, origin_stop, dest_stop, weight='gen_cost'
                 ))
+                _used_raptor = False
             except Exception:
                 return self._compute_road_route(agent_id, origin, dest, mode, policy)
-        else:
-            # Use the RAPTOR journey stop sequence directly.
-            # all_stops flattens legs, deduplicating shared transfer stops.
-            transit_nodes = journey.all_stops
-            _constrained_route = journey.legs[0].route if journey.legs else None
-            _from_raptor = True
-            logger.debug(
-                "%s: RAPTOR %s→%s: %d legs, %d stops, %d transfer(s)",
-                agent_id, origin_stop, dest_stop,
-                len(journey.legs), len(transit_nodes), journey.n_transfers,
-            )
-            
-        # ── U-turn / pass-through guard (Dijkstra fallback only) ────────────
-        # RAPTOR guarantees service continuity per leg — no U-turns possible.
-        # Only apply this guard when the Dijkstra fallback was used.
-        # Bug fixed: the previous code re-declared _constrained_route = None HERE,
-        # overwriting the value RAPTOR correctly set above (line ~2253).
-        # The declaration is removed; _constrained_route retains its RAPTOR value.
-        if not _from_raptor and dest_stop in transit_nodes[:-1]:
+
+        # ── Route on transit graph ────────────────────────────────────────────────
+        # try:
+        #     transit_nodes = nx.shortest_path(
+        #         G_transit, origin_stop, dest_stop, weight='gen_cost',
+        #     )
+        # except Exception:
+        #     logger.debug(
+        #         "%s: no GTFS path %s→%s — fallback", agent_id, origin_stop, dest_stop,
+        #     )
+        #     return self._compute_road_route(agent_id, origin, dest, mode, policy)
+    
+        # ── U-turn / pass-through guard ───────────────────────────────────────
+        # A valid path must NOT visit dest_stop before the final element.
+        # If it does, the route passed through the destination and reversed
+        # (e.g. service 1 going east along Princes Street past the destination,
+        # then routing back west via a westbound service-1 edge).  This produces
+        # the nonsensical reversal seen on page 6 of the PDF screenshots.
+        # RAPTOR sequences are ordered GTFS trips — no U-turns possible.
+        if not _used_raptor and dest_stop in transit_nodes[:-1]:
             if _constrained_route is not None:
                 logger.debug(
                     "%s: constrained path visits dest_stop before terminus "
@@ -2322,7 +2367,8 @@ class Router:
         # Checks both stop count AND geographic detour ratio.
         # The distance check catches express services (X51: 30 stops but
         # 3.6× detour via Queensferry) that pass the stop-count limit.
-        if not _from_raptor and _constrained_route is not None:
+        # Circus guard is Dijkstra-specific; RAPTOR sub-sequences are correct.
+        if not _used_raptor and _constrained_route is not None:
             _od_straight_km = haversine_km(origin, dest)
             _max_sensible   = max(25, int(_od_straight_km * 5))
 
