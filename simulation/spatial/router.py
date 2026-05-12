@@ -2228,23 +2228,21 @@ class Router:
         _mode_filter = mode if mode != 'transit' else None
 
         if self._raptor is not None:
-            # ── Primary RAPTOR attempt ────────────────────────────────────────
+            # Primary attempt
             journey = self._raptor.route(
                 origin_stop, dest_stop, mode_filter=_mode_filter,
             )
 
-            # ── Stop expansion ────────────────────────────────────────────────
-            # If the nearest stop is a terminus it appears only at the END of
-            # sequences; RAPTOR scans forward and finds nothing.  Try the next
-            # 2 nearest stops at each end before falling back to Dijkstra.
+            # Stop expansion: terminus stops only appear at the END of sequences
+            # so RAPTOR scans forward and finds nothing. Try next 2 nearest stops.
             if journey is None or not journey.legs:
-                _alt_origins, _alt_dests = [], []
+                _alt_o, _alt_d = [], []
                 try:
-                    for _exc_stop, _coord, _lst in [
-                        (origin_stop, origin, _alt_origins),
-                        (dest_stop,   dest,   _alt_dests),
+                    for _exc, _coord, _lst in [
+                        (origin_stop, origin, _alt_o),
+                        (dest_stop,   dest,   _alt_d),
                     ]:
-                        _seen = {_exc_stop}
+                        _seen = {_exc}
                         for _ in range(2):
                             _c = builder.nearest_stop(
                                 G_transit, _coord,
@@ -2253,27 +2251,22 @@ class Router:
                                 exclude_stop=next(iter(_seen)),
                             ) if len(_seen) == 1 else None
                             if _c and _c not in _seen:
-                                _lst.append(_c)
-                                _seen.add(_c)
+                                _lst.append(_c); _seen.add(_c)
                             else:
                                 break
                 except Exception:
                     pass
-
                 for _os, _ds in (
-                    [(origin_stop, d) for d in _alt_dests]
-                    + [(o, dest_stop) for o in _alt_origins]
-                    + [(o, d) for o in _alt_origins for d in _alt_dests]
+                    [(origin_stop, d) for d in _alt_d]
+                    + [(o, dest_stop) for o in _alt_o]
+                    + [(o, d) for o in _alt_o for d in _alt_d]
                 ):
                     if _os == _ds:
                         continue
                     _j = self._raptor.route(_os, _ds, mode_filter=_mode_filter)
                     if _j and _j.legs:
                         journey = _j
-                        logger.debug(
-                            "%s: RAPTOR stop-expansion %s→%s",
-                            agent_id, _os, _ds,
-                        )
+                        logger.debug("%s: RAPTOR stop-expansion %s→%s", agent_id, _os, _ds)
                         break
 
         if journey and journey.legs:
@@ -2315,7 +2308,7 @@ class Router:
         # (e.g. service 1 going east along Princes Street past the destination,
         # then routing back west via a westbound service-1 edge).  This produces
         # the nonsensical reversal seen on page 6 of the PDF screenshots.
-        # RAPTOR sequences are ordered GTFS trips — no U-turns possible.
+        # RAPTOR sequences come from ordered GTFS trips - no U-turns possible.
         if not _used_raptor and dest_stop in transit_nodes[:-1]:
             if _constrained_route is not None:
                 logger.debug(
@@ -2422,6 +2415,20 @@ class Router:
                 except Exception:
                     return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
+        # ── Build per-stop-pair route map from RAPTOR legs ───────────────────
+        # Maps each consecutive (u, v) stop pair to the route RAPTOR chose for
+        # that segment.  Used to fetch service-specific shape_coords from
+        # G.graph['route_shapes'] instead of the merged per-edge shape, which
+        # may belong to a co-routed service that shares the same stop pair.
+        _pair_route_map: dict = {}
+        if _used_raptor and journey and journey.legs:
+            for _leg in journey.legs:
+                for _pi in range(len(_leg.stops) - 1):
+                    _pair_route_map[(_leg.stops[_pi], _leg.stops[_pi + 1])] = _leg.route
+
+        # Fetch the route_shapes index once; empty dict when not using RAPTOR.
+        _g_route_shapes = G_transit.graph.get('route_shapes', {}) if _used_raptor else {}
+
         # ── Single combined pass: geometry extraction + service-name collection ───
         transit_coords = []
         _all_short_names = []
@@ -2431,26 +2438,39 @@ class Router:
             v_node = transit_nodes[i + 1]
             edge_map = G_transit.get_edge_data(u_node, v_node) or {}
     
-            # ── Select edge with the longest shape_coords ─────────────────────────
-            # Prefers revenue-service edges over empty dead-run edges.
-            shape = []
+            # ── Shape lookup: service-specific first, merged-edge fallback ─────────
+            # When RAPTOR routed this journey, _pair_route_map tells us which route
+            # covers this (u, v) pair (e.g. '27').  We look that route up in
+            # _g_route_shapes — a per-route per-stop-pair index built during
+            # GTFSGraph.build().  This gives the shapes.txt geometry that belongs
+            # to service 27, not whichever service happened to be stored on the
+            # shared transit edge.  If no per-route shape exists, fall back to the
+            # longest shape among all parallel edges (existing behaviour).
+            _seg_route   = _pair_route_map.get((u_node, v_node))
+            shape        = []
             _selected_ed = None
-            for ed in edge_map.values():
-                s = ed.get('shape_coords') or []
-                if len(s) > len(shape):
-                    shape = s
-                    _selected_ed = ed
 
-            # ── Collect service names from the SELECTED edge only ─────────────────
-            # Using all parallel edges causes label pollution: stop pairs served by
-            # routes 24, 9, and 12 all have parallel edges, so collecting from every
-            # edge gives "Bus 24, 9, 12" even when route-constrained to just 24.
-            # Reading only from the selected (longest-shape) edge gives the correct
-            # single-service label that matches the constrained route.
-            if _selected_ed is not None:
+            # Priority 1: service-specific shape from route_shapes index
+            if _seg_route:
+                shape = _g_route_shapes.get(_seg_route, {}).get((u_node, v_node), [])
+
+            # Priority 2: longest shape among all parallel edges
+            if not shape:
+                for ed in edge_map.values():
+                    s = ed.get('shape_coords') or []
+                    if len(s) > len(shape):
+                        shape = s
+                        _selected_ed = ed
+
+            # ── Service name: from RAPTOR leg, not from edge route_short_names ─────
+            # Collecting route_short_names from edges gives 'Bus 27, 10, N16' for
+            # every stop pair shared by those services.  When RAPTOR was used, we
+            # know exactly which service covers this segment — use that instead.
+            if _seg_route:
+                _all_short_names.append(_seg_route)
+            elif _selected_ed is not None:
                 _all_short_names.extend(_selected_ed.get('route_short_names', []))
             elif edge_map:
-                # Fallback: no shape data anywhere on this edge pair — use first edge.
                 _first_ed = next(iter(edge_map.values()), {})
                 _all_short_names.extend(_first_ed.get('route_short_names', []))
     

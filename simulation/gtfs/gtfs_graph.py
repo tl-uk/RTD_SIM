@@ -351,6 +351,10 @@ class GTFSGraph:
         route_seqs:  Dict[str, List[List[str]]]           = defaultdict(list)
         stop_routes: Dict[str, List[str]]                  = defaultdict(list)
         route_times: Dict[str, Dict[Tuple[str,str], float]] = defaultdict(dict)
+        # Per-route per-stop-pair shape: lets the router retrieve
+        # service-specific geometry rather than a merged-edge shape
+        # that may belong to a different co-routed service.
+        route_shapes: Dict[str, Dict[Tuple[str,str], list]] = defaultdict(dict)
 
         for trip_id, stops in loader.stop_times.items():
             trip = loader.trips.get(trip_id)
@@ -397,10 +401,51 @@ class GTFSGraph:
                     travel_s if prev is None else (prev + travel_s) / 2.0
                 )
 
+        # ── Build per-route per-segment shape index ──────────────────────
+        # For each trip with shape data, extract the geometry slice between
+        # each consecutive stop pair and store under the route short name.
+        # First trip for a (route, stop_pair) wins; later trips skip it.
+        for _tid, _sts in loader.stop_times.items():
+            _tr = loader.trips.get(_tid)
+            if not _tr:
+                continue
+            _sid = _tr.get('shape_id', '')
+            _tshape = (
+                loader.shapes.get(_sid, [])
+                if _sid and getattr(loader, 'shapes', None)
+                else []
+            )
+            if not _tshape:
+                continue
+            _rid  = _tr.get('route_id', '')
+            _robj = loader.routes.get(_rid, {})
+            _rsn  = str(_robj.get('short_name') or _robj.get('route_short_name', '')).strip()
+            if not _rsn:
+                continue
+            for _i in range(len(_sts) - 1):
+                _uid = _sts[_i]['stop_id']
+                _vid = _sts[_i + 1]['stop_id']
+                if _uid not in G.nodes or _vid not in G.nodes:
+                    continue
+                _pr = (_uid, _vid)
+                if _pr in route_shapes[_rsn]:
+                    continue
+                _ud, _vd = G.nodes[_uid], G.nodes[_vid]
+                _seg = self._slice_shape(
+                    _tshape,
+                    float(_ud.get('x', 0)), float(_ud.get('y', 0)),
+                    float(_vd.get('x', 0)), float(_vd.get('y', 0)),
+                )
+                if _seg and len(_seg) >= 2:
+                    route_shapes[_rsn][_pr] = _seg
+
         G.graph['route_stop_sequences'] = dict(route_seqs)
         G.graph['stop_routes']          = dict(stop_routes)
         G.graph['route_avg_times']      = {
             sn: dict(pairs) for sn, pairs in route_times.items()
+        }
+        G.graph['route_shapes'] = {
+            sn: dict(pairs) for sn, pairs in route_shapes.items()
         }
 
         n_routes = len(route_seqs)
