@@ -71,7 +71,7 @@ _MAX_ROUNDS = 2
 
 # Walking-transfer footpath cost added when changing routes at the same stop
 # (same physical stop, no walking — just wait for the next route).
-_TRANSFER_PENALTY_S = 180.0   # 3 min default in-station transfer time
+_TRANSFER_PENALTY_S = 600.0   # 10 min: avg wait (8 min) + stop walk (2 min)
 
 
 @dataclass
@@ -151,18 +151,6 @@ class RaptorRouter:
                 key = (u, v)
                 if key not in self._headways:
                     self._headways[key] = float(edata.get('headway_s', 3600))
-
-        # O(1) route→mode lookup — built once from graph edges in __init__.
-        # Replaces the previous _route_matches_mode which was O(E) per route
-        # per round (scanned all 10,653 edges for every mode check).
-        # Edinburgh GTFS: 446 routes × avg 24 stops × 2 directions ≈ 21k edge
-        # lookups per query.  This reduces that to a single dict hit.
-        self._route_mode: Dict[str, str] = {}
-        if G_transit is not None:
-            for _, _, edata in G_transit.edges(data=True):
-                for rn in edata.get('route_short_names', []):
-                    if rn and rn not in self._route_mode:
-                        self._route_mode[rn] = edata.get('mode', 'bus')
 
         if not self._route_seqs:
             logger.warning(
@@ -399,17 +387,15 @@ class RaptorRouter:
         return travel + headway / 2.0
 
     def _route_matches_mode(self, route_name: str, mode_filter: str) -> bool:
-        """
-        Check if a route serves the given mode.
-
-        O(1) lookup from the self._route_mode cache built in __init__.
-        The previous implementation scanned all edges (O(E)) on every call,
-        adding ~10,000 iterations per round across all 446 routes.
-        """
-        mode = self._route_mode.get(route_name)
-        if mode is None:
-            return True   # unknown route — allow by default
-        return mode == mode_filter
+        """Check if a route's edges match the mode filter."""
+        G = self._G
+        if G is None:
+            return True
+        # Sample one edge for this route name — mode is stored on graph edges
+        for _, _, edata in G.edges(data=True):
+            if route_name in edata.get('route_short_names', []):
+                return edata.get('mode', 'bus') == mode_filter
+        return True   # default: allow if no edge found (mode unknown)
 
     def _reconstruct(
         self,

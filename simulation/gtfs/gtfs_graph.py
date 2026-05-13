@@ -351,9 +351,8 @@ class GTFSGraph:
         route_seqs:  Dict[str, List[List[str]]]           = defaultdict(list)
         stop_routes: Dict[str, List[str]]                  = defaultdict(list)
         route_times: Dict[str, Dict[Tuple[str,str], float]] = defaultdict(dict)
-        # Per-route per-stop-pair shape: lets the router retrieve
-        # service-specific geometry rather than a merged-edge shape
-        # that may belong to a different co-routed service.
+        # Per-route per-stop-pair shapes — lets the router retrieve
+        # service-specific geometry instead of a merged-edge shape.
         route_shapes: Dict[str, Dict[Tuple[str,str], list]] = defaultdict(dict)
 
         for trip_id, stops in loader.stop_times.items():
@@ -369,9 +368,16 @@ class GTFSGraph:
             if not sn:
                 continue
 
-            # Build ordered stop list for this trip (in-graph stops only)
+            # Build ordered stop list — passenger-boarding stops only.
+            # pickup_type=1 means no passengers may board (positioning/
+            # deadhead run).  Including these creates phantom graph edges
+            # between unrelated services that RAPTOR exploits to build
+            # multi-transfer paths through depot stops (e.g. service 5
+            # 'connecting' to N30 via a garage approach road).
             seq: List[str] = [
-                s['stop_id'] for s in stops if s['stop_id'] in G.nodes
+                s['stop_id'] for s in stops
+                if s['stop_id'] in G.nodes
+                and s.get('pickup_type', 0) != 1
             ]
             if len(seq) < 2:
                 continue
@@ -401,21 +407,21 @@ class GTFSGraph:
                     travel_s if prev is None else (prev + travel_s) / 2.0
                 )
 
-        # ── Build per-route per-segment shape index ──────────────────────
-        # For each trip with shape data, extract the geometry slice between
-        # each consecutive stop pair and store under the route short name.
-        # First trip for a (route, stop_pair) wins; later trips skip it.
+        # Per-route per-segment shape index ---------------------------------
+        # For each trip with a shape_id, slice the full trip shape into
+        # per-stop-pair segments.  First trip per (route, stop_pair) wins.
+        # Only passenger stops (pickup_type != 1) are included.
         for _tid, _sts in loader.stop_times.items():
             _tr = loader.trips.get(_tid)
             if not _tr:
                 continue
             _sid = _tr.get('shape_id', '')
-            _tshape = (
+            _tsh = (
                 loader.shapes.get(_sid, [])
                 if _sid and getattr(loader, 'shapes', None)
                 else []
             )
-            if not _tshape:
+            if not _tsh:
                 continue
             _rid  = _tr.get('route_id', '')
             _robj = loader.routes.get(_rid, {})
@@ -423,16 +429,19 @@ class GTFSGraph:
             if not _rsn:
                 continue
             for _i in range(len(_sts) - 1):
+                # Skip non-passenger stops
+                if _sts[_i].get('pickup_type', 0) == 1:
+                    continue
                 _uid = _sts[_i]['stop_id']
                 _vid = _sts[_i + 1]['stop_id']
                 if _uid not in G.nodes or _vid not in G.nodes:
                     continue
                 _pr = (_uid, _vid)
                 if _pr in route_shapes[_rsn]:
-                    continue
+                    continue  # first trip wins
                 _ud, _vd = G.nodes[_uid], G.nodes[_vid]
                 _seg = self._slice_shape(
-                    _tshape,
+                    _tsh,
                     float(_ud.get('x', 0)), float(_ud.get('y', 0)),
                     float(_vd.get('x', 0)), float(_vd.get('y', 0)),
                 )
