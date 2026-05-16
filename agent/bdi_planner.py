@@ -1957,32 +1957,30 @@ class BDIPlanner:
         #   pref = 0.5 → factor 1.05  (  0%: neutral; no adjustment)
         #   pref = 0.0 → factor 1.20  (+20%: avoided/unlikely mode)
         #
-        # Formula: factor = 1.20 − 0.30 × pref
-        #   Derivation: linear interpolation between 1.20 (pref=0) and 0.90 (pref=1).
-        #   The range [0.90, 1.20] is intentionally modest so the BDI desire weights
-        #   still dominate — preference nudges rather than overrides.
+        # Formula: factor = 1.40 − 0.65 × pref
+        #   Range: pref=1.0 → 0.75 (−25%: strongly preferred)
+        #          pref=0.5 → 1.075 (neutral)
+        #          pref=0.0 → 1.40 (+40%: strongly avoided)
         #
-        # Real-world calibration examples (personas.yaml):
-        #   budget_student:    car=0.80, ev=0.45, bus=0.85, local_train=0.90
-        #     → car factor 0.96, EV factor 1.065, bus factor 0.945, train 0.930
-        #     → Train and bus become cheaper than EV for a budget student ✓
-        #   eco_warrior:       ev=0.95, bike=0.95, car=0.20
-        #     → EV factor 0.915, bike 0.915, car factor 1.14
-        #     → Car costs 25% more than EV for eco_warrior ✓
-        #   rural_commuter:    car=0.90, ev=0.35, local_train=0.70
-        #     → EV factor 1.095 (+9.5% vs car's 0.93) — reflects range anxiety
-        #       and rural charging gap ✓
-        #   shift_worker:      car=0.85, ev=0.40, bus=0.60
-        #     → EV factor 1.08 — older vehicles / cost-sensitivity ✓
-        #   paramedic:         van_diesel=0.90, van_electric=0.50
-        #     → Diesel costs 0.93×, electric 1.05× — reliability preference ✓
+        #   The wider [0.75, 1.40] range is necessary for 'time is money'
+        #   personas (business_commuter, business_traveler) where taxi_ev
+        #   (pref=0.85 → factor 0.848) must be meaningfully cheaper than bus
+        #   (pref=0.30 → factor 1.205) to overcome the higher base taxi fare.
+        #   Desire weights still dominate: a budget_student (cost desire 0.95)
+        #   will not pick taxi even if the pref factor favors it, because the
+        #   cost_norm component overwhelms the pref adjustment.
+        #
+        # Calibration examples:
+        #   business_commuter: taxi_ev(0.85)→0.848, bus(0.30)→1.205 — 42% spread ✓
+        #   eco_warrior:       bike(0.90)→0.815, car(0.10)→1.335 — 64% spread ✓
+        #   budget_student:    walk(0.95)→0.782, car(0.10)→1.335 ✓
         _mode_prefs: dict = context.get('mode_preferences') or {}
         if _mode_prefs and mode in _mode_prefs:
             try:
                 pref = float(_mode_prefs[mode])
                 pref = max(0.0, min(1.0, pref))           # clamp to [0, 1]
-                pref_factor = 1.20 - 0.30 * pref          # [0.90, 1.20]
-                pref_factor = max(0.90, min(1.20, pref_factor))
+                pref_factor = 1.40 - 0.65 * pref          # [0.75, 1.40]
+                pref_factor = max(0.75, min(1.40, pref_factor))
                 total_cost *= pref_factor
                 if abs(pref_factor - 1.0) > 0.02:         # only log non-trivial adjustments
                     logger.debug(

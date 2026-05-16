@@ -247,7 +247,11 @@ _PERSONA_PROFILES: Dict[str, Dict[str, Any]] = {
         'desire_weights': {'minimize_time': 0.85, 'maximize_comfort': 0.75,
                            'maximize_reliability': 0.80},
         'beliefs':        {'ev_is_viable': 0.60, 'congestion_likely': 0.65},
-        'base_modes':     ['car', 'ev', 'bus', 'local_train', 'intercity_train', 'tram'],
+        # taxi_ev / taxi_diesel: 'time is money' — must have door-to-door
+        # option when transit is unavailable or excessively slow.
+        # taxi_ev listed first: aligns with uk 2026 ev taxi fleet growth.
+        'base_modes':     ['taxi_ev', 'taxi_diesel', 'car', 'ev',
+                           'local_train', 'intercity_train', 'tram', 'bus'],
     },
     'disabled_commuter': {
         'asi_tier': 'improve',
@@ -616,7 +620,11 @@ _JOB_MODE_OVERRIDES: Dict[str, Dict[str, Any]] = {
     # which include ev/car, causing the planner to route by EV on roads.
     'accessible_tram_journey': {
         'abstract_modes': ['tram'],
-        'access_modes':   ['walk', 'bus'],   # no car/ev to station — tram IS the mode
+        # access_modes are BOTH the access/egress legs AND the fallback when
+        # tram has no route for the OD pair.  taxi_ev covers time-sensitive
+        # personas (business_commuter) who need door-to-door when tram fails;
+        # eco_warrior's mode_preferences price taxi_diesel out naturally.
+        'access_modes':   ['walk', 'bus', 'taxi_ev', 'taxi_diesel'],
         'primary_network': 'tram',
         'intentions':     ['board_tram', 'accessible_travel'],
     },
@@ -937,6 +945,23 @@ class PersonaFusion:
                 if m not in seen:
                     seen.add(m)
                     allowed.append(m)
+
+            # Reinsert time-critical modes from persona base_modes when the
+            # job override would otherwise block them.  A business_commuter
+            # retains taxi_ev/taxi_diesel even under transit job stories.
+            # Mode_preferences (persona YAML) ensure these cost more or less
+            # than alternatives without hard-blocking them.
+            _TIME_CRITICAL_PERSONAS = {
+                'business_commuter', 'business_traveler', 'shift_worker',
+            }
+            _HIGH_VALUE_FALLBACKS = {'taxi_ev', 'taxi_diesel', 'ev', 'car'}
+            if persona_id in _TIME_CRITICAL_PERSONAS:
+                _persona_base = list(profile.get('base_modes', []))
+                for _fb_mode in _persona_base:
+                    if _fb_mode in _HIGH_VALUE_FALLBACKS and _fb_mode not in seen:
+                        allowed.append(_fb_mode)
+                        seen.add(_fb_mode)
+                        routeable.append(_fb_mode)
 
         else:
             # Use persona profile base_modes

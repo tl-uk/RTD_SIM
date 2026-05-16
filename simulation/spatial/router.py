@@ -615,11 +615,45 @@ class Router:
         egress_dist = haversine_km(last_coord, dest)
     
         # ── Assemble segments ─────────────────────────────────────────────────────
-        segments = []
+        # Multi-leg RAPTOR journeys: emit one segment per leg + walk transfers.
+        # Single-leg (or Dijkstra fallback): existing 3-segment behaviour.
+        segments         = []
+        raptor_legs      = meta.get('raptor_legs', [])
+        _mode_title      = mode.replace('_', ' ').title()
+
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop'})
-        if transit_coords and len(transit_coords) >= 2:
+
+        if raptor_legs and len(raptor_legs) > 1:
+            # One segment per RAPTOR leg with service-specific label.
+            # Walk-transfer segments are injected between legs when the alight
+            # stop of leg N and the board stop of leg N+1 are different locations.
+            for _li, _leg_data in enumerate(raptor_legs):
+                _coords = _leg_data.get('coords', [])
+                if _coords and len(_coords) >= 2:
+                    segments.append({
+                        'path':             _coords,
+                        'mode':             mode,
+                        'label':            f"{_mode_title} {_leg_data['route']}",
+                        'route_short_name': _leg_data['route'],
+                    })
+                # Walk transfer to next leg
+                if _li < len(raptor_legs) - 1:
+                    _alight = _leg_data.get('alight_coord')
+                    _board  = raptor_legs[_li + 1].get('board_coord')
+                    if _alight and _board and haversine_km(_alight, _board) >= _MIN_WALK_LEG_KM:
+                        _xfer = self._compute_access_leg(
+                            f'{agent_id}_xfer_{_li}', _alight, _board
+                        )
+                        if _xfer and len(_xfer) >= 2:
+                            segments.append({
+                                'path':  _xfer,
+                                'mode':  'walk',
+                                'label': 'Walk to stop',
+                            })
+        elif transit_coords and len(transit_coords) >= 2:
             segments.append({'path': transit_coords, 'mode': mode, 'label': _svc_label})
+
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop'})
     
@@ -2228,26 +2262,16 @@ class Router:
         _mode_filter = mode if mode != 'transit' else None
 
         if self._raptor is not None:
-            # ── Primary RAPTOR attempt ────────────────────────────────────────
             journey = self._raptor.route(
                 origin_stop, dest_stop, mode_filter=_mode_filter,
             )
-
-            # ── Corridor-aware stop expansion ─────────────────────────────────
-            # When the primary attempt fails, try alternative stops — but only
-            # those that share at least one route with the origin corridor.
-            # This prevents RAPTOR from routing through unrelated service areas:
-            # e.g. expanding to a service-20 stop when the origin is on the N30
-            # corridor would create a spurious 3-transfer path through a depot.
             if journey is None or not journey.legs:
-                # Routes that serve the origin stop define the "corridor"
                 _origin_routes = set(self._raptor.routes_serving_stop(origin_stop))
-
                 _alt_o, _alt_d = [], []
                 try:
-                    for _exc, _coord, _lst, _check_corridor in [
-                        (origin_stop, origin, _alt_o, False),   # origin: any nearby stop
-                        (dest_stop,   dest,   _alt_d, True),    # dest: must share origin corridor
+                    for _exc, _coord, _lst, _chk in [
+                        (origin_stop, origin, _alt_o, False),
+                        (dest_stop,   dest,   _alt_d, True),
                     ]:
                         _seen = {_exc}
                         for _ in range(2):
@@ -2259,53 +2283,36 @@ class Router:
                             ) if len(_seen) == 1 else None
                             if not _c or _c in _seen:
                                 break
-                            if _check_corridor and _origin_routes:
-                                # Only accept this expanded dest stop if it is
-                                # served by at least one route that also serves
-                                # the origin area — prevents cross-corridor jumps
-                                _cand_routes = set(self._raptor.routes_serving_stop(_c))
-                                if not _origin_routes & _cand_routes:
-                                    _seen.add(_c)   # skip, try next
-                                    continue
-                            _lst.append(_c)
-                            _seen.add(_c)
+                            if _chk and _origin_routes:
+                                if not _origin_routes & set(self._raptor.routes_serving_stop(_c)):
+                                    _seen.add(_c); continue
+                            _lst.append(_c); _seen.add(_c)
                 except Exception:
                     pass
-
                 for _os, _ds in (
                     [(origin_stop, d) for d in _alt_d]
                     + [(o, dest_stop) for o in _alt_o]
                     + [(o, d) for o in _alt_o for d in _alt_d]
                 ):
-                    if _os == _ds:
-                        continue
+                    if _os == _ds: continue
                     _j = self._raptor.route(_os, _ds, mode_filter=_mode_filter)
                     if _j and _j.legs:
                         journey = _j
-                        logger.debug(
-                            "%s: RAPTOR stop-expansion %s→%s",
-                            agent_id, _os, _ds,
-                        )
+                        logger.debug("%s: RAPTOR stop-expansion %s→%s", agent_id, _os, _ds)
                         break
 
         if journey and journey.legs:
             transit_nodes      = journey.all_stops
             _constrained_route = journey.legs[0].route if journey.legs else None
             _used_raptor       = True
-            logger.debug(
-                "%s: RAPTOR %s→%s: %d leg(s), %d stops, %d transfer(s)",
+            logger.debug("%s: RAPTOR %s→%s: %d leg(s), %d stops, %d transfer(s)",
                 agent_id, origin_stop, dest_stop,
-                len(journey.legs), len(transit_nodes), journey.n_transfers,
-            )
+                len(journey.legs), len(transit_nodes), journey.n_transfers)
         else:
-            logger.warning(
-                "%s: RAPTOR found no path %s→%s — unconstrained Dijkstra fallback",
-                agent_id, origin_stop, dest_stop,
-            )
+            logger.warning("%s: RAPTOR found no path — Dijkstra fallback", agent_id)
             try:
                 transit_nodes = list(nx.shortest_path(
-                    G_transit, origin_stop, dest_stop, weight='gen_cost'
-                ))
+                    G_transit, origin_stop, dest_stop, weight='gen_cost'))
                 _used_raptor = False
             except Exception:
                 return self._compute_road_route(agent_id, origin, dest, mode, policy)
@@ -2379,7 +2386,7 @@ class Router:
         # Checks both stop count AND geographic detour ratio.
         # The distance check catches express services (X51: 30 stops but
         # 3.6× detour via Queensferry) that pass the stop-count limit.
-        # Circus guard: Dijkstra-specific. RAPTOR sub-sequences are correct.
+        # Circus guard: Dijkstra-specific.
         if not _used_raptor and _constrained_route is not None:
             _od_straight_km = haversine_km(origin, dest)
             _max_sensible   = max(25, int(_od_straight_km * 5))
@@ -2434,12 +2441,11 @@ class Router:
                 except Exception:
                     return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
-        # Per-stop-pair route map from RAPTOR legs
         _pair_route_map: dict = {}
         if _used_raptor and journey and journey.legs:
             for _leg in journey.legs:
                 for _pi in range(len(_leg.stops) - 1):
-                    _pair_route_map[(_leg.stops[_pi], _leg.stops[_pi + 1])] = _leg.route
+                    _pair_route_map[(_leg.stops[_pi], _leg.stops[_pi+1])] = _leg.route
         _g_route_shapes = G_transit.graph.get('route_shapes', {}) if _used_raptor else {}
 
         # ── Single combined pass: geometry extraction + service-name collection ───
@@ -2451,15 +2457,9 @@ class Router:
             v_node = transit_nodes[i + 1]
             edge_map = G_transit.get_edge_data(u_node, v_node) or {}
     
-            # ── Shape lookup: service-specific then merged-edge fallback ──
-            # When RAPTOR was used, _pair_route_map tells us which service
-            # covers this (u, v) pair.  Look up route_shapes[service][(u,v)]
-            # for the geometry that belongs to THIS service alone, not the
-            # merged shape from whichever service was processed first.
-            _seg_route   = _pair_route_map.get((u_node, v_node))
-            shape        = []
+            _seg_route = _pair_route_map.get((u_node, v_node))
+            shape = []
             _selected_ed = None
-
             if _seg_route:
                 shape = _g_route_shapes.get(_seg_route, {}).get((u_node, v_node), [])
             if not shape:
@@ -2467,15 +2467,12 @@ class Router:
                     s = ed.get('shape_coords') or []
                     if len(s) > len(shape):
                         shape = s; _selected_ed = ed
-
-            # Service label: RAPTOR-selected route name only (not all edge names)
             if _seg_route:
                 _all_short_names.append(_seg_route)
             elif _selected_ed is not None:
                 _all_short_names.extend(_selected_ed.get('route_short_names', []))
             elif edge_map:
                 _all_short_names.extend(next(iter(edge_map.values()), {}).get('route_short_names', []))
-
             u_x = float(G_transit.nodes[u_node].get('x', 0))
             u_y = float(G_transit.nodes[u_node].get('y', 0))
             v_x = float(G_transit.nodes[v_node].get('x', 0))
@@ -2600,6 +2597,50 @@ class Router:
     
         # ── Populate meta side-channel for _gtfs_with_segments ───────────────────
         # Stored on self so the caller can read it without repeating any work.
+        # ── Per-leg geometry for multi-leg tooltip rendering ─────────────────────
+        # When RAPTOR found a multi-leg journey, split transit_coords into one
+        # coordinate list per leg + store board/alight coords for transfer walks.
+        raptor_legs: list = []
+        if _used_raptor and journey and journey.legs and len(journey.legs) > 1:
+            # Build a map: (u_stop, v_stop) -> coords (already assembled above)
+            # We re-use _pair_route_map to know which leg each pair belongs to.
+            leg_coord_buckets: dict = {i: [] for i in range(len(journey.legs))}
+            leg_for_pair = {}
+            for _li, _leg in enumerate(journey.legs):
+                for _pi in range(len(_leg.stops) - 1):
+                    leg_for_pair[(_leg.stops[_pi], _leg.stops[_pi + 1])] = _li
+
+            # Re-walk transit_nodes to bucket coords per leg
+            _prev_coord = None
+            for _ti in range(len(transit_nodes) - 1):
+                _un = transit_nodes[_ti]
+                _vn = transit_nodes[_ti + 1]
+                _li = leg_for_pair.get((_un, _vn), len(journey.legs) - 1)
+                _u_d = G_transit.nodes.get(_un, {})
+                _v_d = G_transit.nodes.get(_vn, {})
+                _u_x = float(_u_d.get('x', _u_d.get('lon', 0)))
+                _u_y = float(_u_d.get('y', _u_d.get('lat', 0)))
+                _v_x = float(_v_d.get('x', _v_d.get('lon', 0)))
+                _v_y = float(_v_d.get('y', _v_d.get('lat', 0)))
+                bucket = leg_coord_buckets[_li]
+                if not bucket:
+                    bucket.append((_u_x, _u_y))
+                bucket.append((_v_x, _v_y))
+
+            for _li, _leg in enumerate(journey.legs):
+                _leg_coords = leg_coord_buckets.get(_li, [])
+                # Board / alight stop coords for transfer-walk computation
+                _board_d  = G_transit.nodes.get(_leg.stops[0],  {})
+                _alight_d = G_transit.nodes.get(_leg.stops[-1], {})
+                raptor_legs.append({
+                    'route':        _leg.route,
+                    'coords':       _leg_coords,
+                    'board_coord':  (float(_board_d.get('x',  _board_d.get('lon',  0))),
+                                     float(_board_d.get('y',  _board_d.get('lat',  0)))),
+                    'alight_coord': (float(_alight_d.get('x', _alight_d.get('lon', 0))),
+                                     float(_alight_d.get('y', _alight_d.get('lat', 0)))),
+                })
+
         self._last_gtfs_meta = dict(
             service_label  = _service_label,
             service_names  = _service_names,
@@ -2608,6 +2649,7 @@ class Router:
             access_leg     = access_leg,
             egress_leg     = egress_leg,
             transit_coords = transit_coords,
+            raptor_legs    = raptor_legs,      # per-leg data for tooltip splitting
         )
     
         logger.info(

@@ -230,10 +230,14 @@ business_commuter:
     - "Professional appearance on arrival"
 
   mode_preferences:
-    intercity_train: 0.9  # was train_first_class
+    intercity_train: 0.9  # was train_first_class — productive, reliable
+    taxi_ev: 0.85         # door-to-door EV taxi: fast, premium, zero tailpipe
+    taxi_diesel: 0.65     # diesel taxi: acceptable fallback when EV unavailable
     ev: 0.55              # calibrated to 2024 UK EV adoption
     car: 0.7              # was taxi(0.7) and car_petrol(0.6) — take highest
-    bus: 0.3
+    local_train: 0.75     # tram / commuter rail when available
+    tram: 0.70            # city tram — reliable, no congestion
+    bus: 0.3              # bus: acceptable only when nothing faster available
     bike: 0.1
 
   plan_hints:
@@ -935,6 +939,8 @@ business_traveler:
   mode_preferences:
     intercity_train: 0.9   # was train_first_class
     flight_domestic: 0.75  # was flight — corrected to canonical mode name
+    taxi_ev: 0.88          # EV taxi: fastest door-to-door for executive journeys
+    taxi_diesel: 0.70      # diesel taxi: acceptable fallback
     car: 0.7               # was taxi(0.7) and car_petrol(0.45) — take highest
     ev: 0.6                # was car_ev
     bus: 0.1
