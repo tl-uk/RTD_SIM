@@ -66,20 +66,20 @@ class MetricsCalculator:
             'taxi_ev': 0.45,     # Slightly faster than buses, traffic limited
             'taxi_diesel': 0.45,
             
-            # Light commercial (Phase 4.5F)
+            # Light commercial
             'van_electric': 0.58,   # 35 km/h = 0.58 km/min
             'van_diesel': 0.58,     # 35 km/h = 0.58 km/min
             
-            # Medium freight (Phase 4.5F)
+            # Medium freight
             'truck_electric': 0.50, # 30 km/h = 0.50 km/min
             'truck_diesel': 0.50,   # 30 km/h = 0.50 km/min
             
-            # Heavy freight (Phase 4.5F)
+            # Heavy freight 
             'hgv_electric': 0.42,   # 25 km/h = 0.42 km/min
             'hgv_diesel': 0.42,     # 25 km/h = 0.42 km/min
             'hgv_hydrogen': 0.42,   # 25 km/h = 0.42 km/min
             
-            # Public transport (Phase 4.5G)
+            # Public transport 
             'tram': 0.42,           # 25 km/h = 0.42 km/min
             'local_train': 1.0,     # 60 km/h = 1.0 km/min
             'intercity_train': 2.0, # 120 km/h = 2.0 km/min
@@ -87,11 +87,11 @@ class MetricsCalculator:
             # slower than passenger — Network Rail LoS C/D paths).
             'freight_rail': 0.83,   # 50 km/h = 0.83 km/min
             
-            # Maritime (Phase 4.5G)
+            # Maritime 
             'ferry_diesel': 0.58,   # 35 km/h = 0.58 km/min
             'ferry_electric': 0.50, # 30 km/h = 0.50 km/min
             
-            # Aviation (Phase 4.5G)
+            # Aviation 
             'flight_domestic': 7.5,    # 450 km/h = 7.5 km/min
             'flight_electric': 5.83,   # 350 km/h = 5.83 km/min
         }

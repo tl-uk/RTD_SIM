@@ -35,7 +35,7 @@ print()
 # TEST SETUP
 # ============================================================================
 
-print("📦 Phase 1: Imports")
+print("📦 Imports")
 print("-" * 80)
 
 try:
@@ -59,7 +59,7 @@ print()
 # CREATE EVENT BUS
 # ============================================================================
 
-print("📦 Phase 2: Event Bus Initialization")
+print("📦 Event Bus Initialization")
 print("-" * 80)
 
 try:
@@ -82,7 +82,7 @@ print()
 # CREATE AGENTS AND REGISTER
 # ============================================================================
 
-print("📦 Phase 3: Agent Creation & Registration")
+print("📦 Agent Creation & Registration")
 print("-" * 80)
 
 agents = []
@@ -145,7 +145,7 @@ print()
 # CREATE POLICY ENGINE (OPTIONAL)
 # ============================================================================
 
-print("📦 Phase 4: Policy Engine Setup")
+print("📦 Policy Engine Setup")
 print("-" * 80)
 
 try:
@@ -165,7 +165,7 @@ print()
 # PUBLISH TEST EVENT
 # ============================================================================
 
-print("📦 Phase 5: Publishing Test Event")
+print("📦 Publishing Test Event")
 print("-" * 80)
 
 try:
@@ -203,7 +203,7 @@ print()
 # WAIT FOR EVENT PROCESSING
 # ============================================================================
 
-print("📦 Phase 6: Waiting for Event Processing")
+print("📦 Waiting for Event Processing")
 print("-" * 80)
 
 import time
@@ -216,7 +216,7 @@ print()
 # CHECK AGENT PERCEPTION
 # ============================================================================
 
-print("📦 Phase 7: Checking Agent Perception")
+print("📦 Checking Agent Perception")
 print("-" * 80)
 
 total_perceived = 0
@@ -240,7 +240,7 @@ print()
 # CHECK EVENT BUS STATISTICS
 # ============================================================================
 
-print("📦 Phase 8: Event Bus Statistics")
+print("📦 Event Bus Statistics")
 print("-" * 80)
 
 try:
@@ -269,7 +269,7 @@ print()
 # CLEANUP
 # ============================================================================
 
-print("📦 Phase 9: Cleanup")
+print("📦 Cleanup")
 print("-" * 80)
 
 try:
@@ -294,7 +294,7 @@ if total_perceived > 0:
     print(f"   - {len(agents)} agents created")
     print(f"   - {total_perceived} policy changes perceived")
     print()
-    print("✅ Phase 6.2b integration is COMPLETE!")
+    print("✅ Integration COMPLETE!")
 else:
     print("❌ ISSUE: Agents not perceiving events")
     print()

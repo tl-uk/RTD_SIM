@@ -67,7 +67,7 @@ class DynamicPolicyEngine:
 
         logger.info("Dynamic Policy Engine initialized")
 
-        # Phase 6.2b: Event bus for publishing policy changes
+        # Event bus for publishing policy changes
         self.event_bus = None  # Will be set by simulation loop
 
     # =======================================================================
@@ -400,7 +400,7 @@ class DynamicPolicyEngine:
 
         logger.info(f"  Surge pricing: {old_multiplier:.2f}x → {multiplier:.2f}x")
         
-        # Phase 6.2b: Publish policy event
+        # Publish policy event
         self._publish_policy_event(
             parameter='charging_price_multiplier',
             old_value=old_multiplier,
@@ -477,7 +477,7 @@ class DynamicPolicyEngine:
 
         logger.info(f"  Added {len(new_stations)} emergency chargers")
 
-        # Phase 6.2b: Publish policy event
+        # Publish policy event
         self._publish_policy_event(
             parameter='emergency_chargers',
             old_value=0,
@@ -561,7 +561,7 @@ class DynamicPolicyEngine:
             f"({chargers_per_depot} chargers/depot @ {power_kw} kW)"
         )
         
-        # Phase 6.2b: Publish policy event
+        # Publish policy event
         self._publish_policy_event(
             parameter='depot_chargers',
             old_value=0,  # Could track previous count if needed
@@ -600,7 +600,7 @@ class DynamicPolicyEngine:
 
         logger.info(f"  Grid capacity increased: {old_capacity:.0f} MW → {grid.capacity_mw:.0f} MW")
         
-        # Phase 6.2b: Publish policy event
+        # Publish policy event
         self._publish_policy_event(
             parameter='grid_capacity_mw',
             old_value=old_capacity,

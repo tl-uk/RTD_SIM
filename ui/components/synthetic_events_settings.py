@@ -3,7 +3,7 @@ ui/components/synthetic_events_settings.py
 
 UI component for synthetic event generator settings.
 
-Phase 7.2: Synthetic Event Generator
+Synthetic Event Generator
 """
 
 import streamlit as st

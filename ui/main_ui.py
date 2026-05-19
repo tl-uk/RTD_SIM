@@ -24,7 +24,7 @@ class MainUI(ttk.Frame):
         self._wire_events()
 
     def _build(self) -> None:
-        self.master.title('RTD_SIM — Cognitive ABM Demo (Phase 1)')
+        self.master.title('RTD_SIM — Cognitive ABM Demo')
         self.pack(fill='both', expand=True)
 
         toolbar = ttk.Frame(self)

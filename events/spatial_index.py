@@ -4,7 +4,6 @@ events/spatial_index.py
 R-tree spatial index for efficient radius queries.
 Enables O(log N) agent lookup instead of O(N) brute force.
 
-Phase 6.2: Spatial Indexing
 """
 
 from typing import List, Tuple, Dict, Any, Optional

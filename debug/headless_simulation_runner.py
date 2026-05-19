@@ -1,5 +1,5 @@
 """
-Headless Simulation Runner - Phase 5.3
+Headless Simulation Runner
 Run multiple simulations without UI and generate reports
 
 Usage:

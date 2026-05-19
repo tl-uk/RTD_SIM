@@ -78,7 +78,7 @@ class SimulationConfig:
         habit_weight: float = 0.4,
         cross_persona_prob: float = 0.25,  # Fraction of ties crossing persona boundary
 
-        # ── Neighbourhood influence (Phase 10a — sidebar-controllable) ──────
+        # ── Neighbourhood influence (sidebar-controllable) ──────
         network_k: int = 5,              # avg ties per agent; sidebar slider 2–12
         influence_strength: float = 0.2, # peer→mode cost reduction factor
         conformity_pressure: float = 0.3,# extra reduction when >50% peers use mode
@@ -109,8 +109,8 @@ class SimulationConfig:
         weather_wind_multiplier: float = 1.0,
         use_historical_weather: bool = False,
         weather_start_date: Optional[str] = None,
-        latitude: Optional[float] = None,   # Phase 10a: derive from active region centroid
-        longitude: Optional[float] = None,   # Phase 10a: derive from active region centroid
+        latitude: Optional[float] = None,    # erive from active region centroid
+        longitude: Optional[float] = None,   # derive from active region centroid
         
         # Air quality (old style)
         track_air_quality: bool = False,
@@ -329,7 +329,7 @@ class SimulationConfig:
     """How far agents can perceive events (kilometers)"""
     
     enable_agent_event_subscription: bool = True
-    """Subscribe agents to events for perception (Phase 7 - dynamic replanning)"""
+    """Subscribe agents to events for perception (dynamic replanning)"""
     
     enable_policy_events: bool = True
     """Publish policy change events when policies trigger"""

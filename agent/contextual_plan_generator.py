@@ -464,7 +464,7 @@ class ContextualPlanGenerator:
         # ====================================================================
         
         # Safety-conscious users (children, elderly, disabled)
-        # Phase 10c fix: narrative safety keywords indicate a PREFERENCE, not a hard
+        # Narrative safety keywords indicate a PREFERENCE, not a hard
         # operational constraint. reliability_critical=True is reserved for freight/
         # blue-light agents where the BDI hard EV block must fire. Passenger agents
         # with safety concerns get maximize_safety as a secondary objective and
@@ -514,7 +514,7 @@ class ContextualPlanGenerator:
                         if plan.primary_objective not in ['minimize_time']:
                             plan.primary_objective = 'minimize_carbon'
         
-        # ── Phase 10c: ASI tier + ev_viability_belief_hint ─────────────
+        # ── ASI tier + ev_viability_belief_hint ─────────────
         persona_type = getattr(user_story, 'persona_type', 'passenger')
         if plan.reliability_critical and persona_type == 'freight':
             plan.asi_tier = 'improve'

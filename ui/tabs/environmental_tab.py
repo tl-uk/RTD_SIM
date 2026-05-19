@@ -89,7 +89,7 @@ def render_environmental_tab(results, anim, current_data):
                 row=3, col=1
             )
             
-            # === PHASE 7.2: OVERLAY SYNTHETIC WEATHER EVENTS ===
+            # === OVERLAY SYNTHETIC WEATHER EVENTS ===
             if hasattr(results, 'event_generator') and results.event_generator:
                 try:
                     from simulation.events.synthetic_generator import EventType

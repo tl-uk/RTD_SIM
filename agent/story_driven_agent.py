@@ -144,7 +144,7 @@ class StoryDrivenAgent(CognitiveAgent):
                    f"vehicle_required={agent_context.get('vehicle_required')}, "
                    f"vehicle_type={agent_context.get('vehicle_type')}")
         
-        # Phase 3: Markov mode switching — personality-driven habit formation
+        # Markov mode switching — personality-driven habit formation
         try:
             from agent.markov_mode_switching import PersonalityMarkovChain
             self.mode_chain = PersonalityMarkovChain( 
@@ -167,7 +167,7 @@ class StoryDrivenAgent(CognitiveAgent):
         #   one line, no new parameters, no API breakage.
         #   If mode_chain is None (import failed), cost() handles it gracefully.
 
-        # Event perception (optional - Phase 7)
+        # Event perception (optional)
         self.perceived_policies = {}  # {parameter: value}
         self.perceived_failures = []  # List of infrastructure failures
         self.event_perception_enabled = False
@@ -235,7 +235,7 @@ class StoryDrivenAgent(CognitiveAgent):
             context['priority'] = 'emergency'
         elif self.job_story.job_type in [
             'delivery', 'freight', 'gig_delivery',
-            # Phase 10 job types — previously fell through to 'normal'
+            # Job types — previously fell through to 'normal'
             'rail_freight',         # rail_operations.yaml
             'multimodal_freight',   # heavy_freight.yaml (ferry_freight_roro etc.)
             'business_travel',      # multimodal.yaml, aviation.yaml
@@ -394,8 +394,6 @@ class StoryDrivenAgent(CognitiveAgent):
     # Event Perception (Optional but necessary when we want dynamic replanning based 
     # on events tying in with the story context - e.g., if a policy change affects a constraint in the job story,
     # the agent can perceive this and replan accordingly).
-    # Needed for Phase 7, but we can implement the subscription and perception logic 
-    # here in Phase 6.2b.
     # ===============================================================================
     def subscribe_to_events(self, event_bus):
         """
@@ -427,7 +425,7 @@ class StoryDrivenAgent(CognitiveAgent):
                 f"{old_value} → {new_value}"
             )
             
-            # TODO Phase 7: Trigger replanning if needed
+            # TODO : Trigger replanning if needed
             # if self._policy_affects_plan(param):
             #     self.trigger_replan()
         

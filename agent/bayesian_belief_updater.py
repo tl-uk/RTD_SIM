@@ -69,7 +69,7 @@ class BayesianBeliefUpdater:
             "Weights must sum to 1.0"
 
     # ── Complex Contagion thresholds ──────────────────────────────────────
-    # Phase 10c: minimum fraction of neighbours that must have adopted a mode
+    # Minimum fraction of neighbours that must have adopted a mode
     # before that mode's belief becomes updateable this step.
     # Freight operators require stronger peer evidence (high financial risk);
     # eco-warriors update with minimal social proof (early adopters).
@@ -270,7 +270,7 @@ class BayesianBeliefUpdater:
         """
         Update belief strengths with Complex Contagion gate for EV beliefs.
 
-        Phase 10c — Complex Contagion:
+        Complex Contagion Concept:
         EV beliefs only update if the fraction of the agent's neighbours
         already using EV modes meets or exceeds the persona-specific threshold.
         This models the high financial risk of freight operators who require

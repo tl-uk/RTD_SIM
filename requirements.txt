@@ -10,7 +10,7 @@
 #     https://github.com/eclipse/ditto/tree/main/deployment/docker
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Core simulation (Phases 1–3) ─────────────────────────────────────────────
+# ── Core simulation ─────────────────────────────────────────────
 osmnx>=1.9.0
 networkx>=3.0
 pandas>=2.0
@@ -18,24 +18,24 @@ numpy>=1.24
 pyyaml>=6.0
 requests>=2.31.0
 
-# ── Visualisation and UI (Phases 3–6) ────────────────────────────────────────
+# ── Visualisation and UI ────────────────────────────────────────
 streamlit>=1.40.0
 plotly>=5.0
 pydeck>=0.9.0
 pyvis>=0.3.2              # social network graph rendering (cognition tab)
 
-# ── Analytics and Signal Processing (Phases 5–7) ─────────────────────────────
+# ── Analytics and Signal Processing ─────────────────────────────
 scipy>=1.11.0             # mode_share_analyzer.py: scipy.signal, scipy.stats
 scikit-learn>=1.3.0       # SHAP preprocessing, clustering
 shap>=0.44.0              # SHAP explainability for BDI + SD features
 
-# ── Event Bus and Policy Engine (Phases 7–8) ─────────────────────────────────
+# ── Event Bus and Policy Engine ─────────────────────────────────
 # event_bus_safe.py core uses stdlib only (urllib, threading, queue, json).
 # redis is a hard dependency — policies.py imports from redis._parsers directly.
 # RTD_SIM auto-detects Redis availability and falls back to in-memory if absent.
 redis>=5.0
 
-# ── Story Ingestion Service (Phase 9) ────────────────────────────────────────
+# ── Story Ingestion Service ────────────────────────────────────────
 fastapi>=0.110.0
 uvicorn>=0.29.0
 python-multipart>=0.0.9   # required by FastAPI for file uploads

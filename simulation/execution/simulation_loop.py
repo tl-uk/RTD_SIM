@@ -384,7 +384,7 @@ def run_simulation_loop(
         network, 
         influence_system, 
         policy_engine=None,  # Pass policy engine for event bus access
-        event_bus=None,  # Phase 6.2b: Event bus from policy initialization
+        event_bus=None,      # Event bus from policy initialization
         progress_callback=None
     ):
     """
@@ -408,7 +408,7 @@ def run_simulation_loop(
     cascade_events = []
 
     # ====================================================================
-    # Phase 7.1: Initialize Temporal Engine
+    # 1. Initialize Temporal Engine
     # ====================================================================
     temporal_engine = create_temporal_engine_from_config(config)
     
@@ -422,7 +422,7 @@ def run_simulation_loop(
         logger.info("⏰ Temporal scaling disabled (using default time)")
 
     # ====================================================================
-    # Phase 7.2: Initialize Synthetic Event Generator
+    # 2. Initialize Synthetic Event Generator
     # ====================================================================
     event_generator = create_event_generator_from_config(config)
     
@@ -437,7 +437,7 @@ def run_simulation_loop(
         logger.info("🎲 Synthetic events disabled")
 
     # ====================================================================
-    # Event Bus Setup
+    # 3. Event Bus Setup
     # ====================================================================
     # NOTE: Event bus is now created in policy_initialization.py and passed as parameter
     # This ensures policy engine and agents use the SAME event bus instance
@@ -618,12 +618,12 @@ def run_simulation_loop(
             logger.info("✅ System Dynamics initialized")
 
     # Main simulation loop
-    # Phase 2: Bayesian belief updater — shared across all agents, stateless
+    # Bayesian belief updater — shared across all agents, stateless
     belief_updater = BayesianBeliefUpdater() if BELIEF_UPDATER_AVAILABLE else None
     # Per-agent, per-mode satisfaction tracking for the belief updater
     satisfaction_by_mode: dict = {}   # mode → [float]
 
-    # Fix 2: build agent index so peer signal lookup works
+    # build agent index so peer signal lookup works
     if belief_updater and agents:
         belief_updater.rebuild_agent_index(agents)
 
@@ -698,7 +698,7 @@ def run_simulation_loop(
         day_of_week = (step // 1440) % 7  # Assuming day 0 is Monday
         current_datetime = None
         
-        # === PHASE 7.1: Get time info from temporal engine ===
+        # === Get time info from temporal engine ===
         if temporal_engine:
             time_info = temporal_engine.get_time_info(step)
             time_of_day = time_info['hour'] + (time_info['datetime'].minute / 60.0)
@@ -718,7 +718,7 @@ def run_simulation_loop(
             time_info = None
             current_datetime = None
         
-        # === PHASE 7.2: GENERATE SYNTHETIC EVENTS ===
+        # === GENERATE SYNTHETIC EVENTS ===
         if event_generator and time_info:
             new_events = event_generator.generate_events_for_step(step, time_info)
             
@@ -933,7 +933,7 @@ def run_simulation_loop(
                 logger.debug(f"      After step: agent={agent.state.agent_id}, route={route_info}, distance={agent.state.distance_km:.1f}km, arrived={agent.state.arrived}")
 
 
-            # Phase 6.2b: Update agent locations in event bus (if agents moved)
+            # Update agent locations in event bus (if agents moved)
             if event_bus and event_bus.is_available():
                 for other_agent in agents:  # MUST Use different variable name
                     # Only update if agent has moved (check if attribute exists)
@@ -966,7 +966,7 @@ def run_simulation_loop(
                     )
                 
                 if journey_tracker:
-                    # === PHASE 7.2: Get weather from active synthetic events ===
+                    # === Get weather from active synthetic events ===
                     weather_impact = {
                         'temperature': 10.0,
                         'precipitation': 0.0,
@@ -1231,13 +1231,13 @@ def run_simulation_loop(
                         satisfaction
                     )
 
-                    # Phase 2: accumulate satisfaction by mode for belief updater
+                    # accumulate satisfaction by mode for belief updater
                     _mode = agent.state.mode
                     if _mode not in satisfaction_by_mode:
                         satisfaction_by_mode[_mode] = []
                     satisfaction_by_mode[_mode].append(satisfaction)
 
-                    # Phase 3: update Markov chain with this step's outcome
+                    # update Markov chain with this step's outcome
                     # _chain = getattr(agent, 'mode_chain', None)
                     # if _chain is not None:
                     #     _chain.record_step(_mode, satisfaction)
@@ -1268,7 +1268,7 @@ def run_simulation_loop(
             
             # (Infrastructure charging moved into the agent loop — see below)
         
-        # Phase 2: Bayesian belief update every 5 steps (all agents)
+        # Bayesian belief update every 5 steps (all agents)
         if belief_updater and step % 5 == 0:
             for _agent in agents:
                 if hasattr(_agent, 'user_story'):
@@ -1285,7 +1285,7 @@ def run_simulation_loop(
                         logger.debug("Belief update failed for %s: %s",
                                      _agent.state.agent_id, _be)
                         
-        # Phase 3: Log Markov chain summaries every 50 steps
+        # Log Markov chain summaries every 50 steps
         # Writes to simulation log file via log_capture.py
         if step % 50 == 0 and step > 0:
             _markov_agents = [
@@ -1358,7 +1358,7 @@ def run_simulation_loop(
     if weather_manager:
         logger.info(f"   Weather timesteps tracked: {len(weather_history)}")
 
-    # Phase 3: End-of-run Markov habit summary
+    # End-of-run Markov habit summary
     # Logged to simulation file so you can review habit formation after each run
     _markov_agents_final = [
         a for a in agents
@@ -1516,9 +1516,9 @@ def run_simulation_loop(
         # System Dynamics
         'system_dynamics_history': get_system_dynamics_history(system_dynamics),
 
-        # Phase 7.1
+        # Policy engine details for UI display
         'temporal_engine': temporal_engine,  
-        'event_generator': event_generator,  # Phase 7.2
+        'event_generator': event_generator,  
     }
 
     # ── GTFS post-simulation analytics ────────────────────────────────────────

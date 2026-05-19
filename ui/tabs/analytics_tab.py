@@ -128,7 +128,7 @@ def render_journey_insights(results):
     weather_impact = journey_tracker.analyze_weather_impact()
     
     if weather_impact:
-        # === PHASE 7.2: WEATHER IMPACT FROM JOURNEY TRACKER ===
+        # === WEATHER IMPACT FROM JOURNEY TRACKER ===
         if hasattr(results, 'journey_tracker') and results.journey_tracker:
             weather_stats = results.journey_tracker.get_weather_impact_stats()
             

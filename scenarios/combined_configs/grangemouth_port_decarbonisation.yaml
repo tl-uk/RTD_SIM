@@ -15,7 +15,7 @@
 #        → electric HGV from terminal gate to Mossend/Eurocentral DCs
 #     2. Rail freight intermodal transfer (rail_freight_operator)
 #        → Grangemouth–Daventry rail corridor, diesel traction proxy
-#        → TODO Phase 10b: replace hgv_diesel proxy with freight_rail mode
+#        → TODO: replace hgv_diesel proxy with freight_rail mode
 #     3. ScotWind component delivery (offshore_energy_port)
 #        → Leith assembly, Grangemouth import of turbine nacelles
 #
@@ -23,17 +23,17 @@
 #   rail electrification, and clean air zone enforcement decarbonises all
 #   three flows fastest at lowest cost?
 #
-# PHASE 10b NOTES:
+# TODO NOTES:
 #   rail_freight mode does not exist in the MODES registry.
 #   Current proxy: hgv_diesel / hgv_electric for rail freight agents.
-#   TODO Phase 10b: add freight_rail to MODES registry:
+#   TODO : add freight_rail to MODES registry:
 #     'freight_rail': {'network': 'rail', 'emissions_g_km': 35 (electrified),
 #                      'emissions_g_km': 76 (diesel traction)}
-#   TODO Phase 10b: add RailFreightAgent class with path-dependent routing.
+#   TODO : add RailFreightAgent class with path-dependent routing.
 #
 #   ferry_diesel / ferry_electric exist in MODE_MAX_DISTANCE_KM but not
 #   in default_modes. Shore power modelled as grid capacity injection.
-#   TODO Phase 10b: model shore_power_demand as a FerryFreightAgent property.
+#   TODO : model shore_power_demand as a FerryFreightAgent property.
 
 name: Grangemouth Port Decarbonisation — Forth Ports + Rail + ScotWind
 description: |
@@ -78,9 +78,9 @@ interaction_rules:
 
   # ── Rail modal shift incentive ────────────────────────────────────────────
   # DfT modal shift target: 25% of inland container moves by rail by 2030.
-  # Modelled as cost reduction on hgv_electric (proxy for freight_rail
-  # until Phase 10b). Real implementation requires freight_rail mode.
-  # TODO Phase 10b: redirect this action to freight_rail mode.
+  # Modelled as cost reduction on hgv_electric (proxy for freight_rail).
+  # Real implementation requires freight_rail mode.
+  # TODO : redirect this action to freight_rail mode.
   - condition: "step >= 20 and step < 60"
     action: reduce_charging_costs
     parameters:

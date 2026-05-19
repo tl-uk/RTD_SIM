@@ -1,7 +1,7 @@
 """
 simulation/execution/system_dynamics_integration.py
 
-Phase 5.3: Integration helpers for System Dynamics in simulation loop
+Integration helpers for System Dynamics in simulation loop
 
 Provides clean interface for:
 - Initializing SD from config

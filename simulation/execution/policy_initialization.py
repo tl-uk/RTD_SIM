@@ -67,7 +67,7 @@ def initialize_policy_engine(config, infrastructure):
             return None, None
 
     # ====================================================================
-    # Phase 6.2b: Create event bus FIRST (before policy engine)
+    # Create event bus FIRST (before policy engine)
     # ====================================================================
     event_bus = None
     if getattr(config, 'enable_event_bus', False):

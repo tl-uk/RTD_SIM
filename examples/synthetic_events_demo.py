@@ -1,7 +1,7 @@
 """
 examples/synthetic_events_demo.py
 
-Demonstration of Phase 7.2 Synthetic Event Generator.
+Demonstration of Synthetic Event Generator.
 
 Shows how events are generated over time and their impacts.
 """
@@ -306,7 +306,7 @@ def demo_5_one_year_simulation():
 
 if __name__ == "__main__":
     print("\n" + "="*70)
-    print("PHASE 7.2: SYNTHETIC EVENT GENERATOR - DEMONSTRATIONS")
+    print("SYNTHETIC EVENT GENERATOR - DEMONSTRATIONS")
     print("="*70 + "\n")
     
     demo_1_basic_generation()
@@ -331,4 +331,4 @@ if __name__ == "__main__":
     print("  2. Enable in UI sidebar")
     print("  3. Run extended simulations with events!")
     print("  4. Watch agents adapt to unpredictable conditions")
-    print("\nSee PHASE_72_INTEGRATION_GUIDE.md for installation.\n")
+    print("\nSee INTEGRATION_GUIDE.md for installation.\n")

@@ -208,7 +208,7 @@ def test_statistics():
 def run_all_tests():
     """Run all integration tests."""
     print("\n" + "="*70)
-    print("🧪 PHASE 6.1 EVENT SYSTEM INTEGRATION TESTS (IMPROVED)")
+    print("🧪 EVENT SYSTEM INTEGRATION TESTS (IMPROVED)")
     print("="*70)
     
     try:

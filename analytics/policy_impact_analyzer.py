@@ -1,7 +1,7 @@
 """
 analytics/policy_impact_analyzer.py
 
-Phase 5.3: Policy impact attribution and ROI analysis.
+Policy impact attribution and ROI analysis.
 Measures effectiveness of policy interventions and calculates return on investment.
 """
 

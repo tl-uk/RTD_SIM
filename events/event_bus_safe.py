@@ -27,8 +27,8 @@ File layout
   RoutingTable          — config-driven EventType → backend mapping
   MicroserviceEventBus  — routes events to real service URLs or InMemory
   AsyncPublishQueue     — fire-and-forget queue drained by background thread
-  InMemoryEventBus      — simulation backend (unchanged from Phase 7)
-  NullEventBus          — no-op fallback (unchanged from Phase 7)
+  InMemoryEventBus      — simulation backend
+  NullEventBus          — no-op fallback
   SchemaValidator       — JSON Schema contract enforcement per EventType
 """
 
@@ -556,7 +556,7 @@ class SafeEventBus:
     """
     Event bus wrapper with automatic fallback and deployment-mode selection.
 
-    Usage (unchanged from Phase 7):
+    Usage:
         bus = SafeEventBus()
         bus.publish(event)
         bus.subscribe(EventType.POLICY_CHANGE, callback)
@@ -566,7 +566,7 @@ class SafeEventBus:
                            routing_config='config/event_bus.yaml')
 
     Modes:
-        'simulation'  — InMemoryEventBus or Redis (Phase 7 behaviour, default)
+        'simulation'  — InMemoryEventBus or Redis (behaviour, default)
         'hybrid'      — MicroserviceEventBus with per-EventType routing
         'production'  — MicroserviceEventBus (all routes expected to be URLs)
 
@@ -778,13 +778,12 @@ class SafeEventBus:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# In-Memory Event Bus  (unchanged from Phase 7)
+# In-Memory Event Bus
 # ─────────────────────────────────────────────────────────────────────────────
 
 class InMemoryEventBus:
     """
     In-memory event bus (no Redis, same process only).
-    Unchanged from Phase 7.
     """
 
     def __init__(self) -> None:
@@ -897,7 +896,7 @@ class InMemoryEventBus:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Null Event Bus  (unchanged from Phase 7)
+# Null Event Bus
 # ─────────────────────────────────────────────────────────────────────────────
 
 class NullEventBus:
@@ -962,7 +961,7 @@ def write_default_config(path: str = "config/event_bus.yaml") -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # deployment_mode controls which backend SafeEventBus selects at startup:
 #
-#   simulation  — InMemoryEventBus (Phase 7 default; no routing changes)
+#   simulation  — InMemoryEventBus
 #   hybrid      — MicroserviceEventBus; routes per EventType below
 #   production  — MicroserviceEventBus; all routes should point at real URLs
 #
@@ -985,7 +984,7 @@ routing:
   GRID_STRESS:            InMemory
   TRAFFIC_EVENT:          InMemory
   THRESHOLD_CROSSED:      InMemory
-  # STORY_LIBRARY_GENERATED: InMemory   # uncomment when Phase 9 service is live
+  # STORY_LIBRARY_GENERATED: InMemory   # uncomment when service is live
 
 # async_queue — drain thread tuning for hybrid / production modes.
 # Only applies when routing entries point at real service URLs.
@@ -1013,10 +1012,10 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     print("=" * 70)
-    print("🧪  EVENT BUS PHASE 8 SELF-TEST")
+    print("🧪  EVENT BUS SELF-TEST")
     print("=" * 70)
 
-    # Test 1 — Mode 1 (simulation, unchanged Phase 7 behaviour)
+    # Test 1 — Mode 1 (simulation, unchanged behaviour)
     print("\n[1] Mode 1 — simulation (InMemory, no behaviour change)")
     bus1 = SafeEventBus(enable_redis=False, deployment_mode="simulation")
     print(f"    mode       : {bus1.get_mode()}")

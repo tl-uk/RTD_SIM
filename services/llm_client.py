@@ -8,7 +8,7 @@ Used by:
   - services/story_ingestion/            (domain brief → story library)
   - Future: agent/bayesian_belief_updater (LLM-enhanced belief revision)
 
-Two-tier fallback, matching the Phase 9 ingestion service pattern:
+Two-tier fallback, matching the story ingestion service pattern:
   Tier 1 — OLMo 2 via Ollama  (open source, Apache 2.0, stdlib urllib only)
   Tier 2 — Anthropic Claude   (fallback, requires ANTHROPIC_API_KEY)
 

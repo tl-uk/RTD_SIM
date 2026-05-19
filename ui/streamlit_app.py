@@ -325,7 +325,7 @@ with st.sidebar:
     
     render_animation_controls(anim)
     
-    # Phase 5.4: Report Generator
+    # Report Generator
     if config:
         render_report_generator_button(results, config)
 

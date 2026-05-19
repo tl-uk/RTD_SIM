@@ -1,7 +1,7 @@
 """
 simulation/config/system_dynamics_config.py
 
-Phase 5.3: Configuration for System Dynamics parameters
+Configuration for System Dynamics parameters
 
 User-tunable parameters for continuous dynamics:
 - EV adoption (logistic growth)

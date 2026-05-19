@@ -366,7 +366,7 @@ class JobStoryParser:
     
     # Class-level dict so every JobStoryParser instance sharing the same
     # resolved path reads the YAML files only once per process lifetime.
-    # Call JobStoryParser._class_cache.clear() after Phase 9 story ingestion
+    # Call JobStoryParser._class_cache.clear() after story ingestion
     # adds new job contexts so the next load picks up the new files.
     _class_cache: dict = {}
 

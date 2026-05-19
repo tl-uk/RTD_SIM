@@ -506,13 +506,8 @@ class BDIPlanner:
 
         # Track routing attempts
         routing_results = {}
-        # ── Phase 10c: ASI Intent Tier Selection ─────────────────────────
-        # BUG FIX: bike removed from _SHIFT_MODES — bike is Tier 3 (Improve).
-        # Including bike caused it to dominate; "Realistic EV Transition" showed
-        # bike as most popular because ASI SHIFT left only bike available.
-        # BUG FIX: charger_occupancy default 0.0 in _is_mode_feasible (not 1.0).
-        # BUG FIX: reliability_critical hard block restricted to freight vehicles.
 
+        # ── ASI Intent Tier Selection ───────────────────────────────
         _congestion   = context.get('congestion', 0.0)
         _charger_occ  = context.get('charger_occupancy_nearby', 0.0)
         _eco_desire   = (context.get('desires') or {}).get('eco', 0.5)
@@ -1202,7 +1197,7 @@ class BDIPlanner:
         
         modes = []
 
-        # ── FusedIdentity override (Phase 10) ────────────────────────────────
+        # ── FusedIdentity override ────────────────────────────────
         # If agent_context carries a FusedIdentity (set by StoryDrivenAgent via
         # PersonaFusion.fuse()), its allowed_modes is the authoritative hard
         # constraint — encodes persona + job mode restrictions including abstract
@@ -1383,7 +1378,7 @@ class BDIPlanner:
         """
         Check if mode is feasible (infrastructure check for EVs).
 
-        Phase 10c — Hard reliability constraint for operational-critical agents:
+        Hard reliability constraint for operational-critical agents:
         Agents with reliability_critical=True AND persona_type='freight' (or
         job urgency='critical') are HARD-BLOCKED from EV modes when charger
         availability cannot be guaranteed. This applies to paramedics, ambulances,
@@ -1396,7 +1391,7 @@ class BDIPlanner:
         an operational constraint. Only vehicle_type='commercial'/'heavy_freight'
         agents face the hard block.
         """
-        # ── Phase 10c: Hard block — operational reliability only ──────────
+        # ── Hard block — operational reliability only ──────────
         # reliability_critical is set by CPG for:
         #   - ambulance_emergency_response job (urgency='critical')
         #   - any agent whose desire_overrides.reliability >= 1.0 (paramedic)
@@ -1896,7 +1891,7 @@ class BDIPlanner:
                 mode, getattr(state, 'agent_id', 'agent'), _route_legs,
             )
 
-        # ── Phase 3: Markov habit discount ───────────────────────────────────
+        # ── Markov habit discount ───────────────────────────────────
         # If the agent has a PersonalityMarkovChain, habitual modes cost less.
         # The discount is proportional to the self-transition probability P(mode|mode)
         # capped at 12% so desires still dominate the decision.
@@ -1929,7 +1924,7 @@ class BDIPlanner:
                     )
             except Exception as _me:
                 logger.debug("Markov discount failed: %s", _me)
-            # ── End Phase 3 Markov ───────────────────────────────────────────────────────
+            # ── End Markov habit discount ────────────────────────────────────────────
  
         # Apply scenario cost factor (e.g. EV Subsidy 30% → factor=0.70)
         # mode_cost_factors is populated by apply_scenario_cost_factors() when a

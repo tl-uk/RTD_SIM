@@ -4,7 +4,7 @@ simulation/simulation_runner.py
 Main simulation orchestrator - delegates to specialized modules.
 
 FIXES:
-- Added llm backend directly to create planner (Phase 10). If Ollama is still 
+- Added llm backend directly to create planner. If Ollama is still 
 unavailable after that, effective_llm_backend is silently downgraded to rule_based 
 with a single warning log line
 
@@ -68,8 +68,8 @@ def run_simulation(
     4. Scenario policies (if specified) - NEW: includes combined scenarios
     5. Agent creation (story-driven or basic)
     6. Social network (influence system)
-    7. Main simulation loop - NEW: with policy engine
-    8. Results collection - NEW: includes policy results
+    7. Main simulation loop with policy engine
+    8. Results collection includes policy results
     
     Args:
         config: SimulationConfig with all parameters

@@ -1,7 +1,7 @@
 """
 simulation/events/synthetic_generator.py
 
-Phase 7.2: Synthetic Event Generator
+Synthetic Event Generator
 
 Generates realistic random events during extended simulations to add
 unpredictability and test agent adaptation to real-world conditions.

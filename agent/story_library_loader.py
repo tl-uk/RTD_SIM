@@ -1,7 +1,7 @@
 """
 agent/story_library_loader.py
 
-Phase 9 — Simulation-side story library loader.
+Simulation-side story library loader.
 
 Subscribes to the StoryLibraryGenerated event published by the ingestion
 service, fetches the new library from the service, and reloads the agent

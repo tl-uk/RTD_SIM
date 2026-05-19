@@ -1,7 +1,7 @@
 """
 ui/tabs/cognition_tab.py
 
-Agent Cognition Diagnostics Tab — Phase 2 + 3 observability.
+Agent Cognition Diagnostics Tab
 
 Shows three panels:
   1. Influence Network     — who peers with whom, edge weight = influence strength
@@ -399,7 +399,7 @@ def _render_belief_drift(agents):
     st.caption(
         "Each row is one belief across agents. Bar length = current strength [0,1]. "
         "Beliefs drift from their story-defined priors based on personal satisfaction "
-        "and peer observations (Phase 2 Bayesian update)."
+        "and peer observations (Bayesian update)."
     )
 
     import pandas as pd

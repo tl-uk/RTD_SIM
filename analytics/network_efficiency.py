@@ -1,7 +1,7 @@
 """
 analytics/network_efficiency.py
 
-Phase 5.3: Infrastructure and system performance metrics.
+Infrastructure and system performance metrics.
 Tracks network utilization, bottlenecks, and efficiency indicators.
 """
 

@@ -301,7 +301,7 @@ _PERSONA_PROFILES: Dict[str, Dict[str, Any]] = {
         'base_modes':     ['van_electric', 'van_diesel', 'truck_electric', 'truck_diesel',
                            'hgv_electric', 'hgv_diesel'],
     },
-    # ── Trades & Commercial Passenger (Phase 10b) ─────────────────
+    # ── Trades & Commercial Passenger ─────────────────
     'taxi_driver': {
         'asi_tier': 'improve',
         'ev_threshold': 0.75,
@@ -455,7 +455,7 @@ _PERSONA_PROFILES: Dict[str, Dict[str, Any]] = {
                            'maximize_reliability': 0.85},
         'beliefs':        {'ev_is_viable': 0.50, 'public_transport_reliable': 0.80},
         # Rail freight: drayage legs use truck; main haul is abstract (rail)
-        # Phase 10b: add 'freight_rail' here when RailFreightAgent is ready
+        # Add 'freight_rail' here when RailFreightAgent is ready
         'base_modes':     ['truck_electric', 'truck_diesel', 'hgv_diesel', 'hgv_electric'],
         'access_modes':   ['truck_electric', 'truck_diesel'],
         'primary_network': 'drive',    # drayage on drive; abstract rail not yet in OSMnx
@@ -576,7 +576,7 @@ _JOB_MODE_OVERRIDES: Dict[str, Dict[str, Any]] = {
     # ── Rail jobs ─────────────────────────────────────────────────
     'rail_freight_intermodal': {
         # Drayage legs are on road; the rail haul is abstract.
-        # Phase 10b: add 'freight_rail' to abstract_modes when ready.
+        # Add 'freight_rail' to abstract_modes when ready.
         'abstract_modes': [],     # no abstract routing yet — pure drayage
         'access_modes':   ['truck_electric', 'truck_diesel', 'hgv_diesel', 'hgv_electric'],
         'primary_network': 'drive',

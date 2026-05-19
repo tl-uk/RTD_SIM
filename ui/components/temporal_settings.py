@@ -4,7 +4,7 @@ ui/components/temporal_settings.py
 UI component for temporal scaling settings.
 Allows users to configure extended time simulations.
 
-Phase 7.1: Extended Temporal Simulation
+Extended Temporal Simulation
 """
 
 import streamlit as st

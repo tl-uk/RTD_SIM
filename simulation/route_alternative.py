@@ -1,7 +1,7 @@
 """
 simulation/route_alternative.py
 
-RouteAlternative data class for Phase 2.2
+RouteAlternative data class for representing and scoring route options in the RTD_SIM simulation.
 
 Represents a single route option with computed metrics.
 Multiple alternatives can be compared and ranked.

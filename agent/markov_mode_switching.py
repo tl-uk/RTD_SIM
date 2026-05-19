@@ -1,7 +1,7 @@
 """
 agent/markov_mode_switching.py
 
-Phase 3: Markov Mode Switching with personality-dependent transition matrices
+Markov Mode Switching with personality-dependent transition matrices
 and habit formation over time.
 
 Design:

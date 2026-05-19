@@ -1,5 +1,5 @@
 """
-test_story_ingestion.py — RTD_SIM Phase 9 v0.10.0 test suite
+test_story_ingestion.py
 
 New tests vs v0.9.0:
   T26  _detect_domain_archetype — port keywords score highest

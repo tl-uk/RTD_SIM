@@ -35,7 +35,7 @@ def render_combined_scenarios_tab(results, anim, current_data):
     
     st.subheader("🔗 Combined Policy Scenarios Analysis")
     
-    # Check if combined scenario was used (ENHANCED for Phase 5.1)
+    # Check if combined scenario was used
     if not hasattr(results, 'policy_status') or results.policy_status is None:
         # Check if we have combined scenario name from session state
         if hasattr(st.session_state, 'combined_scenario_name'):

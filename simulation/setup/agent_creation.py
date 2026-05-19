@@ -125,9 +125,9 @@ def create_planner(
     )
 
     if infrastructure is not None:
-        logger.info("✅ Created infrastructure-aware BDI planner (Phase 4.5)")
+        logger.info("✅ Created infrastructure-aware BDI planner")
     else:
-        logger.info("✅ Created basic BDI planner (Phase 4)")
+        logger.info("✅ Created basic BDI planner")
 
     return planner
 

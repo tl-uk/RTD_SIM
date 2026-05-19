@@ -1,7 +1,7 @@
 """
 analytics/scenario_comparator.py
 
-Phase 5.3: Statistical comparison of simulation scenarios.
+Statistical comparison of simulation scenarios.
 Enables A/B testing and baseline vs intervention analysis.
 """
 

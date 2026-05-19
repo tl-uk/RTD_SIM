@@ -33,12 +33,12 @@ class RealtimeBridge:
     def enable_mqtt(self, config: Dict[str, Any]) -> None:
         self._mqtt_enabled = True
         self._mqtt_config = dict(config)
-        logger.info("MQTT enabled (Phase 1 stub): %s", self._mqtt_config)
+        logger.info("MQTT enabled : %s", self._mqtt_config)
 
     def enable_ws(self, config: Dict[str, Any]) -> None:
         self._ws_enabled = True
         self._ws_config = dict(config)
-        logger.info("WebSocket enabled (Phase 1 stub): %s", self._ws_config)
+        logger.info("WebSocket enabled : %s", self._ws_config)
 
     def broadcast_state(self, step: int, state: Dict[str, Any]) -> None:
         if self._mqtt_enabled:

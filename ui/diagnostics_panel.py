@@ -1,7 +1,10 @@
 """
 ui/diagnostics_panel.py
 
-Phase 4.5F+G: Comprehensive freight + multi-modal diagnostics
+This module implements the diagnostics panel, which includes comprehensive freight 
+and multi-modal diagnostics. It provides insights into mode distribution, freight agent analysis, 
+grid and charging status, and sample agent details.
+
 """
 
 import streamlit as st
@@ -10,7 +13,7 @@ import pandas as pd
 
 def render_diagnostics_panel(results):
     """
-    Render diagnostics panel in sidebar with ALL modes (4.5F+G).
+    Render diagnostics panel in sidebar with ALL modes.
     
     Args:
         results: SimulationResults object
@@ -19,12 +22,12 @@ def render_diagnostics_panel(results):
         return
     
     with st.expander("🔍 Infrastructure Diagnostics", expanded=False):
-        # Mode distribution - includes Phase 4.5G multi-modal
+        # Mode distribution
         _render_mode_distribution(results)
         
         st.markdown("---")
         
-        # Freight analysis (Phase 4.5F)
+        # Freight analysis
         _render_freight_analysis(results)
         
         st.markdown("---")
@@ -40,7 +43,7 @@ def render_diagnostics_panel(results):
 
 
 def _render_mode_distribution(results):
-    """Render mode distribution table with ALL modes (4.5F+G)."""
+    """Render mode distribution table with ALL modes."""
     st.markdown("### 📊 Mode Distribution Analysis")
     
     mode_counts = {}
@@ -48,7 +51,7 @@ def _render_mode_distribution(results):
         mode = agent.state.mode
         mode_counts[mode] = mode_counts.get(mode, 0) + 1
     
-    # ALL MODES including Phase 4.5G multi-modal
+    # ALL MODES
     all_modes = [
         'walk', 'bike', 'cargo_bike', 'e_scooter',
         'bus', 'car', 'ev',
@@ -76,7 +79,7 @@ def _render_mode_distribution(results):
     df = pd.DataFrame(mode_data)
     st.dataframe(df, width='stretch', hide_index=True)
     
-    # Freight highlight (Phase 4.5F)
+    # Freight highlight
     freight_modes = ['van_electric', 'van_diesel', 'truck_electric', 'truck_diesel', 
                     'hgv_electric', 'hgv_diesel', 'hgv_hydrogen', 'cargo_bike']
     freight_count = sum(mode_counts.get(m, 0) for m in freight_modes)
@@ -93,7 +96,7 @@ def _render_mode_distribution(results):
                     pct = count / freight_count * 100
                     st.write(f"**{mode.replace('_', ' ').title()}**: {count} ({pct:.1f}% of freight)")
     
-    # Multi-modal highlight (Phase 4.5G)
+    # Multi-modal highlight
     multimodal_modes = ['tram', 'local_train', 'intercity_train', 'ferry_diesel', 
                         'ferry_electric', 'flight_domestic', 'e_scooter']
     multimodal_count = sum(mode_counts.get(m, 0) for m in multimodal_modes)
@@ -104,7 +107,7 @@ def _render_mode_distribution(results):
 
 
 def _render_freight_analysis(results):
-    """Render freight agent analysis (Phase 4.5F)."""
+    """Render freight agent analysis."""
     st.markdown("### 🚚 Freight Analysis")
     
     # Count vehicle_required agents

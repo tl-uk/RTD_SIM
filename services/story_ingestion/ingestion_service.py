@@ -1,7 +1,7 @@
 """
 services/story_ingestion/ingestion_service.py
 
-Phase 9 — Story Ingestion Service  (v0.10.0)
+Story Ingestion Service  (v0.10.0)
 
 A FastAPI microservice that accepts a domain brief (PDF or plain text),
 extracts personas, job stories, and compatibility rules using a configurable

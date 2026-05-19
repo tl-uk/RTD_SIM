@@ -2,7 +2,7 @@
 ui/sidebar_system_dynamics.py
 
 System Dynamics parameter controls for sidebar
-Phase 5.3: Interactive SD configuration
+Interactive SD configuration
 """
 
 import streamlit as st

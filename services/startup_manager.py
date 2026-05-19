@@ -13,11 +13,11 @@ Services managed
              Auto-started via subprocess if not running.
              Model pulled automatically if not already present.
 
-  Redis    — Event bus backing store for Phase 6+ dynamic policies.
+  Redis    — Event bus backing store for dynamic policies.
              Not auto-started (requires system install); status shown
              in sidebar with clear install instructions.
 
-  MQTT broker (future Phase 13)
+  MQTT broker (future — for real-time policy event publishing)
              Not yet managed — placeholder for Mosquitto integration.
 
 Usage
@@ -31,7 +31,7 @@ Usage
   # Access individual service status:
   manager.status['ollama']   # 'running' | 'starting' | 'unavailable'
   manager.status['redis']    # 'running' | 'unavailable'
-  manager.status['mqtt']     # 'not_configured'  (Phase 13)
+  manager.status['mqtt']     # 'not_configured'  (placeholder for Mosquitto integration)
 """
 
 from __future__ import annotations

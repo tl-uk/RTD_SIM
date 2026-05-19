@@ -1,5 +1,5 @@
 """
-simulation/config/modes.py  ← Phase 10b MODES registry
+simulation/config/modes.py
 
 Central authority for mode → network-type mapping.
 This is the blocker that was causing rail/ferry/air agents

@@ -1,5 +1,5 @@
 # RTD_SIM Job Contexts - Unified Format
-# Phase 4.5F: Expanded freight modes with proper BDI story structure
+# Expanded freight modes with proper BDI story structure
 
 # ============================================================================
 # MICRO-DELIVERY (Last-Mile Urban)
@@ -814,7 +814,7 @@ shopping_trip:
     optional: ["shopping_volume", "has_car", "preferred_store"]
 
 # ============================================================================
-# PHASE 4.5G: Multi-Modal Job Stories
+# Multi-Modal Job Stories
 # ============================================================================
 
 intercity_train_commute:

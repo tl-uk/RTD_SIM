@@ -181,7 +181,7 @@ class EventBus:
         self.callbacks[channel].append(callback)
         logger.info(f"✅ Subscribed to {channel}")
         
-        # Phase 6.2b FIX: If already listening, dynamically subscribe to new channel
+        # If already listening, dynamically subscribe to new channel
         if is_new_channel and self.listening and self.pubsub:
             try:
                 self.pubsub.subscribe(channel)
@@ -207,7 +207,7 @@ class EventBus:
         self.callbacks[channel].append(callback)
         logger.info(f"✅ Subscribed to ALL events")
         
-        # Phase 6.2b FIX: If already listening, dynamically subscribe to new channel
+        # If already listening, dynamically subscribe to new channel
         if is_new_channel and self.listening and self.pubsub:
             try:
                 self.pubsub.subscribe(channel)

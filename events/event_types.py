@@ -408,7 +408,7 @@ class EventFactory:
     ) -> Optional[BaseEvent]:
         """
         Create event from MQTT message.
-        To be implemented in Phase 8.
+        To be implemented when MQTT integration is live.
         """
         # Placeholder for future MQTT integration
         pass

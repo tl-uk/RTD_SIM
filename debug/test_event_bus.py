@@ -1,5 +1,5 @@
 """
-test_event_bus.py — RTD_SIM Phase 8 git add -A && git commit -m "..." && git push
+test_event_bus.py 
 
 Covers:
   T01–T05   RoutingTable

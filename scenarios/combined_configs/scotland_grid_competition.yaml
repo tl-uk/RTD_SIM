@@ -25,13 +25,13 @@
 #   port_terminal_operator    → rosyth_roro_freight, offshore_energy_port
 #   freight_operator          → port_to_warehouse, long_haul_freight
 #
-# PHASE 10b NOTE:
+# NOTE:
 #   ferry_diesel and ferry_electric modes exist in MODE_MAX_DISTANCE_KM but
 #   are not yet in default_modes. The ferry charging demand is modelled here
 #   as a grid_utilization shock (interaction rule) rather than a mode-level
-#   action. Full ferry agent behaviour requires Phase 10b FerryPassengerAgent
+#   action. Full ferry agent behaviour requires FerryPassengerAgent
 #   and FerryFreightAgent with ferry_electric mode in the MODES registry.
-#   TODO Phase 10b: replace grid_shock rule with ferry_agent_demand signal.
+#   TODO : replace grid_shock rule with ferry_agent_demand signal.
 
 name: Scotland Grid Competition — NHS vs Retail vs Ferry
 description: |
@@ -67,14 +67,14 @@ interaction_rules:
     action: reduce_charging_costs
     parameters:
       multiplier: 0.5            # 50% discount = priority access proxy
-      target_vehicle_type: nhs   # TODO Phase 10b: map to fleet_manager_healthcare agents
+      target_vehicle_type: nhs   # TODO : map to fleet_manager_healthcare agents
     priority: 95
     cooldown_steps: 50
 
   # Ferry shore power demand modelled as a step-change grid shock at berth time.
   # CalMac Loch Seaforth: ~2.4MW demand, 6-hour overnight charge window.
   # Shore power at Ullapool is grid-connected but has no smart charging.
-  # TODO Phase 10b: replace with ferry_agent shore_power_demand event
+  # TODO : replace with ferry_agent shore_power_demand event
   #   once FerryFreightAgent and ferry_electric mode exist in MODES registry.
   - condition: "step == 15"
     action: increase_grid_capacity
@@ -107,7 +107,7 @@ interaction_rules:
     action: add_emergency_chargers
     parameters:
       num_chargers: 12
-      strategy: hospital_proximity  # TODO Phase 10b: implement spatial strategy
+      strategy: hospital_proximity  # TODO : implement spatial strategy
     priority: 80
 
   # ── PHASE 3 (steps 50-75): Grid management under pressure ───────────────

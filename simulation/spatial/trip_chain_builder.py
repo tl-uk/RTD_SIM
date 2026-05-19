@@ -151,8 +151,8 @@ class TripChainBuilder:
         Dispatch order
         --------------
         Structured modes (rail/tram/ferry/air) are checked FIRST, before the
-        is_routeable() short-circuit.  Phase 10b made local_train, tram, and
-        ferry routeable=True in modes.py so that the BDI planner reaches the
+        is_routeable() short-circuit.  If local_train, tram, and
+        ferry routeable=True in modes.py, the BDI planner reaches the
         router rather than make_synthetic_route().  However TripChainBuilder
         must still enforce stop-snapping for these modes — the is_routeable()
         flag controls OSMnx graph access, not whether stop-snapping is needed.
@@ -167,8 +167,6 @@ class TripChainBuilder:
         context = context or {}
 
         # ── Structured modes: always build access + trunk + egress legs ───────
-        # Checked BEFORE is_routeable() because their routeable flag was changed
-        # to True in Phase 10b; stop-snapping is still required regardless.
         if trunk_mode in ('local_train', 'intercity_train', 'freight_rail', 'tram'):
             return self._build_rail_like(origin, destination, trunk_mode, agent_id)
 

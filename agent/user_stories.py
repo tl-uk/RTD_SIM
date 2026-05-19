@@ -206,7 +206,7 @@ class UserStoryParser:
     # Class-level dict so every UserStoryParser instance sharing the same
     # resolved path reads the YAML file only once per process lifetime.
     # Call UserStoryParser._class_cache.clear() if the YAML is hot-reloaded
-    # at runtime (e.g. after Phase 9 story ingestion publishes new personas).
+    # at runtime (e.g. after story ingestion publishes new personas).
     _class_cache: dict = {}
 
     def _load_stories(self) -> None:

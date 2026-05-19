@@ -227,7 +227,7 @@ def _render_infrastructure_tab(results):
 
 def _render_scenario_report_tab(results):
     """
-    🆕 Phase 4.5B: Render scenario report tab.
+    🆕 Render scenario report tab.
     Shows what policies were applied and their expected outcomes.
     """
     st.subheader("📋 Applied Scenario Report")

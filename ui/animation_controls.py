@@ -25,7 +25,7 @@ def render_animation_controls(anim):
     if 'current_animation_step' not in st.session_state:
         st.session_state.current_animation_step = anim.current_step
     
-    # Phase 7.1: Safety check - clamp step to valid range
+    # Safety check - clamp step to valid range
     # This prevents errors when switching between simulations with different step counts
     if st.session_state.current_animation_step >= anim.total_steps:
         st.session_state.current_animation_step = anim.total_steps - 1

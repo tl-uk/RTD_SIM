@@ -44,7 +44,7 @@ interaction_rules:
 
   # ── Baseline: NHS always gets first charger slot ─────────────────────────
   # Modelled as a persistent cost discount for healthcare-tagged agents.
-  # In Phase 10b: becomes explicit SLA priority queue at charger level.
+  # TODO : becomes explicit SLA priority queue at charger level.
   - condition: "step >= 0"
     action: reduce_charging_costs
     parameters:

@@ -1,7 +1,7 @@
 """
 ui/sidebar_config.py
 
-Sidebar configuration with Phase 5.1 combined scenarios.
+Sidebar configuration with combined scenarios.
 
 """
 
@@ -76,9 +76,9 @@ from ui.widgets.policy_parameter_controls import (
 # DEBUG: Extended Temporal Simulation testing
 logger = logging.getLogger(__name__)
 
-# Phase 7.1 - Extended Temporal Simulation testing
+# Extended Temporal Simulation testing
 from ui.components.temporal_settings import render_temporal_settings
-# Phase 7.2 - Synthetic Events
+# ynthetic Events
 from ui.components.synthetic_events_settings import render_synthetic_events_settings
 
 def render_sidebar_config():
@@ -253,12 +253,12 @@ def render_sidebar_config():
     
     st.sidebar.markdown("---")
 
-    # === PHASE 7.1: TEMPORAL SETTINGS (BEFORE FORM) ===
+    # === TEMPORAL SETTINGS (BEFORE FORM) ===
     temporal_config = render_temporal_settings()
     
     st.sidebar.markdown("---")
     
-    # === PHASE 7.2: SYNTHETIC EVENTS (BEFORE FORM) ===  
+    # === SYNTHETIC EVENTS (BEFORE FORM) ===  
     synthetic_config = render_synthetic_events_settings()
     
     st.sidebar.markdown("---")
@@ -619,7 +619,7 @@ def render_sidebar_config():
         rng_seed_value=rng_seed_value
     )
     
-    # === PHASE 7.1: APPLY TEMPORAL SETTINGS ===
+    # === APPLY TEMPORAL SETTINGS ===
     if temporal_config['enable_temporal_scaling']:
         config.enable_temporal_scaling = True
         config.time_scale = temporal_config['time_scale']
@@ -634,7 +634,7 @@ def render_sidebar_config():
         config.time_scale = None
         config.start_datetime = None
 
-    # === PHASE 7.2: APPLY SYNTHETIC EVENT SETTINGS ===
+    # === APPLY SYNTHETIC EVENT SETTINGS ===
     if synthetic_config['enable_synthetic_events']:
         config.enable_synthetic_events = True
         config.synthetic_traffic_events = synthetic_config['synthetic_traffic_events']
@@ -749,7 +749,7 @@ def render_sidebar_config():
             st.write(f"Num Chargers: {config.num_chargers}")
             st.write(f"Eco Desire: {config.agents.behavior.eco_desire_mean:.2f}")
     
-    # Phase 5.3: System Dynamics info box (OUTSIDE form, at bottom of sidebar)
+    # System Dynamics info box (OUTSIDE form, at bottom of sidebar)
     st.markdown("---")
     render_sd_info_box()
     
@@ -2056,7 +2056,7 @@ def _render_advanced_features():
 
 def _render_scenario_selection():
     """
-    Render simple scenario selection section (Phase 5.1).
+    Render simple scenario selection section.
     
     Returns:
         dict: Scenario configuration

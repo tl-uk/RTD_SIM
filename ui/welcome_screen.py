@@ -39,7 +39,7 @@ def render_welcome_screen():
                 unsafe_allow_html=True
             )
     
-    # Phase 4.5B info box
+    # Info box
     st.markdown("---")
     st.info("""
     **🆕 Features:**
