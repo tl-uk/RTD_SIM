@@ -365,9 +365,13 @@ class GTFSGraph:
             if not sn:
                 continue
 
-            # Build ordered stop list for this trip (in-graph stops only)
+            # Build ordered stop list — passenger-boarding stops only.
+            # pickup_type=1 = depot/deadhead run; creates phantom cross-service
+            # connections in RAPTOR (service 20 "reaching" Gorgie via depot).
             seq: List[str] = [
-                s['stop_id'] for s in stops if s['stop_id'] in G.nodes
+                s['stop_id'] for s in stops
+                if s['stop_id'] in G.nodes
+                and s.get('pickup_type', 0) != 1
             ]
             if len(seq) < 2:
                 continue
@@ -403,57 +407,78 @@ class GTFSGraph:
             sn: dict(pairs) for sn, pairs in route_times.items()
         }
 
-        # ── Foot-path (walk transfer) edges ──────────────────────────────────
-        # RAPTOR requires foot-paths to model transfers where the alight stop
-        # of service A and board stop of service B are different nodes within
-        # walking distance (e.g. Shandwick Place → Queensferry Street).
-        # Grid-bucketing: cell ≈ 0.004° ≈ 400m. Each stop checks 3×3 cells → O(N×k).
-        _FP_MAX_M = 400.0
-        _WALK_MPS = 1.4
-        _GRID_D   = 0.004
+        # ── route_shapes: per-service per-stop-pair geometry ──────────────────
+        route_shapes: Dict[str, Dict[Tuple[str,str], list]] = defaultdict(dict)
+        for _tid, _sts in loader.stop_times.items():
+            _tr = loader.trips.get(_tid)
+            if not _tr: continue
+            _sid = _tr.get('shape_id', '')
+            _tsh = loader.shapes.get(_sid, []) if _sid and getattr(loader, 'shapes', None) else []
+            if not _tsh: continue
+            _rid = _tr.get('route_id', '')
+            _robj = loader.routes.get(_rid, {})
+            _rsn = str(_robj.get('short_name') or _robj.get('route_short_name', '')).strip()
+            if not _rsn: continue
+            for _i in range(len(_sts) - 1):
+                if _sts[_i].get('pickup_type', 0) == 1: continue
+                _uid, _vid = _sts[_i]['stop_id'], _sts[_i+1]['stop_id']
+                if _uid not in G.nodes or _vid not in G.nodes: continue
+                _pr = (_uid, _vid)
+                if _pr in route_shapes[_rsn]: continue
+                _ud, _vd = G.nodes[_uid], G.nodes[_vid]
+                _seg = self._slice_shape(
+                    _tsh, float(_ud.get('x',0)), float(_ud.get('y',0)),
+                    float(_vd.get('x',0)), float(_vd.get('y',0)))
+                if _seg and len(_seg) >= 2:
+                    route_shapes[_rsn][_pr] = _seg
 
+        # ── foot-path edges (RAPTOR transfer model) ───────────────────────────
+        # Only add walk_transfer edges between stops NOT already connected by a
+        # direct transit edge. Consecutive tram/bus stops are 200-400m apart;
+        # adding a foot-path alongside a transit edge makes RAPTOR prefer
+        # walking (143s) over riding (270s), creating spurious 4-leg journeys.
+        _FP_MAX_M = 400.0; _WALK_MPS = 1.4; _GRID_D = 0.004
         from collections import defaultdict as _ddict
         _grid: dict = _ddict(list)
         _stop_xy: list = []
         for _n, _d in G.nodes(data=True):
-            _nx = float(_d.get('x', 0.0))
-            _ny = float(_d.get('y', 0.0))
+            _nx = float(_d.get('x', 0.0)); _ny = float(_d.get('y', 0.0))
             _stop_xy.append((_n, _nx, _ny))
-            _grid[(int(_nx / _GRID_D), int(_ny / _GRID_D))].append((_n, _nx, _ny))
-
-        _fp_count = 0
-        _seen_fp: set = set()
+            _grid[(int(_nx/_GRID_D), int(_ny/_GRID_D))].append((_n, _nx, _ny))
+        _fp_count = 0; _seen_fp: set = set()
         for _n1, _x1, _y1 in _stop_xy:
-            _cx, _cy = int(_x1 / _GRID_D), int(_y1 / _GRID_D)
-            for _dx in (-1, 0, 1):
-                for _dy in (-1, 0, 1):
+            _cx, _cy = int(_x1/_GRID_D), int(_y1/_GRID_D)
+            for _dx in (-1,0,1):
+                for _dy in (-1,0,1):
                     for _n2, _x2, _y2 in _grid.get((_cx+_dx, _cy+_dy), []):
-                        if _n1 == _n2 or (_n1, _n2) in _seen_fp:
-                            continue
-                        _dp = math.radians(_y2 - _y1)
-                        _dl = math.radians(_x2 - _x1)
-                        _a  = (math.sin(_dp/2)**2
-                               + math.cos(math.radians(_y1))
-                               * math.cos(math.radians(_y2))
-                               * math.sin(_dl/2)**2)
-                        _dm = 2 * 6_371_000 * math.asin(math.sqrt(max(0.0, min(1.0, _a))))
-                        if _dm > _FP_MAX_M:
-                            continue
-                        _attrs = dict(
-                            mode='walk_transfer', is_transfer=True,
-                            length=_dm, avg_travel_time_s=_dm / _WALK_MPS,
-                            gen_cost=(_dm / _WALK_MPS) / 3600.0,
-                            headway_s=0.0, shape_coords=[],
-                            route_short_names=[],
-                        )
-                        G.add_edge(_n1, _n2, **_attrs)
-                        G.add_edge(_n2, _n1, **_attrs)
-                        _seen_fp.add((_n1, _n2))
-                        _seen_fp.add((_n2, _n1))
+                        if _n1==_n2 or (_n1,_n2) in _seen_fp: continue
+                        _dp = math.radians(_y2-_y1); _dl = math.radians(_x2-_x1)
+                        _a = (math.sin(_dp/2)**2 + math.cos(math.radians(_y1))
+                              * math.cos(math.radians(_y2)) * math.sin(_dl/2)**2)
+                        _dm = 2*6_371_000*math.asin(math.sqrt(max(0.0, min(1.0, _a))))
+                        if _dm > _FP_MAX_M: continue
+                        # KEY GUARD: skip if already connected by a transit edge
+                        _skip = False
+                        if G.has_edge(_n1, _n2):
+                            for _ev in (G.get_edge_data(_n1, _n2) or {}).values():
+                                if isinstance(_ev, dict) and _ev.get('mode', 'bus') not in ('walk', 'walk_transfer'):
+                                    _skip = True; break
+                        if _skip: continue
+                        _wa = dict(mode='walk_transfer', is_transfer=True,
+                                   length=_dm, avg_travel_time_s=_dm/_WALK_MPS,
+                                   gen_cost=(_dm/_WALK_MPS)/3600.0,
+                                   headway_s=0.0, shape_coords=[],
+                                   route_short_names=[])
+                        G.add_edge(_n1, _n2, **_wa); G.add_edge(_n2, _n1, **_wa)
+                        _seen_fp.add((_n1,_n2)); _seen_fp.add((_n2,_n1))
                         _fp_count += 2
+        logger.info('GTFSGraph: %d foot-path edges added (transit-adjacent pairs skipped)',
+                    _fp_count)
 
-        logger.info("GTFSGraph: added %d foot-path edges (%d pairs within %.0fm)",
-                    _fp_count, _fp_count // 2, _FP_MAX_M)
+        G.graph['route_stop_sequences'] = dict(route_seqs)
+        G.graph['stop_routes']          = dict(stop_routes)
+        G.graph['route_avg_times']      = {sn: dict(p) for sn, p in route_times.items()}
+        G.graph['route_shapes']         = {sn: dict(p) for sn, p in route_shapes.items()}
 
         n_routes = len(route_seqs)
         n_seqs   = sum(len(v) for v in route_seqs.values())

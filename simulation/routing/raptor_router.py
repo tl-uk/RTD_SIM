@@ -322,16 +322,14 @@ class RaptorRouter:
                                     parent, dest_stop, arrival_cost
                                 )
 
-            # ── Foot-path (walk transfer) stage ─────────────────────────────
-            # RAPTOR paper Section 3, 3rd stage: for each newly marked stop,
-            # traverse walk_transfer edges added by GTFSGraph.build().
-            # This enables e.g. Bus 26 → walk 100m → Bus 47 transfers.
+            # ── Foot-path traversal stage (RAPTOR paper Section 3) ───────────
+            # Follow walk_transfer edges from newly marked stops.
+            # Enables e.g. Bus 26 → walk 100m → Bus 47 transfers.
             _fp_updates: set = set()
             if self._G is not None:
                 for _fp_stop in list(new_marked):
                     _cost_here = cost_labels.get(_fp_stop, math.inf)
-                    if _cost_here >= math.inf:
-                        continue
+                    if _cost_here >= math.inf: continue
                     for _, _nb, _edata in self._G.edges(_fp_stop, data=True):
                         if not (_edata.get('is_transfer')
                                 or _edata.get('mode') == 'walk_transfer'):
@@ -350,8 +348,7 @@ class RaptorRouter:
                             if _nb == dest_stop and _arr < best_cost:
                                 best_cost    = _arr
                                 best_journey = self._reconstruct(
-                                    parent, dest_stop, _arr
-                                )
+                                    parent, dest_stop, _arr)
             new_marked |= _fp_updates
 
             marked = new_marked

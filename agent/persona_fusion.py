@@ -615,9 +615,7 @@ _JOB_MODE_OVERRIDES: Dict[str, Dict[str, Any]] = {
     },
 
     # ── Tram jobs ──────────────────────────────────────────────────
-    # accessible_tram_journey: agent's primary mode IS tram.
-    # Without this override, tram agents fell through to persona base_modes
-    # which include ev/car, causing the planner to route by EV on roads.
+    # accessible_tram_journey: when agent's primary mode IS tram.
     'accessible_tram_journey': {
         'abstract_modes': ['tram'],
         # access_modes are BOTH the access/egress legs AND the fallback when
@@ -946,7 +944,7 @@ class PersonaFusion:
                     seen.add(m)
                     allowed.append(m)
 
-            # Reinsert time-critical modes from persona base_modes when the
+            # enable time-critical modes from persona base_modes when the
             # job override would otherwise block them.  A business_commuter
             # retains taxi_ev/taxi_diesel even under transit job stories.
             # Mode_preferences (persona YAML) ensure these cost more or less

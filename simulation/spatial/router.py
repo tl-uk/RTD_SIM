@@ -2149,7 +2149,7 @@ class Router:
         # # ── Route-constrained stop snapping (bus mode only) ─────────────────────
         # # The soft-penalty approach (previous) allowed multi-service paths because
         # # a £5 transfer penalty is negligible vs £42 total gen_cost for a 30-stop path.
-        # # The correct fix: find routes that serve BOTH origin_stop and dest_stop,
+        # # Logic fix: find routes that serve BOTH origin_stop and dest_stop,
         # # then hard-block (gen_cost=inf) all edges from other routes.
         # # When no single route serves both stops, multi-service is logged and allowed.
         # _constrained_route: Optional[str] = None
@@ -2262,9 +2262,7 @@ class Router:
         _mode_filter = mode if mode != 'transit' else None
 
         if self._raptor is not None:
-            journey = self._raptor.route(
-                origin_stop, dest_stop, mode_filter=_mode_filter,
-            )
+            journey = self._raptor.route(origin_stop, dest_stop, mode_filter=_mode_filter)
             if journey is None or not journey.legs:
                 _origin_routes = set(self._raptor.routes_serving_stop(origin_stop))
                 _alt_o, _alt_d = [], []
@@ -2275,26 +2273,20 @@ class Router:
                     ]:
                         _seen = {_exc}
                         for _ in range(2):
-                            _c = builder.nearest_stop(
-                                G_transit, _coord,
-                                mode_filter=_mode_filter,
-                                max_distance_m=3000,
-                                exclude_stop=next(iter(_seen)),
-                            ) if len(_seen) == 1 else None
-                            if not _c or _c in _seen:
-                                break
+                            _c = builder.nearest_stop(G_transit, _coord,
+                                mode_filter=_mode_filter, max_distance_m=3000,
+                                exclude_stop=next(iter(_seen))) if len(_seen)==1 else None
+                            if not _c or _c in _seen: break
                             if _chk and _origin_routes:
                                 if not _origin_routes & set(self._raptor.routes_serving_stop(_c)):
                                     _seen.add(_c); continue
                             _lst.append(_c); _seen.add(_c)
                 except Exception:
                     pass
-                for _os, _ds in (
-                    [(origin_stop, d) for d in _alt_d]
-                    + [(o, dest_stop) for o in _alt_o]
-                    + [(o, d) for o in _alt_o for d in _alt_d]
-                ):
-                    if _os == _ds: continue
+                for _os, _ds in ([(origin_stop,d) for d in _alt_d]
+                                  +[(o,dest_stop) for o in _alt_o]
+                                  +[(o,d) for o in _alt_o for d in _alt_d]):
+                    if _os==_ds: continue
                     _j = self._raptor.route(_os, _ds, mode_filter=_mode_filter)
                     if _j and _j.legs:
                         journey = _j
@@ -2302,14 +2294,26 @@ class Router:
                         break
 
         if journey and journey.legs:
-            transit_nodes      = journey.all_stops
-            _constrained_route = journey.legs[0].route if journey.legs else None
+            # Filter walk_transfer legs — foot-path hops between adjacent stops
+            # on the SAME service must not appear as transit segments in the UI
+            # or pollute the service label with "walk_transfer".
+            _transit_legs = [lg for lg in journey.legs if lg.route != 'walk_transfer']
+            if not _transit_legs:
+                _transit_legs = journey.legs
+            # Rebuild transit_nodes from transit legs only
+            transit_nodes = []
+            for _lg in _transit_legs:
+                for _sid in _lg.stops:
+                    if not transit_nodes or transit_nodes[-1] != _sid:
+                        transit_nodes.append(_sid)
+            _constrained_route = _transit_legs[0].route if _transit_legs else None
             _used_raptor       = True
+            journey._transit_legs = _transit_legs   # used by raptor_legs builder
             logger.debug("%s: RAPTOR %s→%s: %d leg(s), %d stops, %d transfer(s)",
                 agent_id, origin_stop, dest_stop,
-                len(journey.legs), len(transit_nodes), journey.n_transfers)
+                len(_transit_legs), len(transit_nodes), max(0, len(_transit_legs)-1))
         else:
-            logger.warning("%s: RAPTOR found no path — Dijkstra fallback", agent_id)
+            logger.warning("%s: RAPTOR no path — Dijkstra fallback", agent_id)
             try:
                 transit_nodes = list(nx.shortest_path(
                     G_transit, origin_stop, dest_stop, weight='gen_cost'))
@@ -2330,10 +2334,6 @@ class Router:
     
         # ── U-turn / pass-through guard ───────────────────────────────────────
         # A valid path must NOT visit dest_stop before the final element.
-        # If it does, the route passed through the destination and reversed
-        # (e.g. service 1 going east along Princes Street past the destination,
-        # then routing back west via a westbound service-1 edge).  This produces
-        # the nonsensical reversal seen on page 6 of the PDF screenshots.
         # RAPTOR sequences are ordered GTFS trips — no U-turns possible.
         if not _used_raptor and dest_stop in transit_nodes[:-1]:
             if _constrained_route is not None:
@@ -2441,11 +2441,14 @@ class Router:
                 except Exception:
                     return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
+        # Per-stop-pair route map from filtered transit legs only.
+        # walk_transfer pairs are excluded so they never appear in service labels.
         _pair_route_map: dict = {}
-        if _used_raptor and journey and journey.legs:
-            for _leg in journey.legs:
-                for _pi in range(len(_leg.stops) - 1):
-                    _pair_route_map[(_leg.stops[_pi], _leg.stops[_pi+1])] = _leg.route
+        _transit_legs_r = getattr(journey, '_transit_legs', None) if _used_raptor and journey else None
+        if _transit_legs_r:
+            for _lg in _transit_legs_r:
+                for _pi in range(len(_lg.stops)-1):
+                    _pair_route_map[(_lg.stops[_pi], _lg.stops[_pi+1])] = _lg.route
         _g_route_shapes = G_transit.graph.get('route_shapes', {}) if _used_raptor else {}
 
         # ── Single combined pass: geometry extraction + service-name collection ───
@@ -2457,13 +2460,17 @@ class Router:
             v_node = transit_nodes[i + 1]
             edge_map = G_transit.get_edge_data(u_node, v_node) or {}
     
+            # ── Shape lookup: skip walk_transfer, use per-service shape first ──────
             _seg_route = _pair_route_map.get((u_node, v_node))
+            if _seg_route == 'walk_transfer':
+                continue   # foot-path hop — not a transit segment
             shape = []
             _selected_ed = None
             if _seg_route:
                 shape = _g_route_shapes.get(_seg_route, {}).get((u_node, v_node), [])
             if not shape:
                 for ed in edge_map.values():
+                    if ed.get('mode') == 'walk_transfer': continue
                     s = ed.get('shape_coords') or []
                     if len(s) > len(shape):
                         shape = s; _selected_ed = ed
@@ -2472,7 +2479,10 @@ class Router:
             elif _selected_ed is not None:
                 _all_short_names.extend(_selected_ed.get('route_short_names', []))
             elif edge_map:
-                _all_short_names.extend(next(iter(edge_map.values()), {}).get('route_short_names', []))
+                _first = next((e for e in edge_map.values() if e.get('mode') != 'walk_transfer'), {})
+                _all_short_names.extend(_first.get('route_short_names', []))
+
+            # ── (service name collection now handled above) ───────────────────────
             u_x = float(G_transit.nodes[u_node].get('x', 0))
             u_y = float(G_transit.nodes[u_node].get('y', 0))
             v_x = float(G_transit.nodes[v_node].get('x', 0))
@@ -2597,16 +2607,17 @@ class Router:
     
         # ── Populate meta side-channel for _gtfs_with_segments ───────────────────
         # Stored on self so the caller can read it without repeating any work.
-        # ── Per-leg geometry for multi-leg tooltip rendering ─────────────────────
+        # ── Per-leg geometry for multi-leg tooltip rendering (tl4r) ─────────────────────
         # When RAPTOR found a multi-leg journey, split transit_coords into one
         # coordinate list per leg + store board/alight coords for transfer walks.
         raptor_legs: list = []
-        if _used_raptor and journey and journey.legs and len(journey.legs) > 1:
+        _tl4r = getattr(journey, '_transit_legs', None) or (journey.legs if journey else [])
+        if _used_raptor and _tl4r and len(_tl4r) > 1:
             # Build a map: (u_stop, v_stop) -> coords (already assembled above)
             # We re-use _pair_route_map to know which leg each pair belongs to.
-            leg_coord_buckets: dict = {i: [] for i in range(len(journey.legs))}
+            leg_coord_buckets: dict = {i: [] for i in range(len(_tl4r))}
             leg_for_pair = {}
-            for _li, _leg in enumerate(journey.legs):
+            for _li, _leg in enumerate(_tl4r):
                 for _pi in range(len(_leg.stops) - 1):
                     leg_for_pair[(_leg.stops[_pi], _leg.stops[_pi + 1])] = _li
 
@@ -2615,7 +2626,7 @@ class Router:
             for _ti in range(len(transit_nodes) - 1):
                 _un = transit_nodes[_ti]
                 _vn = transit_nodes[_ti + 1]
-                _li = leg_for_pair.get((_un, _vn), len(journey.legs) - 1)
+                _li = leg_for_pair.get((_un, _vn), len(_tl4r) - 1)
                 _u_d = G_transit.nodes.get(_un, {})
                 _v_d = G_transit.nodes.get(_vn, {})
                 _u_x = float(_u_d.get('x', _u_d.get('lon', 0)))
@@ -2627,7 +2638,7 @@ class Router:
                     bucket.append((_u_x, _u_y))
                 bucket.append((_v_x, _v_y))
 
-            for _li, _leg in enumerate(journey.legs):
+            for _li, _leg in enumerate(_tl4r):
                 _leg_coords = leg_coord_buckets.get(_li, [])
                 # Board / alight stop coords for transfer-walk computation
                 _board_d  = G_transit.nodes.get(_leg.stops[0],  {})
