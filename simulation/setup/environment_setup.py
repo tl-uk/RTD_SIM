@@ -193,7 +193,23 @@ def setup_environment(
                 G_walk.number_of_nodes(), G_walk.number_of_edges(),
             )
         else:
-            logger.warning("⚠️  Walk graph load returned None — access/egress legs will use straight lines")
+            # Strip NaN-coordinate nodes from walk graphs.
+            import math as _math
+            for _glabel, _gobj in [('walk', env.graph_manager.get_graph('walk'))] + (
+                [('walk_footways', env.graph_manager.graphs.get('walk_footways'))]
+                if env.graph_manager.graphs.get('walk_footways') is not None else []
+            ):
+                if _gobj is None: continue
+                _nan_nodes = [
+                    n for n, d in _gobj.nodes(data=True)
+                    if not (_math.isfinite(float(d.get('x', float('nan'))))
+                            and _math.isfinite(float(d.get('y', float('nan')))))
+                ]
+                if _nan_nodes:
+                    _gobj.remove_nodes_from(_nan_nodes)
+                    logger.info("Removed %d NaN-coordinate nodes from '%s' graph",
+                                len(_nan_nodes), _glabel)
+            # logger.warning("⚠️  Walk graph load returned None — access/egress legs will use straight lines")
     except Exception as exc:
         logger.warning("Walk graph load failed (non-fatal): %s", exc)
 
@@ -577,6 +593,14 @@ def setup_environment(
                     G_transit.number_of_nodes() if G_transit else 0,
                     G_transit.number_of_edges() if G_transit else 0,
                 )
+                # Fill empty shape_coords on bus transit edges.
+                try:
+                    from simulation.spatial.bus_network import enrich_transit_shapes
+                    _n = enrich_transit_shapes(env.graph_manager,
+                                               city_tag=getattr(config, 'place', 'default') or 'default')
+                    logger.info("✅ Bus shape enrichment: %d edges filled", _n)
+                except Exception as _e:
+                    logger.warning("Bus shape enrichment failed (non-fatal): %s", _e)
             else:
                 logger.warning("⚠️  GTFS load failed — bus/tram use drive-proxy routing")
         except Exception as exc:

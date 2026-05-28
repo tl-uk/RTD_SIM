@@ -927,6 +927,36 @@ class SpatialEnvironment:
     # =========================================================================
     # GRAPH STATS & UTILITIES
     # =========================================================================
+    def _build_od_eligible_nodes(self, graph) -> list:
+        """Return drive-graph nodes within simulation bbox, excluding motorway-only junctions."""
+        _MWAY = frozenset({'motorway','motorway_link','trunk','trunk_link'})
+        bbox = self.graph_manager.get_bbox()
+        eligible = []; skip_b = 0; skip_m = 0
+        for node in graph.nodes():
+            nd = graph.nodes[node]
+            x = float(nd.get('x', 0.0)); y = float(nd.get('y', 0.0))
+            if bbox:
+                north, south, east, west = bbox
+                if not (south <= y <= north and west <= x <= east):
+                    skip_b += 1; continue
+            if graph.degree(node) == 0:
+                skip_m += 1; continue
+            all_mway = True
+            for _, _, edata in graph.edges(node, data=True):
+                hw = edata.get('highway', '')
+                if isinstance(hw, list): hw = hw[0] if hw else ''
+                if hw not in _MWAY:
+                    all_mway = False; break
+            if all_mway:
+                skip_m += 1; continue
+            eligible.append(node)
+        logger.debug("_build_od_eligible_nodes: %d eligible, %d outside bbox, %d motorway-only",
+                     len(eligible), skip_b, skip_m)
+        return eligible
+
+    def _invalidate_od_cache(self) -> None:
+        """Clear OD-eligible node cache. Call after drive graph is replaced."""
+        self._od_eligible_nodes: list = []
 
     def get_graph_stats(self) -> dict:
         """Return graph statistics including node/edge counts and spatial bounds."""

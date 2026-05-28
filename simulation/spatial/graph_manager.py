@@ -97,6 +97,10 @@ class GraphManager:
         # resolves graph_manager.naptan_stops without attr-defined suppression.
         self.naptan_stops: list = []
 
+        # Simulation bbox (N, S, E, W) set by environment_setup after drive graph loads.
+        # Used by _build_od_eligible_nodes() to filter OD sampling to requested area.
+        self._simulation_bbox: Optional[Tuple[float, float, float, float]] = None
+
         # Mode → network type mapping (for callers that need the type string).
         self.mode_network_types: Dict[str, str] = {
             'walk': 'walk',
@@ -572,20 +576,17 @@ class GraphManager:
             if graph_crs and str(graph_crs).lower() not in ('none', ''):
                 node = ox.distance.nearest_nodes(graph, coord[0], coord[1])
             else:
-                # Manual haversine scan — O(N) but cached after first call.
+                # Manual haversine scan for non-OSMnx graphs (walk_footways etc.)
                 q_lon, q_lat = coord[0], coord[1]
                 best_node, best_dist = None, float('inf')
                 for _nid, _ndata in graph.nodes(data=True):
                     _nx = float(_ndata.get('x', float('nan')))
                     _ny = float(_ndata.get('y', float('nan')))
-                    if not (math.isfinite(_nx) and math.isfinite(_ny)):
-                        continue
+                    if not (math.isfinite(_nx) and math.isfinite(_ny)): continue
                     _dlat = math.radians(_ny - q_lat)
                     _dlon = math.radians(_nx - q_lon)
-                    _a = (math.sin(_dlat / 2) ** 2
-                          + math.cos(math.radians(q_lat))
-                          * math.cos(math.radians(_ny))
-                          * math.sin(_dlon / 2) ** 2)
+                    _a = (math.sin(_dlat/2)**2 + math.cos(math.radians(q_lat))
+                          * math.cos(math.radians(_ny)) * math.sin(_dlon/2)**2)
                     _d = 6_371_000 * 2 * math.asin(math.sqrt(_a))
                     if _d < best_dist:
                         best_dist, best_node = _d, _nid
@@ -734,6 +735,19 @@ class GraphManager:
             return (max(lats), min(lats), max(lons), min(lons))
         except Exception as exc:
             logger.warning("get_bbox: failed to derive bbox from graph nodes: %s", exc)
+            return None
+        
+    def get_bbox(self) -> Optional[Tuple[float, float, float, float]]:
+        """Return (N, S, E, W) bbox derived from drive graph node coordinates."""
+        G = self.get_graph('drive') or self.primary_graph
+        if G is None or G.number_of_nodes() == 0:
+            return None
+        try:
+            lons = [d['x'] for _, d in G.nodes(data=True)]
+            lats = [d['y'] for _, d in G.nodes(data=True)]
+            return (max(lats), min(lats), max(lons), min(lons))
+        except Exception as exc:
+            logger.warning("get_bbox failed: %s", exc)
             return None
 
     def clear_cache(self) -> None:
