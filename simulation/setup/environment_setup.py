@@ -152,6 +152,20 @@ def setup_environment(
     if progress_callback:
         progress_callback(0.13, f"✅ Drive network loaded ({stats['nodes']:,} nodes)")
 
+    # Store simulation bbox on graph_manager for OD-eligible node filtering.
+    _G_drv = env.graph_manager.get_graph('drive')
+    if bbox is not None:
+        env.graph_manager._simulation_bbox = bbox
+    elif _G_drv is not None and _G_drv.number_of_nodes() > 0:
+        _xs = [d['x'] for _, d in _G_drv.nodes(data=True) if 'x' in d]
+        _ys = [d['y'] for _, d in _G_drv.nodes(data=True) if 'y' in d]
+        if _xs and _ys:
+            env.graph_manager._simulation_bbox = (
+                max(_ys), min(_ys), max(_xs), min(_xs)  # (N, S, E, W)
+            )
+            logger.debug("Simulation bbox stored: N=%.4f S=%.4f E=%.4f W=%.4f",
+                         *env.graph_manager._simulation_bbox)
+
     # ── 2. Walk graph ─────────────────────────────────────────────────────────
     # Critical for transit access/egress legs.  Without the walk graph every
     # leg from an agent's home address to a rail station or bus stop falls back

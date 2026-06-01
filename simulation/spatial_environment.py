@@ -820,7 +820,11 @@ class SpatialEnvironment:
                 raw_o = address_nodes[i1]
                 raw_d = address_nodes[i2]
             else:
-                node1, node2 = self._od_rng.sample(drive_nodes, 2)
+                # Use OD-eligible nodes (filters motorway-only + outside bbox)
+                if not getattr(self, '_od_eligible_nodes', None):
+                    self._od_eligible_nodes = self._build_od_eligible_nodes(graph)
+                _eligible = self._od_eligible_nodes or drive_nodes
+                node1, node2 = self._od_rng.sample(_eligible, 2)
                 raw_o = (graph.nodes[node1]['x'], graph.nodes[node1]['y'])
                 raw_d = (graph.nodes[node2]['x'], graph.nodes[node2]['y'])
 

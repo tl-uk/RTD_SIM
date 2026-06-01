@@ -6,10 +6,9 @@ Lightweight RAPTOR-style transit router for RTD_SIM.
 WHY RAPTOR, NOT DIJKSTRA
 ────────────────────────
 Dijkstra on the GTFS transit multigraph cannot stay on one physical service.
-Every stop pair shared by routes 7, 11, and 25 has a single merged edge with
-route_short_names=['7','11','25'].  Dijkstra finds the globally cheapest path
-through this graph and freely mixes services — riding route 11's edges for two
-stops, switching to route 25's edges for three stops, switching back.  The
+Every stop pair shared by service routes has a single merged edge with
+route_short_names=[].  Dijkstra finds the globally cheapest path
+through this graph and freely mixes services.  The
 result is a journey that no real vehicle makes.
 
 RAPTOR (Delling et al., ALENEX 2012) avoids this by never operating on a
