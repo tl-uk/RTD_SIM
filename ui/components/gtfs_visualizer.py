@@ -106,7 +106,7 @@ def create_gtfs_service_layer(
         # ── Skip transfer / walk edges injected by build_transfer_edges() ──
         # These carry mode='walk', highway='transfer', headway_s=0 and must
         # never appear as coloured service lines on the map.
-        if mode == 'walk' or attrs.get('highway') == 'transfer':
+        if mode in ('walk', 'walk_transfer') or attrs.get('highway') == 'transfer':
             continue
 
         if show_electric_only and fuel not in ('electric', 'hydrogen'):
@@ -134,8 +134,10 @@ def create_gtfs_service_layer(
         _seen_paths.add(_edge_key)
 
         # ── Build a meaningful service label ────────────────────────────────
-        short_names = attrs.get('route_short_names', [])
-        long_names  = attrs.get('route_long_names',  [])
+        # Guard: walk_transfer edges sometimes carry stale route_short_names
+        # from the merge step. Only use names from real service edges.
+        short_names = [] if mode in ('walk', 'walk_transfer') else attrs.get('route_short_names', [])
+        long_names  = [] if mode in ('walk', 'walk_transfer') else attrs.get('route_long_names',  [])
         if short_names:
             service_label = ' / '.join(short_names[:4])
         elif long_names:

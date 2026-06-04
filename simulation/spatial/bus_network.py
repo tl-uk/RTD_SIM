@@ -181,7 +181,30 @@ def enrich_transit_shapes(
         for node, data in G_drive.nodes(data=True)
     ]
 
+    # ── Drive graph bounding box (used to skip out-of-area stops fast) ────────
+    # The GTFS spatial filter adds 0.30° padding, so the transit graph contains
+    # stops from Fife, Livingston, Stirling etc. that lie outside the Edinburgh
+    # drive graph bbox.  Running the full O(N) nearest-node scan for these stops
+    # wastes time and always fails (no drive node within max_stop_snap_m).
+    # We pre-compute the drive graph bbox with a generous buffer equal to
+    # max_stop_snap_m in degrees, and skip any stop outside it immediately.
+    _MARGIN_DEG = max_stop_snap_m / 111_320.0   # metres → approximate degrees
+    if _drive_nodes:
+        _xs = [nx_ for _, nx_, _ in _drive_nodes]
+        _ys = [ny_ for _, _, ny_ in _drive_nodes]
+        _bbox_min_lon = min(_xs) - _MARGIN_DEG
+        _bbox_max_lon = max(_xs) + _MARGIN_DEG
+        _bbox_min_lat = min(_ys) - _MARGIN_DEG
+        _bbox_max_lat = max(_ys) + _MARGIN_DEG
+    else:
+        _bbox_min_lon = _bbox_max_lon = _bbox_min_lat = _bbox_max_lat = 0.0
+
     def _fast_nearest(lon: float, lat: float) -> Optional:
+        # Fast bbox pre-rejection: stops outside the drive graph area will
+        # never snap within max_stop_snap_m, so skip immediately.
+        if not (_bbox_min_lon <= lon <= _bbox_max_lon
+                and _bbox_min_lat <= lat <= _bbox_max_lat):
+            return None
         best_node, best_dist = None, float('inf')
         for node, nx_, ny_ in _drive_nodes:
             # Fast Euclidean pre-filter (degrees × 111km)
@@ -198,6 +221,7 @@ def enrich_transit_shapes(
     enriched = 0
     skipped_no_snap  = 0
     skipped_no_path  = 0
+    skipped_out_bbox = 0
     cache_hits       = 0
 
     all_edges = list(G_transit.edges(keys=True, data=True))
@@ -240,6 +264,15 @@ def enrich_transit_shapes(
             continue
 
         # ── Snap stops to drive graph ─────────────────────────────────────────
+        # Fast-reject stops outside the drive graph bbox before running O(N) scan.
+        u_in_bbox = (_bbox_min_lon <= u_lon <= _bbox_max_lon
+                     and _bbox_min_lat <= u_lat <= _bbox_max_lat)
+        v_in_bbox = (_bbox_min_lon <= v_lon <= _bbox_max_lon
+                     and _bbox_min_lat <= v_lat <= _bbox_max_lat)
+        if not (u_in_bbox and v_in_bbox):
+            skipped_out_bbox += 1
+            continue
+
         u_node = _fast_nearest(u_lon, u_lat)
         v_node = _fast_nearest(v_lon, v_lat)
 
@@ -288,7 +321,7 @@ def enrich_transit_shapes(
 
     logger.info(
         "✅ Bus shape enrichment complete: %d enriched (%d cache hits), "
-        "%d skipped (no snap), %d skipped (no path)",
-        enriched, cache_hits, skipped_no_snap, skipped_no_path,
+        "%d skipped (out-of-bbox), %d skipped (no snap), %d skipped (no path)",
+        enriched, cache_hits, skipped_out_bbox, skipped_no_snap, skipped_no_path,
     )
     return enriched

@@ -2470,7 +2470,7 @@ class Router:
                 shape = _g_route_shapes.get(_seg_route, {}).get((u_node, v_node), [])
             if not shape:
                 for ed in edge_map.values():
-                    if ed.get('mode') == 'walk_transfer': continue
+                    if ed.get('mode') in ('walk', 'walk_transfer'): continue
                     s = ed.get('shape_coords') or []
                     if len(s) > len(shape):
                         shape = s; _selected_ed = ed
@@ -2479,7 +2479,8 @@ class Router:
             elif _selected_ed is not None:
                 _all_short_names.extend(_selected_ed.get('route_short_names', []))
             elif edge_map:
-                _first = next((e for e in edge_map.values() if e.get('mode') != 'walk_transfer'), {})
+                _first = next((e for e in edge_map.values()
+                               if e.get('mode') not in ('walk', 'walk_transfer')), {})
                 _all_short_names.extend(_first.get('route_short_names', []))
 
             # ── (service name collection now handled above) ───────────────────────
