@@ -161,6 +161,22 @@ def enrich_transit_shapes(
             except Exception as exc:
                 logger.debug("Bus shape cache unreadable (%s) — rebuilding", exc)
 
+    # ── Pre-filter: skip everything if graph is already fully enriched ────────
+    # The second call to enrich_transit_shapes (different city_tag) sees 0 empty
+    # edges after the first call has filled them in-place.  Exit before building
+    # the drive-node list (O(N) over 13k+ nodes) to avoid wasting ~10 seconds.
+    all_edges = list(G_transit.edges(keys=True, data=True))
+    empty_edges = [
+        (u, v, k, d) for u, v, k, d in all_edges
+        if (d.get('mode', 'bus') not in ('walk',) and
+            d.get('highway') != 'transfer' and
+            not d.get('shape_coords'))
+    ]
+    total = len(empty_edges)
+    if total == 0:
+        logger.info("Bus shape enrichment: all transit edges already have shape_coords — nothing to do")
+        return 0
+
     # ── Build drive-node lookup: (lon, lat) → nearest drive node ─────────────
     # We use a simple linear scan here because the drive graph is small enough
     # (<100k nodes for Edinburgh) and each stop is only looked up once.
@@ -224,22 +240,10 @@ def enrich_transit_shapes(
     skipped_out_bbox = 0
     cache_hits       = 0
 
-    all_edges = list(G_transit.edges(keys=True, data=True))
-    empty_edges = [
-        (u, v, k, d) for u, v, k, d in all_edges
-        if (d.get('mode', 'bus') not in ('walk',) and
-            d.get('highway') != 'transfer' and
-            not d.get('shape_coords'))
-    ]
-
-    total = len(empty_edges)
     logger.info(
         "Bus shape enrichment: %d / %d transit edges lack geometry — filling now",
         total, len(all_edges),
     )
-    if total == 0:
-        logger.info("All transit edges already have shape_coords — nothing to enrich")
-        return 0
 
     for u, v, k, data in empty_edges:
         cache_key = f"{u}|{v}"
