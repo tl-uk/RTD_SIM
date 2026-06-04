@@ -701,13 +701,10 @@ class GTFSGraph:
             })
         return out
 
-    # Maximum straight-line distance (km) to render a shapeless edge.
-    # Anything longer draws a diagonal that cuts through buildings / water.
-    # Must match _MAX_SHAPELESS_KM in gtfs_visualizer.py.
     _MAX_SHAPELESS_KM: float = 0.08
 
     @staticmethod
-    def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    def _haversine_km_static(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
         import math
         R = 6371.0
         dp = math.radians(lat2 - lat1)
@@ -721,7 +718,7 @@ class GTFSGraph:
         """
         Return route lines as pydeck-compatible dicts for a PathLayer.
         Uses shape_coords when available; falls back to straight stop-to-stop lines
-        only for very short segments (≤ _MAX_SHAPELESS_KM) to avoid drawing
+        ONLY for very short segments (≤ _MAX_SHAPELESS_KM = 80m) to avoid drawing
         straight lines through buildings, parks and water.
         Walk / transfer edges are always excluded.
         """
@@ -737,8 +734,7 @@ class GTFSGraph:
             'ferry_electric':  [  0, 188, 212],
         }
 
-        # Deduplicate parallel edges with identical geometry (same stop-pair + mode).
-        _seen: set = set()
+        _seen_edges: set = set()
         out = []
         for u, v, attrs in G_transit.edges(data=True):
             mode  = attrs.get('mode', 'bus')
@@ -747,26 +743,24 @@ class GTFSGraph:
             if mode in ('walk', 'walk_transfer') or attrs.get('highway') == 'transfer':
                 continue
 
+            # Deduplicate parallel edges with identical (u, v, mode).
+            _ekey = (u, v, mode)
+            if _ekey in _seen_edges:
+                continue
+            _seen_edges.add(_ekey)
+
             shape = attrs.get('shape_coords')
 
             if not shape:
                 u_d   = G_transit.nodes.get(u, {})
                 v_d   = G_transit.nodes.get(v, {})
-                u_lon = u_d.get('x', 0)
-                u_lat = u_d.get('y', 0)
-                v_lon = v_d.get('x', 0)
-                v_lat = v_d.get('y', 0)
+                u_lon, u_lat = u_d.get('x', 0), u_d.get('y', 0)
+                v_lon, v_lat = v_d.get('x', 0), v_d.get('y', 0)
                 # Suppress long shapeless edges — they produce misleading straight
                 # lines across roads, parks and water bodies.
-                if self._haversine_km(u_lon, u_lat, v_lon, v_lat) > self._MAX_SHAPELESS_KM:
+                if self._haversine_km_static(u_lon, u_lat, v_lon, v_lat) > self._MAX_SHAPELESS_KM:
                     continue
                 shape = [[u_lon, u_lat], [v_lon, v_lat]]
-
-            # Skip duplicate (u, v, mode) combinations.
-            _key = (u, v, mode)
-            if _key in _seen:
-                continue
-            _seen.add(_key)
 
             color = list(_MODE_COLORS.get(mode, [128, 128, 128]))
             if attrs.get('fuel_type') == 'electric':

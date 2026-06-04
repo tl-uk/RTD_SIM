@@ -162,18 +162,17 @@ def enrich_transit_shapes(
                 logger.debug("Bus shape cache unreadable (%s) — rebuilding", exc)
 
     # ── Pre-filter: skip everything if graph is already fully enriched ────────
-    # The second call to enrich_transit_shapes (different city_tag) sees 0 empty
-    # edges after the first call has filled them in-place.  Exit before building
-    # the drive-node list (O(N) over 13k+ nodes) to avoid wasting ~10 seconds.
-    all_edges = list(G_transit.edges(keys=True, data=True))
-    empty_edges = [
-        (u, v, k, d) for u, v, k, d in all_edges
+    # A second call (different city_tag, empty cache) sees 0 empty edges after
+    # the first call has already filled shape_coords in-place.  Exit before
+    # building the drive-node list to avoid wasting ~10 seconds.
+    _all_edges_pre = list(G_transit.edges(keys=True, data=True))
+    _empty_pre = [
+        (u, v, k, d) for u, v, k, d in _all_edges_pre
         if (d.get('mode', 'bus') not in ('walk',) and
             d.get('highway') != 'transfer' and
             not d.get('shape_coords'))
     ]
-    total = len(empty_edges)
-    if total == 0:
+    if not _empty_pre:
         logger.info("Bus shape enrichment: all transit edges already have shape_coords — nothing to do")
         return 0
 
@@ -197,14 +196,9 @@ def enrich_transit_shapes(
         for node, data in G_drive.nodes(data=True)
     ]
 
-    # ── Drive graph bounding box (used to skip out-of-area stops fast) ────────
-    # The GTFS spatial filter adds 0.30° padding, so the transit graph contains
-    # stops from Fife, Livingston, Stirling etc. that lie outside the Edinburgh
-    # drive graph bbox.  Running the full O(N) nearest-node scan for these stops
-    # wastes time and always fails (no drive node within max_stop_snap_m).
-    # We pre-compute the drive graph bbox with a generous buffer equal to
-    # max_stop_snap_m in degrees, and skip any stop outside it immediately.
-    _MARGIN_DEG = max_stop_snap_m / 111_320.0   # metres → approximate degrees
+    # ── Drive graph bbox guard ─────────────────────────────────────────────────
+    # Pre-reject stops outside the drive graph area before running the O(N) scan.
+    _MARGIN_DEG = max_stop_snap_m / 111_320.0
     if _drive_nodes:
         _xs = [nx_ for _, nx_, _ in _drive_nodes]
         _ys = [ny_ for _, _, ny_ in _drive_nodes]
@@ -216,21 +210,17 @@ def enrich_transit_shapes(
         _bbox_min_lon = _bbox_max_lon = _bbox_min_lat = _bbox_max_lat = 0.0
 
     def _fast_nearest(lon: float, lat: float) -> Optional:
-        # Fast bbox pre-rejection: stops outside the drive graph area will
-        # never snap within max_stop_snap_m, so skip immediately.
+        # Fast bbox pre-rejection.
         if not (_bbox_min_lon <= lon <= _bbox_max_lon
                 and _bbox_min_lat <= lat <= _bbox_max_lat):
             return None
         best_node, best_dist = None, float('inf')
         for node, nx_, ny_ in _drive_nodes:
-            # Fast Euclidean pre-filter (degrees × 111km)
             dx = (nx_ - lon) * 111_320 * math.cos(math.radians(lat))
             dy = (ny_ - lat) * 111_320
             d  = math.sqrt(dx * dx + dy * dy)
             if d < best_dist:
                 best_dist, best_node = d, node
-        # best_dist is already in metres (degrees x 111_320 m/deg).
-        # Do NOT multiply by 1000 -- that compares millimetres against metres.
         return best_node if best_dist <= max_stop_snap_m else None
 
     # ── Iterate transit edges ─────────────────────────────────────────────────
@@ -240,10 +230,22 @@ def enrich_transit_shapes(
     skipped_out_bbox = 0
     cache_hits       = 0
 
+    all_edges = list(G_transit.edges(keys=True, data=True))
+    empty_edges = [
+        (u, v, k, d) for u, v, k, d in all_edges
+        if (d.get('mode', 'bus') not in ('walk',) and
+            d.get('highway') != 'transfer' and
+            not d.get('shape_coords'))
+    ]
+
+    total = len(empty_edges)
     logger.info(
         "Bus shape enrichment: %d / %d transit edges lack geometry — filling now",
         total, len(all_edges),
     )
+    if total == 0:
+        logger.info("All transit edges already have shape_coords — nothing to enrich")
+        return 0
 
     for u, v, k, data in empty_edges:
         cache_key = f"{u}|{v}"
@@ -268,12 +270,10 @@ def enrich_transit_shapes(
             continue
 
         # ── Snap stops to drive graph ─────────────────────────────────────────
-        # Fast-reject stops outside the drive graph bbox before running O(N) scan.
-        u_in_bbox = (_bbox_min_lon <= u_lon <= _bbox_max_lon
-                     and _bbox_min_lat <= u_lat <= _bbox_max_lat)
-        v_in_bbox = (_bbox_min_lon <= v_lon <= _bbox_max_lon
-                     and _bbox_min_lat <= v_lat <= _bbox_max_lat)
-        if not (u_in_bbox and v_in_bbox):
+        # Fast-reject stop pairs where either endpoint is outside the drive bbox.
+        _u_in = (_bbox_min_lon <= u_lon <= _bbox_max_lon and _bbox_min_lat <= u_lat <= _bbox_max_lat)
+        _v_in = (_bbox_min_lon <= v_lon <= _bbox_max_lon and _bbox_min_lat <= v_lat <= _bbox_max_lat)
+        if not (_u_in and _v_in):
             skipped_out_bbox += 1
             continue
 

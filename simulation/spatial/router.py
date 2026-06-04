@@ -2470,7 +2470,7 @@ class Router:
                 shape = _g_route_shapes.get(_seg_route, {}).get((u_node, v_node), [])
             if not shape:
                 for ed in edge_map.values():
-                    if ed.get('mode') in ('walk', 'walk_transfer'): continue
+                    if ed.get('mode') == 'walk_transfer': continue
                     s = ed.get('shape_coords') or []
                     if len(s) > len(shape):
                         shape = s; _selected_ed = ed
@@ -2479,8 +2479,7 @@ class Router:
             elif _selected_ed is not None:
                 _all_short_names.extend(_selected_ed.get('route_short_names', []))
             elif edge_map:
-                _first = next((e for e in edge_map.values()
-                               if e.get('mode') not in ('walk', 'walk_transfer')), {})
+                _first = next((e for e in edge_map.values() if e.get('mode') != 'walk_transfer'), {})
                 _all_short_names.extend(_first.get('route_short_names', []))
 
             # ── (service name collection now handled above) ───────────────────────
@@ -2490,7 +2489,18 @@ class Router:
             v_y = float(G_transit.nodes[v_node].get('y', 0))
     
             if shape and len(shape) > 2:
-                # Ground-truth GTFS shape — use directly.
+                # Ground-truth GTFS shape — verify orientation before use.
+                # The enriched shape should run u→v, but occasionally the drive
+                # routing produces a path whose first coordinate is geographically
+                # closer to v than to u (e.g. when the road loops around the stop).
+                # Detect and correct by comparing shape endpoints to stop coords.
+                _s0_lon, _s0_lat = float(shape[0][0]),  float(shape[0][1])
+                _s1_lon, _s1_lat = float(shape[-1][0]), float(shape[-1][1])
+                _d_fwd = (_s0_lon - u_x)**2 + (_s0_lat - u_y)**2
+                _d_rev = (_s0_lon - v_x)**2 + (_s0_lat - v_y)**2
+                if _d_rev < _d_fwd:
+                    shape = list(reversed(shape))
+                # Use directly — ground-truth geometry.
                 transit_coords.extend(shape if i == 0 else shape[1:])
     
             elif mode in ('bus', 'van_electric', 'van_diesel'):

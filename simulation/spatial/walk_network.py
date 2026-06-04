@@ -75,14 +75,55 @@ def _overpass_post(query: str, timeout_s: int = 60) -> Optional[dict]:
         return None
 
 def build_walk_network(
-    bbox: Tuple[float, float, float, float], 
+    bbox: Optional[Tuple[float, float, float, float]] = None,
     city_tag: str = "default",
-    use_cache: bool = True
+    use_cache: bool = True,
+    graph_manager=None,
 ) -> 'nx.MultiDiGraph':
     """
-    Builds a bidirectional pedestrian graph. 
+    Builds a bidirectional pedestrian graph.
     Prioritizes dedicated walking infrastructure to keep agents off road networks.
+
+    Args:
+        bbox:          (north, south, east, west) in WGS84.  If None, derived
+                       from the drive graph registered on graph_manager.
+        city_tag:      Cache key prefix.
+        use_cache:     Whether to read/write a GraphML cache.
+        graph_manager: Optional GraphManager; used to derive bbox from the drive
+                       graph when bbox is not explicitly supplied.  This avoids
+                       the "No bbox available" failure that fires when
+                       environment_setup calls this function before OSMnx has
+                       returned a bounding box.
     """
+    # ── Derive bbox from drive graph when not provided ─────────────────────────
+    if bbox is None and graph_manager is not None:
+        try:
+            G_drive = graph_manager.get_graph('drive')
+            if G_drive is not None and G_drive.number_of_nodes() > 0:
+                xs = [float(d.get('x', 0)) for _, d in G_drive.nodes(data=True)]
+                ys = [float(d.get('y', 0)) for _, d in G_drive.nodes(data=True)]
+                # Add a small margin (≈400m) so footways just outside the drive
+                # graph hull are still included.
+                _margin = 0.004
+                north = max(ys) + _margin
+                south = min(ys) - _margin
+                east  = max(xs) + _margin
+                west  = min(xs) - _margin
+                bbox  = (north, south, east, west)
+                logger.info(
+                    "Walk network: bbox derived from drive graph "
+                    "(N=%.4f S=%.4f E=%.4f W=%.4f)", north, south, east, west,
+                )
+        except Exception as _bbox_exc:
+            logger.warning("Walk network: could not derive bbox from drive graph: %s", _bbox_exc)
+
+    if bbox is None:
+        logger.warning("Walk network: no bbox available — returning empty graph")
+        G = nx.MultiDiGraph()
+        G.graph['name'] = 'walk'
+        G.graph['crs']  = 'epsg:4326'
+        return G
+
     north, south, east, west = bbox
     cache_path = CACHE_ROOT / f"{city_tag}_walk.graphml"
 
