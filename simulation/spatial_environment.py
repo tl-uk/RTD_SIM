@@ -366,28 +366,6 @@ class SpatialEnvironment:
         Returns:
             True if transit graph loaded and registered successfully.
         """
-        import hashlib, pickle, time
-
-        _gtfs_disk_cache_dir = Path.home() / ".rtd_sim_cache" / "gtfs_graphs"
-        _gtfs_disk_cache_dir.mkdir(parents=True, exist_ok=True)
-
-        # Key: hash of feed path + mtime + service_date
-        _feed_stat = Path(feed_path).stat()
-        _cache_key_str = f"{feed_path}:{_feed_stat.st_mtime}:{service_date}"
-        _cache_hash = hashlib.md5(_cache_key_str.encode()).hexdigest()[:16]
-        _disk_cache_path = _gtfs_disk_cache_dir / f"{_cache_hash}.pkl"
-
-        if _disk_cache_path.exists():
-            _age_h = (time.time() - _disk_cache_path.stat().st_mtime) / 3600
-            if _age_h < 72:
-                try:
-                    G_cached = pickle.loads(_disk_cache_path.read_bytes())
-                    self.graph_manager.graphs['transit'] = G_cached
-                    logger.info("GTFS transit graph: loaded from disk cache (%.1fh old)", _age_h)
-                    return True
-                except Exception:
-                    pass  # corrupt cache — rebuild below
-
         # Idempotent: skip if already loaded on this instance.
         if self.graph_manager.get_graph('transit') is not None:
             logger.debug("GTFS transit graph already loaded — skipping")

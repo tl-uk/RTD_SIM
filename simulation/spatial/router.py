@@ -1721,8 +1721,12 @@ class Router:
         if G_ferry is not None and G_ferry.number_of_nodes() > 1:
             try:
                 import osmnx as ox
-                orig_node = ox.distance.nearest_nodes(G_ferry, origin[0], origin[1])
-                dest_node = ox.distance.nearest_nodes(G_ferry, dest[0],   dest[1])
+                from simulation.spatial.ferry_network import snap_to_ferry_terminal
+                orig_node = snap_to_ferry_terminal(origin, G_ferry, max_km=30.0)
+                dest_node = snap_to_ferry_terminal(dest,   G_ferry, max_km=30.0)
+                if orig_node is None or dest_node is None:
+                    logger.debug("%s: no ferry terminal within 30km — great-circle fallback", agent_id)
+                    return self._interpolate([origin, dest], max_segment_km=0.2)
                 if orig_node != dest_node:
                     path_nodes = nx.shortest_path(G_ferry, orig_node, dest_node, weight='length')
                     coords: List[Tuple[float, float]] = []

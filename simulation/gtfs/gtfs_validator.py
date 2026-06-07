@@ -195,6 +195,8 @@ def validate_gtfs_feed(
         result.fail("Feed load failed", str(e))
         return
 
+    _check_disk_cache(feed_path, service_date, result)
+    
     # ── Build transit graph ──────────────────────────────────────────────────
     try:
         from simulation.gtfs.gtfs_graph import GTFSGraph
@@ -205,6 +207,40 @@ def validate_gtfs_feed(
     except Exception as e:
         result.fail("Transit graph build failed", str(e))
         return
+    
+    # -- Verify that the disk cache round-trip works correctly ------------------
+    def _check_disk_cache(feed_path: str, service_date: Optional[str], result: ValidationResult) -> None:
+        """Verify that the disk cache round-trips correctly for this feed."""
+        try:
+            from simulation.gtfs.gtfs_graph import GTFSGraph
+            G_cached = GTFSGraph.load_from_disk(feed_path, service_date)
+            if G_cached is None:
+                result.warn(
+                    "Disk cache",
+                    "No valid cache found — first run will build from scratch (~10 min)"
+                )
+            else:
+                n_nodes = G_cached.number_of_nodes()
+                n_edges = G_cached.number_of_edges()
+                # Sanity: cached graph must have at least one transit edge
+                transit_edges = sum(
+                    1 for _, _, d in G_cached.edges(data=True)
+                    if d.get('mode') not in ('walk', 'walk_transfer')
+                    and d.get('highway') != 'transfer'
+                )
+                if transit_edges == 0:
+                    result.fail(
+                        "Disk cache integrity",
+                        f"Cache loaded ({n_nodes} nodes, {n_edges} edges) but "
+                        "contains zero transit edges — cache is corrupt, delete and rebuild"
+                    )
+                else:
+                    result.ok(
+                        "Disk cache",
+                        f"Valid cache: {n_nodes} stops, {transit_edges} transit edges"
+                    )
+        except Exception as exc:
+            result.warn("Disk cache check", f"Could not verify: {exc}")
 
     # ── Check stop coordinates ────────────────────────────────────────────────
     zero_stops = [(n, d) for n, d in G.nodes(data=True)

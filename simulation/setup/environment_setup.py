@@ -241,12 +241,11 @@ def setup_environment(
             _city_tag = getattr(config, 'place', 'default')
             if isinstance(_city_tag, str):
                 _city_tag = _city_tag.replace(' ', '_').replace(',', '').lower()[:30]
-            # Always pass graph_manager so bbox can be derived from drive graph:
             G_footways = build_walk_network(
-                bbox      = (_fn, _fs, _fe, _fw) if bbox is not None else None,
-                city_tag  = _city_tag,
-                use_cache = True,
-                graph_manager = env.graph_manager,   # ← add this line
+                bbox          = (bbox[0], bbox[1], bbox[2], bbox[3]) if bbox is not None else None,
+                city_tag      = _city_tag,
+                use_cache     = True,
+                graph_manager = env.graph_manager,   # ← the only addition
             )
             if G_footways is not None and G_footways.number_of_nodes() > 0:
                 env.graph_manager.graphs['walk_footways'] = G_footways
@@ -258,8 +257,6 @@ def setup_environment(
                 logger.debug(
                     "Dedicated footway graph empty — walk routing uses OSMnx walk graph"
                 )
-        else:
-            logger.debug("No bbox available — skipping dedicated footway graph")
     except Exception as exc:
         logger.warning("Dedicated footway graph load failed (non-fatal): %s", exc)
 

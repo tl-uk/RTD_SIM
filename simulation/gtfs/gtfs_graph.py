@@ -876,3 +876,73 @@ class GTFSGraph:
             sliced = list(reversed(shape_coords[i_v: i_u + 1]))
 
         return sliced if len(sliced) >= 2 else [] #[(u_lon, u_lat), (v_lon, v_lat)]
+    
+    # ========================================================================
+    # DISK CACHING
+    # ========================================================================
+    import hashlib, pickle, time
+    from pathlib import Path
+
+    _GRAPH_CACHE_DIR = Path.home() / ".rtd_sim_cache" / "gtfs_graphs"
+    _GRAPH_CACHE_TTL_H = 72.0
+
+    @classmethod
+    def load_from_disk(
+        cls,
+        feed_path: str,
+        service_date: Optional[str],
+    ) -> Optional[Any]:
+        """
+        Return a cached transit graph if one exists for this feed+date and is
+        within TTL. Returns None if no valid cache exists.
+
+        Cache key: MD5 of (feed_path + feed mtime + service_date).
+        Invalidated automatically when the feed file changes on disk.
+        """
+        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            mtime = Path(feed_path).stat().st_mtime
+        except OSError:
+            return None
+        key = hashlib.md5(
+            f"{feed_path}:{mtime}:{service_date}".encode()
+        ).hexdigest()[:16]
+        cache_path = _GRAPH_CACHE_DIR / f"{key}.pkl"
+        if not cache_path.exists():
+            return None
+        age_h = (time.time() - cache_path.stat().st_mtime) / 3600
+        if age_h >= _GRAPH_CACHE_TTL_H:
+            return None
+        try:
+            G = pickle.loads(cache_path.read_bytes())
+            logger.info(
+                "GTFSGraph: loaded from disk cache (%.1fh old, key=%s)", age_h, key
+            )
+            return G
+        except Exception as exc:
+            logger.warning("GTFSGraph: disk cache corrupt (%s) — rebuilding", exc)
+            cache_path.unlink(missing_ok=True)
+            return None
+
+    @classmethod
+    def save_to_disk(
+        cls,
+        G: Any,
+        feed_path: str,
+        service_date: Optional[str],
+    ) -> None:
+        """Persist a built transit graph to disk. Silently skips on failure."""
+        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            mtime = Path(feed_path).stat().st_mtime
+        except OSError:
+            return
+        key = hashlib.md5(
+            f"{feed_path}:{mtime}:{service_date}".encode()
+        ).hexdigest()[:16]
+        cache_path = _GRAPH_CACHE_DIR / f"{key}.pkl"
+        try:
+            cache_path.write_bytes(pickle.dumps(G))
+            logger.info("GTFSGraph: saved to disk cache (key=%s)", key)
+        except Exception as exc:
+            logger.warning("GTFSGraph: could not write disk cache: %s", exc)
