@@ -371,6 +371,20 @@ class SpatialEnvironment:
             logger.debug("GTFS transit graph already loaded — skipping")
             return True
 
+        # ── Disk cache (survives Streamlit restarts) ──────────────────────────
+        # Check for a valid on-disk pickle before touching the module-level
+        # cache or parsing the feed.  Key is derived from feed mtime so a
+        # new BODS download automatically invalidates the old cache.
+        from simulation.gtfs.gtfs_graph import GTFSGraph as _GTFSGraph
+        _G_disk = _GTFSGraph.load_from_disk(feed_path, service_date)
+        if _G_disk is not None:
+            self.graph_manager.graphs['transit'] = _G_disk
+            logger.info(
+                "GTFS transit graph: loaded from disk cache — %d stops, %d edges",
+                _G_disk.number_of_nodes(), _G_disk.number_of_edges(),
+            )
+            return True
+
         # Module-level cache: reuse a previously-built transit graph when a
         # second SpatialEnvironment is created for the same feed (e.g.
         # startup_manager preview followed by simulation_runner setup).
@@ -464,6 +478,9 @@ class SpatialEnvironment:
 
             self.graph_manager.graphs['transit'] = G_transit
             self.gtfs_loader = loader   # stash for analytics / pydeck layers
+
+            # Persist to disk so Streamlit restarts skip the 10-minute parse.
+            _GTFSGraph.save_to_disk(G_transit, feed_path, service_date)
 
             # Populate the module-level cache so any subsequent SpatialEnvironment
             # instance for the same feed can skip the 2-minute parse.

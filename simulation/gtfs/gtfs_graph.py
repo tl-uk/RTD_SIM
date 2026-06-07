@@ -67,9 +67,13 @@ Fuel → emissions mapping (g CO₂e / km)
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
+import pickle
+import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -880,8 +884,6 @@ class GTFSGraph:
     # ========================================================================
     # DISK CACHING
     # ========================================================================
-    import hashlib, pickle, time
-    from pathlib import Path
 
     _GRAPH_CACHE_DIR = Path.home() / ".rtd_sim_cache" / "gtfs_graphs"
     _GRAPH_CACHE_TTL_H = 72.0
@@ -899,7 +901,7 @@ class GTFSGraph:
         Cache key: MD5 of (feed_path + feed mtime + service_date).
         Invalidated automatically when the feed file changes on disk.
         """
-        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cls._GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         try:
             mtime = Path(feed_path).stat().st_mtime
         except OSError:
@@ -907,11 +909,11 @@ class GTFSGraph:
         key = hashlib.md5(
             f"{feed_path}:{mtime}:{service_date}".encode()
         ).hexdigest()[:16]
-        cache_path = _GRAPH_CACHE_DIR / f"{key}.pkl"
+        cache_path = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
         if not cache_path.exists():
             return None
         age_h = (time.time() - cache_path.stat().st_mtime) / 3600
-        if age_h >= _GRAPH_CACHE_TTL_H:
+        if age_h >= cls._GRAPH_CACHE_TTL_H:
             return None
         try:
             G = pickle.loads(cache_path.read_bytes())
@@ -932,7 +934,7 @@ class GTFSGraph:
         service_date: Optional[str],
     ) -> None:
         """Persist a built transit graph to disk. Silently skips on failure."""
-        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cls._GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         try:
             mtime = Path(feed_path).stat().st_mtime
         except OSError:
@@ -940,7 +942,7 @@ class GTFSGraph:
         key = hashlib.md5(
             f"{feed_path}:{mtime}:{service_date}".encode()
         ).hexdigest()[:16]
-        cache_path = _GRAPH_CACHE_DIR / f"{key}.pkl"
+        cache_path = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
         try:
             cache_path.write_bytes(pickle.dumps(G))
             logger.info("GTFSGraph: saved to disk cache (key=%s)", key)
