@@ -241,10 +241,12 @@ def setup_environment(
             _city_tag = getattr(config, 'place', 'default')
             if isinstance(_city_tag, str):
                 _city_tag = _city_tag.replace(' ', '_').replace(',', '').lower()[:30]
+            # Always pass graph_manager so bbox can be derived from drive graph:
             G_footways = build_walk_network(
-                bbox     = (_fn, _fs, _fe, _fw),
-                city_tag = _city_tag,
+                bbox      = (_fn, _fs, _fe, _fw) if bbox is not None else None,
+                city_tag  = _city_tag,
                 use_cache = True,
+                graph_manager = env.graph_manager,   # ← add this line
             )
             if G_footways is not None and G_footways.number_of_nodes() > 0:
                 env.graph_manager.graphs['walk_footways'] = G_footways
@@ -633,28 +635,28 @@ def setup_environment(
     # computed once at setup time and cached for 72 h.  This is the correct
     # architectural fix: shapes are ground truth, set at graph-build time, not
     # patched per-agent at runtime.
-    try:
-        G_transit_check = env.get_transit_graph() if hasattr(env, 'get_transit_graph') else                           env.graph_manager.get_graph('transit')
-        if G_transit_check is not None and G_transit_check.number_of_edges() > 0:
-            if progress_callback:
-                progress_callback(0.195, "🚌 Enriching bus route shapes…")
-            from simulation.spatial.bus_network import enrich_transit_shapes
-            _city_tag = getattr(config, 'place', 'default')
-            if isinstance(_city_tag, str):
-                _city_tag = _city_tag.replace(' ', '_').replace(',', '').lower()[:30]
-            n_enriched = enrich_transit_shapes(
-                env.graph_manager,
-                city_tag=_city_tag,
-            )
-            if n_enriched:
-                logger.info(
-                    "✅ Bus shape enrichment: %d transit edges filled with "                    "road-following geometry",
-                    n_enriched,
-                )
-        else:
-            logger.debug("No transit graph to enrich — bus shape enrichment skipped")
-    except Exception as exc:
-        logger.warning("Bus shape enrichment failed (non-fatal): %s", exc)
+    # try:
+    #     G_transit_check = env.get_transit_graph() if hasattr(env, 'get_transit_graph') else                           env.graph_manager.get_graph('transit')
+    #     if G_transit_check is not None and G_transit_check.number_of_edges() > 0:
+    #         if progress_callback:
+    #             progress_callback(0.195, "🚌 Enriching bus route shapes…")
+    #         from simulation.spatial.bus_network import enrich_transit_shapes
+    #         _city_tag = getattr(config, 'place', 'default')
+    #         if isinstance(_city_tag, str):
+    #             _city_tag = _city_tag.replace(' ', '_').replace(',', '').lower()[:30]
+    #         n_enriched = enrich_transit_shapes(
+    #             env.graph_manager,
+    #             city_tag=_city_tag,
+    #         )
+    #         if n_enriched:
+    #             logger.info(
+    #                 "✅ Bus shape enrichment: %d transit edges filled with "                    "road-following geometry",
+    #                 n_enriched,
+    #             )
+    #     else:
+    #         logger.debug("No transit graph to enrich — bus shape enrichment skipped")
+    # except Exception as exc:
+    #     logger.warning("Bus shape enrichment failed (non-fatal): %s", exc)
 
     # ── Preload address/building nodes for agent OD sampling ─────────────────
     # get_random_origin_dest() now samples from OSM building/address centroids

@@ -271,11 +271,11 @@ def enrich_transit_shapes(
 
         # ── Snap stops to drive graph ─────────────────────────────────────────
         # Fast-reject stop pairs where either endpoint is outside the drive bbox.
-        _u_in = (_bbox_min_lon <= u_lon <= _bbox_max_lon and _bbox_min_lat <= u_lat <= _bbox_max_lat)
-        _v_in = (_bbox_min_lon <= v_lon <= _bbox_max_lon and _bbox_min_lat <= v_lat <= _bbox_max_lat)
-        if not (_u_in and _v_in):
-            skipped_out_bbox += 1
-            continue
+        # _u_in = (_bbox_min_lon <= u_lon <= _bbox_max_lon and _bbox_min_lat <= u_lat <= _bbox_max_lat)
+        # _v_in = (_bbox_min_lon <= v_lon <= _bbox_max_lon and _bbox_min_lat <= v_lat <= _bbox_max_lat)
+        # if not (_u_in and _v_in):
+        #     skipped_out_bbox += 1
+        #     continue
 
         u_node = _fast_nearest(u_lon, u_lat)
         v_node = _fast_nearest(v_lon, v_lat)

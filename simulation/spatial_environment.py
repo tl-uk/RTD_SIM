@@ -340,13 +340,9 @@ class SpatialEnvironment:
         The spatial filter for stops is derived from the loaded drive graph
         plus a 0.3° (~30 km) padding in every direction.
 
-        The larger padding is intentional: Edinburgh's bus and rail network
-        extends well beyond the city's OSM drive graph boundary.  Key
-        examples include:
-
-          • E1 (Edinburgh Airport Express) → Ferrytoll P&R, north of the Forth
-          • X56/X57 → South Queensferry, Dalmeny
-          • ScotRail services → North Berwick, Musselburgh, Kirkcaldy
+        The larger padding is intentional — the OSM drive graph typically covers the 
+        city boundary but GTFS routes often extend well beyond that, especially express 
+        bus and rail services that cross the Forth.
 
         With only 0.05° padding, stops north of the Forth are excluded and
         their routes degrade to straight-line fallbacks.  With 0.3° padding,
@@ -370,6 +366,28 @@ class SpatialEnvironment:
         Returns:
             True if transit graph loaded and registered successfully.
         """
+        import hashlib, pickle, time
+
+        _gtfs_disk_cache_dir = Path.home() / ".rtd_sim_cache" / "gtfs_graphs"
+        _gtfs_disk_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Key: hash of feed path + mtime + service_date
+        _feed_stat = Path(feed_path).stat()
+        _cache_key_str = f"{feed_path}:{_feed_stat.st_mtime}:{service_date}"
+        _cache_hash = hashlib.md5(_cache_key_str.encode()).hexdigest()[:16]
+        _disk_cache_path = _gtfs_disk_cache_dir / f"{_cache_hash}.pkl"
+
+        if _disk_cache_path.exists():
+            _age_h = (time.time() - _disk_cache_path.stat().st_mtime) / 3600
+            if _age_h < 72:
+                try:
+                    G_cached = pickle.loads(_disk_cache_path.read_bytes())
+                    self.graph_manager.graphs['transit'] = G_cached
+                    logger.info("GTFS transit graph: loaded from disk cache (%.1fh old)", _age_h)
+                    return True
+                except Exception:
+                    pass  # corrupt cache — rebuild below
+
         # Idempotent: skip if already loaded on this instance.
         if self.graph_manager.get_graph('transit') is not None:
             logger.debug("GTFS transit graph already loaded — skipping")

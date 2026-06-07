@@ -382,11 +382,16 @@ def create_transit_network_layers(
     G_bike      = gm.get_graph("bike")      if gm else None
     G_ferry     = gm.get_graph("ferry")     if gm else None
     G_transit   = None
+    # GTFS transit graph may be on graph_manager or router (router is fallback for older envs that 
+    # don't have it on the graph_manager)
     if use_gtfs and env is not None:
-        _router = getattr(env, "router", getattr(env, "_router", None))
-        if _router is not None:
-            G_transit = getattr(_router, "_transit_graph", None)
-            if G_transit is None and hasattr(_router, "_get_transit_graph"):
+        _gm2 = getattr(env, "graph_manager", None)
+        if _gm2 is not None:
+            G_transit = _gm2.get_graph("transit")
+        # Fallback: try router's internal method if graph_manager doesn't have it
+        if G_transit is None:
+            _router = getattr(env, "router", None)
+            if _router is not None and hasattr(_router, "_get_transit_graph"):
                 try:
                     G_transit = _router._get_transit_graph()
                 except Exception:

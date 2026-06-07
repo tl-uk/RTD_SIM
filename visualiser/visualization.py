@@ -395,7 +395,7 @@ def render_map(
         kwargs.get('show_contraflow', False),
     ])
     if _show_any_transit:
-        _env_arg = kwargs.get('env') or kwargs.get('spatial_environment')
+        # _env_arg = kwargs.get('env') or kwargs.get('spatial_environment')
         try:
             _transit_lyrs = create_transit_network_layers(
                 env              = _env_arg,
