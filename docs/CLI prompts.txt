@@ -49,7 +49,16 @@ rm -rf ~/.rtd_sim_cache
 rm -rf ~/.rtd_sim_cache/osm_graphs/
 rm ~/.rtd_sim_cache/transport/ferry_shim_ferry.graphml   
 rm ~/.rtd_sim_cache/transport/default_ferry.graphml      
-rm ~/.cache/osmnx/*.json                                 
+rm ~/.cache/osmnx/*.json
+
+# OSM graphs — all stale (built from narrow place-polygon, need 25km disc rebuild)
+rm ~/.rtd_sim_cache/osm_graphs/*.pkl
+
+# Bus shape caches — all stale (straight-line fallbacks baked in from narrow graph)
+rm ~/.rtd_sim_cache/transport/Edinburgh,UK_bus_shapes.json
+rm ~/.rtd_sim_cache/transport/Edinburgh,\ UK_bus_shapes.json
+rm ~/.rtd_sim_cache/transport/edinburgh_uk_bus_shapes.json
+rm ~/.rtd_sim_cache/transport/edinburgh_bus_shapes.json                           
 
 
 

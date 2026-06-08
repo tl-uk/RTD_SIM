@@ -2047,6 +2047,8 @@ class Router:
         _compute_road_route rather than a straight line through buildings.
         Tram missing shape: OSM tram graph, then straight interpolation.
         """
+        _constrained_route = None
+        
         # ── Initialise meta (populated before every return path) ─────────────────
         _meta_defaults = dict(
             service_label=mode.replace('_', ' ').title(),

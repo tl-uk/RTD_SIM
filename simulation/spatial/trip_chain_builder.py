@@ -212,20 +212,14 @@ class TripChainBuilder:
         # RLY stop within _MAX_STOP_SNAP_KM of both ends of a very short trip).
         try:
             from simulation.spatial.coordinate_utils import haversine_km as _hkm
-            _board_alight_m = _hkm(origin_coord, dest_coord) * 1000
+            access_dist_m = _hkm(origin, origin_coord) * 1000
+            egress_dist_m = _hkm(dest_coord, destination) * 1000
         except Exception:
-            _dx = (origin_coord[0] - dest_coord[0]) * 111320 * 0.64
-            _dy = (origin_coord[1] - dest_coord[1]) * 111320
-            _board_alight_m = (_dx**2 + _dy**2) ** 0.5
-        if origin_coord == dest_coord or _board_alight_m < 50:
-            raise ValueError(
-                f"{mode} {agent_id}: boarding stop ≈ alighting stop "
-                f"({_board_alight_m:.0f}m apart) — no second station within "
-                f"{_MAX_STOP_SNAP_KM:.0f} km; mode not viable for this OD pair."
-            )
+            access_dist_m = 0.0
+            egress_dist_m = 0.0
 
-        access_mode = self._pick_access_mode()
-        egress_mode = self._pick_access_mode()
+        access_mode = self._pick_access_mode(distance_m=access_dist_m)
+        egress_mode = self._pick_access_mode(distance_m=egress_dist_m)
 
         logger.debug(
             "%s: %s  board=%s  alight=%s  access=%s  egress=%s",
@@ -258,8 +252,18 @@ class TripChainBuilder:
         origin_coord = self._snap_ferry_terminal(origin,      agent_id, 'origin')
         dest_coord   = self._snap_ferry_terminal(destination, agent_id, 'dest')
 
-        access_mode = self._pick_access_mode()
-        egress_mode = self._pick_access_mode()
+        try:
+            from simulation.spatial.coordinate_utils import haversine_km as _hkm
+            access_dist_m = _hkm(origin, origin_coord) * 1000
+            egress_dist_m = _hkm(dest_coord, destination) * 1000
+        except Exception:
+            access_dist_m = 0.0
+            egress_dist_m = 0.0
+
+        access_mode = self._pick_access_mode(distance_m=access_dist_m)
+        egress_mode = self._pick_access_mode(distance_m=egress_dist_m)
+        # access_mode = self._pick_access_mode()
+        # egress_mode = self._pick_access_mode()
 
         return [
             TripLeg(mode=access_mode,
@@ -474,17 +478,21 @@ class TripChainBuilder:
     # ACCESS MODE SELECTION
     # ------------------------------------------------------------------
 
-    def _pick_access_mode(self, prefer: str = 'walk') -> str:
+    def _pick_access_mode(self, distance_m: float = 0.0, prefer: str = 'walk') -> str:
         """
         Return the highest-priority routable access/egress mode.
-
-        Iterates fused_identity.access_modes in declared order.
-        Falls back to prefer ('walk' by default) if nothing matches.
+        Skips 'walk' if the distance exceeds the typical 3km routing cap.
         """
         fi = getattr(self, 'fused_identity', None)
         if fi is None:
             return prefer
+            
         for m in getattr(fi, 'access_modes', []):
-            if is_routeable(m):
-                return m
+            if not is_routeable(m):
+                continue
+            # NEW: Prevent walking if the leg is longer than the router's 3km cap
+            if m == 'walk' and distance_m > 3000.0:
+                continue
+            return m
+            
         return prefer
