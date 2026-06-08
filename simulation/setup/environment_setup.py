@@ -130,15 +130,64 @@ def setup_environment(
         return env
 
     # ── 1. Drive graph ────────────────────────────────────────────────────────
+    # For a single-city place name (e.g. "Edinburgh,UK") OSMnx resolves the
+    # administrative boundary polygon, which covers only the city council area
+    # (~14k nodes, W=-3.45 E=-3.08).  The BODS GTFS feed covers routes that
+    # extend 25-30km beyond that boundary (East Lothian, Midlothian, Fife,
+    # West Lothian).  enrich_transit_shapes() can only snap bus stops that
+    # have a drive node within max_stop_snap_m=400m, so the narrow place-name
+    # graph leaves 48k of 72k transit edges without road-following geometry.
+    #
+    # Fix: when a place name is given (no explicit bbox), load the drive graph
+    # as a 25km-radius disc centred on the city centre.  This matches the GTFS
+    # 0.3° padding and lets enrich_transit_shapes snap all in-region stops.
+    # The cache key includes the radius so changing it forces a re-download.
     if progress_callback:
         progress_callback(0.11, "🛣️ Loading drive network…")
 
-    env.load_osm_graph(
-        place        = place,
-        bbox         = bbox,
-        network_type = 'drive',
-        use_cache    = True,
-    )
+    if place and bbox is None:
+        # Resolve city-centre coordinates from the place name via OSMnx geocoder,
+        # then load a 25km disc.  Falls back to place-polygon load on failure.
+        _drive_loaded = False
+        try:
+            import osmnx as _ox_gc
+            _geocode = _ox_gc.geocode(place)    # returns (lat, lon)
+            if _geocode is not None:
+                _clat, _clon = _geocode
+                logger.info(
+                    "Drive graph: place '%s' geocoded to (%.4f, %.4f) — "
+                    "loading 25km-radius disc to match GTFS catchment",
+                    place, _clat, _clon,
+                )
+                _drive_loaded = env.graph_manager.load_graph_from_point(
+                    centre_lat   = _clat,
+                    centre_lon   = _clon,
+                    dist_m       = 25_000,
+                    network_type = 'drive',
+                    use_cache    = True,
+                )
+                if _drive_loaded:
+                    # Store so walk/bike steps can load the same disc.
+                    env.graph_manager._last_point_centre = (_clat, _clon)
+        except Exception as _gc_exc:
+            logger.warning(
+                "Drive graph: geocode/point-load failed (%s) — "
+                "falling back to place-polygon load", _gc_exc,
+            )
+        if not _drive_loaded:
+            env.load_osm_graph(
+                place        = place,
+                bbox         = None,
+                network_type = 'drive',
+                use_cache    = True,
+            )
+    else:
+        env.load_osm_graph(
+            place        = place,
+            bbox         = bbox,
+            network_type = 'drive',
+            use_cache    = True,
+        )
 
     if not env.graph_loaded:
         logger.error("❌ Drive graph failed to load")
@@ -167,18 +216,27 @@ def setup_environment(
                          *env.graph_manager._simulation_bbox)
 
     # ── 2. Walk graph ─────────────────────────────────────────────────────────
-    # Critical for transit access/egress legs.  Without the walk graph every
-    # leg from an agent's home address to a rail station or bus stop falls back
-    # to an interpolated straight line, producing diagonal artefacts on the map.
+    # Must match the drive graph extent.  If drive was loaded as a 25km disc,
+    # load walk as the same disc so access/egress legs work at the boundary.
     if progress_callback:
         progress_callback(0.14, "🚶 Loading walk network…")
     try:
-        env.load_osm_graph(
-            place        = place,
-            bbox         = bbox,
-            network_type = 'walk',
-            use_cache    = True,
-        )
+        if place and bbox is None and hasattr(env.graph_manager, '_last_point_centre'):
+            _clat2, _clon2 = env.graph_manager._last_point_centre
+            env.graph_manager.load_graph_from_point(
+                centre_lat   = _clat2,
+                centre_lon   = _clon2,
+                dist_m       = 25_000,
+                network_type = 'walk',
+                use_cache    = True,
+            )
+        else:
+            env.load_osm_graph(
+                place        = place,
+                bbox         = bbox,
+                network_type = 'walk',
+                use_cache    = True,
+            )
         G_walk = env.graph_manager.get_graph('walk')
         if G_walk is not None:
             # Strip NaN-coordinate nodes.  The walk graph pickle can contain nodes
@@ -259,17 +317,25 @@ def setup_environment(
         logger.warning("Dedicated footway graph load failed (non-fatal): %s", exc)
 
     # ── 3. Bike graph ─────────────────────────────────────────────────────────
-    # Required for bike, cargo_bike, and e_scooter routing.  Without it these
-    # modes silently fall back to the drive graph, routing cyclists on motorways.
     if progress_callback:
         progress_callback(0.15, "🚲 Loading cycle network…")
     try:
-        env.load_osm_graph(
-            place        = place,
-            bbox         = bbox,
-            network_type = 'bike',
-            use_cache    = True,
-        )
+        if place and bbox is None and hasattr(env.graph_manager, '_last_point_centre'):
+            _clat3, _clon3 = env.graph_manager._last_point_centre
+            env.graph_manager.load_graph_from_point(
+                centre_lat   = _clat3,
+                centre_lon   = _clon3,
+                dist_m       = 25_000,
+                network_type = 'bike',
+                use_cache    = True,
+            )
+        else:
+            env.load_osm_graph(
+                place        = place,
+                bbox         = bbox,
+                network_type = 'bike',
+                use_cache    = True,
+            )
         G_bike = env.graph_manager.get_graph('bike')
         if G_bike is not None:
             logger.info(

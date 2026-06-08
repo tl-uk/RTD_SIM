@@ -1098,15 +1098,47 @@ class Router:
         """
         Three-leg intermodal route: access (walk) → rail → egress (walk).
 
+        Tier ordering
+        -------------
+        1. GTFS transit graph — if the feed contains local_train/intercity_train
+           edges (BODS national feed does), route on those.  Station-level
+           accuracy, correct inter-stop geometry, no same-node collapse.
+        2. OpenRailMap graph — fallback when GTFS has no rail edges.
+
         Rejection guards
         ----------------
         1. Rail graph unavailable.
-        2. Origin and destination snap to the same rail node.
+        2. Origin and destination snap to the same rail node (logged explicitly).
         3. Nearest rail node is > _MAX_ACCESS_KM away (fragmented graph).
         4. Track topology fragmented — nx.NetworkXNoPath raised.
 
         All guards return [] so the BDI planner falls back to another mode.
         """
+        # ── Tier 1: GTFS transit graph ────────────────────────────────────────
+        # BODS national feed includes ScotRail/Avanti local_train services.
+        # Routing on GTFS avoids the OpenRailMap same-node collapse that fires
+        # when two adjacent stations (e.g. Waverley→Haymarket, 1.5km) both
+        # snap to the same node in a 70-node graph covering the whole Lothians.
+        G_transit = self._get_transit_graph()
+        if G_transit is not None:
+            try:
+                gtfs_route = self._compute_gtfs_route(
+                    agent_id, origin, dest, mode, policy
+                )
+                if gtfs_route and len(gtfs_route) >= 2:
+                    logger.info(
+                        "✅ %s: %s via GTFS %.1fkm (%d pts)",
+                        agent_id, mode,
+                        route_distance_km(gtfs_route), len(gtfs_route),
+                    )
+                    return gtfs_route
+            except Exception as _gtfs_exc:
+                logger.debug(
+                    "%s: GTFS %s attempt failed (%s) — trying OpenRailMap",
+                    agent_id, mode, _gtfs_exc,
+                )
+
+        # ── Tier 2: OpenRailMap graph ─────────────────────────────────────────
         rail_graph = self._get_rail_graph()
         if rail_graph is None:
             return self._get_invalid_route(origin, dest)
@@ -1120,9 +1152,19 @@ class Router:
         orig_rail_node = self._nearest_rail_node(origin, rail_graph)
         dest_rail_node = self._nearest_rail_node(dest,   rail_graph)
 
-        if (orig_rail_node is None
-                or dest_rail_node is None
-                or orig_rail_node == dest_rail_node):
+        if orig_rail_node is None or dest_rail_node is None:
+            return self._get_invalid_route(origin, dest)
+
+        if orig_rail_node == dest_rail_node:
+            # Diagnostic: two NaPTAN stations collapsed to the same OpenRailMap
+            # node — graph is too coarse for adjacent-station routing.
+            # This is expected for short trips (< inter-node spacing ~5km).
+            logger.debug(
+                "%s: %s board/alight collapse to same rail node %s "
+                "(OpenRailMap graph too coarse for %.1fkm trip) — no route",
+                agent_id, mode, orig_rail_node,
+                haversine_km(origin, dest),
+            )
             return self._get_invalid_route(origin, dest)
 
         orig_rail_coord = (

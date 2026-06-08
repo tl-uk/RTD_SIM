@@ -210,6 +210,108 @@ class GraphManager:
             logger.exception("OSM load failed: %s", e)
             return False
 
+    def load_graph_from_point(
+        self,
+        centre_lat: float,
+        centre_lon: float,
+        dist_m: int = 25000,
+        network_type: str = 'drive',
+        use_cache: bool = True,
+    ) -> bool:
+        """
+        Load an OSM graph centred on a lat/lon point with a given radius.
+
+        Preferred over load_graph(place=...) for cities where the OSMnx
+        place-polygon boundary is significantly smaller than the GTFS
+        catchment area.  Edinburgh,UK resolves to the city-council boundary
+        (~14k nodes, W=-3.45 E=-3.08) whereas the BODS GTFS feed covers
+        routes to East Lothian, Midlothian, Fife, and West Lothian
+        (~3.75°W to 2.78°W).  Using dist_m=25000 (25km radius) produces a
+        drive graph that matches the GTFS coverage, allowing
+        enrich_transit_shapes() to snap and road-follow the 48k bus edges
+        that previously fell back to straight-line interpolation.
+
+        Cache key is based on (centre_lat, centre_lon, dist_m, network_type)
+        so changing the radius forces a clean re-download.
+
+        Args:
+            centre_lat:   Latitude of the centre point.
+            centre_lon:   Longitude of the centre point.
+            dist_m:       Radius in metres (default 25 000 m = 25 km).
+            network_type: OSM network type ('drive', 'walk', 'bike').
+            use_cache:    Load from disk cache when available.
+
+        Returns:
+            True if the graph loaded successfully, False otherwise.
+        """
+        if not OSMNX_AVAILABLE:
+            logger.error("OSMnx not available")
+            return False
+
+        key_str    = f"point_{centre_lat:.4f}_{centre_lon:.4f}_{dist_m}_{network_type}"
+        cache_key  = hashlib.md5(key_str.encode()).hexdigest()[:16]
+        cache_path = self.cache_dir / f"{cache_key}.pkl"
+
+        if use_cache and cache_path.exists():
+            try:
+                logger.info("Loading from cache: %s", cache_path.name)
+                with open(cache_path, 'rb') as f:
+                    graph = pickle.load(f)
+                self.primary_graph        = graph
+                self.graphs[network_type] = graph
+                logger.info("Loaded: %d nodes, %d edges", len(graph.nodes), len(graph.edges))
+                self._validate_cache_geometry(graph, cache_path, network_type)
+                return True
+            except Exception as e:
+                logger.warning("Cache load failed: %s", e)
+
+        try:
+            logger.info(
+                "Downloading OSM graph from point (%.4f, %.4f) dist=%dm type=%s…",
+                centre_lat, centre_lon, dist_m, network_type,
+            )
+            graph = ox.graph_from_point(
+                (centre_lat, centre_lon),
+                dist=dist_m,
+                network_type=network_type,
+                retain_all=False,
+            )
+
+            if graph is None:
+                logger.error("Graph download returned None")
+                return False
+
+            if not all('length' in data for _, _, data in graph.edges(data=True)):
+                graph = ox.distance.add_edge_lengths(graph)
+
+            if network_type == 'drive':
+                try:
+                    graph = ox.add_edge_speeds(graph)
+                    graph = ox.add_edge_travel_times(graph)
+                    logger.info("Drive graph: travel_time weights added")
+                except Exception as _spd_exc:
+                    logger.warning("Could not add travel_time: %s", _spd_exc)
+
+            if use_cache:
+                try:
+                    with open(cache_path, 'wb') as f:
+                        pickle.dump(graph, f)
+                    logger.info("Saved to cache: %s", cache_path.name)
+                except Exception as e:
+                    logger.warning("Cache save failed: %s", e)
+
+            self.primary_graph        = graph
+            self.graphs[network_type] = graph
+            logger.info(
+                "Graph loaded: %d nodes, %d edges (centre=%.4f,%.4f dist=%dm)",
+                len(graph.nodes), len(graph.edges), centre_lat, centre_lon, dist_m,
+            )
+            return True
+
+        except Exception as e:
+            logger.exception("OSM load from point failed: %s", e)
+            return False
+
     def load_mode_specific_graphs(
         self,
         place: Optional[str] = None,
@@ -737,19 +839,6 @@ class GraphManager:
             logger.warning("get_bbox: failed to derive bbox from graph nodes: %s", exc)
             return None
         
-    def get_bbox(self) -> Optional[Tuple[float, float, float, float]]:
-        """Return (N, S, E, W) bbox derived from drive graph node coordinates."""
-        G = self.get_graph('drive') or self.primary_graph
-        if G is None or G.number_of_nodes() == 0:
-            return None
-        try:
-            lons = [d['x'] for _, d in G.nodes(data=True)]
-            lats = [d['y'] for _, d in G.nodes(data=True)]
-            return (max(lats), min(lats), max(lons), min(lons))
-        except Exception as exc:
-            logger.warning("get_bbox failed: %s", exc)
-            return None
-
     def clear_cache(self) -> None:
         """Delete all .pkl files from the disk cache directory."""
         if self.cache_dir.exists():
