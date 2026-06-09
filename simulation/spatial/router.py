@@ -1119,11 +1119,55 @@ class Router:
         # Routing on GTFS avoids the OpenRailMap same-node collapse that fires
         # when two adjacent stations (e.g. Waverley→Haymarket, 1.5km) both
         # snap to the same node in a 70-node graph covering the whole Lothians.
+        #
+        # Stop-snap strategy for rail modes
+        # ----------------------------------
+        # _compute_gtfs_route's default else-branch uses max_distance_m=2000
+        # which is adequate for dense bus networks but too small for rail.
+        # ScotRail stations are spaced 3–8 km apart; an agent whose origin is
+        # 2.5 km from the nearest rail stop will get no GTFS match and fall
+        # through to the OpenRailMap tier → same-node collapse → empty leg.
+        #
+        # Fix: resolve the GTFS stop pair here with a 5 km radius (matching
+        # _MODE_SNAP_KM for local_train in trip_chain_builder) and pass the
+        # resolved stops as _presnapped_* so _compute_gtfs_route skips its
+        # default 2 km snap and uses the stops we already found.
         G_transit = self._get_transit_graph()
+        logger.debug(
+            "%s: _compute_intermodal_route — G_transit=%s",
+            agent_id, 'present' if G_transit is not None else 'NONE',
+        )
         if G_transit is not None:
             try:
+                from simulation.gtfs.gtfs_graph import GTFSGraph as _GTFSGraph
+                _builder = _GTFSGraph(None)
+                _rail_snap_m = 5000   # matches _MODE_SNAP_KM['local_train'] in trip_chain_builder
+                _pre_origin = _builder.nearest_stop(
+                    G_transit, origin,
+                    mode_filter=mode,
+                    max_distance_m=_rail_snap_m,
+                )
+                _pre_dest = _builder.nearest_stop(
+                    G_transit, dest,
+                    mode_filter=mode,
+                    max_distance_m=_rail_snap_m,
+                )
+                logger.debug(
+                    "%s: GTFS rail stop snap — origin_stop=%s dest_stop=%s (radius=%dm)",
+                    agent_id, _pre_origin, _pre_dest, _rail_snap_m,
+                )
+            except Exception as _snap_exc:
+                logger.debug(
+                    "%s: GTFS rail stop pre-snap failed (%s) — passing None",
+                    agent_id, _snap_exc,
+                )
+                _pre_origin = _pre_dest = None
+
+            try:
                 gtfs_route = self._compute_gtfs_route(
-                    agent_id, origin, dest, mode, policy
+                    agent_id, origin, dest, mode, policy,
+                    _presnapped_origin_stop=_pre_origin,
+                    _presnapped_dest_stop=_pre_dest,
                 )
                 if gtfs_route and len(gtfs_route) >= 2:
                     logger.info(
@@ -2348,6 +2392,11 @@ class Router:
             _transit_legs = [lg for lg in journey.legs if lg.route != 'walk_transfer']
             if not _transit_legs:
                 _transit_legs = journey.legs
+            # Always set _transit_legs unconditionally, even for single-leg journeys.
+            # Previously only set when len >= 2, which caused _pair_route_map (built
+            # from journey.legs) to include walk_transfer pairs for single-leg results,
+            # so "walk_transfer" appeared in bus service label tooltips (Issue 6).
+            journey._transit_legs = _transit_legs   # used by raptor_legs builder
             # Rebuild transit_nodes from transit legs only
             transit_nodes = []
             for _lg in _transit_legs:
@@ -2356,7 +2405,6 @@ class Router:
                         transit_nodes.append(_sid)
             _constrained_route = _transit_legs[0].route if _transit_legs else None
             _used_raptor       = True
-            journey._transit_legs = _transit_legs   # used by raptor_legs builder
             logger.debug("%s: RAPTOR %s→%s: %d leg(s), %d stops, %d transfer(s)",
                 agent_id, origin_stop, dest_stop,
                 len(_transit_legs), len(transit_nodes), max(0, len(_transit_legs)-1))

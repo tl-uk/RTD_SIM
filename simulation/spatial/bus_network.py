@@ -25,7 +25,11 @@ INTEGRATION
 Called from environment_setup.setup_environment() after GTFS graph is built:
 
     from simulation.spatial.bus_network import enrich_transit_shapes
-    enrich_transit_shapes(env.graph_manager, city_tag=city_tag)
+    enrich_transit_shapes(env.graph_manager, city_tag=city_tag, max_stop_snap_m=800.0)
+
+Note: max_stop_snap_m should be passed as 800.0 (not the default 400.0) to
+catch urban stops on pedestrianised streets and bus stations that have no
+drive node within 400m.  800m is a safer default for all UK contexts.
 
 ARCHITECTURE
 ────────────
@@ -36,6 +40,15 @@ ARCHITECTURE
 5. Extract Shapely edge geometry into (lon, lat) list
 6. Store back on the transit edge as shape_coords
 7. Cache the (stop_u_id, stop_v_id) → coords mapping to disk
+
+GTFS route_shapes fallback (Issue 2B)
+──────────────────────────────────────
+For stops that are outside the drive-graph disc (cross-regional express
+services, rural connections), the drive-graph snap will fail because there
+is no road node within max_stop_snap_m.  Before writing a straight-line
+fallback, this module checks if the transit graph edge has GTFS shapes.txt
+geometry stored in G_transit.graph['route_shapes'].  This is region-agnostic:
+any GTFS feed with shapes.txt coverage will benefit, regardless of UK city.
 
 All enriched shapes are stored in memory on the graph object AND persisted
 to a lightweight JSON cache so the operation runs in <1 s on re-runs.
@@ -68,6 +81,49 @@ def _haversine_m(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
         * math.sin(dl / 2)**2
     )
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _get_gtfs_shape_for_edge(
+    G_transit,
+    u: str,
+    v: str,
+) -> Optional[List[Tuple[float, float]]]:
+    """
+    Return GTFS shapes.txt geometry for the transit edge (u, v), or None.
+
+    GTFSGraph.build() stores shapes keyed by route_short_name in
+    G_transit.graph['route_shapes'] = {route_short_name: {(stop_u, stop_v): coords}}.
+
+    This is region-agnostic: any GTFS feed with shapes.txt coverage will
+    return geometry here, regardless of UK city or operator.
+
+    Args:
+        G_transit:  The GTFS transit graph (NetworkX MultiDiGraph).
+        u, v:       Stop IDs for the edge to look up.
+
+    Returns:
+        List of (lon, lat) tuples with ≥ 2 points, or None if not found.
+    """
+    route_shapes = G_transit.graph.get('route_shapes', {})
+    if not route_shapes:
+        return None
+
+    # Search all routes for a shape covering this stop pair.
+    for _route, _pair_map in route_shapes.items():
+        coords = _pair_map.get((u, v))
+        if coords and len(coords) >= 2:
+            return [tuple(pt) for pt in coords]
+
+    # Also check the edge data directly for a route_short_name hint.
+    edge_map = G_transit.get_edge_data(u, v)
+    if edge_map:
+        for ed in edge_map.values():
+            for rsn in ed.get('route_short_names', []):
+                coords = route_shapes.get(rsn, {}).get((u, v))
+                if coords and len(coords) >= 2:
+                    return [tuple(pt) for pt in coords]
+
+    return None
 
 
 def _extract_drive_path_coords(
@@ -281,6 +337,19 @@ def enrich_transit_shapes(
         v_node = _fast_nearest(v_lon, v_lat)
 
         if u_node is None or v_node is None:
+            # ── GTFS shapes.txt fallback (Issue 2B) ──────────────────────────
+            # Stops outside the drive-graph disc (cross-regional express
+            # services, rural connections) have no drive node within
+            # max_stop_snap_m.  Before recording a straight-line skip, check
+            # if the GTFS feed has shapes.txt geometry for this stop pair.
+            # This is region-agnostic: any GTFS feed with shapes.txt benefits,
+            # regardless of UK city.
+            _gtfs_shape = _get_gtfs_shape_for_edge(G_transit, u, v)
+            if _gtfs_shape and len(_gtfs_shape) >= 2:
+                data['shape_coords'] = _gtfs_shape
+                shape_cache[cache_key] = _gtfs_shape
+                enriched += 1
+                continue
             skipped_no_snap += 1
             # Do not cache failures. Empty entries block retries when the
             # drive graph or snap radius changes. Let the next run retry.
