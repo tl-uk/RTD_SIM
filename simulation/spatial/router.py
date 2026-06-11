@@ -2385,6 +2385,15 @@ class Router:
                         logger.debug("%s: RAPTOR stop-expansion %s→%s", agent_id, _os, _ds)
                         break
 
+        # _raptor_transit_legs carries the walk_transfer-filtered leg list for
+        # the duration of this method call.  It is intentionally a method-local
+        # variable rather than an attribute on the RaptorJourney object:
+        # RaptorJourney does not declare _transit_legs, and if it uses __slots__
+        # or frozen=True a dynamic assignment raises AttributeError /
+        # FrozenInstanceError at runtime.  Both downstream reads use this local
+        # directly instead of getattr(journey, '_transit_legs', None).
+        _raptor_transit_legs: list = []
+
         if journey and journey.legs:
             # Filter walk_transfer legs — foot-path hops between adjacent stops
             # on the SAME service must not appear as transit segments in the UI
@@ -2392,11 +2401,8 @@ class Router:
             _transit_legs = [lg for lg in journey.legs if lg.route != 'walk_transfer']
             if not _transit_legs:
                 _transit_legs = journey.legs
-            # Always set _transit_legs unconditionally, even for single-leg journeys.
-            # Previously only set when len >= 2, which caused _pair_route_map (built
-            # from journey.legs) to include walk_transfer pairs for single-leg results,
-            # so "walk_transfer" appeared in bus service label tooltips (Issue 6).
-            journey._transit_legs = _transit_legs   # used by raptor_legs builder
+            # Store in the method-local variable (not on journey — see comment above).
+            _raptor_transit_legs = _transit_legs
             # Rebuild transit_nodes from transit legs only
             transit_nodes = []
             for _lg in _transit_legs:
@@ -2540,7 +2546,7 @@ class Router:
         # Per-stop-pair route map from filtered transit legs only.
         # walk_transfer pairs are excluded so they never appear in service labels.
         _pair_route_map: dict = {}
-        _transit_legs_r = getattr(journey, '_transit_legs', None) if _used_raptor and journey else None
+        _transit_legs_r = _raptor_transit_legs if (_used_raptor and _raptor_transit_legs) else None
         if _transit_legs_r:
             for _lg in _transit_legs_r:
                 for _pi in range(len(_lg.stops)-1):
@@ -2718,7 +2724,7 @@ class Router:
         # When RAPTOR found a multi-leg journey, split transit_coords into one
         # coordinate list per leg + store board/alight coords for transfer walks.
         raptor_legs: list = []
-        _tl4r = getattr(journey, '_transit_legs', None) or (journey.legs if journey else [])
+        _tl4r = _raptor_transit_legs or (journey.legs if journey else [])
         if _used_raptor and _tl4r and len(_tl4r) > 1:
             # Build a map: (u_stop, v_stop) -> coords (already assembled above)
             # We re-use _pair_route_map to know which leg each pair belongs to.

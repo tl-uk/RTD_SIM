@@ -239,49 +239,29 @@ def setup_environment(
             )
         G_walk = env.graph_manager.get_graph('walk')
         if G_walk is not None:
-            # Strip NaN-coordinate nodes.  The walk graph pickle can contain nodes
-            # whose x or y is float('nan') — typically intermediate Overpass waypoints
-            # that were not geometry-resolved.  A single NaN node causes
-            # ox.distance.nearest_nodes to raise "Input contains NaN" for every agent
-            # query, making walk mode fail completely.
+            # Strip NaN-coordinate nodes from the OSMnx walk graph.
+            # walk_footways is built and registered in step 2b below — its
+            # NaN-strip runs there, immediately after registration (Fix C).
+            # Running it here would silently no-op because graphs['walk_footways']
+            # is not yet set at this point in the execution order.
             import math as _math
-            for _g_label, _g_obj in [('walk', G_walk)] + (
-                [('walk_footways', env.graph_manager.graphs.get('walk_footways'))]
-                if env.graph_manager.graphs.get('walk_footways') is not None else []
-            ):
-                _nan_nodes = [
-                    n for n, d in _g_obj.nodes(data=True)
-                    if not (_math.isfinite(float(d.get('x', float('nan'))))
-                            and _math.isfinite(float(d.get('y', float('nan')))))
-                ]
-                if _nan_nodes:
-                    _g_obj.remove_nodes_from(_nan_nodes)
-                    logger.info(
-                        "Removed %d NaN-coordinate nodes from '%s' graph",
-                        len(_nan_nodes), _g_label,
-                    )
+            _nan_nodes = [
+                n for n, d in G_walk.nodes(data=True)
+                if not (_math.isfinite(float(d.get('x', float('nan'))))
+                        and _math.isfinite(float(d.get('y', float('nan')))))
+            ]
+            if _nan_nodes:
+                G_walk.remove_nodes_from(_nan_nodes)
+                logger.info(
+                    "Removed %d NaN-coordinate nodes from 'walk' graph",
+                    len(_nan_nodes),
+                )
             logger.info(
-                "✅ Walk graph: %d nodes, %d edges",
+                "Walk graph: %d nodes, %d edges",
                 G_walk.number_of_nodes(), G_walk.number_of_edges(),
             )
-        else:
-            # Strip NaN-coordinate nodes from walk graphs.
-            import math as _math
-            for _glabel, _gobj in [('walk', env.graph_manager.get_graph('walk'))] + (
-                [('walk_footways', env.graph_manager.graphs.get('walk_footways'))]
-                if env.graph_manager.graphs.get('walk_footways') is not None else []
-            ):
-                if _gobj is None: continue
-                _nan_nodes = [
-                    n for n, d in _gobj.nodes(data=True)
-                    if not (_math.isfinite(float(d.get('x', float('nan'))))
-                            and _math.isfinite(float(d.get('y', float('nan')))))
-                ]
-                if _nan_nodes:
-                    _gobj.remove_nodes_from(_nan_nodes)
-                    logger.info("Removed %d NaN-coordinate nodes from '%s' graph",
-                                len(_nan_nodes), _glabel)
-            # logger.warning("⚠️  Walk graph load returned None — access/egress legs will use straight lines")
+        # else: walk graph load returned None — non-fatal; access/egress legs
+        # will fall back to the dedicated footway graph or drive proxy.
     except Exception as exc:
         logger.warning("Walk graph load failed (non-fatal): %s", exc)
 
@@ -309,6 +289,22 @@ def setup_environment(
                 "✅ Dedicated footway graph: %d nodes, %d edges "                    "(highway=footway/pedestrian/steps/path)",
                 G_footways.number_of_nodes(), G_footways.number_of_edges(),
             )
+            # ── NaN-strip for walk_footways (Fix C) ───────────────────────────
+            # Must run AFTER registration, not in the OSMnx walk graph block
+            # above (where graphs['walk_footways'] is not yet set).
+            # Overpass geometry waypoints occasionally have unresolved coordinates.
+            import math as _math_fw
+            _fw_nan = [
+                n for n, d in G_footways.nodes(data=True)
+                if not (_math_fw.isfinite(float(d.get('x', float('nan'))))
+                        and _math_fw.isfinite(float(d.get('y', float('nan')))))
+            ]
+            if _fw_nan:
+                G_footways.remove_nodes_from(_fw_nan)
+                logger.info(
+                    "Removed %d NaN-coordinate nodes from 'walk_footways' graph",
+                    len(_fw_nan),
+                )
         else:
             logger.debug(
                 "Dedicated footway graph empty — walk routing uses OSMnx walk graph"
@@ -673,9 +669,25 @@ def setup_environment(
                 # Fill empty shape_coords on bus transit edges.
                 try:
                     from simulation.spatial.bus_network import enrich_transit_shapes
-                    _n = enrich_transit_shapes(env.graph_manager,
-                                               city_tag=getattr(config, 'place', 'default') or 'default')
-                    logger.info("✅ Bus shape enrichment: %d edges filled", _n)
+                    # Normalise city_tag to match the walk-network cache key convention
+                    # (e.g. 'Edinburgh, UK' -> 'edinburgh_uk').  Without normalisation the
+                    # bus shape cache file contains raw place-name characters (spaces,
+                    # commas) that differ from walk cache keys and make manual cache
+                    # management confusing.  The bus_network module itself does not
+                    # normalise, so it must be done at the call site.
+                    _btag = getattr(config, 'place', 'default') or 'default'
+                    if isinstance(_btag, str):
+                        _btag = _btag.replace(' ', '_').replace(',', '').lower()[:30]
+                    # max_stop_snap_m=800: the default 400m misses stops on pedestrianised
+                    # streets, bus stations, and cross-regional express routes where the
+                    # nearest drive node is 400-800m away.  800m covers all in-region stops
+                    # without snapping to drive nodes in adjacent cities.
+                    _n = enrich_transit_shapes(
+                        env.graph_manager,
+                        city_tag        = _btag,
+                        max_stop_snap_m = 800.0,
+                    )
+                    logger.info("Bus shape enrichment: %d edges filled", _n)
                 except Exception as _e:
                     logger.warning("Bus shape enrichment failed (non-fatal): %s", _e)
             else:
