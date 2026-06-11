@@ -53,6 +53,10 @@ from urllib import error as _urllib_error
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+_OVERPASS_MIN_INTERVAL_S = 12   # Overpass free tier: ~1 request per 10-15s
+_OVERPASS_429_RETRY_S    = 35   # Wait after a 429 before retrying the same tile
+_OVERPASS_MAX_RETRIES    = 3    # Maximum retry attempts per tile
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -86,23 +90,42 @@ def _haversine_m(a: Tuple[float, float], b: Tuple[float, float]) -> float:
 
 
 def _overpass_post(query: str, timeout_s: int = 60) -> Optional[dict]:
-    """POST a query to the Overpass API and return parsed JSON, or None on error."""
+    """POST a query to the Overpass API and return parsed JSON, or None on error.
+
+    Handles HTTP 429 (rate-limit) with configurable back-off and retry so that
+    tiled queries do not fail when Overpass enforces its free-tier rate limit.
+    """
     body = _urllib_parse.urlencode({'data': query}).encode('utf-8')
-    req = _urllib_request.Request(
-        _OVERPASS_URL,
-        data=body,
-        method="POST",
-        headers={
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'RTD_SIM_Walk_Network_Loader/1.0',
-        },
-    )
-    try:
-        with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        logger.warning("Overpass walk fetch failed: %s", e)
-        return None
+    for attempt in range(_OVERPASS_MAX_RETRIES):
+        req = _urllib_request.Request(
+            _OVERPASS_URL,
+            data=body,
+            method="POST",
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'RTD_SIM_Walk_Network_Loader/1.0',
+            },
+        )
+        try:
+            with _urllib_request.urlopen(req, timeout=timeout_s + 5) as resp:
+                return json.loads(resp.read())
+        except _urllib_error.HTTPError as e:
+            if e.code == 429:
+                wait = _OVERPASS_429_RETRY_S * (attempt + 1)
+                logger.warning(
+                    "Overpass walk fetch: 429 rate-limit (attempt %d/%d) "
+                    "— retrying in %ds",
+                    attempt + 1, _OVERPASS_MAX_RETRIES, wait,
+                )
+                time.sleep(wait)
+            else:
+                logger.warning("Overpass walk fetch failed: %s", e)
+                return None
+        except Exception as e:
+            logger.warning("Overpass walk fetch failed: %s", e)
+            return None
+    logger.warning("Overpass walk fetch: gave up after %d retries (429)", _OVERPASS_MAX_RETRIES)
+    return None
 
 
 def _make_tile_query(tile_s: float, tile_n: float, tile_w: float, tile_e: float) -> str:
@@ -162,6 +185,12 @@ def _fetch_tiled(
             tile_n = tile_s + lat_step
             tile_w = west  + j * lon_step
             tile_e = tile_w + lon_step
+
+            # Enforce minimum inter-request interval to respect the Overpass
+            # free-tier rate limit (~1 request per 10-15s per IP).
+            # Skip the delay on the very first tile so startup is not held up.
+            if i > 0 or j > 0:
+                time.sleep(_OVERPASS_MIN_INTERVAL_S)
 
             query = _make_tile_query(tile_s, tile_n, tile_w, tile_e)
             data  = _overpass_post(query, timeout_s=60)
