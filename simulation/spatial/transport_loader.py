@@ -25,10 +25,23 @@ logic can chain access-walk → rail → egress-walk in a single Dijkstra call.
 
 Loading tiers (transit)
 ───────────────────────
-  1. GTFS ZIP / directory  — if gtfs_feed_path is set in config
+  1. GTFS ZIP / directory  — if gtfs_feed_path is set in config (static mode)
   2. TransitLand REST API  — if TRANSITLAND_API_KEY is in .env and no GTFS
   3. Cached TransitLand snapshot — if live API unavailable
   4. OSM tram graph only   — tram geometry without headway data
+
+Live data tier (digital twin mode)
+───────────────────────────────────
+  When config.data_mode == 'live', _apply_live_data() is called after the
+  transit graph is built.  It uses the Buses & Trains API (bat_client.py)
+  to inject real-time departure delays and vehicle positions into the
+  simulation state.  In static mode this call is skipped entirely.
+
+  BAT_API_KEY must be set in .env.  See bat_client.py for rate-limit notes.
+
+  Live tiers:
+    5. BAT /departures per active stop — real departure delays this step
+    6. BAT /vehicles bbox query        — live fleet positions for visualisation
 
 TransitLand feed IDs for known Scottish operators
 ──────────────────────────────────────────────────
@@ -43,12 +56,23 @@ endpoint is:
   GET https://transit.land/api/v2/rest/feeds/{feed_id}/download_latest_feed_version
   Authorization: apikey {TRANSITLAND_API_KEY}
 
-Usage
-─────
+Usage — static (ABM baseline)
+─────────────────────────────
   from simulation.spatial.transport_loader import load_transport_graphs
 
   load_transport_graphs(env, config)
   # All graphs now available via env.graph_manager.get_graph(layer_name)
+
+Usage — live (digital twin)
+────────────────────────────
+  config.data_mode = 'live'        # set before calling load_transport_graphs
+  load_transport_graphs(env, config)
+
+  # Then each simulation step:
+  from simulation.spatial.transport_loader import apply_live_data_step
+  live_state = apply_live_data_step(env, active_stop_atcos, sim_bbox)
+  # live_state.delays   — Dict[atco_code, delay_seconds]
+  # live_state.vehicles — List[BATVehicle]
 """
 
 from __future__ import annotations
@@ -56,12 +80,40 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import networkx as nx   # required for tram graph pruning and largest-component selection
 
 logger = logging.getLogger(__name__)
+
+
+# ── Live data state (returned by apply_live_data_step) ────────────────────────
+
+@dataclass
+class LiveDataState:
+    """
+    Real-time transport state for one simulation step.
+
+    Returned by apply_live_data_step() in live (digital twin) mode.
+    In static mode this object is never created.
+
+    Attributes:
+        delays:       Dict mapping NaPTAN ATCO code → departure delay in
+                      seconds for the next non-cancelled service.  None
+                      means no real-time data was available for that stop.
+        vehicles:     Live vehicle positions within the simulation bbox.
+                      Used to render the "real fleet" layer alongside agent
+                      positions on the visualisation map.
+        stops_queried: Number of stops for which BAT was called this step.
+        rate_limited:  True if BAT rate limit was hit mid-batch — remaining
+                      stops fall back to GTFS scheduled headways.
+    """
+    delays:         Dict[str, Optional[int]] = field(default_factory=dict)
+    vehicles:       list = field(default_factory=list)   # List[BATVehicle]
+    stops_queried:  int  = 0
+    rate_limited:   bool = False
 
 # TransitLand known feed IDs — Scotland
 # ── GTFS feed registry (verified 2026-04-28 against Transitland API) ──────────
@@ -744,3 +796,135 @@ def download_feed_by_label(label: str, output_dir: str = "/tmp") -> Optional[str
         )
         return None
     return _download_transitland_feed(feed_id, api_key, output_dir=output_dir)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LIVE DATA TIER  (digital twin mode — config.data_mode == 'live')
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def apply_live_data_step(
+    env,
+    active_stop_atcos: List[str],
+    sim_bbox: Tuple[float, float, float, float],
+    limit_per_stop: int = 5,
+) -> "LiveDataState":
+    """
+    Inject real-time transport data for one simulation step.
+
+    Called from the simulation loop when config.data_mode == 'live'.
+    In static mode this function should NOT be called — GTFS scheduled
+    headways are used unchanged.
+
+    This function is the single call-site for all BAT API access.
+    Individual modules (router.py, bdi_planner.py) never call bat_client
+    directly — they receive a LiveDataState object and read from it.
+
+    Args:
+        env:               SpatialEnvironment (used for bbox fallback).
+        active_stop_atcos: NaPTAN ATCO codes of stops where at least one
+                           agent is currently boarding or waiting this step.
+                           Keep this list short (< 20) to stay within the
+                           BAT free-tier rate limit of 300 req/day.
+        sim_bbox:          (south, west, north, east) in WGS84 — used for
+                           the vehicle positions bbox query.
+        limit_per_stop:    Max departures to fetch per stop.
+
+    Returns:
+        LiveDataState with delays and vehicle positions for this step.
+        On rate-limit exhaustion or unavailability, returns an empty
+        LiveDataState so callers fall back to GTFS schedules gracefully.
+
+    Example (simulation loop):
+        from simulation.spatial.transport_loader import apply_live_data_step
+
+        for step in range(n_steps):
+            active_atcos = [a.board_stop for a in boarding_agents]
+            live = apply_live_data_step(env, active_atcos, sim_bbox)
+
+            for agent in boarding_agents:
+                delay = live.delays.get(agent.board_stop)
+                if delay and delay > 0:
+                    agent.add_wait(delay)   # inject real-time delay
+
+            # live.vehicles available for visualisation layer
+    """
+    try:
+        from simulation.spatial.bat_client import get_client, get_live_vehicles
+    except ImportError:
+        logger.warning(
+            "bat_client not importable — live data tier unavailable. "
+            "Install bat_client.py in simulation/spatial/."
+        )
+        return LiveDataState()
+
+    client = get_client()
+    if not client.available():
+        logger.debug(
+            "apply_live_data_step: BAT client unavailable "
+            "(no key or rate-limited) — returning empty LiveDataState"
+        )
+        return LiveDataState()
+
+    state = LiveDataState()
+
+    # ── Departures for active stops ───────────────────────────────────────────
+    if active_stop_atcos:
+        batch = client.get_departures_batch(
+            active_stop_atcos, limit_per_stop=limit_per_stop
+        )
+        state.stops_queried = len(active_stop_atcos)
+        for atco, deps in batch.items():
+            if deps:
+                for dep in deps:
+                    if not dep.cancelled:
+                        state.delays[atco] = dep.delay_seconds
+                        break
+                else:
+                    state.delays[atco] = None
+            else:
+                state.delays[atco] = None
+
+        # Detect if we were rate-limited mid-batch
+        missing = [a for a in active_stop_atcos if a not in state.delays]
+        if missing:
+            state.rate_limited = True
+            logger.warning(
+                "apply_live_data_step: rate-limited — %d/%d stops "
+                "missing live data, using GTFS scheduled times",
+                len(missing), len(active_stop_atcos),
+            )
+
+    # ── Vehicle positions ─────────────────────────────────────────────────────
+    if client.available():   # may have been exhausted by departures batch
+        try:
+            state.vehicles = get_live_vehicles(sim_bbox)
+            logger.debug(
+                "apply_live_data_step: %d live vehicles in bbox",
+                len(state.vehicles),
+            )
+        except Exception as exc:
+            logger.debug("apply_live_data_step: vehicle fetch failed: %s", exc)
+
+    delayed = sum(
+        1 for d in state.delays.values() if d is not None and d > 0
+    )
+    logger.info(
+        "Live data step: %d stops queried, %d delayed, %d vehicles, "
+        "rate_limited=%s",
+        state.stops_queried, delayed, len(state.vehicles), state.rate_limited,
+    )
+    return state
+
+
+def is_live_mode(config) -> bool:
+    """
+    Return True if config specifies live (digital twin) data mode.
+
+    Checks config.data_mode == 'live'.  Defaults to False (static mode)
+    if the attribute is absent.  Call this before apply_live_data_step
+    to avoid unnecessary BAT API calls in static runs.
+
+    Usage:
+        if is_live_mode(config):
+            live = apply_live_data_step(env, active_atcos, bbox)
+    """
+    return getattr(config, 'data_mode', 'static') == 'live'
