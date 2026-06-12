@@ -896,38 +896,93 @@ class SpatialEnvironment:
             import urllib.request
             import urllib.parse
 
-            query = (
-                f"[out:json][timeout:45];"
-                f"("
-                f"  node['addr:street']({south},{west},{north},{east});"
-                f"  way['building']({south},{west},{north},{east});"
-                f"  way['amenity']['amenity'!~'parking|parking_space']"
-                f"    ({south},{west},{north},{east});"
-                f");"
-                f"out center;"
-            )
-            body = urllib.parse.urlencode({'data': query}).encode('utf-8')
-            req  = urllib.request.Request(
-                'https://overpass-api.de/api/interpreter',
-                data    = body,
-                method  = 'POST',
-                headers = {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent':   'RTD_SIM_AddressSampler/1.0',
-                },
-            )
-            with urllib.request.urlopen(req, timeout=50) as resp:
-                data = json.loads(resp.read())
+            # Tile the bbox into a grid to avoid Overpass 504 on large regions.
+            # Tile size 0.15° ≈ 10km — small enough to avoid timeout,
+            # large enough to keep tile count low for a city-region bbox.
+            import math as _math
+            import time as _time
+            _TILE_DEG  = 0.15          # degrees per tile side
+            _TILE_TOUT = 30            # per-tile Overpass timeout (seconds)
+            _TILE_SLEEP = 2.0          # inter-tile sleep to respect rate limit
+            _MAX_RETRIES = 3
+
+            lon_tiles = max(1, int(_math.ceil((east  - west)  / _TILE_DEG)))
+            lat_tiles = max(1, int(_math.ceil((north - south) / _TILE_DEG)))
+            lon_step  = (east  - west)  / lon_tiles
+            lat_step  = (north - south) / lat_tiles
 
             nodes: list = []
-            for el in data.get('elements', []):
-                if el['type'] == 'node':
-                    nodes.append((float(el['lon']), float(el['lat'])))
-                elif el['type'] == 'way' and 'center' in el:
-                    nodes.append((
-                        float(el['center']['lon']),
-                        float(el['center']['lat']),
-                    ))
+            _seen_coords: set = set()
+            logger.info(
+                "Address node fetch: %d×%d tiles covering bbox "
+                "(%.3f,%.3f)→(%.3f,%.3f)",
+                lon_tiles, lat_tiles, west, south, east, north,
+            )
+
+            for _ty in range(lat_tiles):
+                for _tx in range(lon_tiles):
+                    _s = south + _ty * lat_step
+                    _n = min(north, _s + lat_step)
+                    _w = west  + _tx * lon_step
+                    _e = min(east,  _w + lon_step)
+                    query = (
+                        f"[out:json][timeout:{_TILE_TOUT}];"
+                        f"("
+                        f"  node['addr:street']({_s},{_w},{_n},{_e});"
+                        f"  way['building']({_s},{_w},{_n},{_e});"
+                        f"  way['amenity']['amenity'!~'parking|parking_space']"
+                        f"    ({_s},{_w},{_n},{_e});"
+                        f");"
+                        f"out center;"
+                    )
+                    body = urllib.parse.urlencode({'data': query}).encode('utf-8')
+                    req  = urllib.request.Request(
+                        'https://overpass-api.de/api/interpreter',
+                        data    = body,
+                        method  = 'POST',
+                        headers = {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'User-Agent':   'RTD_SIM_AddressSampler/1.0',
+                        },
+                    )
+                    _tile_ok = False
+                    for _attempt in range(_MAX_RETRIES):
+                        try:
+                            with urllib.request.urlopen(
+                                req, timeout=_TILE_TOUT + 5
+                            ) as resp:
+                                _tile_data = json.loads(resp.read())
+                            for el in _tile_data.get('elements', []):
+                                if el['type'] == 'node':
+                                    _c = (float(el['lon']), float(el['lat']))
+                                elif el['type'] == 'way' and 'center' in el:
+                                    _c = (
+                                        float(el['center']['lon']),
+                                        float(el['center']['lat']),
+                                    )
+                                else:
+                                    continue
+                                if _c not in _seen_coords:
+                                    _seen_coords.add(_c)
+                                    nodes.append(_c)
+                            _tile_ok = True
+                            break
+                        except Exception as _terr:
+                            _wait = 30 * (2 ** _attempt)
+                            logger.warning(
+                                "Address tile (%d,%d) attempt %d failed (%s)"
+                                " — retry in %ds",
+                                _tx, _ty, _attempt + 1, _terr, _wait,
+                            )
+                            if _attempt < _MAX_RETRIES - 1:
+                                _time.sleep(_wait)
+                    if not _tile_ok:
+                        logger.warning(
+                            "Address tile (%d,%d) failed after %d attempts — skipped",
+                            _tx, _ty, _MAX_RETRIES,
+                        )
+                    if _ty + _tx > 0:          # no sleep before first tile
+                        _time.sleep(_TILE_SLEEP)
 
             self._address_node_cache = nodes
             logger.info(

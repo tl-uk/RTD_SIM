@@ -69,7 +69,12 @@ logger = logging.getLogger(__name__)
 _ROUTE_TYPE_TO_MODE: Dict[int, str] = {
     0:   'tram',             # Tram / Streetcar / Light Rail
     1:   'local_train',      # Metro / Subway
-    2:   'intercity_train',  # Rail (intercity treated as primary)
+    2:   'local_train',      # Rail — BODS DfT encodes ALL UK rail as type=2
+    #                          (ScotRail, Avanti, Northern, GTR, etc.)
+    #                          'intercity_train' is assigned via extended types
+    #                          100-102 when present; type=2 alone is ambiguous
+    #                          and should default to the mode the router and
+    #                          trip_chain_builder both use: 'local_train'.
     3:   'bus',              # Bus
     4:   'ferry_diesel',     # Ferry (assume diesel until tagged electric)
     5:   'cable_car',        # Cable Car

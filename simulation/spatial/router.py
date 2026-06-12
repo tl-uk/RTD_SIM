@@ -1815,6 +1815,25 @@ class Router:
                     return self._interpolate([origin, dest], max_segment_km=0.2)
                 if orig_node != dest_node:
                     path_nodes = nx.shortest_path(G_ferry, orig_node, dest_node, weight='length')
+                    # Guard: if the shortest path routes through intermediate
+                    # nodes that are not terminals (e.g. Overpass waypoints),
+                    # the shape degrades to a triangle / polygon.  When path
+                    # length > 2, check every intermediate node type.  If any
+                    # intermediate is a plain waypoint, fall through to the
+                    # great-circle tier rather than rendering a triangle.
+                    if len(path_nodes) > 2:
+                        _intermediate_types = [
+                            G_ferry.nodes[_n].get('node_type', 'waypoint')
+                            for _n in path_nodes[1:-1]
+                        ]
+                        _has_waypoint = any(
+                            t not in ('terminal', 'harbour', 'port')
+                            for t in _intermediate_types
+                        )
+                        if _has_waypoint:
+                            # Intermediate waypoints produce triangle artefacts.
+                            # Fall through to Tier 3 great-circle.
+                            raise nx.NetworkXNoPath  # caught below
                     coords: List[Tuple[float, float]] = []
                     for i in range(len(path_nodes) - 1):
                         u, v    = path_nodes[i], path_nodes[i + 1]
@@ -2592,17 +2611,21 @@ class Router:
     
             if shape and len(shape) > 2:
                 # Ground-truth GTFS shape — verify orientation before use.
-                # The enriched shape should run u→v, but occasionally the drive
-                # routing produces a path whose first coordinate is geographically
-                # closer to v than to u (e.g. when the road loops around the stop).
-                # Detect and correct by comparing shape endpoints to stop coords.
+                # The enriched shape should run u→v, but occasionally the
+                # shape was built from an inbound trip or a bidirectional
+                # shape_id, putting shape[0] closer to v.  Detect and flip.
                 _s0_lon, _s0_lat = float(shape[0][0]),  float(shape[0][1])
-                _s1_lon, _s1_lat = float(shape[-1][0]), float(shape[-1][1])
                 _d_fwd = (_s0_lon - u_x)**2 + (_s0_lat - u_y)**2
                 _d_rev = (_s0_lon - v_x)**2 + (_s0_lat - v_y)**2
                 if _d_rev < _d_fwd:
                     shape = list(reversed(shape))
-                # Use directly — ground-truth geometry.
+                # For rail and tram modes, pin shape endpoints to the exact
+                # stop coordinates so agents appear to depart/arrive at the
+                # platform rather than an offset shape point mid-track.
+                if mode in _RAIL_MODES or mode == 'tram':
+                    shape = list(shape)  # ensure mutable
+                    shape[0]  = (u_x, u_y)
+                    shape[-1] = (v_x, v_y)
                 transit_coords.extend(shape if i == 0 else shape[1:])
     
             elif mode in ('bus', 'van_electric', 'van_diesel'):

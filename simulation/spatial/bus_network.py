@@ -333,26 +333,27 @@ def enrich_transit_shapes(
         #     skipped_out_bbox += 1
         #     continue
 
+        # ── GTFS shapes.txt — try FIRST (authoritative, road-following) ────────────
+        # The BODS feed includes shapes in shapes.txt.  Using them first means
+        # bus edges follow the actual recorded route geometry rather than a
+        # drive-graph shortest-path which may diverge wildly for long or
+        # cross-regional services.  Drive routing is kept as a fallback for
+        # stops whose route has no shapes.txt entry (positioning trips, etc.).
+        _gtfs_shape = _get_gtfs_shape_for_edge(G_transit, u, v)
+        if _gtfs_shape and len(_gtfs_shape) >= 2:
+            data['shape_coords'] = _gtfs_shape
+            shape_cache[cache_key] = _gtfs_shape
+            enriched += 1
+            continue
+
         u_node = _fast_nearest(u_lon, u_lat)
         v_node = _fast_nearest(v_lon, v_lat)
 
         if u_node is None or v_node is None:
-            # ── GTFS shapes.txt fallback (Issue 2B) ──────────────────────────
-            # Stops outside the drive-graph disc (cross-regional express
-            # services, rural connections) have no drive node within
-            # max_stop_snap_m.  Before recording a straight-line skip, check
-            # if the GTFS feed has shapes.txt geometry for this stop pair.
-            # This is region-agnostic: any GTFS feed with shapes.txt benefits,
-            # regardless of UK city.
-            _gtfs_shape = _get_gtfs_shape_for_edge(G_transit, u, v)
-            if _gtfs_shape and len(_gtfs_shape) >= 2:
-                data['shape_coords'] = _gtfs_shape
-                shape_cache[cache_key] = _gtfs_shape
-                enriched += 1
-                continue
+            # Stops outside the drive-graph disc and no shapes.txt entry:
+            # cross-regional rural connections with no recorded geometry.
             skipped_no_snap += 1
-            # Do not cache failures. Empty entries block retries when the
-            # drive graph or snap radius changes. Let the next run retry.
+            # Do not cache failures — let the next run retry.
             continue
 
         if u_node == v_node:
