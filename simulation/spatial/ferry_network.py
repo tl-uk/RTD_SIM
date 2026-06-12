@@ -184,8 +184,8 @@ def _great_circle_arc(
 def _overpass_post(
     query: str,
     timeout_s: int = 45,
-    max_retries: int = 3,
-    initial_delay: float = 2.0,
+    max_retries: int = 5,         # Increased from 2 to 5
+    initial_delay: float = 8.0,   # Increased from 2.0s to 8.0s
 ) -> Optional[dict]:
     """
     POST a query to the Overpass API with exponential backoff.
@@ -369,7 +369,9 @@ def _fetch_shipping_lanes(
     Sea, English Channel, and Irish Sea that affect UK ferry operations.
     """
     # Seamark data tends to be sparser — expand bbox more generously
-    s2, w2, n2, e2 = south - 1.0, west - 1.0, north + 1.0, east + 1.0
+    # s2, w2, n2, e2 = south - 1.0, west - 1.0, north + 1.0, east + 1.0
+    # Reduced expansion to prevent heavy rate-limiting
+    s2, w2, n2, e2 = south - 0.2, west - 0.2, north + 0.2, east + 0.2
     seamark_types = "|".join([
         "separation_lane",
         "separation_zone",
@@ -939,7 +941,7 @@ def fetch_maritime_graphs(
     # triggered 429 Too Many Requests on all but the first to arrive.
     # Each _overpass_post() already handles 429/504 with exponential backoff internally,
     # but inter-query pauses reduce the baseline hit rate significantly.
-    _INTER_QUERY_PAUSE = 1.5  # seconds between query dispatches
+    _INTER_QUERY_PAUSE = 5.0  # seconds between query dispatches. Increase from 0.1s to 5s to reduce 429 errors.
 
     route_data    = None
     terminal_data = None
