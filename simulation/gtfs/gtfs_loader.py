@@ -69,12 +69,7 @@ logger = logging.getLogger(__name__)
 _ROUTE_TYPE_TO_MODE: Dict[int, str] = {
     0:   'tram',             # Tram / Streetcar / Light Rail
     1:   'local_train',      # Metro / Subway
-    2:   'local_train',      # Rail — BODS DfT encodes ALL UK rail as type=2
-    #                          (ScotRail, Avanti, Northern, GTR, etc.)
-    #                          'intercity_train' is assigned via extended types
-    #                          100-102 when present; type=2 alone is ambiguous
-    #                          and should default to the mode the router and
-    #                          trip_chain_builder both use: 'local_train'.
+    2:   'intercity_train',  # Rail (intercity treated as primary)
     3:   'bus',              # Bus
     4:   'ferry_diesel',     # Ferry (assume diesel until tagged electric)
     5:   'cable_car',        # Cable Car
@@ -405,8 +400,32 @@ class GTFSLoader:
                 self._active_services.discard(sid)
 
     def _parse_stops(self) -> None:
-        """Load stops, filtering by bbox when supplied."""
-        count = 0
+        """Load stops, filtering by bbox when supplied.
+
+        Zero-coordinate handling
+        -------------------------
+        Some UK rail/metro operators in the BODS combined feed publish
+        platform-level stops (location_type=0) with stop_lat=0,
+        stop_lon=0 and a populated parent_station pointing at a
+        station-level stop (location_type=1) that DOES carry real
+        coordinates. If these zero-coordinate platforms are dropped
+        outright, every stop_time referencing them is lost in
+        _parse_stop_times, which cascades into the trip and route being
+        dropped entirely — silently removing whole rail/metro routes
+        from the feed with no diagnostic.
+
+        This is a two-pass parse:
+          Pass 1 — read every row, recording raw (lat, lon, parent_station).
+          Pass 2 — for rows whose own coordinates are (0, 0), inherit the
+                    parent_station's coordinates if the parent has valid
+                    (non-zero) coordinates. Only rows that remain at
+                    (0, 0) after this substitution are dropped.
+
+        This is entirely feed-driven (uses only parent_station references
+        present in stops.txt) so it works for any UK city or region —
+        no place names, coordinates, or bboxes are hardcoded.
+        """
+        _raw: Dict[str, Dict[str, Any]] = {}
         for row in self._yield_csv_rows('stops.txt'):
             sid = row.get('stop_id', '').strip()
             if not sid:
@@ -416,15 +435,7 @@ class GTFSLoader:
                 lon = float(row.get('stop_lon', 0) or 0)
             except ValueError:
                 continue
-            if lat == 0.0 and lon == 0.0:
-                continue
-
-            if self.bbox:
-                west, south, east, north = self.bbox
-                if not (west <= lon <= east and south <= lat <= north):
-                    continue
-
-            self.stops[sid] = {
+            _raw[sid] = {
                 'name':           row.get('stop_name', '').strip(),
                 'lat':            lat,
                 'lon':            lon,
@@ -433,8 +444,48 @@ class GTFSLoader:
                 'location_type':  int(row.get('location_type', '0') or '0'),
                 'parent_station': row.get('parent_station', '').strip(),
             }
+
+        count = 0
+        zero_total = 0
+        zero_rescued = 0
+        zero_dropped = 0
+        for sid, s in _raw.items():
+            lat, lon = s['lat'], s['lon']
+
+            if lat == 0.0 and lon == 0.0:
+                zero_total += 1
+                parent = _raw.get(s['parent_station'])
+                if parent and not (parent['lat'] == 0.0 and parent['lon'] == 0.0):
+                    lat, lon = parent['lat'], parent['lon']
+                    zero_rescued += 1
+                else:
+                    zero_dropped += 1
+                    continue
+
+            if self.bbox:
+                west, south, east, north = self.bbox
+                if not (west <= lon <= east and south <= lat <= north):
+                    continue
+
+            self.stops[sid] = {
+                'name':           s['name'],
+                'lat':            lat,
+                'lon':            lon,
+                'code':           s['code'],
+                'wheelchair':     s['wheelchair'],
+                'location_type':  s['location_type'],
+                'parent_station': s['parent_station'],
+            }
             count += 1
         logger.info("GTFS: %d stops loaded within map region", count)
+
+        if zero_total:
+            logger.info(
+                "GTFS stops.txt: %d stop(s) had (0,0) coordinates — "
+                "%d rescued via parent_station, %d dropped (no usable "
+                "parent coordinates)",
+                zero_total, zero_rescued, zero_dropped,
+            )
 
         # ── Diagnostic: log a sample of loaded stops so operators can verify
         # the feed is being read correctly (especially stop_id ↔ name mapping).
@@ -452,6 +503,7 @@ class GTFSLoader:
                 "(feed: f-bus~dft~gov~uk or equivalent)",
                 len(self.stops),
             )
+
 
     def _parse_stop_times(self) -> None:
         """
@@ -549,16 +601,33 @@ class GTFSLoader:
         return 'diesel'
 
     def _parse_routes(self) -> None:
-        """Load routes that survived the cascading spatial/calendar filter."""
+        """Load routes that survived the cascading spatial/calendar filter.
+
+        Diagnostic: also tallies route_type counts for ALL rows in
+        routes.txt (regardless of whether they survived) alongside the
+        counts that actually made it into self.routes. If, say,
+        route_type=2 (rail) appears in the "all rows" tally but not in
+        the "loaded" tally, that proves the drop happens upstream in the
+        stops/stop_times/trips cascade (most commonly: every rail stop
+        had zero coordinates and was filtered out in _parse_stops, so
+        every rail stop_time/trip/route was excluded in turn) — NOT in
+        this function's route_type→mode mapping.
+        """
+        _all_rtype_counts: Dict[int, int] = defaultdict(int)
+        _loaded_rtype_counts: Dict[int, int] = defaultdict(int)
+
         for row in self._yield_csv_rows('routes.txt'):
             rid = row.get('route_id', '').strip()
-            if rid not in self._valid_routes:
-                continue
 
             try:
                 rtype = int(row.get('route_type', '3') or '3')
             except ValueError:
                 rtype = 3
+
+            _all_rtype_counts[rtype] += 1
+            if rid not in self._valid_routes:
+                continue
+            _loaded_rtype_counts[rtype] += 1
 
             desc  = row.get('route_desc',      '')
             lname = row.get('route_long_name', '')
@@ -578,6 +647,22 @@ class GTFSLoader:
                 'fuel_type':  fuel,
                 'color':      '#' + color if color else '#888888',
             }
+
+        if _all_rtype_counts:
+            for rtype in sorted(_all_rtype_counts):
+                total = _all_rtype_counts[rtype]
+                loaded = _loaded_rtype_counts.get(rtype, 0)
+                mode_for_type = _ROUTE_TYPE_TO_MODE.get(rtype, 'bus')
+                flag = ""
+                if loaded == 0 and total > 0:
+                    flag = "  ⚠️ ALL routes of this type were dropped upstream " \
+                           "(check _parse_stops zero-coordinate / bbox filtering " \
+                           "for stops served by this route_type)"
+                logger.info(
+                    "GTFS route_type=%-3d (→ mode=%-15s): %4d in routes.txt, "
+                    "%4d survived into G_transit%s",
+                    rtype, mode_for_type, total, loaded, flag,
+                )
 
     def _parse_shapes(self) -> None:
         """Load shape polylines for trips that survived the cascading filter.

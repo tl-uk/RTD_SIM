@@ -115,38 +115,33 @@ def _haversine_m(
 
 
 # ── GTFS route_type → RTD_SIM mode string ─────────────────────────────────────
-# The BODS feed (f-bus~dft~gov~uk) stores route_type on routes but GTFSLoader
-# may not populate 'mode' on the route dict.  Without this mapping, every
-# edge in the transit graph has mode='bus' and mode_filter='tram' never matches.
-# GTFS spec route_type values:
-#   0 = Tram / Light Rail    1 = Subway / Metro    2 = Rail
-#   3 = Bus                  4 = Ferry             5 = Cable car
-_ROUTE_TYPE_TO_MODE: dict = {
-    # GTFS core types
-    0: 'tram',
-    1: 'local_train',   # subway/metro
-    2: 'local_train',   # Rail — BODS DfT encodes ALL UK rail as type=2;
-    #                     must match gtfs_loader._ROUTE_TYPE_TO_MODE[2]
-    3: 'bus',
-    4: 'ferry_diesel',
-    5: 'bus',           # cable car — rare
-    6: 'bus',           # gondola
-    7: 'bus',           # funicular
-    11: 'tram',         # trolleybus (electric overhead wire)
-    12: 'local_train',  # monorail
-    # Extended Hierarchical Vehicle Types (HVT) — mirrors gtfs_loader mapping
-    100: 'intercity_train', 101: 'intercity_train', 102: 'intercity_train',
-    103: 'local_train',     104: 'local_train',     105: 'local_train',
-    106: 'local_train',     107: 'local_train',     108: 'local_train',
-    109: 'local_train',     110: 'local_train',
-    200: 'bus',
-    400: 'tram',        401: 'local_train',   402: 'local_train',
-    403: 'local_train', 404: 'tram',          405: 'local_train',
-    700: 'bus',
-    800: 'tram',
-    900: 'tram',
-    1000: 'ferry_diesel',
-}
+# GTFSLoader.routes[route_id]['mode'] is ALWAYS set by GTFSLoader._parse_routes
+# (it has its own, more complete _ROUTE_TYPE_TO_MODE covering the full GTFS
+# extended route_type range — trams, light rail, all rail sub-types, etc).
+# `route.get('mode')` below is therefore always truthy when the route exists,
+# and this fallback table is only reached if a route_id is missing entirely
+# from loader.routes (e.g. a trip whose route_id isn't in routes.txt).
+#
+# IMPORTANT: this table previously diverged from GTFSLoader's — it mapped
+# route_type 2 → 'local_train' while GTFSLoader maps 2 → 'intercity_train'.
+# Two different mode strings for the same route_type is exactly the kind of
+# inconsistency that causes "no local_train boarding stop" / "empty leg for
+# intercity_train" failures when one code path uses this table and another
+# uses GTFSLoader's. Import the canonical table instead of duplicating it.
+try:
+    from simulation.gtfs.gtfs_loader import _ROUTE_TYPE_TO_MODE
+except ImportError:
+    # Minimal last-resort fallback if gtfs_loader can't be imported (e.g.
+    # this module is used standalone/in tests). Mirrors GTFSLoader's core
+    # mapping for the most common GTFS route_type values.
+    _ROUTE_TYPE_TO_MODE: dict = {
+        0: 'tram',
+        1: 'local_train',
+        2: 'intercity_train',
+        3: 'bus',
+        4: 'ferry_diesel',
+        5: 'bus', 6: 'bus', 7: 'bus', 11: 'bus', 12: 'bus',
+    }
 
 
 class GTFSGraph:
@@ -244,9 +239,9 @@ class GTFSGraph:
             route_id = trip.get('route_id', '')
             route    = loader.routes.get(route_id, {})
             rtype    = route.get('route_type', 3)
-            # Derive mode from route_type — BODS may not set 'mode' on routes,
-            # causing every edge to default to 'bus' and mode_filter='tram' to
-            # never match even when Edinburgh Trams trips are present.
+            # mode is always set by GTFSLoader._parse_routes; the
+            # _ROUTE_TYPE_TO_MODE fallback only fires if route_id is missing
+            # from loader.routes entirely (trip references an unknown route).
             mode     = route.get('mode') or _ROUTE_TYPE_TO_MODE.get(rtype, 'bus')
             fuel     = route.get('fuel_type', 'diesel')
 
@@ -426,43 +421,29 @@ class GTFSGraph:
         }
 
         # ── route_shapes: per-service per-stop-pair geometry ──────────────────
-        # Two-pass: direction_id=0 (outbound) wins over direction_id=1 (inbound).
-        # If an inbound trip fills a stop pair first and an outbound trip covers
-        # the same pair later, the outbound shape replaces it.  This prevents
-        # _slice_shape returning a reversed polyline for inbound-only shapes.
         route_shapes: Dict[str, Dict[Tuple[str,str], list]] = defaultdict(dict)
-        _dir0_pairs: Dict[str, set] = defaultdict(set)  # pairs stamped by direction=0
-
-        for _pass in (0, 1):           # pass 0 = direction=0, pass 1 = direction=1
-            for _tid, _sts in loader.stop_times.items():
-                _tr = loader.trips.get(_tid)
-                if not _tr: continue
-                _dir = _tr.get('direction_id', 0)
-                if _dir != _pass: continue         # process one direction per pass
-                _sid = _tr.get('shape_id', '')
-                _tsh = loader.shapes.get(_sid, []) if _sid and getattr(loader, 'shapes', None) else []
-                if not _tsh: continue
-                _rid = _tr.get('route_id', '')
-                _robj = loader.routes.get(_rid, {})
-                _rsn = str(_robj.get('short_name') or _robj.get('route_short_name', '')).strip()
-                if not _rsn: continue
-                for _i in range(len(_sts) - 1):
-                    if _sts[_i].get('pickup_type', 0) == 1: continue
-                    _uid, _vid = _sts[_i]['stop_id'], _sts[_i+1]['stop_id']
-                    if _uid not in G.nodes or _vid not in G.nodes: continue
-                    _pr = (_uid, _vid)
-                    # Pass 1: skip pairs already covered by direction=0 outbound.
-                    if _pass == 1 and _pr in _dir0_pairs[_rsn]: continue
-                    # Pass 1: skip pairs already filled by another direction=1 trip.
-                    if _pass == 1 and _pr in route_shapes[_rsn]: continue
-                    _ud, _vd = G.nodes[_uid], G.nodes[_vid]
-                    _seg = self._slice_shape(
-                        _tsh, float(_ud.get('x',0)), float(_ud.get('y',0)),
-                        float(_vd.get('x',0)), float(_vd.get('y',0)))
-                    if _seg and len(_seg) >= 2:
-                        route_shapes[_rsn][_pr] = _seg
-                        if _pass == 0:
-                            _dir0_pairs[_rsn].add(_pr)
+        for _tid, _sts in loader.stop_times.items():
+            _tr = loader.trips.get(_tid)
+            if not _tr: continue
+            _sid = _tr.get('shape_id', '')
+            _tsh = loader.shapes.get(_sid, []) if _sid and getattr(loader, 'shapes', None) else []
+            if not _tsh: continue
+            _rid = _tr.get('route_id', '')
+            _robj = loader.routes.get(_rid, {})
+            _rsn = str(_robj.get('short_name') or _robj.get('route_short_name', '')).strip()
+            if not _rsn: continue
+            for _i in range(len(_sts) - 1):
+                if _sts[_i].get('pickup_type', 0) == 1: continue
+                _uid, _vid = _sts[_i]['stop_id'], _sts[_i+1]['stop_id']
+                if _uid not in G.nodes or _vid not in G.nodes: continue
+                _pr = (_uid, _vid)
+                if _pr in route_shapes[_rsn]: continue
+                _ud, _vd = G.nodes[_uid], G.nodes[_vid]
+                _seg = self._slice_shape(
+                    _tsh, float(_ud.get('x',0)), float(_ud.get('y',0)),
+                    float(_vd.get('x',0)), float(_vd.get('y',0)))
+                if _seg and len(_seg) >= 2:
+                    route_shapes[_rsn][_pr] = _seg
 
         # ── foot-path edges (RAPTOR transfer model) ───────────────────────────
         # Only add walk_transfer edges between stops NOT already connected by a
@@ -916,6 +897,22 @@ class GTFSGraph:
     _GRAPH_CACHE_DIR = Path.home() / ".rtd_sim_cache" / "gtfs_graphs"
     _GRAPH_CACHE_TTL_H = 72.0
 
+    # Bump this whenever GTFSLoader's route_type→mode mapping, stop-coordinate
+    # handling, or GTFSGraph's edge/route_shapes building logic changes.
+    #
+    # The cache key below previously depended ONLY on (feed_path, feed mtime,
+    # service_date) — it had no way to detect that the *code* that builds the
+    # graph had changed.  This meant a graph built by an older, buggier
+    # GTFSLoader/GTFSGraph (e.g. one that dropped rail routes, or never
+    # populated route_shapes) would be silently reused for days after the bug
+    # was fixed, because the underlying GTFS zip on disk hadn't changed.
+    #
+    # Session 20: rail routes missing from G_transit and bus shapes ignored
+    # were both traced to a 22.6h-old disk cache built before the route_type
+    # mapping / route_shapes fixes existed.  Bumping this version forces a
+    # rebuild on the next run regardless of feed mtime.
+    _BUILD_VERSION = "v21-rail-routetype-and-route-shapes"
+
     @classmethod
     def load_from_disk(
         cls,
@@ -926,8 +923,9 @@ class GTFSGraph:
         Return a cached transit graph if one exists for this feed+date and is
         within TTL. Returns None if no valid cache exists.
 
-        Cache key: MD5 of (feed_path + feed mtime + service_date).
-        Invalidated automatically when the feed file changes on disk.
+        Cache key: MD5 of (feed_path + feed mtime + service_date + build version).
+        Invalidated automatically when the feed file changes on disk, OR when
+        _BUILD_VERSION is bumped (i.e. the loader/graph-building code changed).
         """
         cls._GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         try:
@@ -935,7 +933,7 @@ class GTFSGraph:
         except OSError:
             return None
         key = hashlib.md5(
-            f"{feed_path}:{mtime}:{service_date}".encode()
+            f"{feed_path}:{mtime}:{service_date}:{cls._BUILD_VERSION}".encode()
         ).hexdigest()[:16]
         cache_path = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
         if not cache_path.exists():
@@ -968,7 +966,7 @@ class GTFSGraph:
         except OSError:
             return
         key = hashlib.md5(
-            f"{feed_path}:{mtime}:{service_date}".encode()
+            f"{feed_path}:{mtime}:{service_date}:{cls._BUILD_VERSION}".encode()
         ).hexdigest()[:16]
         cache_path = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
         try:

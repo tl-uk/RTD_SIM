@@ -87,6 +87,7 @@ def _get_gtfs_shape_for_edge(
     G_transit,
     u: str,
     v: str,
+    route_short_names: Optional[List[str]] = None,
 ) -> Optional[List[Tuple[float, float]]]:
     """
     Return GTFS shapes.txt geometry for the transit edge (u, v), or None.
@@ -98,8 +99,15 @@ def _get_gtfs_shape_for_edge(
     return geometry here, regardless of UK city or operator.
 
     Args:
-        G_transit:  The GTFS transit graph (NetworkX MultiDiGraph).
-        u, v:       Stop IDs for the edge to look up.
+        G_transit:          The GTFS transit graph (NetworkX MultiDiGraph).
+        u, v:               Stop IDs for the edge to look up.
+        route_short_names:  Optional — the calling edge's own
+                             ``route_short_names`` (already available on
+                             ``data`` in the enrichment loop). When given,
+                             only those routes are checked first, which is
+                             O(1) per edge instead of scanning every route
+                             in ``route_shapes`` — important when called for
+                             tens of thousands of empty edges.
 
     Returns:
         List of (lon, lat) tuples with ≥ 2 points, or None if not found.
@@ -108,13 +116,15 @@ def _get_gtfs_shape_for_edge(
     if not route_shapes:
         return None
 
-    # Search all routes for a shape covering this stop pair.
-    for _route, _pair_map in route_shapes.items():
-        coords = _pair_map.get((u, v))
-        if coords and len(coords) >= 2:
-            return [tuple(pt) for pt in coords]
+    # Fast path: the edge already knows which route(s) serve it.
+    if route_short_names:
+        for rsn in route_short_names:
+            coords = route_shapes.get(rsn, {}).get((u, v))
+            if coords and len(coords) >= 2:
+                return [tuple(pt) for pt in coords]
 
-    # Also check the edge data directly for a route_short_name hint.
+    # Also check the edge data directly for a route_short_name hint
+    # (covers callers that didn't pass route_short_names explicitly).
     edge_map = G_transit.get_edge_data(u, v)
     if edge_map:
         for ed in edge_map.values():
@@ -122,6 +132,13 @@ def _get_gtfs_shape_for_edge(
                 coords = route_shapes.get(rsn, {}).get((u, v))
                 if coords and len(coords) >= 2:
                     return [tuple(pt) for pt in coords]
+
+    # Slow path / last resort: search every route for this stop pair. Only
+    # reached if the edge carries no route_short_names hint at all.
+    for _route, _pair_map in route_shapes.items():
+        coords = _pair_map.get((u, v))
+        if coords and len(coords) >= 2:
+            return [tuple(pt) for pt in coords]
 
     return None
 
@@ -315,6 +332,30 @@ def enrich_transit_shapes(
                 enriched  += 1
                 continue
 
+        # ── GTFS shapes.txt geometry — TRY THIS FIRST ───────────────────────────
+        # gtfs_graph.py's GTFSGraph.build() already slices the GTFS feed's own
+        # shapes.txt polylines per stop-pair into G_transit.graph['route_shapes'].
+        # This is the ACTUAL path the vehicle drives/runs, as published by the
+        # operator — it is authoritative and should always be preferred over a
+        # generic shortest-path-by-length route on the OSM drive graph, which
+        # frequently picks a different (and sometimes nonsensical) road.
+        #
+        # Previously this GTFS-shape lookup only ran as a last resort, AFTER
+        # drive-graph snapping succeeded and drive routing was already used.
+        # Since nearly every stop snaps to *some* drive node within
+        # max_stop_snap_m, the drive-graph branch below ran for almost every
+        # edge and the real shapes.txt geometry (2960 shapes in the BODS feed)
+        # was essentially never used. Checking it first fixes that.
+        #
+        # This is region-agnostic: works for any GTFS feed with shapes.txt,
+        # regardless of UK city or operator.
+        _gtfs_shape = _get_gtfs_shape_for_edge(G_transit, u, v, data.get('route_short_names'))
+        if _gtfs_shape and len(_gtfs_shape) >= 2:
+            data['shape_coords'] = _gtfs_shape
+            shape_cache[cache_key] = _gtfs_shape
+            enriched += 1
+            continue
+
         # ── Get stop coordinates ──────────────────────────────────────────────
         u_data = G_transit.nodes.get(u, {})
         v_data = G_transit.nodes.get(v, {})
@@ -333,28 +374,19 @@ def enrich_transit_shapes(
         #     skipped_out_bbox += 1
         #     continue
 
-        # ── GTFS shapes.txt — try FIRST (authoritative, road-following) ────────────
-        # The BODS feed includes shapes in shapes.txt.  Using them first means
-        # bus edges follow the actual recorded route geometry rather than a
-        # drive-graph shortest-path which may diverge wildly for long or
-        # cross-regional services.  Drive routing is kept as a fallback for
-        # stops whose route has no shapes.txt entry (positioning trips, etc.).
-        _gtfs_shape = _get_gtfs_shape_for_edge(G_transit, u, v)
-        if _gtfs_shape and len(_gtfs_shape) >= 2:
-            data['shape_coords'] = _gtfs_shape
-            shape_cache[cache_key] = _gtfs_shape
-            enriched += 1
-            continue
-
         u_node = _fast_nearest(u_lon, u_lat)
         v_node = _fast_nearest(v_lon, v_lat)
 
         if u_node is None or v_node is None:
-            # Stops outside the drive-graph disc and no shapes.txt entry:
-            # cross-regional rural connections with no recorded geometry.
+            # Stops outside the drive-graph disc (cross-regional express
+            # services, rural connections) have no drive node within
+            # max_stop_snap_m, and no GTFS shape was found above either.
+            # Fall back to a straight line between the two stops.
             skipped_no_snap += 1
-            # Do not cache failures — let the next run retry.
+            # Do not cache failures. Empty entries block retries when the
+            # drive graph or snap radius changes. Let the next run retry.
             continue
+
 
         if u_node == v_node:
             # Very close stops — straight line is acceptable (< max_stop_snap_m)
