@@ -2609,7 +2609,7 @@ class Router:
             v_x = float(G_transit.nodes[v_node].get('x', 0))
             v_y = float(G_transit.nodes[v_node].get('y', 0))
     
-            if shape and len(shape) > 2:
+            if shape and len(shape) >= 2:
                 # Ground-truth GTFS shape — verify orientation before use.
                 # The enriched shape should run u→v, but occasionally the
                 # shape was built from an inbound trip or a bidirectional
@@ -2703,9 +2703,18 @@ class Router:
                             )
                 if not _tram_seg_added:
                     # Straight stop-to-stop interpolation (ferry / tram without OSM graph).
-                    if i == 0:
-                        transit_coords.append((u_x, u_y))
-                    transit_coords.append((v_x, v_y))
+                    if mode in ('ferry_diesel', 'ferry_electric'):
+                        try:
+                            from simulation.spatial.ferry_network import _great_circle_arc
+                            arc = _great_circle_arc((u_x, u_y), (v_x, v_y), n_points=20)
+                            transit_coords.extend(arc if i == 0 else arc[1:])
+                        except ImportError:
+                            if i == 0: transit_coords.append((u_x, u_y))
+                            transit_coords.append((v_x, v_y))
+                    else:
+                        if i == 0:
+                            transit_coords.append((u_x, u_y))
+                        transit_coords.append((v_x, v_y))
     
         # ── Service label ─────────────────────────────────────────────────────────
         _seen: set = set()
@@ -2891,30 +2900,29 @@ class Router:
             u, v = route_nodes[i], route_nodes[i + 1]
 
             if i == 0:
-                coords.append(
-                    (float(graph.nodes[u]['x']), float(graph.nodes[u]['y']))
-                )
+                coords.append((float(graph.nodes[u]['x']), float(graph.nodes[u]['y'])))
 
             edge_dict = graph.get_edge_data(u, v) or {}
             edge_data = (
                 next((d for d in edge_dict.values() if 'geometry' in d), None)
+                or next((d for d in edge_dict.values() if 'shape_coords' in d), None) # NEW
                 or next(iter(edge_dict.values()), None)
             )
 
             if edge_data and 'geometry' in edge_data:
                 geom = edge_data['geometry']
                 if hasattr(geom, 'coords'):
-                    coords.extend(
-                        (float(x), float(y)) for x, y in list(geom.coords)[1:]
-                    )
+                    coords.extend((float(x), float(y)) for x, y in list(geom.coords)[1:])
                 else:
-                    coords.append(
-                        (float(graph.nodes[v]['x']), float(graph.nodes[v]['y']))
-                    )
+                    coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
+            elif edge_data and 'shape_coords' in edge_data:   # NEW
+                shape = edge_data['shape_coords']
+                if len(shape) > 1:
+                    coords.extend((float(x), float(y)) for x, y in shape[1:])
+                else:
+                    coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
             else:
-                coords.append(
-                    (float(graph.nodes[v]['x']), float(graph.nodes[v]['y']))
-                )
+                coords.append((float(graph.nodes[v]['x']), float(graph.nodes[v]['y'])))
 
         if not coords and len(route_nodes) >= 2:
             first, last = route_nodes[0], route_nodes[-1]

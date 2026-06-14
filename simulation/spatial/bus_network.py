@@ -69,6 +69,22 @@ CACHE_ROOT  = Path.home() / ".rtd_sim_cache" / "transport"
 CACHE_TTL_H = 72.0
 CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 
+# Bump this whenever enrich_transit_shapes' logic changes (priority order,
+# what counts as "enriched", what gets cached, etc).
+#
+# Session 21 reordered the lookup to check GTFS route_shapes before drive
+# snapping — but the cache itself wasn't versioned, so a cache built under
+# the OLD logic (drive-routing-first, AND one that cached degenerate 2-point
+# straight-line fallbacks as "enriched" successes) kept being loaded and
+# short-circuiting the new logic entirely (99.7% cache-hit rate observed).
+#
+# Session 22: bumping this discards that poisoned cache. Also fixed: drive
+# routing failures (NetworkXNoPath/NodeNotFound/degenerate path/exception)
+# are no longer cached or counted as "enriched" — only genuine GTFS-shape
+# geometry, genuine road-following drive routes, and short same-drive-node
+# straight lines (< max_stop_snap_m) are cached as successes.
+_CACHE_VERSION = "v22-no-degenerate-cache"
+
 
 # ── Geometry helpers ─────────────────────────────────────────────────────────
 
@@ -220,7 +236,10 @@ def enrich_transit_shapes(
         return 0
 
     # ── Load cache ────────────────────────────────────────────────────────────
-    cache_path = CACHE_ROOT / f"{city_tag}_bus_shapes.json"
+    # Cache filename includes _CACHE_VERSION so a logic change (priority order,
+    # what gets cached as a success) automatically invalidates old caches —
+    # see _CACHE_VERSION comment above.
+    cache_path = CACHE_ROOT / f"{city_tag}_bus_shapes_{_CACHE_VERSION}.json"
     shape_cache: Dict[str, List] = {}
     if cache_path.exists():
         age_h = (time.time() - cache_path.stat().st_mtime) / 3600
@@ -296,10 +315,36 @@ def enrich_transit_shapes(
                 best_dist, best_node = d, node
         return best_node if best_dist <= max_stop_snap_m else None
 
+    def _nearest_any(lon: float, lat: float) -> Optional:
+        """Nearest drive node with NO distance cap and NO bbox pre-rejection.
+
+        Used as the "edge of the drive graph nearest this out-of-range stop"
+        for partial routing (see enriched_partial below). Unlike
+        _fast_nearest, this always returns a node if the drive graph is
+        non-empty — the caller decides whether the resulting straight "tail"
+        segment (from this node's coordinates to the actual stop) is short
+        enough to be useful.
+        """
+        best_node, best_dist = None, float('inf')
+        for node, nx_, ny_ in _drive_nodes:
+            dx = (nx_ - lon) * 111_320 * math.cos(math.radians(lat))
+            dy = (ny_ - lat) * 111_320
+            d  = math.sqrt(dx * dx + dy * dy)
+            if d < best_dist:
+                best_dist, best_node = d, node
+        return best_node
+
     # ── Iterate transit edges ─────────────────────────────────────────────────
-    enriched = 0
+    enriched         = 0
+    enriched_gtfs    = 0
+    enriched_drive   = 0
+    enriched_partial = 0
+    enriched_samenode = 0
     skipped_no_snap  = 0
+    no_snap_in_bbox  = 0
+    no_snap_outside_bbox = 0
     skipped_no_path  = 0
+    skipped_degenerate = 0
     skipped_out_bbox = 0
     cache_hits       = 0
 
@@ -354,6 +399,7 @@ def enrich_transit_shapes(
             data['shape_coords'] = _gtfs_shape
             shape_cache[cache_key] = _gtfs_shape
             enriched += 1
+            enriched_gtfs += 1
             continue
 
         # ── Get stop coordinates ──────────────────────────────────────────────
@@ -378,40 +424,126 @@ def enrich_transit_shapes(
         v_node = _fast_nearest(v_lon, v_lat)
 
         if u_node is None or v_node is None:
-            # Stops outside the drive-graph disc (cross-regional express
-            # services, rural connections) have no drive node within
-            # max_stop_snap_m, and no GTFS shape was found above either.
-            # Fall back to a straight line between the two stops.
+            # Diagnostic: which endpoint failed, and was it because the stop
+            # is outside the drive graph's geographic extent entirely (the
+            # 25km disc + margin), or inside it but >max_stop_snap_m from any
+            # node (a genuine coverage gap in the drive graph)?
+            for _lon, _lat, _node, _label in (
+                (u_lon, u_lat, u_node, 'u'), (v_lon, v_lat, v_node, 'v')
+            ):
+                if _node is not None:
+                    continue
+                _in_bbox = (_bbox_min_lon <= _lon <= _bbox_max_lon
+                            and _bbox_min_lat <= _lat <= _bbox_max_lat)
+                if _in_bbox:
+                    no_snap_in_bbox += 1
+                else:
+                    no_snap_outside_bbox += 1
+                if no_snap_in_bbox + no_snap_outside_bbox <= 10:
+                    logger.debug(
+                        "No drive snap for %s stop %s (lon=%.4f, lat=%.4f): "
+                        "%s drive graph bbox (lon %.4f..%.4f, lat %.4f..%.4f)",
+                        _label, u if _label == 'u' else v, _lon, _lat,
+                        "inside" if _in_bbox else "OUTSIDE",
+                        _bbox_min_lon, _bbox_max_lon, _bbox_min_lat, _bbox_max_lat,
+                    )
+
+            # ── Partial drive routing (Issue: 44824 edges with no geometry) ───
+            # If exactly ONE endpoint is outside the drive graph's reach
+            # (the common case for routes crossing the drive-graph boundary
+            # — e.g. an Edinburgh stop paired with a Dunfermline/North
+            # Berwick stop), route on the drive graph from the IN-RANGE
+            # endpoint to whichever drive node is nearest the OUT-OF-RANGE
+            # stop (no distance cap), then add a short straight "tail" to
+            # the actual out-of-range stop coordinate. This gives mostly
+            # road-following geometry instead of one straight line spanning
+            # the entire region. If BOTH endpoints are out of range, there's
+            # no drive-graph benefit — fall through to unresolved.
+            if (u_node is None) != (v_node is None):
+                try:
+                    if u_node is None:
+                        _edge_node = _nearest_any(u_lon, u_lat)
+                        if _edge_node is None:
+                            raise ValueError("empty drive graph")
+                        _node_path = nx.shortest_path(G_drive, _edge_node, v_node, weight='length')
+                        _path_coords = _extract_drive_path_coords(G_drive, _node_path)
+                        if not _path_coords or len(_path_coords) < 2:
+                            raise ValueError("degenerate path")
+                        coords = [(u_lon, u_lat)] + _path_coords
+                    else:
+                        _edge_node = _nearest_any(v_lon, v_lat)
+                        if _edge_node is None:
+                            raise ValueError("empty drive graph")
+                        _node_path = nx.shortest_path(G_drive, u_node, _edge_node, weight='length')
+                        _path_coords = _extract_drive_path_coords(G_drive, _node_path)
+                        if not _path_coords or len(_path_coords) < 2:
+                            raise ValueError("degenerate path")
+                        coords = _path_coords + [(v_lon, v_lat)]
+
+                    data['shape_coords'] = [tuple(pt) for pt in coords]
+                    shape_cache[cache_key] = coords
+                    enriched += 1
+                    enriched_partial += 1
+                    continue
+                except (nx.NetworkXNoPath, nx.NodeNotFound, ValueError):
+                    pass
+                except Exception as exc:
+                    logger.debug("Partial drive routing failed for %s→%s: %s", u, v, exc)
+
+            # Both endpoints out of range (or partial routing failed above),
+            # and no GTFS shape was found earlier. Do not cache failures —
+            # empty entries block retries when the drive graph or snap
+            # radius changes. Let the next run retry.
             skipped_no_snap += 1
-            # Do not cache failures. Empty entries block retries when the
-            # drive graph or snap radius changes. Let the next run retry.
             continue
 
 
         if u_node == v_node:
-            # Very close stops — straight line is acceptable (< max_stop_snap_m)
+            # Both stops snap to the same drive node — they're within
+            # max_stop_snap_m of each other (and of that node). A straight
+            # line between the two STOP coordinates (not the drive node) is
+            # a genuinely short hop and a reasonable approximation.
             coords = [(u_lon, u_lat), (v_lon, v_lat)]
             data['shape_coords'] = coords
             shape_cache[cache_key] = coords
             enriched += 1
+            enriched_samenode += 1
             continue
 
         # ── Route on drive graph ──────────────────────────────────────────────
+        # IMPORTANT: unlike the u_node==v_node case above, a routing FAILURE
+        # here (no path between two distinct, successfully-snapped drive
+        # nodes; or a degenerate <2-point extraction) does NOT mean "short
+        # hop, straight line is fine" — it can mean the two stops are on
+        # opposite sides of a body of water, in disconnected graph
+        # components, or otherwise far apart with no real direct road link.
+        # Previously these cases wrote a 2-point straight line, CACHED it,
+        # and counted it as `enriched` — indistinguishable from genuine
+        # road-following geometry. That poisoned the cache: once cached, the
+        # GTFS-shape check above would never run again for this edge, even
+        # if shapes.txt has the real geometry. Session 22: do NOT cache or
+        # count these as enriched. Leave shape_coords empty so a future
+        # rendering-layer fix can choose to skip/distinctly-style genuinely
+        # unresolved edges instead of drawing long straight lines across
+        # buildings/water.
         try:
             node_path = nx.shortest_path(G_drive, u_node, v_node, weight='length')
             coords    = _extract_drive_path_coords(G_drive, node_path)
             if not coords or len(coords) < 2:
-                coords = [(u_lon, u_lat), (v_lon, v_lat)]
+                skipped_degenerate += 1
+                continue
         except (nx.NetworkXNoPath, nx.NodeNotFound):
-            coords = [(u_lon, u_lat), (v_lon, v_lat)]
             skipped_no_path += 1
+            continue
         except Exception as exc:
             logger.debug("Drive routing failed for %s→%s: %s", u, v, exc)
-            coords = [(u_lon, u_lat), (v_lon, v_lat)]
+            skipped_degenerate += 1
+            continue
 
         data['shape_coords'] = [tuple(pt) for pt in coords]
         shape_cache[cache_key] = coords
         enriched += 1
+        enriched_drive += 1
 
         if enriched % batch_log_every == 0:
             logger.info(
@@ -426,8 +558,25 @@ def enrich_transit_shapes(
         logger.debug("Could not write bus shape cache: %s", exc)
 
     logger.info(
-        "✅ Bus shape enrichment complete: %d enriched (%d cache hits), "
-        "%d skipped (out-of-bbox), %d skipped (no snap), %d skipped (no path)",
-        enriched, cache_hits, skipped_out_bbox, skipped_no_snap, skipped_no_path,
+        "✅ Bus shape enrichment complete: %d enriched (%d cache hits, "
+        "%d via GTFS shapes, %d via drive routing, %d partial drive+tail, "
+        "%d same-node short hops) "
+        "— %d unresolved (%d no drive snap [%d outside drive-graph bbox, "
+        "%d inside bbox but >max_stop_snap_m], %d no drive path between "
+        "snapped nodes, %d degenerate drive path)",
+        enriched, cache_hits, enriched_gtfs, enriched_drive, enriched_partial,
+        enriched_samenode,
+        skipped_no_snap + skipped_no_path + skipped_degenerate,
+        skipped_no_snap, no_snap_outside_bbox, no_snap_in_bbox,
+        skipped_no_path, skipped_degenerate,
     )
+    if skipped_no_snap + skipped_no_path + skipped_degenerate:
+        logger.warning(
+            "%d transit edges have NO shape_coords after enrichment. These "
+            "will fall back to whatever the visualisation layer does for "
+            "empty shape_coords (likely a straight line between stop "
+            "coordinates) — see RTD_SIM_HANDOFF for the rendering-layer fix "
+            "needed to skip/distinctly-style these instead.",
+            skipped_no_snap + skipped_no_path + skipped_degenerate,
+        )
     return enriched

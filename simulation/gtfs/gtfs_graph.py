@@ -269,6 +269,25 @@ class GTFSGraph:
                     G.nodes[u]['x'], G.nodes[u]['y'],
                     G.nodes[v]['x'], G.nodes[v]['y'],
                 )
+                if not seg_shape:
+                    # Retry with a wider snap tolerance. The 1500m default
+                    # handles "hundreds of metres" of stop/shape coordinate
+                    # disagreement (common in UK regional feeds), but some
+                    # services — particularly Park & Ride sites and rural
+                    # hail-and-ride stops set back from the main road —
+                    # can be several km from the published shape. A second,
+                    # wider attempt costs nothing when the first succeeds
+                    # (this branch only runs on failure) and meaningfully
+                    # increases route_shapes coverage for exactly the
+                    # long-distance/regional edges that most need
+                    # road-following geometry instead of a straight line
+                    # across the whole region.
+                    seg_shape = self._slice_shape(
+                        shape_coords,
+                        G.nodes[u]['x'], G.nodes[u]['y'],
+                        G.nodes[v]['x'], G.nodes[v]['y'],
+                        window_m=5000.0,
+                    )
 
                 edge_accumulator[(u, v)].append({
                     'travel_time_s': travel_s,
@@ -442,6 +461,14 @@ class GTFSGraph:
                 _seg = self._slice_shape(
                     _tsh, float(_ud.get('x',0)), float(_ud.get('y',0)),
                     float(_vd.get('x',0)), float(_vd.get('y',0)))
+                if not _seg:
+                    # See comment at the other _slice_shape call site above:
+                    # retry with a wider snap tolerance for stops whose
+                    # declared coordinates are far from the published shape.
+                    _seg = self._slice_shape(
+                        _tsh, float(_ud.get('x',0)), float(_ud.get('y',0)),
+                        float(_vd.get('x',0)), float(_vd.get('y',0)),
+                        window_m=5000.0)
                 if _seg and len(_seg) >= 2:
                     route_shapes[_rsn][_pr] = _seg
 

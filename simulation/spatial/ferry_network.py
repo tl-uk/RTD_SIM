@@ -85,6 +85,7 @@ import json
 import logging
 import math
 import time
+import pickle
 # Import urllib sub-modules explicitly so both runtime and static type checkers
 # (Pylance / pyright) recognise them.  'import urllib.request' alone causes
 # Pylance to report "'request' is not a known attribute of module 'urllib'"
@@ -901,7 +902,8 @@ def fetch_maritime_graphs(
 
     if use_cache and not _cache_stale(ferry_cache):
         try:
-            G = nx.read_graphml(ferry_cache)
+            # G = nx.read_graphml(ferry_cache)
+            G = pickle.loads(ferry_cache.read_bytes())
             G.graph['name'] = 'ferry'
             result['ferry'] = G
             logger.info("✅ Ferry graph (cache): %d nodes, %d edges",
@@ -911,7 +913,8 @@ def fetch_maritime_graphs(
 
     if use_cache and not _cache_stale(lanes_cache):
         try:
-            G = nx.read_graphml(lanes_cache)
+            # G = nx.read_graphml(lanes_cache)
+            G = pickle.loads(lanes_cache.read_bytes())
             G.graph['name'] = 'shipping_lanes'
             result['shipping_lanes'] = G
             logger.info("✅ Shipping lanes (cache): %d segments", G.number_of_edges())
@@ -920,7 +923,8 @@ def fetch_maritime_graphs(
 
     if use_cache and not _cache_stale(water_cache):
         try:
-            G = nx.read_graphml(water_cache)
+            # G = nx.read_graphml(water_cache)
+            G = pickle.loads(water_cache.read_bytes())
             G.graph['name'] = 'waterways'
             result['waterways'] = G
         except Exception:
@@ -976,7 +980,8 @@ def fetch_maritime_graphs(
         result['ferry'] = G_ferry
         if use_cache and G_ferry is not None and G_ferry.number_of_nodes() > 1:
             try:
-                nx.write_graphml(G_ferry, ferry_cache)
+                # nx.write_graphml(G_ferry, ferry_cache)
+                ferry_cache.write_bytes(pickle.dumps(G_ferry))
             except Exception:
                 pass
 
@@ -985,7 +990,8 @@ def fetch_maritime_graphs(
         result['shipping_lanes'] = G_lanes
         if use_cache and G_lanes.number_of_nodes() > 0:
             try:
-                nx.write_graphml(G_lanes, lanes_cache)
+                # nx.write_graphml(G_lanes, lanes_cache)
+                lanes_cache.write_bytes(pickle.dumps(G_lanes))
             except Exception:
                 pass
 
@@ -994,7 +1000,8 @@ def fetch_maritime_graphs(
         result['waterways'] = G_water
         if use_cache and G_water.number_of_nodes() > 0:
             try:
-                nx.write_graphml(G_water, water_cache)
+                # nx.write_graphml(G_water, water_cache)
+                water_cache.write_bytes(pickle.dumps(G_water))  
             except Exception:
                 pass
 

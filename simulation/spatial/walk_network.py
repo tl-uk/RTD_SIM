@@ -253,8 +253,8 @@ def _build_graph_from_elements(elements: List[dict]) -> 'nx.MultiDiGraph':
         for k in range(len(coords) - 1):
             length += _haversine_m(coords[k], coords[k + 1])
 
-        u_id = str(el['nodes'][0])
-        v_id = str(el['nodes'][-1])
+        u_id = int(el['nodes'][0]) #str(el['nodes'][0])
+        v_id = int(el['nodes'][-1]) #str(el['nodes'][-1])
 
         G.add_node(u_id, x=coords[0][0],  y=coords[0][1],  node_type='walk_node')
         G.add_node(v_id, x=coords[-1][0], y=coords[-1][1], node_type='walk_node')
