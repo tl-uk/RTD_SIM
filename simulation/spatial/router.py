@@ -1902,14 +1902,10 @@ class Router:
             coordinate before routing.  This prevents the leg terminating at
             a random mid-track point and ensures boarding at a real stop.
 
-        Tier 1 — Walk graph(s) (distance ≤ max_straight_km)
-            Tries 'walk_footways' (Overpass highway=footway/pedestrian/steps/
-            path) first for genuine pedestrian-path geometry, then falls
-            through to the OSMnx 'walk' street network if that fails to
-            connect origin and dest (walk_footways is a forest of mostly-
-            disconnected fragments — see _try_walk_graph below). weight=
-            'length'. Short legs (< 150 m) bypass both graphs and use a
-            straight line.
+        Tier 1 — Walk graph (distance ≤ max_straight_km)
+            OSMnx walk graph; weight='length'.  Guaranteed to follow paths,
+            pavements, and bridges — never cuts through buildings or waterways.
+            Short legs (< 150 m) bypass the graph and use a straight line.
 
         Tier 2 — Drive proxy (distance > _WALK_ACCESS_KM or walk graph fails)
             The car graph covers all roads pedestrians can also use and always
@@ -1978,42 +1974,30 @@ class Router:
             )
             return []
 
-        # ── Tier 1: Walk graph(s) ─────────────────────────────────────────────
-        # Two walk graphs may be registered:
-        #   'walk_footways' — Overpass-built from highway=footway/pedestrian/
-        #                      steps/path WAYS ONLY. Each OSM way becomes ONE
-        #                      edge between its first and last node — no
-        #                      intermediate nodes, no road network. Most
-        #                      footway ways terminate where they meet a ROAD
-        #                      (not another footway), so this graph is mostly
-        #                      a forest of small/disconnected fragments. It is
-        #                      EXCELLENT when origin and dest both happen to
-        #                      lie on the same footway/path (pedestrianised
-        #                      areas, parks), but nx.shortest_path raises
-        #                      NetworkXNoPath for the vast majority of
-        #                      origin/dest pairs that span more than one
-        #                      fragment.
-        #   'walk'           — full OSMnx pedestrian street network (includes
-        #                      all roads pedestrians can use). Properly
-        #                      connected, but geometry follows carriageways
-        #                      rather than dedicated paths.
+        # ── Tier 1: Walk graph ────────────────────────────────────────────────
+        # Prefer the dedicated footway graph ('walk_footways') when available.
+        # It contains only highway=footway/pedestrian/steps/path edges from
+        # Overpass — agents follow proper pedestrian infrastructure rather than
+        # the road carriageway geometry in the OSMnx 'walk' graph.
         #
-        # Previously, _walk_key picked ONE of these (preferring
-        # 'walk_footways' whenever present) and any failure on that single
-        # graph fell straight through to Tier 2 (drive/car proxy) — meaning
-        # EVERY access/egress/transfer leg used car-road geometry, because
-        # 'walk_footways' essentially never connects two arbitrary points.
-        #
-        # Fix: try 'walk_footways' first (best geometry when it connects),
-        # then fall through to the OSMnx 'walk' graph (always reasonably
-        # connected) before giving up to the drive proxy.
-        def _try_walk_graph(walk_key: str) -> Optional[List[Tuple[float, float]]]:
-            G_walk = self.graph_manager.get_graph(walk_key)
-            if G_walk is None or G_walk.number_of_nodes() <= 10:
-                return None
+        # CRITICAL: use the SAME graph key for BOTH graph retrieval AND node
+        # lookup.  walk_footways uses string OSM node IDs (e.g. '123456789');
+        # the OSMnx walk graph uses integer node IDs.  Calling
+        # get_nearest_node(coord, 'walk') while routing on the footways graph
+        # returns an integer that does not exist in the footways graph, causing
+        # every walk routing attempt to raise NodeNotFound and fall through to
+        # Tier 3 straight-line interpolation — the root cause of agents walking
+        # on road carriageways even when walk_footways is loaded.
+        _walk_key = (
+            'walk_footways'
+            if self.graph_manager.get_graph('walk_footways') is not None
+            else 'walk'
+        )
+        G_walk = self.graph_manager.get_graph(_walk_key)
+        if G_walk is not None and G_walk.number_of_nodes() > 10:
             try:
-                orig_node = self.graph_manager.get_nearest_node(origin, walk_key)
-                dest_node = self.graph_manager.get_nearest_node(dest,   walk_key)
+                orig_node = self.graph_manager.get_nearest_node(origin, _walk_key)
+                dest_node = self.graph_manager.get_nearest_node(dest,   _walk_key)
                 orig_node = self._avoid_roundabout(G_walk, orig_node)
                 dest_node = self._avoid_roundabout(G_walk, dest_node)
 
@@ -2038,26 +2022,21 @@ class Router:
                     if best_alt is not None:
                         dest_node = best_alt
 
-                if orig_node is not None and dest_node is not None and orig_node != dest_node:
+                if orig_node and dest_node and orig_node != dest_node:
                     walk_nodes = nx.shortest_path(
                         G_walk, orig_node, dest_node, weight='length'
                     )
                     coords = self._extract_geometry(G_walk, walk_nodes)
                     if coords and len(coords) >= 2:
                         return self._interpolate(coords, max_segment_km=0.05)
+
             except nx.NetworkXNoPath:
-                return None   # fall through to next walk graph / Tier 2
+                pass   # fall through to Tier 2
             except Exception as _walk_exc:
                 logger.debug(
-                    "%s: walk routing on '%s' failed (%.2fkm): %s",
-                    agent_id, walk_key, dist_km, _walk_exc,
+                    "%s: walk routing failed (%.2fkm): %s — drive proxy",
+                    agent_id, dist_km, _walk_exc,
                 )
-            return None
-
-        for _walk_key in ('walk_footways', 'walk'):
-            _result = _try_walk_graph(_walk_key)
-            if _result is not None:
-                return _result
 
         # ── Tier 2: Drive proxy ───────────────────────────────────────────────
         # The drive graph covers all bridges and city streets that pedestrians
@@ -2650,11 +2629,47 @@ class Router:
                 transit_coords.extend(shape if i == 0 else shape[1:])
     
             elif mode in ('bus', 'van_electric', 'van_diesel'):
-                # Bus: three-tier proxy for missing-shape segments.
-                # 1. Drive graph (road-following)
-                # 2. Walk graph (covers pedestrianised stops the drive graph omits)
-                # 3. Interpolate at 50m (never a raw 2-point diagonal through buildings)
+                # Bus: four-tier proxy for missing-shape segments.
+                # 0. route_shapes lookup  — same GTFS geometry enrich_transit_shapes uses
+                # 1. Drive graph          — road-following
+                # 2. Walk graph           — covers pedestrianised stops drive graph omits
+                # 3. Interpolate at 50m   — never a raw 2-point diagonal through buildings
+                #
+                # Tier 0 is new (session 24): enrich_transit_shapes only runs once at
+                # setup time and caches per (u, v) pair. Some stop pairs are missed if:
+                #  (a) shape_coords was None at setup time and the cache entry is absent
+                #  (b) route_shapes was populated AFTER the bus-shape cache was written
+                #  (c) the representative trip used a different direction than this edge
+                #
+                # A routing-time lookup into G_transit.graph['route_shapes'] costs ~O(1)
+                # (dict[str][tuple]) and catches these gaps. For cross-regional routes
+                # (e.g. Bus 47B Inverkeithing→Edinburgh) where the drive-graph disc doesn't
+                # cover Inverkeithing, this produces real bus polyline geometry instead of
+                # the 6.98 km OSMnx walk-graph path along the Forth Road Bridge footway.
                 _straight = haversine_km((u_x, u_y), (v_x, v_y))
+                if _straight > 0.05:
+                    # Tier 0: route_shapes lookup ─────────────────────────────────────
+                    _route_shapes = G_transit.graph.get('route_shapes', {})
+                    if _route_shapes:
+                        _rs_seg = None
+                        for _rsn in (
+                            _selected_ed.get('route_short_names', [])
+                            if _selected_ed else []
+                        ) or _all_short_names:
+                            _pair_map = _route_shapes.get(_rsn, {})
+                            _rs_seg = _pair_map.get((u_node, v_node))
+                            if _rs_seg and len(_rs_seg) >= 2:
+                                break
+                            # Also try reverse direction — GTFS shapes are sometimes
+                            # stored for inbound only; flip if needed.
+                            _rs_rev = _pair_map.get((v_node, u_node))
+                            if _rs_rev and len(_rs_rev) >= 2:
+                                _rs_seg = list(reversed(_rs_rev))
+                                break
+                        if _rs_seg and len(_rs_seg) >= 2:
+                            transit_coords.extend(_rs_seg if i == 0 else _rs_seg[1:])
+                            continue  # ← skip Tiers 1/2/3 below
+
                 if _straight > 0.5:
                     _road_seg = self._compute_road_route(
                         agent_id + f'_bus_noseg{i}',
@@ -2665,25 +2680,42 @@ class Router:
                         transit_coords.extend(_road_seg if i == 0 else _road_seg[1:])
                     else:
                         # Tier 2: walk graph covers bus stops in pedestrianised areas.
-                        _walk_seg = self._compute_road_route(
-                            agent_id + f'_bus_noseg{i}_walk',
-                            (u_x, u_y), (v_x, v_y),
-                            'walk', _DEFAULT_POLICY,
-                        )
-                        if _walk_seg and len(_walk_seg) > 1:
-                            transit_coords.extend(_walk_seg if i == 0 else _walk_seg[1:])
-                            logger.debug(
-                                "%s: bus_noseg%d: walk graph used (%.2fkm)",
-                                agent_id, i, _straight,
+                        # Cap at 2 km to avoid 7km walk-graph segments (e.g. Forth Road
+                        # Bridge footway) being used for bus legs where the drive graph
+                        # fails — walk geometry through a bridge pedestrian path is
+                        # physically correct but visually indistinguishable from a straight
+                        # line at map scale and misrepresents the bus route.
+                        if _straight <= 2.0:
+                            _walk_seg = self._compute_road_route(
+                                agent_id + f'_bus_noseg{i}_walk',
+                                (u_x, u_y), (v_x, v_y),
+                                'walk', _DEFAULT_POLICY,
                             )
+                            if _walk_seg and len(_walk_seg) > 1:
+                                transit_coords.extend(_walk_seg if i == 0 else _walk_seg[1:])
+                                logger.debug(
+                                    "%s: bus_noseg%d: walk graph used (%.2fkm)",
+                                    agent_id, i, _straight,
+                                )
+                            else:
+                                _interp = self._interpolate(
+                                    [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
+                                )
+                                transit_coords.extend(_interp if i == 0 else _interp[1:])
+                                logger.debug(
+                                    "%s: bus_noseg%d: drive+walk failed (%.2fkm) — interpolated %d pts",
+                                    agent_id, i, _straight, len(_interp),
+                                )
                         else:
-                            # Tier 3: interpolate — smooth, never cuts through buildings.
+                            # > 2km and car failed: interpolate at fine resolution
+                            # rather than attempt walk routing (would produce bridge
+                            # footway / pedestrian path geometry for a bus route).
                             _interp = self._interpolate(
                                 [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
                             )
                             transit_coords.extend(_interp if i == 0 else _interp[1:])
                             logger.debug(
-                                "%s: bus_noseg%d: drive+walk failed (%.2fkm) — interpolated %d pts",
+                                "%s: bus_noseg%d: no drive/walk path (%.2fkm) — interpolated %d pts",
                                 agent_id, i, _straight, len(_interp),
                             )
                 else:
