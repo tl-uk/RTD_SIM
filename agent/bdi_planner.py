@@ -982,7 +982,7 @@ class BDIPlanner:
                 },
             )]
         else:
-            logger.info(f"âœ… Generated {len(actions)} viable actions for {agent_id}")
+            logger.info(f"✅ Generated {len(actions)} viable actions for {agent_id}")
             for action in actions:
                 # Abstract routes store distance in params; OSMnx routes need calculation
                 if action.params.get('abstract'):

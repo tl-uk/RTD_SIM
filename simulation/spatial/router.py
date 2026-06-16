@@ -1902,10 +1902,14 @@ class Router:
             coordinate before routing.  This prevents the leg terminating at
             a random mid-track point and ensures boarding at a real stop.
 
-        Tier 1 — Walk graph (distance ≤ max_straight_km)
-            OSMnx walk graph; weight='length'.  Guaranteed to follow paths,
-            pavements, and bridges — never cuts through buildings or waterways.
-            Short legs (< 150 m) bypass the graph and use a straight line.
+        Tier 1 — Walk graph(s) (distance ≤ max_straight_km)
+            Tries 'walk_footways' (Overpass highway=footway/pedestrian/steps/
+            path) first for genuine pedestrian-path geometry, then falls
+            through to the OSMnx 'walk' street network if that fails to
+            connect origin and dest (walk_footways is a forest of mostly-
+            disconnected fragments — see _try_walk_graph below). weight=
+            'length'. Short legs (< 150 m) bypass both graphs and use a
+            straight line.
 
         Tier 2 — Drive proxy (distance > _WALK_ACCESS_KM or walk graph fails)
             The car graph covers all roads pedestrians can also use and always
@@ -1974,30 +1978,42 @@ class Router:
             )
             return []
 
-        # ── Tier 1: Walk graph ────────────────────────────────────────────────
-        # Prefer the dedicated footway graph ('walk_footways') when available.
-        # It contains only highway=footway/pedestrian/steps/path edges from
-        # Overpass — agents follow proper pedestrian infrastructure rather than
-        # the road carriageway geometry in the OSMnx 'walk' graph.
+        # ── Tier 1: Walk graph(s) ─────────────────────────────────────────────
+        # Two walk graphs may be registered:
+        #   'walk_footways' — Overpass-built from highway=footway/pedestrian/
+        #                      steps/path WAYS ONLY. Each OSM way becomes ONE
+        #                      edge between its first and last node — no
+        #                      intermediate nodes, no road network. Most
+        #                      footway ways terminate where they meet a ROAD
+        #                      (not another footway), so this graph is mostly
+        #                      a forest of small/disconnected fragments. It is
+        #                      EXCELLENT when origin and dest both happen to
+        #                      lie on the same footway/path (pedestrianised
+        #                      areas, parks), but nx.shortest_path raises
+        #                      NetworkXNoPath for the vast majority of
+        #                      origin/dest pairs that span more than one
+        #                      fragment.
+        #   'walk'           — full OSMnx pedestrian street network (includes
+        #                      all roads pedestrians can use). Properly
+        #                      connected, but geometry follows carriageways
+        #                      rather than dedicated paths.
         #
-        # CRITICAL: use the SAME graph key for BOTH graph retrieval AND node
-        # lookup.  walk_footways uses string OSM node IDs (e.g. '123456789');
-        # the OSMnx walk graph uses integer node IDs.  Calling
-        # get_nearest_node(coord, 'walk') while routing on the footways graph
-        # returns an integer that does not exist in the footways graph, causing
-        # every walk routing attempt to raise NodeNotFound and fall through to
-        # Tier 3 straight-line interpolation — the root cause of agents walking
-        # on road carriageways even when walk_footways is loaded.
-        _walk_key = (
-            'walk_footways'
-            if self.graph_manager.get_graph('walk_footways') is not None
-            else 'walk'
-        )
-        G_walk = self.graph_manager.get_graph(_walk_key)
-        if G_walk is not None and G_walk.number_of_nodes() > 10:
+        # Previously, _walk_key picked ONE of these (preferring
+        # 'walk_footways' whenever present) and any failure on that single
+        # graph fell straight through to Tier 2 (drive/car proxy) — meaning
+        # EVERY access/egress/transfer leg used car-road geometry, because
+        # 'walk_footways' essentially never connects two arbitrary points.
+        #
+        # Fix: try 'walk_footways' first (best geometry when it connects),
+        # then fall through to the OSMnx 'walk' graph (always reasonably
+        # connected) before giving up to the drive proxy.
+        def _try_walk_graph(walk_key: str) -> Optional[List[Tuple[float, float]]]:
+            G_walk = self.graph_manager.get_graph(walk_key)
+            if G_walk is None or G_walk.number_of_nodes() <= 10:
+                return None
             try:
-                orig_node = self.graph_manager.get_nearest_node(origin, _walk_key)
-                dest_node = self.graph_manager.get_nearest_node(dest,   _walk_key)
+                orig_node = self.graph_manager.get_nearest_node(origin, walk_key)
+                dest_node = self.graph_manager.get_nearest_node(dest,   walk_key)
                 orig_node = self._avoid_roundabout(G_walk, orig_node)
                 dest_node = self._avoid_roundabout(G_walk, dest_node)
 
@@ -2022,21 +2038,26 @@ class Router:
                     if best_alt is not None:
                         dest_node = best_alt
 
-                if orig_node and dest_node and orig_node != dest_node:
+                if orig_node is not None and dest_node is not None and orig_node != dest_node:
                     walk_nodes = nx.shortest_path(
                         G_walk, orig_node, dest_node, weight='length'
                     )
                     coords = self._extract_geometry(G_walk, walk_nodes)
                     if coords and len(coords) >= 2:
                         return self._interpolate(coords, max_segment_km=0.05)
-
             except nx.NetworkXNoPath:
-                pass   # fall through to Tier 2
+                return None   # fall through to next walk graph / Tier 2
             except Exception as _walk_exc:
                 logger.debug(
-                    "%s: walk routing failed (%.2fkm): %s — drive proxy",
-                    agent_id, dist_km, _walk_exc,
+                    "%s: walk routing on '%s' failed (%.2fkm): %s",
+                    agent_id, walk_key, dist_km, _walk_exc,
                 )
+            return None
+
+        for _walk_key in ('walk_footways', 'walk'):
+            _result = _try_walk_graph(_walk_key)
+            if _result is not None:
+                return _result
 
         # ── Tier 2: Drive proxy ───────────────────────────────────────────────
         # The drive graph covers all bridges and city streets that pedestrians
