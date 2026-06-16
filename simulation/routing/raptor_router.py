@@ -455,3 +455,48 @@ class RaptorRouter:
 
         legs.reverse()
         return RaptorJourney(legs=legs, cost_s=cost)
+
+# ── Patched methods (session 24 — agency disambiguation) ─────────────────────
+# Monkey-patch the class with updated methods. Cleaner than replacing the whole
+# file body when only a few methods need to change.
+
+def _display_name_static(raptor_key: str) -> str:
+    """Strip agency_id prefix from a RAPTOR route key → display name."""
+    return raptor_key.split(':', 1)[-1] if ':' in raptor_key else raptor_key
+
+RaptorRouter._display_name = staticmethod(_display_name_static)
+
+_orig_routes_serving_stop = RaptorRouter.routes_serving_stop
+def _routes_serving_stop_patched(self, stop_id: str) -> List[str]:
+    keys = self._stop_routes.get(stop_id, [])
+    return [self._display_name(k) for k in keys]
+RaptorRouter.routes_serving_stop = _routes_serving_stop_patched
+
+_orig_direct_route = RaptorRouter.direct_route
+def _direct_route_patched(self, origin_stop: str, dest_stop: str):
+    origin_routes = set(self._stop_routes.get(origin_stop, []))
+    dest_routes   = set(self._stop_routes.get(dest_stop,   []))
+    shared        = origin_routes & dest_routes
+    best_rn, best_gap = None, float('inf')
+    for rn in shared:
+        for seq in self._route_seqs.get(rn, []):
+            if origin_stop in seq and dest_stop in seq:
+                oi = seq.index(origin_stop)
+                di = seq.index(dest_stop)
+                if oi < di and (di - oi) < best_gap:
+                    best_gap = di - oi
+                    best_rn  = rn
+    return RaptorRouter._display_name(best_rn) if best_rn else None
+RaptorRouter.direct_route = _direct_route_patched
+
+_orig_route_matches_mode = RaptorRouter._route_matches_mode
+def _route_matches_mode_patched(self, route_name: str, mode_filter: str) -> bool:
+    G = self._G
+    if G is None:
+        return True
+    display = self._display_name(route_name)
+    for _, _, edata in G.edges(data=True):
+        if display in edata.get('route_short_names', []):
+            return edata.get('mode', 'bus') == mode_filter
+    return True
+RaptorRouter._route_matches_mode = _route_matches_mode_patched

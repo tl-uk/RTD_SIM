@@ -2564,12 +2564,22 @@ class Router:
 
         # Per-stop-pair route map from filtered transit legs only.
         # walk_transfer pairs are excluded so they never appear in service labels.
+        #
+        # Session 24: RAPTOR leg.route is now an agency-prefixed key like
+        # "OP4C:47B" (to prevent same-short_name collisions across operators).
+        # Strip the prefix here for everything that needs a display name or a
+        # route_shapes lookup, which is keyed by display short_name ("47B").
+        def _raptor_key_to_display(key: str) -> str:
+            """'OP4C:47B' → '47B',  'walk_transfer' → 'walk_transfer'."""
+            return key.split(':', 1)[-1] if ':' in key else key
+
         _pair_route_map: dict = {}
         _transit_legs_r = _raptor_transit_legs if (_used_raptor and _raptor_transit_legs) else None
         if _transit_legs_r:
             for _lg in _transit_legs_r:
+                _display_route = _raptor_key_to_display(_lg.route)
                 for _pi in range(len(_lg.stops)-1):
-                    _pair_route_map[(_lg.stops[_pi], _lg.stops[_pi+1])] = _lg.route
+                    _pair_route_map[(_lg.stops[_pi], _lg.stops[_pi+1])] = _display_route
         _g_route_shapes = G_transit.graph.get('route_shapes', {}) if _used_raptor else {}
 
         # ── Single combined pass: geometry extraction + service-name collection ───
@@ -2842,7 +2852,7 @@ class Router:
                 _board_d  = G_transit.nodes.get(_leg.stops[0],  {})
                 _alight_d = G_transit.nodes.get(_leg.stops[-1], {})
                 raptor_legs.append({
-                    'route':        _leg.route,
+                    'route':        _raptor_key_to_display(_leg.route),
                     'coords':       _leg_coords,
                     'board_coord':  (float(_board_d.get('x',  _board_d.get('lon',  0))),
                                      float(_board_d.get('y',  _board_d.get('lat',  0)))),

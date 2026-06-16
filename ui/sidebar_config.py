@@ -1621,6 +1621,64 @@ def _render_gtfs_configuration() -> dict:
     run_analytics  = False
 
     if enable_gtfs:
+        # ── Clear stale session_state feed path ──────────────────────────────
+        # Streamlit persists session_state across reruns (and even between
+        # browser tabs in some deployments). If the stored path is a file
+        # that no longer exists on disk — most commonly a temp path from a
+        # previous testing session (e.g. /tmp/transitland_f-9q9-caltrain.zip
+        # from when CalTrain was used as a test feed ID) — it silently
+        # pre-fills the "Feed path" box with a non-UK, non-existent file.
+        # Reset to empty string whenever the stored path is stale/absent.
+        _stored_path = st.session_state.get("_gtfs_feed_path", "")
+        if _stored_path and not Path(_stored_path).exists():
+            st.session_state["_gtfs_feed_path"] = ""
+
+        # ── BODS direct download (no API key required) ────────────────────────
+        # The DfT Bus Open Data Service publishes the combined UK GTFS feed
+        # (~1.65 GB) at a public URL — no API key or account required.
+        # This is the same file RTD_SIM loads from data/gtfs_dft/ when run
+        # with the pre-downloaded feed. Downloading here saves it to
+        # RTD_SIM/data/gtfs/ and auto-fills the path field below.
+        from simulation.spatial.transport_loader import BODS_DIRECT_URL
+        st.caption("**🇬🇧 Download UK bus/tram/ferry feed (DfT BODS — free, no API key):**")
+        _bods_col1, _bods_col2 = st.columns([3, 1])
+        with _bods_col1:
+            st.markdown(
+                f"[Bus Open Data Service]({BODS_DIRECT_URL}) "
+                "— all UK operators (Lothian, First, Stagecoach, "
+                "Edinburgh Trams, CalMac, etc.)  \n"
+                "⚠️ ~1.65 GB — takes 5–20 min on a home connection. "
+                "Download once; reuse across sessions via the path field below."
+            )
+        with _bods_col2:
+            if st.button("⬇️ Download BODS", key="_bods_direct_dl"):
+                _bods_out = _DOWNLOAD_GTFS_DIR / "f-bus~dft~gov~uk.zip"
+                with st.spinner("Downloading BODS UK GTFS (~1.65 GB) — this may take several minutes…"):
+                    try:
+                        import requests as _req
+                        _r = _req.get(BODS_DIRECT_URL, timeout=600, stream=True)
+                        _r.raise_for_status()
+                        _DOWNLOAD_GTFS_DIR.mkdir(parents=True, exist_ok=True)
+                        _downloaded = 0
+                        with open(_bods_out, "wb") as _f:
+                            for _chunk in _r.iter_content(65536):
+                                _f.write(_chunk)
+                                _downloaded += len(_chunk)
+                        st.session_state["_gtfs_feed_path"] = str(_bods_out)
+                        st.success(
+                            f"✅ Downloaded `{_bods_out.name}` "
+                            f"({_downloaded / 1_048_576:.0f} MB) — path filled below."
+                        )
+                        st.rerun()
+                    except Exception as _bods_exc:
+                        st.error(
+                            f"Download failed: {_bods_exc}  \n"
+                            f"Download manually from [{BODS_DIRECT_URL}]"
+                            f"({BODS_DIRECT_URL}) and paste path below."
+                        )
+
+        st.divider()
+
         # ── API key ───────────────────────────────────────────────────────────
         # .env is loaded at module import (top of sidebar_config.py) so
         # os.getenv() will always see the key if it is in the project .env file.
@@ -1628,14 +1686,10 @@ def _render_gtfs_configuration() -> dict:
         if _api_key:
             st.caption("🔑 TransitLand API key: **set** ✅")
         else:
-            st.warning(
-                "⚠️ **TRANSITLAND_API_KEY not set** — auto-download disabled.  \n"
-                "Add `TRANSITLAND_API_KEY=your_key` to `RTD_SIM/.env` "
-                "(one line per key, no quotes).  \n"
-                "Download manually from "
-                "[transit.land](https://www.transit.land) or "
-                "[data.bus-data.dft.gov.uk](https://data.bus-data.dft.gov.uk) "
-                "and paste the path below."
+            st.caption(
+                "💡 *TransitLand API key not set — BODS direct download above "
+                "works without one. TransitLand is only needed for operator-specific "
+                "feeds not in BODS.*"
             )
 
         # ── Static feed discovery ─────────────────────────────────────────────

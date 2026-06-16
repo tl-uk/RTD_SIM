@@ -269,25 +269,6 @@ class GTFSGraph:
                     G.nodes[u]['x'], G.nodes[u]['y'],
                     G.nodes[v]['x'], G.nodes[v]['y'],
                 )
-                if not seg_shape:
-                    # Retry with a wider snap tolerance. The 1500m default
-                    # handles "hundreds of metres" of stop/shape coordinate
-                    # disagreement (common in UK regional feeds), but some
-                    # services — particularly Park & Ride sites and rural
-                    # hail-and-ride stops set back from the main road —
-                    # can be several km from the published shape. A second,
-                    # wider attempt costs nothing when the first succeeds
-                    # (this branch only runs on failure) and meaningfully
-                    # increases route_shapes coverage for exactly the
-                    # long-distance/regional edges that most need
-                    # road-following geometry instead of a straight line
-                    # across the whole region.
-                    seg_shape = self._slice_shape(
-                        shape_coords,
-                        G.nodes[u]['x'], G.nodes[u]['y'],
-                        G.nodes[v]['x'], G.nodes[v]['y'],
-                        window_m=5000.0,
-                    )
 
                 edge_accumulator[(u, v)].append({
                     'travel_time_s': travel_s,
@@ -384,18 +365,43 @@ class GTFSGraph:
         stop_routes: Dict[str, List[str]]                  = defaultdict(list)
         route_times: Dict[str, Dict[Tuple[str,str], float]] = defaultdict(dict)
 
+        # route_display_names: {full_raptor_key → short_name for display}
+        # Stored on G.graph so router.py / gtfs_visualizer.py can show human-
+        # readable service names ("47B") while RAPTOR internals use the full
+        # disambiguated key ("OP4C:47B") to prevent routes from different
+        # operators with the same short_name being merged.
+        #
+        # ROOT CAUSE fixed here (session 24):
+        # The BODS combined feed contains ALL UK operators.  Many operators
+        # independently use the same route_short_name — e.g., Lothian Buses
+        # "47B" (Edinburgh city) and Stagecoach "47B" (Fife/Inverkeithing).
+        # Using short_name alone as the RAPTOR key merged both operators' stop
+        # sequences under one route, creating a phantom "cross-Forth 47B" that
+        # served both Edinburgh and Inverkeithing stops.  RAPTOR then routed
+        # agents from Fife stops to Edinburgh via this impossible cross-Forth
+        # service — exactly the "Bus 47B does not serve Queen Anne Street" bug.
+        # Keying by agency_id:short_name makes each operator's service unique.
+        route_display_names: Dict[str, str] = {}
+
         for trip_id, stops in loader.stop_times.items():
             trip = loader.trips.get(trip_id)
             if not trip:
                 continue
             route_id = trip.get('route_id', '')
             route    = loader.routes.get(route_id, {})
-            sn = str(
+
+            sn_base = str(
                 route.get('short_name')
                 or route.get('route_short_name', '')
             ).strip()
-            if not sn:
+            if not sn_base:
                 continue
+
+            # Disambiguate: prefix with agency_id so two operators with
+            # the same short_name get separate RAPTOR index entries.
+            agency_id = route.get('agency_id', 'UNK').strip()
+            sn = f"{agency_id}:{sn_base}" if agency_id and agency_id != 'UNK' else sn_base
+            route_display_names[sn] = sn_base
 
             # Build ordered stop list — passenger-boarding stops only.
             # pickup_type=1 = depot/deadhead run; creates phantom cross-service
@@ -438,6 +444,25 @@ class GTFSGraph:
         G.graph['route_avg_times']      = {
             sn: dict(pairs) for sn, pairs in route_times.items()
         }
+        G.graph['route_display_names']  = route_display_names
+
+        # Log operator name collisions detected by the disambiguation fix
+        _collision_bases: Dict[str, List[str]] = defaultdict(list)
+        for _full_key in route_display_names:
+            _base = route_display_names[_full_key]
+            _collision_bases[_base].append(_full_key)
+        _collisions = {b: keys for b, keys in _collision_bases.items() if len(keys) > 1}
+        if _collisions:
+            logger.info(
+                "GTFS RAPTOR index: %d route short_name(s) shared by multiple "
+                "operators — disambiguated with agency_id prefix (e.g. 'OP4C:47B' "
+                "vs 'OP777:47B'). Examples: %s",
+                len(_collisions),
+                ', '.join(
+                    f"{b!r} ({len(keys)} operators)"
+                    for b, keys in sorted(_collisions.items())[:8]
+                ),
+            )
 
         # ── route_shapes: per-service per-stop-pair geometry ──────────────────
         route_shapes: Dict[str, Dict[Tuple[str,str], list]] = defaultdict(dict)
@@ -461,14 +486,6 @@ class GTFSGraph:
                 _seg = self._slice_shape(
                     _tsh, float(_ud.get('x',0)), float(_ud.get('y',0)),
                     float(_vd.get('x',0)), float(_vd.get('y',0)))
-                if not _seg:
-                    # See comment at the other _slice_shape call site above:
-                    # retry with a wider snap tolerance for stops whose
-                    # declared coordinates are far from the published shape.
-                    _seg = self._slice_shape(
-                        _tsh, float(_ud.get('x',0)), float(_ud.get('y',0)),
-                        float(_vd.get('x',0)), float(_vd.get('y',0)),
-                        window_m=5000.0)
                 if _seg and len(_seg) >= 2:
                     route_shapes[_rsn][_pr] = _seg
 
@@ -938,7 +955,7 @@ class GTFSGraph:
     # were both traced to a 22.6h-old disk cache built before the route_type
     # mapping / route_shapes fixes existed.  Bumping this version forces a
     # rebuild on the next run regardless of feed mtime.
-    _BUILD_VERSION = "v21-rail-routetype-and-route-shapes"
+    _BUILD_VERSION = "v24-agency-disambiguated-raptor-keys"
 
     @classmethod
     def load_from_disk(
