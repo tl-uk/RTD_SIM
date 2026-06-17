@@ -1639,7 +1639,7 @@ def _render_gtfs_configuration() -> dict:
         # This is the same file RTD_SIM loads from data/gtfs_dft/ when run
         # with the pre-downloaded feed. Downloading here saves it to
         # RTD_SIM/data/gtfs/ and auto-fills the path field below.
-        from simulation.spatial.transport_loader import BODS_DIRECT_URL
+        from simulation.transport_loader import BODS_DIRECT_URL
         st.caption("**🇬🇧 Download UK bus/tram/ferry feed (DfT BODS — free, no API key):**")
         _bods_col1, _bods_col2 = st.columns([3, 1])
         with _bods_col1:
