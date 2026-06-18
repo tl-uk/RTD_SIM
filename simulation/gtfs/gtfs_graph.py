@@ -569,12 +569,12 @@ class GTFSGraph:
         connected to its nearest walk-graph node with a synthetic 'transfer'
         edge in both directions.
 
-        Implementation — single flat loop
-        -----------------------------------
-        This function iterates once over G_transit.nodes.  A previous version
-        accidentally nested a replacement inner loop inside the original outer
-        loop, producing O(N²) operations and an overcounted ``added`` counter.
-        Only the flat implementation is present here.
+        Implementation — batched nearest-node lookup
+        ---------------------------------------------
+        All 12 k stops are passed to ox.distance.nearest_nodes in ONE call so
+        the KD-tree is built once from the 287 k walk-graph nodes rather than
+        rebuilt 12,000 times.  The per-stop loop previously caused a silent
+        hang of 30+ minutes on the Edinburgh BODS feed.
 
         Args:
             G_transit:      The transit graph from build().
@@ -591,19 +591,36 @@ class GTFSGraph:
         if G_transit is None or G_walk is None:
             return 0
 
-        added = 0
-
+        # Collect all stops with valid coordinates.
+        stop_ids: list  = []
+        stop_lons: list = []
+        stop_lats: list = []
         for stop_id, data in G_transit.nodes(data=True):
             lon = data.get('x', 0)
             lat = data.get('y', 0)
             if lon == 0 and lat == 0:
                 continue
+            stop_ids.append(stop_id)
+            stop_lons.append(lon)
+            stop_lats.append(lat)
 
-            try:
-                walk_node = ox.distance.nearest_nodes(G_walk, lon, lat)
-            except Exception:
-                continue
+        if not stop_ids:
+            return 0
 
+        # Single batched KD-tree query — builds the tree ONCE for all stops.
+        try:
+            walk_nodes = ox.distance.nearest_nodes(G_walk, stop_lons, stop_lats)
+        except Exception as exc:
+            logger.warning(
+                "build_transfer_edges: batched nearest_nodes failed (%s) — "
+                "transfer edges skipped", exc
+            )
+            return 0
+
+        added = 0
+        for stop_id, lon, lat, walk_node in zip(
+            stop_ids, stop_lons, stop_lats, walk_nodes
+        ):
             walk_data = G_walk.nodes.get(walk_node, {})
             dist_m    = _haversine_m(
                 lon, lat,
