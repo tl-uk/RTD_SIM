@@ -979,7 +979,8 @@ class GTFSGraph:
         key = hashlib.md5(
             f"{feed_path}:{mtime}:{service_date}:{cls._BUILD_VERSION}".encode()
         ).hexdigest()[:16]
-        cache_path = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
+        cache_path        = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
+        shapes_cache_path = cls._GRAPH_CACHE_DIR / f"{key}.shapes.pkl"
         if not cache_path.exists():
             return None
         age_h = (time.time() - cache_path.stat().st_mtime) / 3600
@@ -990,11 +991,33 @@ class GTFSGraph:
             logger.info(
                 "GTFSGraph: loaded from disk cache (%.1fh old, key=%s)", age_h, key
             )
-            return G
         except Exception as exc:
             logger.warning("GTFSGraph: disk cache corrupt (%s) — rebuilding", exc)
             cache_path.unlink(missing_ok=True)
             return None
+
+        # Reload the route_shapes sidecar (written separately to keep the main
+        # pickle small).  If the sidecar is absent or corrupt, fall back to an
+        # empty dict — routing still works; only bus_noseg Tier 0 geometry is
+        # degraded (it falls through to Tier 1/2/3 automatically).
+        if shapes_cache_path.exists():
+            try:
+                G.graph['route_shapes'] = pickle.loads(shapes_cache_path.read_bytes())
+                logger.debug("GTFSGraph: loaded route_shapes sidecar (key=%s)", key)
+            except Exception as exc:
+                logger.warning(
+                    "GTFSGraph: route_shapes sidecar corrupt (%s) — "
+                    "bus_noseg geometry will fall back to drive/walk graph", exc
+                )
+                G.graph.setdefault('route_shapes', {})
+        else:
+            logger.warning(
+                "GTFSGraph: no route_shapes sidecar found (key=%s) — "
+                "bus_noseg geometry will fall back to drive/walk graph", key
+            )
+            G.graph.setdefault('route_shapes', {})
+
+        return G
 
     @classmethod
     def save_to_disk(
@@ -1003,7 +1026,14 @@ class GTFSGraph:
         feed_path: str,
         service_date: Optional[str],
     ) -> None:
-        """Persist a built transit graph to disk. Silently skips on failure."""
+        """Persist a built transit graph to disk. Silently skips on failure.
+
+        ``route_shapes`` is stored in a separate .shapes.pkl sidecar because
+        it is a large nested dict (route → stop-pair → polyline coords) that
+        inflates the main pickle to 100s of MB and can cause silent hangs
+        during serialisation.  The main graph pickle therefore stays small
+        (~20–30 MB) and loads/saves quickly.
+        """
         cls._GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         try:
             mtime = Path(feed_path).stat().st_mtime
@@ -1012,9 +1042,26 @@ class GTFSGraph:
         key = hashlib.md5(
             f"{feed_path}:{mtime}:{service_date}:{cls._BUILD_VERSION}".encode()
         ).hexdigest()[:16]
-        cache_path = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
+        cache_path        = cls._GRAPH_CACHE_DIR / f"{key}.pkl"
+        shapes_cache_path = cls._GRAPH_CACHE_DIR / f"{key}.shapes.pkl"
+
+        # Strip route_shapes out before pickling the main graph — it is the
+        # dominant contributor to pickle size and serialisation time.
+        route_shapes = G.graph.pop('route_shapes', {})
         try:
+            logger.info("GTFSGraph: writing disk cache (key=%s) …", key)
             cache_path.write_bytes(pickle.dumps(G))
-            logger.info("GTFSGraph: saved to disk cache (key=%s)", key)
+            logger.info("GTFSGraph: saved main graph to disk cache (key=%s)", key)
         except Exception as exc:
             logger.warning("GTFSGraph: could not write disk cache: %s", exc)
+        finally:
+            # Always restore route_shapes on the live graph so the current
+            # session can still use it for geometry lookups.
+            G.graph['route_shapes'] = route_shapes
+
+        # Persist route_shapes separately (best-effort; non-fatal if it fails).
+        try:
+            shapes_cache_path.write_bytes(pickle.dumps(route_shapes))
+            logger.info("GTFSGraph: saved route_shapes sidecar (key=%s)", key)
+        except Exception as exc:
+            logger.warning("GTFSGraph: could not write route_shapes sidecar: %s", exc)

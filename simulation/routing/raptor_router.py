@@ -306,7 +306,7 @@ class RaptorRouter:
                         if arrival_cost < cost_labels.get(sid, math.inf):
                             cost_labels[sid] = arrival_cost
                             parent[sid] = RaptorLeg(
-                                route     = route_name,
+                                route     = self._display_name(route_name),
                                 stops     = leg_stops,
                                 travel_s  = leg_travel_s,
                                 headway_s = self._headways.get(
@@ -368,9 +368,19 @@ class RaptorRouter:
             )
         return best_journey
 
+    @staticmethod
+    def _display_name(raptor_key: str) -> str:
+        """Strip agency_id prefix from a RAPTOR route key → display name.
+
+        RAPTOR index keys are 'agency_id:short_name' (e.g. 'OP4C:47B').
+        Callers that need human-readable names use this helper.
+        """
+        return raptor_key.split(':', 1)[-1] if ':' in raptor_key else raptor_key
+
     def routes_serving_stop(self, stop_id: str) -> List[str]:
-        """Return the list of route short names serving a given stop."""
-        return list(self._stop_routes.get(stop_id, []))
+        """Return display short names (not RAPTOR keys) of routes serving a stop."""
+        keys = self._stop_routes.get(stop_id, [])
+        return [self._display_name(k) for k in keys]
 
     def direct_route(self, origin_stop: str, dest_stop: str) -> Optional[str]:
         """
@@ -393,7 +403,7 @@ class RaptorRouter:
                     if oi < di and (di - oi) < best_gap:
                         best_gap = di - oi
                         best_rn  = rn
-        return best_rn
+        return self._display_name(best_rn) if best_rn else None
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -420,9 +430,9 @@ class RaptorRouter:
         G = self._G
         if G is None:
             return True
-        # Sample one edge for this route name — mode is stored on graph edges
+        display = self._display_name(route_name)
         for _, _, edata in G.edges(data=True):
-            if route_name in edata.get('route_short_names', []):
+            if display in edata.get('route_short_names', []):
                 return edata.get('mode', 'bus') == mode_filter
         return True   # default: allow if no edge found (mode unknown)
 
