@@ -2585,8 +2585,14 @@ class Router:
         # ── Single combined pass: geometry extraction + service-name collection ───
         transit_coords = []
         _all_short_names = []
+        # Span index: records (start, end) into transit_coords for each stop
+        # pair in transit_nodes.  Used after the loop to slice transit_coords
+        # per RAPTOR leg so multi-leg routes render with shape geometry (not
+        # raw stop-to-stop straight lines).
+        _pair_coord_spans: list = []
     
         for i in range(len(transit_nodes) - 1):
+            _tc_start = len(transit_coords)   # span start for this pair
             u_node = transit_nodes[i]
             v_node = transit_nodes[i + 1]
             edge_map = G_transit.get_edge_data(u_node, v_node) or {}
@@ -2594,6 +2600,7 @@ class Router:
             # ── Shape lookup: skip walk_transfer, use per-service shape first ──────
             _seg_route = _pair_route_map.get((u_node, v_node))
             if _seg_route == 'walk_transfer':
+                _pair_coord_spans.append((_tc_start, len(transit_coords)))
                 continue   # foot-path hop — not a transit segment
             shape = []
             _selected_ed = None
@@ -2678,6 +2685,7 @@ class Router:
                                 break
                         if _rs_seg and len(_rs_seg) >= 2:
                             transit_coords.extend(_rs_seg if i == 0 else _rs_seg[1:])
+                            _pair_coord_spans.append((_tc_start, len(transit_coords)))
                             continue  # ← skip Tiers 1/2/3 below
 
                 if _straight > 0.5:
@@ -2752,14 +2760,38 @@ class Router:
                                     max_segment_km=0.05,
                                 )
                                 if tram_seg and len(tram_seg) > 1:
-                                    transit_coords.extend(
-                                        tram_seg if i == 0 else tram_seg[1:]
+                                    # ── Depot-access detour guard ──────────────────────
+                                    # The OSM tram graph includes depot sidings (e.g.
+                                    # Gogarburn depot near Airborne Place, Edinburgh).
+                                    # If the per-segment route is more than 2.5× the
+                                    # straight-line distance between the two tram stops,
+                                    # the router found a path through depot tracks rather
+                                    # than the revenue service line.  Reject it and fall
+                                    # through to straight-line interpolation, which is
+                                    # visually less confusing than a V-shape on the map.
+                                    _seg_straight_km = haversine_km((u_x, u_y), (v_x, v_y))
+                                    _seg_actual_km   = route_distance_km(tram_seg)
+                                    _depot_detour = (
+                                        _seg_straight_km > 0.05
+                                        and _seg_actual_km > _seg_straight_km * 2.5
                                     )
-                                    _tram_seg_added = True
-                                    logger.debug(
-                                        "%s: tram OSM track geometry: %d pts between stops %s→%s",
-                                        agent_id, len(tram_seg), u_node, v_node,
-                                    )
+                                    if _depot_detour:
+                                        logger.debug(
+                                            "%s: tram OSM segment %d rejected — %.2fkm "
+                                            "is %.1f× straight (%.2fkm); likely depot detour",
+                                            agent_id, i, _seg_actual_km,
+                                            _seg_actual_km / max(_seg_straight_km, 0.001),
+                                            _seg_straight_km,
+                                        )
+                                    else:
+                                        transit_coords.extend(
+                                            tram_seg if i == 0 else tram_seg[1:]
+                                        )
+                                        _tram_seg_added = True
+                                        logger.debug(
+                                            "%s: tram OSM track geometry: %d pts between stops %s→%s",
+                                            agent_id, len(tram_seg), u_node, v_node,
+                                        )
                         except Exception as _tram_exc:
                             logger.debug(
                                 "%s: tram OSM segment %d failed: %s", agent_id, i, _tram_exc,
@@ -2778,6 +2810,12 @@ class Router:
                         if i == 0:
                             transit_coords.append((u_x, u_y))
                         transit_coords.append((v_x, v_y))
+
+            # Record how much of transit_coords belongs to this stop pair.
+            # All non-continue paths reach this point; the two continue
+            # statements above (walk_transfer and route_shapes early-exit)
+            # each append their own span before returning to the next iteration.
+            _pair_coord_spans.append((_tc_start, len(transit_coords)))
     
         # ── Service label ─────────────────────────────────────────────────────────
         _seen: set = set()

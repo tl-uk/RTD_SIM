@@ -111,6 +111,12 @@ CACHE_ROOT = Path.home() / ".rtd_sim_cache" / "transport"
 CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 CACHE_TTL_H = 24.0
 
+# Bump this string whenever the ferry graph build logic changes.
+# Old cache files with a different version tag are silently bypassed and a
+# fresh Overpass fetch runs.  The stale file is left on disk; users can
+# delete ~/.rtd_sim_cache/transport/ to reclaim space.
+_FERRY_CACHE_VERSION = "v26-consecutive-stops"
+
 _OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 
@@ -527,47 +533,70 @@ def _build_ferry_graph_from_overpass(
 
             # ── Relations (route=ferry) ────────────────────────────────────────
             if etype == 'relation':
-                # Collect all member way geometries in order
-                all_coords: List[Tuple[float, float]] = []
+                # Build one edge per member WAY rather than one edge for the
+                # entire relation (first stop → last stop).
+                #
+                # A three-terminal relation (e.g. Anstruther → Isle of May →
+                # North Berwick) would previously create a SINGLE edge from
+                # Anstruther to North Berwick whose great-circle arc passes
+                # over the Isle of May, producing a "dark green triangle"
+                # artefact on the map.  By iterating member ways and creating
+                # one edge per way, each leg stays near the water it actually
+                # crosses (Anstruther↔Isle of May is entirely over the Firth
+                # of Forth; Isle of May↔North Berwick likewise).
+                #
+                # Overpass `out body geom` provides full geometry on way
+                # members but lat/lon on node members is NOT guaranteed.
+                # We therefore extract terminal coordinates from way endpoints
+                # rather than from node members.
+                way_geoms: List[List[Tuple[float, float]]] = []
                 for member in el.get('members', []):
                     if member.get('type') != 'way':
                         continue
                     geom = member.get('geometry', [])
+                    coords: List[Tuple[float, float]] = []
                     for pt in geom:
                         try:
-                            all_coords.append((float(pt['lon']), float(pt['lat'])))
+                            coords.append((float(pt['lon']), float(pt['lat'])))
                         except (KeyError, TypeError):
                             continue
+                    if len(coords) >= 2:
+                        way_geoms.append(coords)
 
-                if len(all_coords) < 2:
+                if not way_geoms:
                     continue
 
-                origin_coord = all_coords[0]
-                dest_coord   = all_coords[-1]
+                for way_coords in way_geoms:
+                    origin_coord = way_coords[0]
+                    dest_coord   = way_coords[-1]
 
-                # Use great-circle arc for routes > 5 km (sea crossings)
-                dist_km = _haversine_km(origin_coord, dest_coord)
-                if dist_km > 5.0:
-                    shape = _great_circle_arc(origin_coord, dest_coord, n_points=20)
-                else:
-                    shape = all_coords   # short crossing: use actual geometry
+                    dist_km = _haversine_km(origin_coord, dest_coord)
+                    if dist_km < 0.05:
+                        continue   # degenerate — same terminal duplicated in OSM
 
-                u = reg.get(*origin_coord, name=name_tag, node_type='terminal',
-                            foot=foot_ok, motorcar=car_ok)
-                v = reg.get(*dest_coord,   name=name_tag, node_type='terminal',
-                            foot=foot_ok, motorcar=car_ok)
-                if u == v:
-                    continue
+                    # Use great-circle arc for crossings > 5 km; use actual
+                    # way geometry for short hops (more accurate near jetties).
+                    if dist_km > 5.0:
+                        shape = _great_circle_arc(origin_coord, dest_coord, n_points=20)
+                    else:
+                        shape = way_coords
 
-                dist_m = dist_km * 1000
-                for src, dst, shp in [(u, v, shape), (v, u, list(reversed(shape)))]:
-                    G.add_edge(src, dst,
-                               mode=mode, length=dist_m,
-                               shape_coords=shp, name=name_tag,
-                               operator=operator,
-                               foot=foot_ok, motorcar=car_ok,
-                               bicycle=bicycle_ok)
-                added += 1
+                    u = reg.get(*origin_coord, name=name_tag, node_type='terminal',
+                                foot=foot_ok, motorcar=car_ok)
+                    v = reg.get(*dest_coord,   name=name_tag, node_type='terminal',
+                                foot=foot_ok, motorcar=car_ok)
+                    if u == v:
+                        continue
+
+                    dist_m = dist_km * 1000
+                    for src, dst, shp in [(u, v, shape), (v, u, list(reversed(shape)))]:
+                        G.add_edge(src, dst,
+                                   mode=mode, length=dist_m,
+                                   shape_coords=shp, name=name_tag,
+                                   operator=operator,
+                                   foot=foot_ok, motorcar=car_ok,
+                                   bicycle=bicycle_ok)
+                    added += 1
 
             # ── Ways (route=ferry or ferry=yes) ───────────────────────────────
             elif etype == 'way':
@@ -893,7 +922,7 @@ def fetch_maritime_graphs(
         parallel_queries: Run Overpass queries in parallel threads (default True).
                           Set False in tests or offline mode.
     """
-    ferry_cache  = CACHE_ROOT / f"{city_tag}_ferry.graphml"
+    ferry_cache  = CACHE_ROOT / f"{city_tag}_ferry_{_FERRY_CACHE_VERSION}.graphml"
     lanes_cache  = CACHE_ROOT / f"{city_tag}_shipping_lanes.graphml"
     water_cache  = CACHE_ROOT / f"{city_tag}_waterways.graphml"
 
