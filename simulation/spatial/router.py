@@ -2023,12 +2023,75 @@ class Router:
                         dest_node = best_alt
 
                 if orig_node and dest_node and orig_node != dest_node:
-                    walk_nodes = nx.shortest_path(
-                        G_walk, orig_node, dest_node, weight='length'
-                    )
-                    coords = self._extract_geometry(G_walk, walk_nodes)
-                    if coords and len(coords) >= 2:
-                        return self._interpolate(coords, max_segment_km=0.05)
+                    try:
+                        walk_nodes = nx.shortest_path(
+                            G_walk, orig_node, dest_node, weight='length'
+                        )
+                        coords = self._extract_geometry(G_walk, walk_nodes)
+                        if coords and len(coords) >= 2:
+                            return self._interpolate(coords, max_segment_km=0.05)
+                    except nx.NetworkXNoPath:
+                        # ── Disconnected-island fallback ─────────────────────────
+                        # orig_node and/or dest_node may have snapped to a small
+                        # isolated component (e.g. an airport perimeter path, a
+                        # gated estate, a pier with no public through-path) that
+                        # has no edge to the rest of the walk graph.  This is a
+                        # generic OSM data pattern, not specific to any one city.
+                        #
+                        # Re-snap whichever endpoint is NOT in the graph's
+                        # largest weakly-connected component to the nearest node
+                        # that IS, then retry once.  If both endpoints are
+                        # already in the LCC, the failure is a genuine routing
+                        # gap (no path exists even within the connected core)
+                        # and we fall through to Tier 2 as before.
+                        try:
+                            if not hasattr(self, '_walk_lcc_cache'):
+                                self._walk_lcc_cache = {}
+                            if _walk_key not in self._walk_lcc_cache:
+                                _cc_fn = (
+                                    nx.weakly_connected_components
+                                    if G_walk.is_directed()
+                                    else nx.connected_components
+                                )
+                                _components = sorted(
+                                    _cc_fn(G_walk), key=len, reverse=True,
+                                )
+                                self._walk_lcc_cache[_walk_key] = (
+                                    _components[0] if _components else set()
+                                )
+                            _lcc = self._walk_lcc_cache[_walk_key]
+
+                            def _resnap_into_lcc(coord, fallback_node):
+                                if fallback_node in _lcc:
+                                    return fallback_node
+                                lon0, lat0 = coord
+                                best_n, best_d = None, float('inf')
+                                for n in _lcc:
+                                    nd = G_walk.nodes[n]
+                                    d = haversine_km(
+                                        (lon0, lat0),
+                                        (float(nd.get('x', 0)), float(nd.get('y', 0))),
+                                    )
+                                    if d < best_d:
+                                        best_d, best_n = d, n
+                                return best_n if best_n is not None else fallback_node
+
+                            _orig_lcc = _resnap_into_lcc(origin, orig_node)
+                            _dest_lcc = _resnap_into_lcc(dest,   dest_node)
+                            if _orig_lcc != _dest_lcc:
+                                walk_nodes = nx.shortest_path(
+                                    G_walk, _orig_lcc, _dest_lcc, weight='length'
+                                )
+                                coords = self._extract_geometry(G_walk, walk_nodes)
+                                if coords and len(coords) >= 2:
+                                    logger.debug(
+                                        "%s: walk graph disconnected-island "
+                                        "fallback succeeded (%.2fkm)",
+                                        agent_id, dist_km,
+                                    )
+                                    return self._interpolate(coords, max_segment_km=0.05)
+                        except Exception:
+                            pass   # fall through to Tier 2
 
             except nx.NetworkXNoPath:
                 pass   # fall through to Tier 2
@@ -2856,46 +2919,82 @@ class Router:
         # ── Per-leg geometry for multi-leg tooltip rendering (tl4r) ─────────────────────
         # When RAPTOR found a multi-leg journey, split transit_coords into one
         # coordinate list per leg + store board/alight coords for transfer walks.
+        #
+        # BUGFIX (session 26): the previous implementation rebuilt each leg's
+        # coordinates from scratch as a straight line between raw stop
+        # coordinates (_u_x,_u_y)→(_v_x,_v_y), discarding the real shape
+        # geometry (route_shapes / OSM tram track / GTFS shape, possibly with
+        # 100+ points) that the main per-pair loop above had already
+        # assembled into `transit_coords`.  Because visualization.py prefers
+        # `route_segments` (built from these per-leg buckets) over the flat
+        # `route` field whenever segments are present, every multi-leg
+        # journey rendered as a straight line between stops regardless of
+        # how much real geometry was available — this is what produced the
+        # near-straight Tram T50 leg for agent 9066 despite the log
+        # correctly reporting "196 pts" for the full route.
+        #
+        # Fix: use `_pair_coord_spans` (recorded in the SAME loop and SAME
+        # iteration that built transit_coords) to slice the real geometry
+        # for each stop pair, instead of recomputing it from raw coordinates.
         raptor_legs: list = []
         _tl4r = _raptor_transit_legs or (journey.legs if journey else [])
         if _used_raptor and _tl4r and len(_tl4r) > 1:
-            # Build a map: (u_stop, v_stop) -> coords (already assembled above)
-            # We re-use _pair_route_map to know which leg each pair belongs to.
+            # Map (u_stop, v_stop) -> leg index.  Known limitation: if the
+            # exact same stop pair occurs in two different legs (e.g. a
+            # looping route), the later leg wins in this dict.  This is rare
+            # and strictly better than the previous behaviour, which dropped
+            # all real geometry unconditionally.
             leg_coord_buckets: dict = {i: [] for i in range(len(_tl4r))}
             leg_for_pair = {}
             for _li, _leg in enumerate(_tl4r):
                 for _pi in range(len(_leg.stops) - 1):
                     leg_for_pair[(_leg.stops[_pi], _leg.stops[_pi + 1])] = _li
 
-            # Re-walk transit_nodes to bucket coords per leg
-            _prev_coord = None
+            # Re-walk transit_nodes, slicing the REAL geometry already built
+            # for each pair (via _pair_coord_spans) into the matching leg's
+            # bucket — rather than rebuilding straight lines.
             for _ti in range(len(transit_nodes) - 1):
                 _un = transit_nodes[_ti]
                 _vn = transit_nodes[_ti + 1]
-                _li = leg_for_pair.get((_un, _vn), len(_tl4r) - 1)
-                _u_d = G_transit.nodes.get(_un, {})
-                _v_d = G_transit.nodes.get(_vn, {})
-                _u_x = float(_u_d.get('x', _u_d.get('lon', 0)))
-                _u_y = float(_u_d.get('y', _u_d.get('lat', 0)))
-                _v_x = float(_v_d.get('x', _v_d.get('lon', 0)))
-                _v_y = float(_v_d.get('y', _v_d.get('lat', 0)))
+                _li = leg_for_pair.get((_un, _vn))
+                if _li is None:
+                    continue   # transfer-walk hop — not part of any transit leg
+                if _ti >= len(_pair_coord_spans):
+                    continue   # defensive — spans/nodes length mismatch
+                _span_start, _span_end = _pair_coord_spans[_ti]
+                _pair_coords = transit_coords[_span_start:_span_end]
+                if not _pair_coords:
+                    continue
                 bucket = leg_coord_buckets[_li]
                 if not bucket:
-                    bucket.append((_u_x, _u_y))
-                bucket.append((_v_x, _v_y))
+                    bucket.extend(_pair_coords)
+                else:
+                    # Avoid a duplicate point at the join (last pt of previous
+                    # pair == first pt of this pair in most extraction paths).
+                    if bucket[-1] == _pair_coords[0]:
+                        bucket.extend(_pair_coords[1:])
+                    else:
+                        bucket.extend(_pair_coords)
 
             for _li, _leg in enumerate(_tl4r):
                 _leg_coords = leg_coord_buckets.get(_li, [])
-                # Board / alight stop coords for transfer-walk computation
+                # Fallback: if no real geometry was bucketed for this leg
+                # (e.g. every pair hit the dict-collision edge case above),
+                # fall back to a straight line between board/alight stops
+                # rather than silently rendering nothing.
                 _board_d  = G_transit.nodes.get(_leg.stops[0],  {})
                 _alight_d = G_transit.nodes.get(_leg.stops[-1], {})
+                _board_coord  = (float(_board_d.get('x',  _board_d.get('lon',  0))),
+                                 float(_board_d.get('y',  _board_d.get('lat',  0))))
+                _alight_coord = (float(_alight_d.get('x', _alight_d.get('lon', 0))),
+                                 float(_alight_d.get('y', _alight_d.get('lat', 0))))
+                if not _leg_coords:
+                    _leg_coords = [_board_coord, _alight_coord]
                 raptor_legs.append({
                     'route':        _raptor_key_to_display(_leg.route),
                     'coords':       _leg_coords,
-                    'board_coord':  (float(_board_d.get('x',  _board_d.get('lon',  0))),
-                                     float(_board_d.get('y',  _board_d.get('lat',  0)))),
-                    'alight_coord': (float(_alight_d.get('x', _alight_d.get('lon', 0))),
-                                     float(_alight_d.get('y', _alight_d.get('lat', 0)))),
+                    'board_coord':  _board_coord,
+                    'alight_coord': _alight_coord,
                 })
 
         self._last_gtfs_meta = dict(

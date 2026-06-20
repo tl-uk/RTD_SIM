@@ -678,6 +678,20 @@ def render_map(
                         continue
                     color = MODE_COLORS_RGB.get(seg_mode, [128, 128, 128])
 
+                    # ── Low-confidence geometry ───────────────────────────────
+                    # Set by router.py when a segment has no real GTFS shape,
+                    # OSM track, or routable drive/walk path — a genuine data
+                    # gap (e.g. a regional bus route running outside the loaded
+                    # drive-graph bbox), not a routing bug. Rendered with a
+                    # blended-grey colour, lower opacity, and a sparse dash so
+                    # it reads as "approximate" rather than a confident,
+                    # road-following route — the same "skip/distinctly-style"
+                    # philosophy already used for the static GTFS overlay
+                    # layers (gtfs_visualizer.py, transit_layers.py).
+                    _low_conf = bool(seg.get('low_confidence_geometry', False))
+                    if _low_conf:
+                        color = [int(0.5 * c + 0.5 * 140) for c in color]
+
                     # Segment-level distance from segment dict (TripLeg.to_dict includes it)
                     seg_dist_km = seg.get('distance_km') or seg.get('dist_km') or 0.0
                     seg_dist_str = f'{seg_dist_km:.1f} km' if seg_dist_km > 0 else ''
@@ -699,20 +713,30 @@ def render_map(
                         if _rsn and seg_mode in ('bus', 'tram', 'local_train', 'intercity_train')
                         else ''
                     )
+                    _low_conf_line = (
+                        '⚠️ Approximate routing — exact path unavailable<br/>'
+                        if _low_conf else ''
+                    )
 
                     seg_tooltip = (
                         f'<b>{agent_id}</b><br/>'
                         f'{_MODE_EMOJI.get(seg_mode, "🚗")} <b>{seg_label}</b><br/>'
                         + _svc_line
+                        + _low_conf_line
                         + (f'{seg_dist_str}{seg_emit_str}<br/>' if seg_dist_str else '')
                         + (f'🏠 {seg.get("origin_name","") or ""}<br/>' if seg.get("origin_name") else '')
                         + (f'🏁 {seg.get("dest_name","") or ""}<br/>' if seg.get("dest_name") else '')
                         + (f'{od_html}' if od_html and not seg.get("origin_name") else '')
                         + svc_html
                     )
-                    if seg_mode not in segment_rows:
-                        segment_rows[seg_mode] = []
-                    segment_rows[seg_mode].append({
+                    # Low-confidence segments get their own bucket (and thus
+                    # their own PathLayer) per mode so they can be styled
+                    # distinctly without disturbing the normal solid-line
+                    # rendering for real route geometry.
+                    _row_key = f'{seg_mode}__lowconf' if _low_conf else seg_mode
+                    if _row_key not in segment_rows:
+                        segment_rows[_row_key] = []
+                    segment_rows[_row_key].append({
                         'path': path_list,
                         'r': int(color[0]), 'g': int(color[1]), 'b': int(color[2]),
                         'agent_id': agent_id,
@@ -770,10 +794,16 @@ def render_map(
         for seg_mode, rows in segment_rows.items():
             if not rows:
                 continue
-            is_active  = seg_mode in _ACTIVE_MODES
-            is_private = seg_mode in _PRIVATE_MODES
-            is_pt      = seg_mode in _PT_MODES
-            is_walk    = seg_mode == 'walk'
+            # Low-confidence rows were bucketed under '{mode}__lowconf' —
+            # strip the suffix for category/style lookup, but keep a flag
+            # so the layer itself gets faded + dashed treatment below.
+            _is_low_conf = seg_mode.endswith('__lowconf')
+            _base_mode   = seg_mode[:-len('__lowconf')] if _is_low_conf else seg_mode
+
+            is_active  = _base_mode in _ACTIVE_MODES
+            is_private = _base_mode in _PRIVATE_MODES
+            is_pt      = _base_mode in _PT_MODES
+            is_walk    = _base_mode == 'walk'
             # Walk: very thin, heavily dashed, semi-transparent — visually distinct
             # from road carriageways (salmon dashed line mirrors OSM footway style).
             # Active non-walk (bike, e_scooter): thin dashed.
@@ -782,6 +812,14 @@ def render_map(
             w_max   = 2 if is_walk else (3 if is_active else (5 if is_private else 7))
             opacity = 0.55 if is_walk else (0.50 if is_active else (0.70 if is_private else 0.92))
             alpha   = 140  if is_walk else (130 if is_active else (170 if is_private else 210))
+
+            # Low-confidence geometry (data gap, not real route-following
+            # geometry — see router.py 'low_confidence_geometry') always
+            # renders faded + sparsely dashed regardless of mode category,
+            # so it reads as "approximate" rather than a confident route.
+            if _is_low_conf:
+                opacity = min(opacity, 0.35)
+                alpha   = min(alpha, 100)
 
             layer_kwargs: Dict = dict(
                 data=rows,
@@ -794,7 +832,11 @@ def render_map(
                 pickable=True,
                 auto_highlight=True,
             )
-            if is_walk:
+            if _is_low_conf:
+                # Sparse long dash — clearly distinct from the walk dash
+                # pattern ([4,6]/[6,4]) and from solid PT/private lines.
+                layer_kwargs['dash_array'] = [2, 10]
+            elif is_walk:
                 # Denser dash pattern for walk: short dash, longer gap — clearly
                 # different from road geometry at all zoom levels.
                 layer_kwargs['dash_array'] = [4, 6]
@@ -803,9 +845,10 @@ def render_map(
 
             layers.append(pdk.Layer('PathLayer', **layer_kwargs))
             logger.info(
-                "✅ Route layer [%s/%s]: %d segments",
+                "✅ Route layer [%s/%s%s]: %d segments",
                 seg_mode,
                 'active' if is_active else ('private' if is_private else 'PT'),
+                ' · low-confidence' if _is_low_conf else '',
                 len(rows),
             )
 
