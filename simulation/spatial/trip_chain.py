@@ -109,6 +109,13 @@ class TripLeg:
     travel_time_min: float = 0.0
     emissions_g:   float = 0.0
 
+    # Geometry confidence — True when no real shape/road geometry was available
+    # and the segment path is a straight line between stop coordinates.
+    # Set by router.py (_pair_low_confidence / meta['low_confidence_geometry'])
+    # and passed through to visualization.py so low-confidence legs can be
+    # rendered as faded dashed grey lines rather than solid full-opacity lines.
+    low_confidence_geometry: bool = False
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             'mode':             self.mode,
@@ -120,9 +127,10 @@ class TripLeg:
             'route_short_name': self.route_short_name,
             'stop_id':          self.stop_id,
             'is_transfer_walk': self.is_transfer_walk,
-            'distance_km':      round(self.distance_km, 3),
-            'travel_time_min':  round(self.travel_time_min, 1),
-            'emissions_g':      round(self.emissions_g, 1),
+            'distance_km':          round(self.distance_km, 3),
+            'travel_time_min':      round(self.travel_time_min, 1),
+            'emissions_g':          round(self.emissions_g, 1),
+            'low_confidence_geometry': self.low_confidence_geometry,
         }
 
     @classmethod
@@ -158,6 +166,7 @@ class TripLeg:
             route_short_name=_rsn,
             distance_km=dist,
             is_transfer_walk=(mode == 'walk' and dist < MIN_TRANSFER_WALK_KM),
+            low_confidence_geometry=bool(seg.get('low_confidence_geometry', False)),
         )
 
 

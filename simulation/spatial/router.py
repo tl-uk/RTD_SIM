@@ -113,10 +113,18 @@ _MIN_WALK_LEG_KM: float = 0.05
 # 10177900090 — Craiglockhart/Slateford curve, Edinburgh Suburban line:
 #   Δbearing ≈177° on every route through Edinburgh city centre.
 #   Fires 117× per 50-agent run; penalty retry never resolves it.
+# 21564544    — Junction node (bearing 297°→130°, Δ=167°) firing 30+ times
+#   per 50-agent run; penalty retry never resolves it (persists after retry).
+#   Added session 27 after confirming in simulation_20260622_101715.log.
+# 606305      — Junction node (bearing 74°→245°, Δ=171°) firing 10+ times
+#   per 50-agent run; penalty retry never resolves it.
+#   Added session 27 after confirming in simulation_20260622_101715.log.
 _RAIL_NODE_BLOCKLIST: frozenset = frozenset({
         10177900090,   # Craiglockhart/Slateford — Δbearing≈177° on every route
         966807301,     # Edinburgh Suburban/South Sub — fires on every run
         36438075,      # Haymarket area — bidirectional track topology artefact
+        21564544,      # Junction — Δ=167°, fires 30+/run, penalty never resolves (session 27)
+        606305,        # Junction — Δ=171°, fires 10+/run, penalty never resolves (session 27)
     })
 
 # ── Default policy parameters ─────────────────────────────────────────────────
@@ -2503,13 +2511,23 @@ class Router:
                 agent_id, origin_stop, dest_stop,
                 len(_transit_legs), len(transit_nodes), max(0, len(_transit_legs)-1))
         else:
-            logger.warning("%s: RAPTOR no path — Dijkstra fallback", agent_id)
-            try:
-                transit_nodes = list(nx.shortest_path(
-                    G_transit, origin_stop, dest_stop, weight='gen_cost'))
-                _used_raptor = False
-            except Exception:
-                return self._compute_road_route(agent_id, origin, dest, mode, policy)
+            # RAPTOR found no transit path and stop-expansion also failed.
+            # Previously a Dijkstra fallback on the raw GTFS transit graph was
+            # used here, but it produced phantom routes: Dijkstra freely crosses
+            # operator/service boundaries, stitching together e.g. routes 141+140+44
+            # via any stop adjacency, regardless of real-world connectivity.  The
+            # resulting geometry ignores roads (stop-to-stop straight lines) and the
+            # service label is a misleading union of all route short names on the
+            # node sequence (e.g. "Bus 141, 140, 44" for a journey that no single
+            # service could make).  Confirmed cause of bogus route visualisations in
+            # session 27 (agents 3700, 9763, 4413 etc).
+            #
+            # Correct behaviour: when RAPTOR cannot find a transit path, fall
+            # through to a road route (car/EV proxy).  The agent's BDI planner will
+            # then either use the road route or discard this mode entirely — both
+            # outcomes are more honest than a phantom transit route.
+            logger.warning("%s: RAPTOR no path — falling back to road route", agent_id)
+            return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
         # ── Route on transit graph ────────────────────────────────────────────────
         # try:
@@ -2576,7 +2594,9 @@ class Router:
         # Checks both stop count AND geographic detour ratio.
         # The distance check catches express services (X51: 30 stops but
         # 3.6× detour via Queensferry) that pass the stop-count limit.
-        # Circus guard: Dijkstra-specific.
+        # Circus guard: was Dijkstra-specific (session 27: Dijkstra fallback removed).
+        # _used_raptor is always True here now; this block is dead code but retained
+        # for safety — the `if not _used_raptor` condition ensures it never fires.
         if not _used_raptor and _constrained_route is not None:
             _od_straight_km = haversine_km(origin, dest)
             _max_sensible   = max(25, int(_od_straight_km * 5))
