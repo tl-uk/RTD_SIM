@@ -636,6 +636,7 @@ class Router:
                         'mode':             mode,
                         'label':            f"{_mode_title} {_leg_data['route']}",
                         'route_short_name': _leg_data['route'],
+                        'low_confidence_geometry': _leg_data.get('low_confidence_geometry', False),
                     })
                 # Walk transfer to next leg
                 if _li < len(raptor_legs) - 1:
@@ -652,7 +653,12 @@ class Router:
                                 'label': 'Walk to stop',
                             })
         elif transit_coords and len(transit_coords) >= 2:
-            segments.append({'path': transit_coords, 'mode': mode, 'label': _svc_label})
+            segments.append({
+                'path':  transit_coords,
+                'mode':  mode,
+                'label': _svc_label,
+                'low_confidence_geometry': meta.get('low_confidence_geometry', False),
+            })
 
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
             segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop'})
@@ -2653,9 +2659,18 @@ class Router:
         # per RAPTOR leg so multi-leg routes render with shape geometry (not
         # raw stop-to-stop straight lines).
         _pair_coord_spans: list = []
+        # Parallel list: True if this pair's geometry came from a last-resort
+        # straight-line fallback (no GTFS shape, no drive/walk path found) —
+        # i.e. the genuinely-unresolved case bus_network.py's enrichment
+        # deliberately leaves empty rather than fabricating.  Used to flag
+        # the resulting leg/segment as 'low_confidence_geometry' so
+        # visualization.py can render it distinctly instead of as a solid
+        # line indistinguishable from real route-following geometry.
+        _pair_low_confidence: list = []
     
         for i in range(len(transit_nodes) - 1):
             _tc_start = len(transit_coords)   # span start for this pair
+            _pair_low_conf = False            # set True only in genuine-fallback branches below
             u_node = transit_nodes[i]
             v_node = transit_nodes[i + 1]
             edge_map = G_transit.get_edge_data(u_node, v_node) or {}
@@ -2664,6 +2679,7 @@ class Router:
             _seg_route = _pair_route_map.get((u_node, v_node))
             if _seg_route == 'walk_transfer':
                 _pair_coord_spans.append((_tc_start, len(transit_coords)))
+                _pair_low_confidence.append(False)
                 continue   # foot-path hop — not a transit segment
             shape = []
             _selected_ed = None
@@ -2749,6 +2765,7 @@ class Router:
                         if _rs_seg and len(_rs_seg) >= 2:
                             transit_coords.extend(_rs_seg if i == 0 else _rs_seg[1:])
                             _pair_coord_spans.append((_tc_start, len(transit_coords)))
+                            _pair_low_confidence.append(False)
                             continue  # ← skip Tiers 1/2/3 below
 
                 if _straight > 0.5:
@@ -2783,6 +2800,7 @@ class Router:
                                     [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
                                 )
                                 transit_coords.extend(_interp if i == 0 else _interp[1:])
+                                _pair_low_conf = True
                                 logger.debug(
                                     "%s: bus_noseg%d: drive+walk failed (%.2fkm) — interpolated %d pts",
                                     agent_id, i, _straight, len(_interp),
@@ -2795,6 +2813,7 @@ class Router:
                                 [(u_x, u_y), (v_x, v_y)], max_segment_km=0.05
                             )
                             transit_coords.extend(_interp if i == 0 else _interp[1:])
+                            _pair_low_conf = True
                             logger.debug(
                                 "%s: bus_noseg%d: no drive/walk path (%.2fkm) — interpolated %d pts",
                                 agent_id, i, _straight, len(_interp),
@@ -2846,6 +2865,13 @@ class Router:
                                             _seg_actual_km / max(_seg_straight_km, 0.001),
                                             _seg_straight_km,
                                         )
+                                        # Falls through to the straight-line
+                                        # fallback below, which is correctly
+                                        # marked low_confidence — the depot
+                                        # detour itself isn't real route
+                                        # geometry, so neither is the
+                                        # straight-line replacement, but at
+                                        # least it isn't misleading.
                                     else:
                                         transit_coords.extend(
                                             tram_seg if i == 0 else tram_seg[1:]
@@ -2866,19 +2892,28 @@ class Router:
                             from simulation.spatial.ferry_network import _great_circle_arc
                             arc = _great_circle_arc((u_x, u_y), (v_x, v_y), n_points=20)
                             transit_coords.extend(arc if i == 0 else arc[1:])
+                            # Ferry great-circle arcs are intentional, accurate
+                            # geometry for a sea crossing — not a data-gap
+                            # fallback — so NOT marked low_confidence.
                         except ImportError:
                             if i == 0: transit_coords.append((u_x, u_y))
                             transit_coords.append((v_x, v_y))
+                            _pair_low_conf = True
                     else:
+                        # No shape, no OSM tram track (or rejected as a depot
+                        # detour) — genuine data gap, raw straight line.
                         if i == 0:
                             transit_coords.append((u_x, u_y))
                         transit_coords.append((v_x, v_y))
+                        _pair_low_conf = True
 
             # Record how much of transit_coords belongs to this stop pair.
             # All non-continue paths reach this point; the two continue
             # statements above (walk_transfer and route_shapes early-exit)
-            # each append their own span before returning to the next iteration.
+            # each append their own span (and low-confidence flag) before
+            # returning to the next iteration.
             _pair_coord_spans.append((_tc_start, len(transit_coords)))
+            _pair_low_confidence.append(_pair_low_conf)
     
         # ── Service label ─────────────────────────────────────────────────────────
         _seen: set = set()
@@ -2950,6 +2985,14 @@ class Router:
                 for _pi in range(len(_leg.stops) - 1):
                     leg_for_pair[(_leg.stops[_pi], _leg.stops[_pi + 1])] = _li
 
+            # Per-leg aggregation: True if ANY stop pair within this leg's
+            # geometry came from a last-resort straight-line fallback (see
+            # _pair_low_confidence above).  Surfaced as 'low_confidence_geometry'
+            # on each leg dict so visualization.py can render it distinctly
+            # rather than as a solid line indistinguishable from real
+            # route-following geometry.
+            leg_low_confidence: dict = {i: False for i in range(len(_tl4r))}
+
             # Re-walk transit_nodes, slicing the REAL geometry already built
             # for each pair (via _pair_coord_spans) into the matching leg's
             # bucket — rather than rebuilding straight lines.
@@ -2961,6 +3004,8 @@ class Router:
                     continue   # transfer-walk hop — not part of any transit leg
                 if _ti >= len(_pair_coord_spans):
                     continue   # defensive — spans/nodes length mismatch
+                if _ti < len(_pair_low_confidence) and _pair_low_confidence[_ti]:
+                    leg_low_confidence[_li] = True
                 _span_start, _span_end = _pair_coord_spans[_ti]
                 _pair_coords = transit_coords[_span_start:_span_end]
                 if not _pair_coords:
@@ -2988,14 +3033,23 @@ class Router:
                                  float(_board_d.get('y',  _board_d.get('lat',  0))))
                 _alight_coord = (float(_alight_d.get('x', _alight_d.get('lon', 0))),
                                  float(_alight_d.get('y', _alight_d.get('lat', 0))))
-                if not _leg_coords:
+                _no_real_geometry = not _leg_coords
+                if _no_real_geometry:
                     _leg_coords = [_board_coord, _alight_coord]
                 raptor_legs.append({
                     'route':        _raptor_key_to_display(_leg.route),
                     'coords':       _leg_coords,
                     'board_coord':  _board_coord,
                     'alight_coord': _alight_coord,
+                    'low_confidence_geometry': (
+                        leg_low_confidence.get(_li, False) or _no_real_geometry
+                    ),
                 })
+
+        # Whole-route low-confidence flag for the single-leg / Dijkstra-fallback
+        # case, where _gtfs_with_segments emits ONE segment for the entire
+        # transit_coords list rather than per-leg segments.
+        _route_low_confidence = any(_pair_low_confidence)
 
         self._last_gtfs_meta = dict(
             service_label  = _service_label,
@@ -3006,6 +3060,7 @@ class Router:
             egress_leg     = egress_leg,
             transit_coords = transit_coords,
             raptor_legs    = raptor_legs,      # per-leg data for tooltip splitting
+            low_confidence_geometry = _route_low_confidence,
         )
     
         logger.info(
