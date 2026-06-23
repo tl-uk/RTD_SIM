@@ -134,16 +134,34 @@ def fetch_rail_graph(
     )
 
     # ── Graph simplification ───────────────────────────────────────────────────
-    # simplify=True (default): OSMnx merges collinear nodes, reducing node count.
-    # For rail and subway this is fine — tracks are nearly straight.
-    # For TRAM: simplify=True creates chord edges that cut through buildings and
-    # stadiums (observed: Edinburgh Trams route through Murrayfield Stadium).
-    # The Edinburgh Trams curve around Roseburn/Balgreen was being reduced to a
-    # single straight edge. Fix: tram layer uses simplify=False to preserve the
-    # full curved track geometry.  Other layers keep simplify=True for performance.
-    # We detect tram from the filter string rather than adding a parameter.
-    _is_tram_layer = '"tram"' in rail_filter and '"rail"' not in rail_filter
-    _simplify = not _is_tram_layer   # False for tram-only, True for mixed/rail
+    # simplify=False (unconditional since session 27):
+    #
+    # With simplify=True, OSMnx merges collinear degree-2 nodes.  For mainline
+    # rail this initially seemed fine (tracks are straight), but it caused two
+    # problems in practice:
+    #
+    # 1. TRAM geometry: Edinburgh Trams curves through Roseburn/Balgreen were
+    #    reduced to a single straight chord edge cutting through Murrayfield
+    #    Stadium.  This was fixed by using simplify=False for tram-only fetches.
+    #
+    # 2. RAIL station collapse (Issue E, session 27): with simplify=True, station
+    #    nodes that are topologically degree-2 (e.g. Edinburgh Gateway, which sits
+    #    on a two-track through-line with no junction) were being merged away.
+    #    Both origin and destination then snapped to the same surviving node in
+    #    the simplified graph (_nearest_rail_node brute-force scan), producing an
+    #    origin == destination same-node collapse and a silent [] return from
+    #    _compute_intermodal_route.  This caused 101 "empty leg for local_train"
+    #    failures per 50-agent run — every short Edinburgh urban rail trip failed.
+    #
+    # Fix: always use simplify=False.  Node count increases from ~88 to ~400–600
+    # for an Edinburgh bbox, but _nearest_rail_node's O(N) scan is fast enough
+    # for this scale, and more nodes mean station nodes are reliably preserved.
+    # Known-bad junction nodes are still blocked by _RAIL_NODE_BLOCKLIST in
+    # router.py and by _BAD_NODES removal in get_or_fallback_rail_graph() below.
+    # New reversal nodes surfacing after this change should be added to
+    # _RAIL_NODE_BLOCKLIST as they are identified in the run log.
+    _is_tram_layer = '"tram"' in rail_filter and '"rail"' not in rail_filter  # kept for reference
+    _simplify = False   # always False — see rationale above (session 27)
 
     try:
         # OSMnx 2.x expects (left, bottom, right, top) = (west, south, east, north).

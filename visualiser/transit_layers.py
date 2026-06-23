@@ -595,12 +595,23 @@ def _build_stop_layer(env, G_transit, south, west, north, east) -> Optional[Any]
             if x is None or y is None:
                 continue
             col = _COLOURS.get(f"stop_{mode}", _COLOURS["stop_bus"])
+            _stop_name = data.get("name", str(node_id))
+            _routes    = ', '.join(
+                sn for _, _, ed in G_transit.edges(node_id, data=True)
+                for sn in ed.get('route_short_names', [])
+                if sn and ed.get('mode', 'walk') != 'walk'
+            )
             stop_rows.append({
                 "position": [float(x), float(y)],
                 "color":    col,
-                "name":     data.get("name", str(node_id)),
+                "name":     _stop_name,
                 "mode":     mode,
                 "radius":   _STOP_RADIUS.get(mode, 40),
+                "tooltip_html": (
+                    f"<b>{_stop_name}</b><br/>"
+                    + (f"Routes: {_routes}<br/>" if _routes else "")
+                    + f"{mode.replace('_', ' ').title()}"
+                ),
             })
 
     # ── From Overpass (no GTFS) ───────────────────────────────────────────────
@@ -622,6 +633,10 @@ def _build_stop_layer(env, G_transit, south, west, north, east) -> Optional[Any]
                         "name":     s.name,
                         "mode":     mf,
                         "radius":   r,
+                        "tooltip_html": (
+                            f"<b>{s.name}</b><br/>"
+                            f"{mf.replace('_', ' ').title()}"
+                        ),
                     })
         except Exception as exc:
             logger.debug("transit_layers: stop layer overpass failed: %s", exc)
@@ -640,7 +655,6 @@ def _build_stop_layer(env, G_transit, south, west, north, east) -> Optional[Any]
         radius_min_pixels=2,
         radius_max_pixels=8,
         pickable=True,
-        get_tooltip="name",
     )
 
 
@@ -698,6 +712,10 @@ def get_stop_layer(
                 "name":     s.name,
                 "mode":     mf,
                 "radius":   r,
+                "tooltip_html": (
+                    f"<b>{s.name}</b><br/>"
+                    f"{mf.replace('_', ' ').title()}"
+                ),
             })
 
     if not rows:
