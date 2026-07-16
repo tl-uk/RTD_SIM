@@ -202,15 +202,34 @@ class CognitiveAgent:
                 # Store infrastructure params
                 s.action_params = best.params
 
-                # Per-segment colour metadata for the visualiser
-                s.route_segments = best.params.get('route_segments', [])
+                # Per-segment colour metadata for the visualiser.
+                #
+                # NOTE (session 28): this used to be suspected as the reason
+                # low_confidence_geometry never reached the map (the second
+                # assignment below overwrites this one). That turned out to
+                # be a dead end — TripChain.route_segments (a property) is
+                # built from TripLeg.to_dict() per leg, which does carry
+                # low_confidence_geometry correctly once the router actually
+                # sets it on the raw segment dict. The real gap was upstream,
+                # in router.py, where several access/egress 'walk to stop'
+                # segment dicts never set the key at all — now fixed there.
+                #
+                # Kept defensive here anyway: TripChain.route_segments filters
+                # out any leg whose path is missing/short (`leg.path and
+                # len(leg.path) >= 2`), so if a raw segment ever fails that
+                # check the richer tc.route_segments could have *fewer*
+                # entries than the raw list. Only promote it when it isn't
+                # missing data relative to the raw segments.
+                _raw_segments = best.params.get('route_segments', [])
+                s.route_segments = _raw_segments
                 # Promote TripChain from params when available
                 tc = best.params.get('trip_chain')
                 if tc is not None:
                     s.trip_chain = tc
-                    # Keep route_segments in sync for backward-compat
                     if hasattr(tc, 'route_segments'):
-                        s.route_segments = tc.route_segments
+                        _tc_segments = tc.route_segments
+                        if len(_tc_segments) >= len(_raw_segments):
+                            s.route_segments = _tc_segments
                 s.service_id       = best.params.get('service_id', '')
                 s.destination_stop = best.params.get('destination_stop', '')
                 

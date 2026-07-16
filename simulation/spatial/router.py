@@ -96,6 +96,28 @@ except ImportError:
 _RAIL_MODES    = frozenset({'local_train', 'intercity_train', 'freight_rail'})
 _TRANSIT_MODES = frozenset({'bus', 'ferry_diesel', 'ferry_electric'})
 
+
+class _AccessLegResult(list):
+    """
+    A plain coordinate list with one extra attribute: `.low_confidence`.
+
+    _compute_access_leg() has ~13 call sites across this file, most of which
+    slice or measure the return value directly (`access_leg[:-1]`,
+    `len(access_leg)`, etc.) with no wrapper/tuple unpacking. Subclassing
+    list lets Tier 3 (the raw straight-line fallback — see _compute_access_leg)
+    tag its output as low-confidence while remaining a drop-in list everywhere
+    else: `list[:-1]` etc. correctly return plain lists (attribute doesn't
+    propagate through slicing), so only code that explicitly checks
+    `getattr(leg, 'low_confidence', False)` ever sees the flag.
+
+    Session 28: introduced because Tier-3 straight-line access/egress legs
+    (e.g. the Edinburgh Airport tram access leg cutting across the runway)
+    were rendering as plain full-opacity 'walk' segments, indistinguishable
+    from real routed geometry, because _compute_access_leg's return value
+    carried no signal that a real path could not be found.
+    """
+    low_confidence: bool = False
+
 # Minimum walk-leg distance to include in multimodal segment list.
 # Legs shorter than this exist physically (e.g. 30 m snap to nearest rail node)
 # but render as a dot on the map and clutter the per-segment tooltip.
@@ -116,15 +138,23 @@ _MIN_WALK_LEG_KM: float = 0.05
 # 21564544    — Junction node (bearing 297°→130°, Δ=167°) firing 30+ times
 #   per 50-agent run; penalty retry never resolves it (persists after retry).
 #   Added session 27 after confirming in simulation_20260622_101715.log.
-# 606305      — Junction node (bearing 74°→245°, Δ=171°) firing 10+ times
-#   per 50-agent run; penalty retry never resolves it.
-#   Added session 27 after confirming in simulation_20260622_101715.log.
+#   Confirmed 0 occurrences in the session 27/28 test log — fix holds.
+#
+# REMOVED (session 28): 606305 was added here in session 27 after seeing
+# "Heading reversal detected at rail node 606305" in the log. That message
+# actually came from the ROAD U-turn guard (line ~805 below), which shared
+# _has_heading_reversal()'s hardcoded "rail node" wording regardless of which
+# graph triggered it. 606305 is a drive-graph junction, not a rail node —
+# every one of its firings resolved cleanly via the road guard's own penalty
+# retry ("car U-turn resolved via penalty on node 606305"). It was never a
+# rail problem, so it does nothing useful here. The logging is now fixed
+# (network_label param) so this kind of misdiagnosis shouldn't recur — watch
+# for genuinely new *rail* reversal nodes in the session 28 log instead.
 _RAIL_NODE_BLOCKLIST: frozenset = frozenset({
         10177900090,   # Craiglockhart/Slateford — Δbearing≈177° on every route
         966807301,     # Edinburgh Suburban/South Sub — fires on every run
         36438075,      # Haymarket area — bidirectional track topology artefact
         21564544,      # Junction — Δ=167°, fires 30+/run, penalty never resolves (session 27)
-        606305,        # Junction — Δ=171°, fires 10+/run, penalty never resolves (session 27)
     })
 
 # ── Default policy parameters ─────────────────────────────────────────────────
@@ -399,11 +429,21 @@ class Router:
                             rail_graph, orig_node, dest_node, weight=wk
                         )
                         if self._has_heading_reversal(rail_graph, rail_nodes):
+                            # BUGFIX (session 28): this branch previously logged
+                            # a warning and then fell through, KEEPING the still-
+                            # reversed `rail_nodes` path and rendering it — the
+                            # root cause of the Haymarket-area zigzag ("V" spike)
+                            # artefact seen in session 27 test screenshots.  The
+                            # sibling Tier-2 rail path (single-mode, no segments,
+                            # below at ~line 1265) already rejects in this exact
+                            # situation; this branch now matches that behaviour
+                            # instead of silently diverging from it.
                             logger.warning(
                                 "%s: %s heading reversal persists after penalty "
-                                "retry — accepting best available route",
+                                "retry — rejecting route",
                                 agent_id, mode,
                             )
+                            return [], []
                         else:
                             logger.info(
                                 "%s: %s heading reversal resolved via penalty "
@@ -420,10 +460,14 @@ class Router:
                         for u, v, k, d in _incident:
                             d[wk] = _saved[(u, v, k)]
                 else:
+                    # Same accept-on-failure bug as above: previously fell
+                    # through with the reversed `rail_nodes` still in play.
                     logger.warning(
-                        "%s: %s heading reversal — reversal node not found",
+                        "%s: %s heading reversal — reversal node not found — "
+                        "rejecting route",
                         agent_id, mode,
                     )
+                    return [], []
             rail_coords = self._interpolate(
                 self._extract_geometry(rail_graph, rail_nodes), max_segment_km=0.2,
             )
@@ -463,6 +507,7 @@ class Router:
                 'path':  access_leg,
                 'mode':  a_mode,
                 'label': 'Walk to station' if a_mode == 'walk' else 'Drive to station',
+                'low_confidence_geometry': getattr(access_leg, 'low_confidence', False),
             })
         if rail_coords and len(rail_coords) >= 2:
             segments.append({
@@ -476,6 +521,7 @@ class Router:
                 'path':  egress_leg,
                 'mode':  e_mode,
                 'label': 'Walk from station' if e_mode == 'walk' else 'Drive from station',
+                'low_confidence_geometry': getattr(egress_leg, 'low_confidence', False),
             })
 
         full_route = (
@@ -559,12 +605,18 @@ class Router:
 
         segments: List[Dict] = []
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
-            segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to port'})
+            segments.append({
+                'path': access_leg, 'mode': 'walk', 'label': 'Walk to port',
+                'low_confidence_geometry': getattr(access_leg, 'low_confidence', False),
+            })
         if ferry_coords and len(ferry_coords) >= 2:
             label = 'Ferry (electric)' if 'electric' in mode else 'Ferry'
             segments.append({'path': ferry_coords, 'mode': mode, 'label': label})
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
-            segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from port'})
+            segments.append({
+                'path': egress_leg, 'mode': 'walk', 'label': 'Walk from port',
+                'low_confidence_geometry': getattr(egress_leg, 'low_confidence', False),
+            })
 
         full_route = (
             (access_leg[:-1] if access_leg else [])
@@ -630,7 +682,10 @@ class Router:
         _mode_title      = mode.replace('_', ' ').title()
 
         if access_leg and len(access_leg) >= 2 and access_dist >= _MIN_WALK_LEG_KM:
-            segments.append({'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop'})
+            segments.append({
+                'path': access_leg, 'mode': 'walk', 'label': 'Walk to stop',
+                'low_confidence_geometry': getattr(access_leg, 'low_confidence', False),
+            })
 
         if raptor_legs and len(raptor_legs) > 1:
             # One segment per RAPTOR leg with service-specific label.
@@ -659,6 +714,7 @@ class Router:
                                 'path':  _xfer,
                                 'mode':  'walk',
                                 'label': 'Walk to stop',
+                                'low_confidence_geometry': getattr(_xfer, 'low_confidence', False),
                             })
         elif transit_coords and len(transit_coords) >= 2:
             segments.append({
@@ -669,7 +725,10 @@ class Router:
             })
 
         if egress_leg and len(egress_leg) >= 2 and egress_dist >= _MIN_WALK_LEG_KM:
-            segments.append({'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop'})
+            segments.append({
+                'path': egress_leg, 'mode': 'walk', 'label': 'Walk from stop',
+                'low_confidence_geometry': getattr(egress_leg, 'low_confidence', False),
+            })
     
         return transit_route, segments
 
@@ -790,7 +849,8 @@ class Router:
             if (route_nodes is not None
                     and len(route_nodes) >= 3
                     and self._has_heading_reversal(
-                        graph, route_nodes, threshold_deg=170.0)):
+                        graph, route_nodes, threshold_deg=170.0,
+                        network_label="road")):
                 reversal_node = self._find_reversal_node(
                     graph, route_nodes, threshold_deg=170.0
                 )
@@ -809,7 +869,8 @@ class Router:
                             graph, orig_node, dest_node, weight=weight_key,
                         )
                         if not self._has_heading_reversal(
-                            graph, retry_nodes, threshold_deg=170.0
+                            graph, retry_nodes, threshold_deg=170.0,
+                            network_label="road",
                         ):
                             route_nodes = retry_nodes
                             logger.debug(
@@ -2131,7 +2192,11 @@ class Router:
             "%s: walk+drive both failed (%.2fkm) — straight line",
             agent_id, dist_km,
         )
-        return self._interpolate([origin, dest], max_segment_km=0.05)
+        _fallback = _AccessLegResult(
+            self._interpolate([origin, dest], max_segment_km=0.05)
+        )
+        _fallback.low_confidence = True
+        return _fallback
 
     # ─────────────────────────────────────────────────────────────────────────────
     # GTFS transit routing
@@ -3331,6 +3396,7 @@ class Router:
         graph: Any,
         node_list: List,
         threshold_deg: float = 150.0,
+        network_label: str = "rail",
     ) -> bool:
         """
         Return True if any consecutive triple of nodes forms an acute switchback.
@@ -3372,10 +3438,10 @@ class Router:
             diff = abs(((b2 - b1 + 180.0) % 360.0) - 180.0)
             if diff > threshold_deg:
                 logger.warning(
-                    "Heading reversal detected at rail node %s "
+                    "Heading reversal detected at %s node %s "
                     "(bearing %.0f° → %.0f°, Δ=%.0f°) — kinematic constraint "
-                    "violation; rejecting route",
-                    node_list[i + 1], b1, b2, diff,
+                    "violation",
+                    network_label, node_list[i + 1], b1, b2, diff,
                 )
                 return True
         return False
