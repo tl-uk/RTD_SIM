@@ -718,16 +718,42 @@ def render_map(
                         if _low_conf else ''
                     )
 
+                    # ── Per-segment From/To ────────────────────────────────────
+                    # BUGFIX (session 29): this used to fall back to `od_html`
+                    # (the WHOLE AGENT's origin/destination, built once above
+                    # the per-segment loop) whenever the segment itself had no
+                    # origin_name — which was every segment, always, since
+                    # bdi_planner.py never passes origin_name/dest_name into
+                    # TripChain.from_route_segments(). The result: every leg's
+                    # tooltip (walk-to-stop, each bus leg, transfer walks...)
+                    # showed the SAME whole-trip From/To instead of its own —
+                    # e.g. a 190m walk-to-stop leg displaying the full 30km
+                    # trip's home/work coordinates and implied distance.
+                    # Build this segment's own From/To from its own path
+                    # endpoints instead — always correct, never borrowed.
+                    _seg_origin_name = seg.get("origin_name") or ""
+                    _seg_dest_name   = seg.get("dest_name") or ""
+                    if not _seg_origin_name:
+                        _p0 = path_list[0]
+                        _seg_origin_name = (
+                            f"({_p0[1]:.3f}°N, {_p0[0]:.3f}°"
+                            f"{'E' if _p0[0] >= 0 else 'W'})"
+                        )
+                    if not _seg_dest_name:
+                        _p1 = path_list[-1]
+                        _seg_dest_name = (
+                            f"({_p1[1]:.3f}°N, {_p1[0]:.3f}°"
+                            f"{'E' if _p1[0] >= 0 else 'W'})"
+                        )
+
                     seg_tooltip = (
                         f'<b>{agent_id}</b><br/>'
                         f'{_MODE_EMOJI.get(seg_mode, "🚗")} <b>{seg_label}</b><br/>'
                         + _svc_line
                         + _low_conf_line
                         + (f'{seg_dist_str}{seg_emit_str}<br/>' if seg_dist_str else '')
-                        + (f'🏠 {seg.get("origin_name","") or ""}<br/>' if seg.get("origin_name") else '')
-                        + (f'🏁 {seg.get("dest_name","") or ""}<br/>' if seg.get("dest_name") else '')
-                        + (f'{od_html}' if od_html and not seg.get("origin_name") else '')
-                        + svc_html
+                        + f'🏠 From: {_seg_origin_name}<br/>'
+                        + f'🏁 To: {_seg_dest_name}<br/>'
                     )
                     # Low-confidence segments get their own bucket (and thus
                     # their own PathLayer) per mode so they can be styled

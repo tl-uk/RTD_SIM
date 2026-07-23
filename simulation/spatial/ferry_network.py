@@ -506,6 +506,36 @@ def _build_ferry_graph_from_overpass(
             if name:
                 terminal_coords[name.lower()] = nid
 
+    # ── Proximity-based terminal snapping ───────────────────────────────────────
+    # BUGFIX (session 30): terminal_coords above was built (from the precise,
+    # purpose-tagged amenity=ferry_terminal / harbour=yes / port=yes query)
+    # but never actually used anywhere — route endpoints below were taken
+    # directly from the route way/relation's own first/last point, which in
+    # OSM is often a rougher hand-digitized coordinate that can sit slightly
+    # off the true pier (occasionally on the wrong side of a small
+    # landmass). Name-matching a route's name_tag against a terminal's own
+    # name (e.g. route "Maid of the Forth" vs terminal "Hawes Pier") isn't
+    # reliable, so this snaps by proximity instead: any route endpoint
+    # within _SNAP_RADIUS_KM of a known terminal/harbour/port node is
+    # replaced with that node's precise coordinate before any shape/arc
+    # decision is made. Confirmed suspect for the Hawes Pier → Inchcolm
+    # Island ferry line appearing to clip across the island.
+    _SNAP_RADIUS_KM = 0.3
+    _terminal_points: List[Tuple[float, float]] = [
+        (G.nodes[nid]['x'], G.nodes[nid]['y'])
+        for nid in set(terminal_coords.values())
+    ]
+
+    def _snap_to_terminal(coord: Tuple[float, float]) -> Tuple[float, float]:
+        best_d = _SNAP_RADIUS_KM
+        best = None
+        for tpt in _terminal_points:
+            d = _haversine_km(coord, tpt)
+            if d < best_d:
+                best_d = d
+                best = tpt
+        return best if best is not None else coord
+
     # ── Ferry routes and ways ──────────────────────────────────────────────────
     added = 0
     if route_data:
@@ -567,8 +597,13 @@ def _build_ferry_graph_from_overpass(
                     continue
 
                 for way_coords in way_geoms:
-                    origin_coord = way_coords[0]
-                    dest_coord   = way_coords[-1]
+                    origin_coord = _snap_to_terminal(way_coords[0])
+                    dest_coord   = _snap_to_terminal(way_coords[-1])
+                    if origin_coord != way_coords[0] or dest_coord != way_coords[-1]:
+                        # Keep the drawn shape's own endpoints consistent
+                        # with the snapped node coordinates, not just the
+                        # node registration below.
+                        way_coords = [origin_coord] + way_coords[1:-1] + [dest_coord]
 
                     dist_km = _haversine_km(origin_coord, dest_coord)
                     if dist_km < 0.05:
@@ -612,10 +647,19 @@ def _build_ferry_graph_from_overpass(
                 if len(coords) < 2:
                     continue
 
+                _o = _snap_to_terminal(coords[0])
+                _d = _snap_to_terminal(coords[-1])
+                if _o != coords[0] or _d != coords[-1]:
+                    coords = [_o] + coords[1:-1] + [_d]
+
                 dist_km = _haversine_km(coords[0], coords[-1])
+                # Threshold aligned with the relation-member-way path above
+                # (was inconsistently 2.0km here vs 5.0km there — no
+                # documented reason for the two to differ, and the same
+                # "prefer real geometry near jetties" reasoning applies).
                 shape   = (
                     _great_circle_arc(coords[0], coords[-1], n_points=12)
-                    if dist_km > 2.0 else coords
+                    if dist_km > 5.0 else coords
                 )
                 u = reg.get(*coords[0], name=name_tag, node_type='terminal',
                             foot=foot_ok, motorcar=car_ok)

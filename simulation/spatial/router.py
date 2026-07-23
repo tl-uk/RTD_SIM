@@ -2554,6 +2554,30 @@ class Router:
         # FrozenInstanceError at runtime.  Both downstream reads use this local
         # directly instead of getattr(journey, '_transit_legs', None).
         _raptor_transit_legs: list = []
+        # Positional edge ownership: _edge_owner_leg[i] is the index into
+        # _raptor_transit_legs that "owns" the edge (transit_nodes[i],
+        # transit_nodes[i+1]), or None if that edge is a walk-transfer gap
+        # between two legs (different alight/board stops).
+        #
+        # BUGFIX (session 29): this replaces two separate (u_stop, v_stop) ->
+        # value dictionaries (_pair_route_map below, and leg_for_pair further
+        # down) that were built by iterating legs in order and writing
+        # dict[(u,v)] = <this leg's info>, with a later leg silently
+        # overwriting an earlier leg's entry whenever the exact same stop
+        # pair occurred in both. On a corridor served by several overlapping
+        # routes sharing the same stops (e.g. X59/X57/X51/X61/X58/X55/43/N43
+        # all calling at stops in the same Echline/Queensferry corridor),
+        # this is common, not rare — and it silently reattributed one leg's
+        # shape/geometry to a completely different leg's label. Confirmed
+        # cause of the "Bus X59" / "Bus 913" segments whose geometry passed
+        # through stops that only serve route 43, and of the small zigzag
+        # artefact where a borrowed, geographically-discontiguous span got
+        # spliced into a leg's coordinate list.
+        #
+        # Ownership here is positional (which leg's own stop sequence
+        # produced this step of the walk), so it cannot collide on repeated
+        # stop-ID pairs the way a hash-keyed lookup can.
+        _edge_owner_leg: list = []
 
         if journey and journey.legs:
             # Filter walk_transfer legs — foot-path hops between adjacent stops
@@ -2564,12 +2588,33 @@ class Router:
                 _transit_legs = journey.legs
             # Store in the method-local variable (not on journey — see comment above).
             _raptor_transit_legs = _transit_legs
-            # Rebuild transit_nodes from transit legs only
+            # Rebuild transit_nodes from transit legs only, tracking edge
+            # ownership positionally in the same pass.
             transit_nodes = []
-            for _lg in _transit_legs:
+            for _leg_i, _lg in enumerate(_transit_legs):
+                # De-dup this leg's own stop list first (defensive — a
+                # technical stop with 0 dwell can appear twice in raw
+                # stop_times).
+                _leg_stops = []
                 for _sid in _lg.stops:
-                    if not transit_nodes or transit_nodes[-1] != _sid:
-                        transit_nodes.append(_sid)
+                    if not _leg_stops or _leg_stops[-1] != _sid:
+                        _leg_stops.append(_sid)
+                if not _leg_stops:
+                    continue
+                if not transit_nodes:
+                    transit_nodes.append(_leg_stops[0])
+                elif transit_nodes[-1] != _leg_stops[0]:
+                    # Genuine transfer gap between legs (different physical
+                    # stops) — owned by neither leg.
+                    transit_nodes.append(_leg_stops[0])
+                    _edge_owner_leg.append(None)
+                # else: shared boundary stop already present as
+                # transit_nodes[-1] — the edge into it was already closed
+                # by the previous leg's own loop iteration below (or this
+                # is the very first node of the whole journey).
+                for _sid in _leg_stops[1:]:
+                    transit_nodes.append(_sid)
+                    _edge_owner_leg.append(_leg_i)
             _constrained_route = _transit_legs[0].route if _transit_legs else None
             _used_raptor       = True
             logger.debug("%s: RAPTOR %s→%s: %d leg(s), %d stops, %d transfer(s)",
@@ -2716,9 +2761,6 @@ class Router:
                 except Exception:
                     return self._compute_road_route(agent_id, origin, dest, mode, policy)
 
-        # Per-stop-pair route map from filtered transit legs only.
-        # walk_transfer pairs are excluded so they never appear in service labels.
-        #
         # Session 24: RAPTOR leg.route is now an agency-prefixed key like
         # "OP4C:47B" (to prevent same-short_name collisions across operators).
         # Strip the prefix here for everything that needs a display name or a
@@ -2727,13 +2769,7 @@ class Router:
             """'OP4C:47B' → '47B',  'walk_transfer' → 'walk_transfer'."""
             return key.split(':', 1)[-1] if ':' in key else key
 
-        _pair_route_map: dict = {}
         _transit_legs_r = _raptor_transit_legs if (_used_raptor and _raptor_transit_legs) else None
-        if _transit_legs_r:
-            for _lg in _transit_legs_r:
-                _display_route = _raptor_key_to_display(_lg.route)
-                for _pi in range(len(_lg.stops)-1):
-                    _pair_route_map[(_lg.stops[_pi], _lg.stops[_pi+1])] = _display_route
         _g_route_shapes = G_transit.graph.get('route_shapes', {}) if _used_raptor else {}
 
         # ── Single combined pass: geometry extraction + service-name collection ───
@@ -2761,11 +2797,21 @@ class Router:
             edge_map = G_transit.get_edge_data(u_node, v_node) or {}
     
             # ── Shape lookup: skip walk_transfer, use per-service shape first ──────
-            _seg_route = _pair_route_map.get((u_node, v_node))
-            if _seg_route == 'walk_transfer':
+            # BUGFIX (session 29): was `_pair_route_map.get((u_node, v_node))`,
+            # a (u,v)-stop-ID-keyed dict built by iterating legs in order — on
+            # a corridor where several overlapping routes share the same stop
+            # pair (common — see _edge_owner_leg comment above), a later leg
+            # silently overwrote an earlier leg's entry, so the WRONG route's
+            # shape got fetched and drawn even though the label further down
+            # (which reads leg.route directly, not this map) stayed correct.
+            # _edge_owner_leg[i] is positional — set once, per edge, while
+            # transit_nodes was built — so it cannot collide this way.
+            _owner_li = _edge_owner_leg[i] if i < len(_edge_owner_leg) else None
+            if _owner_li is None:
                 _pair_coord_spans.append((_tc_start, len(transit_coords)))
                 _pair_low_confidence.append(False)
                 continue   # foot-path hop — not a transit segment
+            _seg_route = _raptor_key_to_display(_transit_legs_r[_owner_li].route) if _transit_legs_r else None
             shape = []
             _selected_ed = None
             if _seg_route:
@@ -3059,16 +3105,7 @@ class Router:
         raptor_legs: list = []
         _tl4r = _raptor_transit_legs or (journey.legs if journey else [])
         if _used_raptor and _tl4r and len(_tl4r) > 1:
-            # Map (u_stop, v_stop) -> leg index.  Known limitation: if the
-            # exact same stop pair occurs in two different legs (e.g. a
-            # looping route), the later leg wins in this dict.  This is rare
-            # and strictly better than the previous behaviour, which dropped
-            # all real geometry unconditionally.
             leg_coord_buckets: dict = {i: [] for i in range(len(_tl4r))}
-            leg_for_pair = {}
-            for _li, _leg in enumerate(_tl4r):
-                for _pi in range(len(_leg.stops) - 1):
-                    leg_for_pair[(_leg.stops[_pi], _leg.stops[_pi + 1])] = _li
 
             # Per-leg aggregation: True if ANY stop pair within this leg's
             # geometry came from a last-resort straight-line fallback (see
@@ -3081,10 +3118,16 @@ class Router:
             # Re-walk transit_nodes, slicing the REAL geometry already built
             # for each pair (via _pair_coord_spans) into the matching leg's
             # bucket — rather than rebuilding straight lines.
+            #
+            # BUGFIX (session 29): leg ownership used to come from a
+            # (u_stop, v_stop) -> leg_index dict built by iterating legs in
+            # order, with a later leg silently overwriting an earlier leg's
+            # entry whenever the exact same stop pair occurred in both — not
+            # rare on a corridor served by several overlapping routes. Now
+            # uses _edge_owner_leg (positional, built alongside transit_nodes
+            # near the top of this method), which can't collide this way.
             for _ti in range(len(transit_nodes) - 1):
-                _un = transit_nodes[_ti]
-                _vn = transit_nodes[_ti + 1]
-                _li = leg_for_pair.get((_un, _vn))
+                _li = _edge_owner_leg[_ti] if _ti < len(_edge_owner_leg) else None
                 if _li is None:
                     continue   # transfer-walk hop — not part of any transit leg
                 if _ti >= len(_pair_coord_spans):
